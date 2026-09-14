@@ -3006,7 +3006,7 @@ namespace XTPdfMergeApp
                 GroupsScrollViewer.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
                 GroupsScrollViewer.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
                 UpdateGroupsListRowWidth();
-                LayoutModeButton.Icon = FindResource("Mat.ViewColumn");
+                LayoutModeButton.Icon = FindIconResource("Mat.ViewColumn", "Mat.Table");
                 LayoutModeButton.Text = "Lưới";
                 _ = Dispatcher.InvokeAsync(RefreshWorkspaceWidthAfterLayout, DispatcherPriority.ContextIdle);
                 return;
@@ -3027,7 +3027,7 @@ namespace XTPdfMergeApp
             // nó. Cuộn NGANG (Auto, không phải Disabled) chỉ hiện khi có nhiều file hơn chỗ chứa.
             GroupsScrollViewer.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
             GroupsScrollViewer.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
-            LayoutModeButton.Icon = FindResource("Mat.ViewAgenda");
+            LayoutModeButton.Icon = FindIconResource("Mat.ViewList", "Mat.Table");
             LayoutModeButton.Text = "Hàng";
             UpdateAdaptiveLayout();
             // Giống nhánh Row: tính lại 1 lần nữa sau khi WPF đã remeasure thật sự
@@ -3036,6 +3036,9 @@ namespace XTPdfMergeApp
             // có 1 SizeChanged khác (vd. resize cửa sổ) tình cờ sửa lại.
             _ = Dispatcher.InvokeAsync(RefreshWorkspaceWidthAfterLayout, DispatcherPriority.ContextIdle);
         }
+
+        private object FindIconResource(string key, string fallbackKey)
+            => TryFindResource(key) ?? TryFindResource(fallbackKey) ?? Geometry.Empty;
 
         private void UpdateGroupsListRowWidth()
         {
