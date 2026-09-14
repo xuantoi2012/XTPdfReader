@@ -12,17 +12,6 @@
         UseLayoutRounding="True" SnapsToDevicePixels="True"
         PreviewKeyDown="MainWindow_PreviewKeyDown">
 
-    <xt:XTCadWindow.TitleBarLeftContent>
-        <StackPanel Orientation="Horizontal" Margin="8,0,0,0">
-            <xt:XTButton x:Name="UndoButton" Style="{DynamicResource XTSecondaryButton}"
-                         Icon="{DynamicResource Mat.Undo}" Text="Hoàn tác" Padding="8,4"
-                         IsEnabled="False" Click="UndoButton_Click"/>
-            <xt:XTButton x:Name="RedoButton" Style="{DynamicResource XTSecondaryButton}"
-                         Icon="{DynamicResource Mat.Redo}" Text="Làm lại" Padding="8,4" Margin="5,0,0,0"
-                         IsEnabled="False" Click="RedoButton_Click"/>
-        </StackPanel>
-    </xt:XTCadWindow.TitleBarLeftContent>
-
     <xt:XTCadWindow.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -906,6 +895,12 @@
                 <StackPanel Orientation="Horizontal">
                     <xt:XTButton Style="{StaticResource XTPrimaryButton}" Icon="{DynamicResource Mat.Plus}"
                                  Text="Thêm file" Padding="11,6" Click="AddFiles_Click"/>
+                    <xt:XTButton x:Name="UndoButton" Style="{DynamicResource XTSecondaryButton}"
+                                 Icon="{DynamicResource Mat.Undo}" Text="Hoàn tác" Padding="9,6" Margin="8,0,0,0"
+                                 IsEnabled="False" Click="UndoButton_Click"/>
+                    <xt:XTButton x:Name="RedoButton" Style="{DynamicResource XTSecondaryButton}"
+                                 Icon="{DynamicResource Mat.Redo}" Text="Làm lại" Padding="9,6" Margin="5,0,0,0"
+                                 IsEnabled="False" Click="RedoButton_Click"/>
                     <ComboBox x:Name="ThumbnailSizeCombo" Width="118" Height="30" Margin="8,0,0,0"
                               SelectionChanged="ThumbnailSizeCombo_SelectionChanged">
                         <ComboBoxItem Content="Tự động" IsSelected="True"/>
