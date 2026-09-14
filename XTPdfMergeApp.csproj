@@ -42,7 +42,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\XTStyle.NET\XTStyle.NET\XTStyle.NET.csproj" />
+    <ProjectReference Include="..\XTCADStyle\XTCADStyle.csproj" />
   </ItemGroup>
 
   <Target Name="ExcludeNativeSymbolsFromPublish" AfterTargets="ComputeFilesToPublish">

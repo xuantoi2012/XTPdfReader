@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -21,7 +21,7 @@ using WpfToolkit.Controls;
 using XTPdfMergeApp.Services;
 using static XTPdfMergeApp.Services.VisualTreeHelpers;
 using XTPdfMergeApp.Workspace;
-using XTStyle.Controls;
+using XTCADStyle.Controls;
 using PageRow = XTPdfMergeApp.Domain.PagePlacement;
 using DocumentGroup = XTPdfMergeApp.Domain.WorkspaceDocument;
 
@@ -46,7 +46,7 @@ namespace XTPdfMergeApp
     /// App.xaml.cs). Khi pdfFactory đẩy 1 file mới vào lúc cửa sổ đang mở sẵn
     /// (qua named pipe), CHỈ thêm file, không đụng WindowState/kích thước.
     /// </summary>
-    public partial class MainWindow : XTWindow
+    public partial class MainWindow : XTCadWindow
     {
         /// <summary>Payload kéo-thả 1 cụm trang — giữ luôn tham chiếu hàng NGUỒN để Drop biết rút khỏi đâu (khác hàng đích thì là "chuyển file", cùng hàng thì là "sắp xếp lại").</summary>
         private sealed class PageDragPayload

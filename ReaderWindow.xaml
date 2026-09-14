@@ -1,7 +1,7 @@
-﻿<xt:XTWindow x:Class="XTPdfMergeApp.ReaderWindow"
+<xt:XTCadWindow x:Class="XTPdfMergeApp.ReaderWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
+        xmlns:xt="clr-namespace:XTCADStyle.Controls;assembly=XTCADStyle"
         xmlns:conv="clr-namespace:XTPdfMergeApp.Converters"
         Title="Xem PDF" Width="900" Height="760"
         MinWidth="420" MinHeight="360" TitleBarMode="Full"
@@ -11,10 +11,10 @@
         Closing="ReaderWindow_Closing"
         PreviewKeyDown="ReaderWindow_PreviewKeyDown">
 
-    <xt:XTWindow.Resources>
+    <xt:XTCadWindow.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="pack://application:,,,/XTStyle;component/Themes/Generic.xaml"/>
+                <ResourceDictionary Source="pack://application:,,,/XTCADStyle;component/Themes/Generic.xaml"/>
                 <ResourceDictionary Source="pack://application:,,,/XTPdfMergeApp;component/Resources/ReaderResources.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
@@ -121,7 +121,7 @@
                 </Border>
             </DataTemplate>
         </ResourceDictionary>
-    </xt:XTWindow.Resources>
+    </xt:XTCadWindow.Resources>
 
     <!-- Toàn bộ nội dung dưới đây chuyển nguyên trạng từ MainWindow.xaml (Border "ReaderPanel",
          trước đó là panel nhúng cột 2 của MainContentGrid) — giữ NGUYÊN mọi x:Name/wiring sự
@@ -277,4 +277,4 @@
             </ListBox>
         </Grid>
     </Border>
-</xt:XTWindow>
+</xt:XTCadWindow>

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -16,7 +16,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using XTPdfMergeApp.Services;
 using static XTPdfMergeApp.Services.VisualTreeHelpers;
-using XTStyle.Controls;
+using XTCADStyle.Controls;
 using PageRow = XTPdfMergeApp.Domain.PagePlacement;
 using DocumentGroup = XTPdfMergeApp.Domain.WorkspaceDocument;
 
@@ -27,7 +27,7 @@ namespace XTPdfMergeApp
     /// double-click trang khác thì cửa sổ đang có tự đổi sang xem trang đó, không tạo cửa sổ
     /// mới — giống hệt hành vi panel nhúng cũ. Đóng bằng nút X chỉ ẩn (Hide), không huỷ — xem
     /// OnClosing + AllowRealClose (App.xaml.cs/MainWindow.Closing gọi lúc thoát hẳn app).</summary>
-    public partial class ReaderWindow : XTWindow
+    public partial class ReaderWindow : XTCadWindow
     {
         /// <summary>Instance DUY NHẤT đang dùng, null nếu chưa từng mở Viewer lần nào trong phiên
         /// làm việc này. KHÔNG tự tạo mới nếu Instance đã có — double-click trang khác chỉ đổi
@@ -201,6 +201,7 @@ namespace XTPdfMergeApp
         private double _readerZoom = 1.0;
         private ReaderZoomMode _readerZoomMode = ReaderZoomMode.FitWidth;
         private long _readerRequestId;
+        private CancellationTokenSource _readerPrefetchCts = new();
 
         /// <summary>Độ phân giải PX GỐC của bitmap ĐANG hiển thị trong ReaderImage — có thể
         /// là bản render cơ sở (ReaderRenderWidthPx) hoặc bản đã "nâng cấp" nét hơn khi zoom
@@ -400,10 +401,11 @@ namespace XTPdfMergeApp
             return (int)Math.Clamp(Math.Ceiling(width * ReaderDpiScale / 256) * 256, 512, 2304);
         }
 
-        private Task<BitmapSource?> GetReaderLoadTask((string Path, int Page) source, bool prefetch = false)
+        private Task<BitmapSource?> GetReaderLoadTask((string Path, int Page) source, bool prefetch = false,
+            CancellationToken cancellationToken = default)
         {
             var key = (source.Path, source.Page, Width: DesiredReaderWidth());
-            var token = _readerPageCts.Token;
+            var token = cancellationToken.CanBeCanceled ? cancellationToken : _readerPageCts.Token;
             lock (_readerCacheLock)
             {
                 if (_readerCache.TryGetValue(key, out var cached)) return Task.FromResult<BitmapSource?>(cached);
@@ -417,6 +419,34 @@ namespace XTPdfMergeApp
                 });
                 return completion.Task;
             }
+        }
+
+        private void ResetReaderSpeculativeWork(DocumentGroup group, PageRow row)
+        {
+            _readerPrefetchCts.Cancel();
+            _readerPrefetchCts.Dispose();
+            _readerPrefetchCts = new();
+
+            int currentIndex = group.Pages.IndexOf(row);
+            var keep = new List<(string Path, int Page)>();
+            if (currentIndex >= 0)
+            {
+                for (int i = Math.Max(0, currentIndex - ReaderAdjacentPrefetchCount);
+                     i <= Math.Min(group.Pages.Count - 1, currentIndex + ReaderAdjacentPrefetchCount);
+                     i++)
+                {
+                    keep.Add((group.Pages[i].SourcePath, group.Pages[i].PageNumber));
+                }
+            }
+
+            lock (_readerCacheLock)
+            {
+                _readerLoads.Clear();
+                _readerCache.Trim(key => keep.Any(page =>
+                    page.Page == key.Page &&
+                    string.Equals(page.Path, key.Path, StringComparison.OrdinalIgnoreCase)));
+            }
+            PdfThumbnailService.ReleaseCachedPages();
         }
 
         private static async Task<BitmapSource?> RenderAndCacheReaderAsync(
@@ -464,6 +494,9 @@ namespace XTPdfMergeApp
             _readerPageCts.Cancel();
             _readerPageCts.Dispose();
             _readerPageCts = new();
+            _readerPrefetchCts.Cancel();
+            _readerPrefetchCts.Dispose();
+            _readerPrefetchCts = new();
             lock (_readerCacheLock) _readerCache.Clear();
             _readerTileCache.Clear();
             PdfThumbnailService.ReleaseCachedPages();
@@ -536,6 +569,7 @@ namespace XTPdfMergeApp
             _readerGroup = group;
             _readerPage = row;
             long requestId = Interlocked.Increment(ref _readerRequestId);
+            ResetReaderSpeculativeWork(group, row);
             ClearReaderTiles();
 
             if (!preserveZoomMode)
@@ -628,7 +662,7 @@ namespace XTPdfMergeApp
         {
             if (index < 0 || index >= group.Pages.Count) return;
             var row = group.Pages[index];
-            _ = GetReaderLoadTask((row.SourcePath, row.PageNumber), prefetch: true);
+            _ = GetReaderLoadTask((row.SourcePath, row.PageNumber), prefetch: true, _readerPrefetchCts.Token);
         }
 
         private async Task NavigateReaderAsync(int delta)

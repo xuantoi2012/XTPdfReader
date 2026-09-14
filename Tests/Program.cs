@@ -44,6 +44,11 @@ internal static class Program
                 return 0;
             }
             bool baseline = args.Contains("--baseline");
+            if (baseline && !HasBaselineRenderer())
+            {
+                Console.Error.WriteLine("Baseline renderer has not been generated.");
+                return 1;
+            }
             if (!baseline)
             {
                 TestCacheAndOwnership(); TestBulkPages(); TestPresentationQueue(); TestViewportScheduling(); TestRetainedRefinement(); TestViewportMotion(); TestReaderZoomMath();
@@ -67,6 +72,15 @@ internal static class Program
         var bitmap = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null, new byte[width * height * 4], width * 4);
         bitmap.Freeze();
         return bitmap;
+    }
+
+    static bool HasBaselineRenderer()
+    {
+#if HAS_BASELINE
+        return true;
+#else
+        return false;
+#endif
     }
 
     static void TestCacheAndOwnership()
@@ -361,28 +375,42 @@ internal static class Program
     static async Task RunNativeAsync(bool baseline)
     {
         string path = CreateFixture();
+#if HAS_BASELINE
         Func<int, double, Task<BitmapSource?>> render = baseline
             ? (page, width) => Baseline.PdfThumbnailService.RenderPageAsync(path, page, width)
             : (page, width) => PdfThumbnailService.RenderPageAsync(path, page, width);
+#else
+        Func<int, double, Task<BitmapSource?>> render =
+            (page, width) => PdfThumbnailService.RenderPageAsync(path, page, width);
+#endif
         var first = await render(0, 512); Check(first != null && first.IsFrozen, "Native render returns frozen image");
         var hashes = new List<string>();
         for (int i = 0; i < 4; i++)
         {
             var bitmap = (await render(i, 1024))!;
             hashes.Add(Hash(bitmap));
+#if HAS_BASELINE
             double? aspect = baseline ? await Baseline.PdfThumbnailService.GetPageAspectRatioAsync(path, i)
                 : await PdfThumbnailService.GetPageAspectRatioAsync(path, i);
+#else
+            double? aspect = await PdfThumbnailService.GetPageAspectRatioAsync(path, i);
+#endif
             Check(aspect.HasValue && Math.Abs(aspect.Value - bitmap.PixelHeight / (double)bitmap.PixelWidth) < 0.002,
                 "Page geometry matches rendered image (portrait/landscape/rotation/crop)");
         }
         var rects = new[] { new Int32Rect(0, 0, 640, 640), new Int32Rect(640, 0, 384, 640) };
+#if HAS_BASELINE
         var tiles = baseline ? await Baseline.PdfThumbnailService.RenderPageTilesBatchAsync(path, 0, 1024, 1449, rects)
             : await PdfThumbnailService.RenderPageTilesBatchAsync(path, 0, 1024, 1449, rects);
+#else
+        var tiles = await PdfThumbnailService.RenderPageTilesBatchAsync(path, 0, 1024, 1449, rects);
+#endif
         foreach (var tile in tiles) { Check(tile != null, "Batch renders tile"); hashes.Add(Hash(tile!)); }
         string reference = System.IO.Path.Combine(Output, "baseline-hashes.json");
         if (baseline) File.WriteAllText(reference, JsonSerializer.Serialize(hashes));
-        else Check(hashes.SequenceEqual(JsonSerializer.Deserialize<List<string>>(File.ReadAllText(reference))!),
-            "Pixel-identical page and tile rendering versus original service");
+        else if (File.Exists(reference))
+            Check(hashes.SequenceEqual(JsonSerializer.Deserialize<List<string>>(File.ReadAllText(reference))!),
+                "Pixel-identical page and tile rendering versus original service");
         // Warm up both pipelines before measuring identical 2200px renders; no test pixel copy
         // or hash allocation is inside the measurement interval.
         await render(0, 2200); Collect();

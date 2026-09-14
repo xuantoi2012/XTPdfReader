@@ -10,6 +10,9 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\XTPdfMergeApp.csproj" />
-    <Compile Include="obj\BaselinePdfThumbnailService.cs" />
+    <Compile Include="obj\BaselinePdfThumbnailService.cs" Condition="Exists('obj\BaselinePdfThumbnailService.cs')" />
   </ItemGroup>
+  <PropertyGroup Condition="Exists('obj\BaselinePdfThumbnailService.cs')">
+    <DefineConstants>$(DefineConstants);HAS_BASELINE</DefineConstants>
+  </PropertyGroup>
 </Project>
