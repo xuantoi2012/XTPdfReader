@@ -9,6 +9,14 @@ namespace XTPdfMergeApp.Services
         public static double Clamp(double zoom, double minZoom, double maxZoom)
             => Math.Clamp(zoom, minZoom, maxZoom);
 
+        public static double WheelZoom(double baseZoom, int wheelDelta, double zoomStep, double minZoom, double maxZoom)
+        {
+            // Chromium-style wheel zoom keeps high-resolution trackpad deltas fractional
+            // instead of promoting every tiny delta to a full mouse-wheel notch.
+            double wheelSteps = Math.Clamp(wheelDelta / 120.0, -6.0, 6.0);
+            return Clamp(baseZoom * Math.Pow(zoomStep, wheelSteps), minZoom, maxZoom);
+        }
+
         /// <summary>Kích thước hiệu dụng của trang theo BASELINE (baseWidth x tỉ lệ trang thật),
         /// đã hoán đổi rộng/cao nếu đang xoay 90/270°.</summary>
         public static (double Width, double Height) EffectivePageSize(double baseWidth, double pageAspect, int rotationDegrees)

@@ -46,7 +46,7 @@ internal static class Program
             bool baseline = args.Contains("--baseline");
             if (!baseline)
             {
-                TestCacheAndOwnership(); TestBulkPages(); TestPresentationQueue(); TestViewportScheduling(); TestRetainedRefinement(); TestViewportMotion();
+                TestCacheAndOwnership(); TestBulkPages(); TestPresentationQueue(); TestViewportScheduling(); TestRetainedRefinement(); TestViewportMotion(); TestReaderZoomMath();
                 TestGateAsync().GetAwaiter().GetResult();
             }
             RunNativeAsync(baseline).GetAwaiter().GetResult();
@@ -320,6 +320,21 @@ internal static class Program
         Check(!tracker.Update(new Point(0, 310), viewport, false), "Movement anchor resets after invalidation");
         Check(tracker.Update(new Point(1000, 310), viewport, false), "Horizontal pan also invalidates");
         Check(!tracker.Update(new Point(5000, 5000), viewport, true), "Zoom establishes a new movement anchor");
+    }
+
+    static void TestReaderZoomMath()
+    {
+        const double step = 1.08;
+        Check(Math.Abs(ReaderZoomMath.WheelZoom(1.0, 120, step, 0.05, 4.0) - step) < 0.0001,
+            "One wheel notch applies one zoom step");
+        Check(ReaderZoomMath.WheelZoom(1.0, 30, step, 0.05, 4.0) < step,
+            "High-resolution wheel deltas zoom fractionally");
+        Check(Math.Abs(ReaderZoomMath.WheelZoom(1.0, 30, step, 0.05, 4.0) - Math.Pow(step, 0.25)) < 0.0001,
+            "Fractional wheel delta preserves Chromium-style smoothness");
+        Check(Math.Abs(ReaderZoomMath.WheelZoom(1.0, -120, step, 0.05, 4.0) - (1.0 / step)) < 0.0001,
+            "Negative wheel delta zooms out by one step");
+        Check(Math.Abs(ReaderZoomMath.WheelZoom(4.0, 120, step, 0.05, 4.0) - 4.0) < 0.0001,
+            "Wheel zoom respects maximum clamp");
     }
 
     static void TestRetainedRefinement()

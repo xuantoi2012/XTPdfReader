@@ -302,6 +302,9 @@ namespace XTPdfMergeApp
         private bool _readerPanning;
         private Point _readerPanStartMouse;
         private double _readerPanStartH, _readerPanStartV;
+        private bool _readerPanFramePending;
+        private ScrollViewer? _readerPanFrameScrollViewer;
+        private double _readerPanFrameTargetH, _readerPanFrameTargetV;
 
         // Gộp NHIỀU nấc lăn chuột đến trong CÙNG 1 khung hình render thành ĐÚNG 1 lần áp
         // zoom+UpdateLayout+sửa điểm neo (giống cách trình duyệt/Figma coalesce input về 1 lần
@@ -2026,7 +2029,8 @@ namespace XTPdfMergeApp
             double baseZoom = _readerZoomFramePending
                 ? _readerZoomFramePendingTarget
                 : (continuous ? ReaderContinuousZoom : _readerZoom);
-            _readerZoomFramePendingTarget = wheelDelta > 0 ? baseZoom * ReaderZoomStep : baseZoom / ReaderZoomStep;
+            _readerZoomFramePendingTarget = ReaderZoomMath.WheelZoom(
+                baseZoom, wheelDelta, ReaderZoomStep, ReaderMinZoom, ReaderMaxZoom);
             _readerZoomFrameAnchor = viewportPoint;
             _readerZoomFrameContinuous = continuous;
 
@@ -2037,6 +2041,24 @@ namespace XTPdfMergeApp
                 _readerZoomFramePending = false;
                 if (_readerZoomFrameContinuous) ZoomContinuousAtPoint(_readerZoomFramePendingTarget, _readerZoomFrameAnchor);
                 else ZoomReaderAtPoint(_readerZoomFramePendingTarget, _readerZoomFrameAnchor);
+            }, DispatcherPriority.Render);
+        }
+
+        private void RequestReaderPanTo(ScrollViewer scrollViewer, double horizontalOffset, double verticalOffset)
+        {
+            _readerPanFrameScrollViewer = scrollViewer;
+            _readerPanFrameTargetH = Math.Clamp(horizontalOffset, 0, scrollViewer.ScrollableWidth);
+            _readerPanFrameTargetV = Math.Clamp(verticalOffset, 0, scrollViewer.ScrollableHeight);
+
+            if (_readerPanFramePending) return;
+            _readerPanFramePending = true;
+            _ = Dispatcher.InvokeAsync(() =>
+            {
+                _readerPanFramePending = false;
+                if (_readerPanFrameScrollViewer is not { } target) return;
+                target.ScrollToHorizontalOffset(_readerPanFrameTargetH);
+                target.ScrollToVerticalOffset(_readerPanFrameTargetV);
+                _readerPanFrameScrollViewer = null;
             }, DispatcherPriority.Render);
         }
 
@@ -2111,8 +2133,9 @@ namespace XTPdfMergeApp
             if (FindPageScrollViewer(ReaderContinuousList) is not { } sv) return;
             MarkReaderInteraction();
             Point current = e.GetPosition(ReaderContinuousList);
-            sv.ScrollToHorizontalOffset(_readerPanStartH - (current.X - _readerPanStartMouse.X));
-            sv.ScrollToVerticalOffset(_readerPanStartV - (current.Y - _readerPanStartMouse.Y));
+            RequestReaderPanTo(sv,
+                _readerPanStartH - (current.X - _readerPanStartMouse.X),
+                _readerPanStartV - (current.Y - _readerPanStartMouse.Y));
             e.Handled = true;
         }
 
@@ -2206,8 +2229,7 @@ namespace XTPdfMergeApp
             Point current = e.GetPosition(ReaderScrollViewer);
             double dx = current.X - _readerPanStartMouse.X;
             double dy = current.Y - _readerPanStartMouse.Y;
-            ReaderScrollViewer.ScrollToHorizontalOffset(_readerPanStartH - dx);
-            ReaderScrollViewer.ScrollToVerticalOffset(_readerPanStartV - dy);
+            RequestReaderPanTo(ReaderScrollViewer, _readerPanStartH - dx, _readerPanStartV - dy);
         }
 
         private void ReaderImage_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => EndReaderPan();
