@@ -597,7 +597,7 @@ namespace XTPdfMergeApp
             // nội dung khi user đã chủ động bật cửa sổ Viewer.
             if (group == null || page == null) return;
             var reader = ReaderWindow.Instance;
-            if (reader == null || !reader.IsVisible) return;
+            if (reader == null || ReaderHost.Visibility != Visibility.Visible) return;
             reader.NotifySelectionChanged(group, page);
         }
 
@@ -758,7 +758,11 @@ namespace XTPdfMergeApp
 
             _ = Dispatcher.InvokeAsync(QueueVisibleThumbnailScans, DispatcherPriority.ContextIdle);
             if (group.Pages.Count > 0 && ReaderWindow.Instance?.HasAnyPageShown != true)
-                _ = EnsureReaderWindow().ShowPageAsync(group, group.Pages[0], preserveZoomMode: false);
+            {
+                var reader = EnsureReaderWindow();
+                SetReaderDockVisible(true);
+                _ = reader.ShowPageAsync(group, group.Pages[0], preserveZoomMode: false);
+            }
             _ = WarmInitialThumbnailsAsync(group);
 
             // Không render hết ngay ở đây. Thumbnail được đưa qua queue theo viewport thật
@@ -2491,10 +2495,8 @@ namespace XTPdfMergeApp
             QueueVisibleThumbnailScans();
         }
 
-        /// <summary>Lấy (tạo nếu chưa có) ReaderWindow dùng chung, đồng thời đồng bộ
-        /// ViewerToggleButton.IsChecked/ToolTip theo IsVisible thật của nó — kể cả khi user tự đóng
-        /// bằng nút X của Viewer (không đi qua ViewerToggleButton_Click). Đăng ký kiểu bỏ-rồi-đăng-ký-
-        /// lại nên gọi nhiều lần an toàn, không bị trùng handler.</summary>
+        /// <summary>Lấy (tạo nếu chưa có) ReaderWindow dùng chung. Dock host do MainWindow tự mở,
+        /// vì khi parent còn Collapsed thì UserControl.IsVisible không đổi dù control đã Visible.</summary>
         private ReaderWindow EnsureReaderWindow()
         {
             var reader = ReaderWindow.GetOrCreate(_groups);
@@ -2507,7 +2509,11 @@ namespace XTPdfMergeApp
 
         private void ReaderWindow_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
-            bool visible = (bool)e.NewValue;
+            SetReaderDockVisible((bool)e.NewValue);
+        }
+
+        private void SetReaderDockVisible(bool visible)
+        {
             ViewerToggleButton.IsChecked = visible;
             ViewerToggleButton.ToolTip = visible ? "Ẩn Viewer" : "Hiện Viewer";
             ReaderHost.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
@@ -2525,15 +2531,19 @@ namespace XTPdfMergeApp
             if (ViewerToggleButton.IsChecked != true)
             {
                 ReaderWindow.Instance?.HideReader();
+                SetReaderDockVisible(false);
                 return;
             }
 
             var reader = EnsureReaderWindow();
             if (_statusSelectedGroup != null && _statusSelectedPage != null)
+            {
+                SetReaderDockVisible(true);
                 await reader.ShowPageAsync(_statusSelectedGroup, _statusSelectedPage, preserveZoomMode: true);
+            }
             else
             {
-                ViewerToggleButton.IsChecked = false;
+                SetReaderDockVisible(false);
                 ViewerToggleButton.ToolTip = "Chọn một trang trước";
             }
         }
@@ -2597,7 +2607,9 @@ namespace XTPdfMergeApp
 
             e.Handled = true;
             lb.SelectedItem = row; // trigger SelectionChanged → SetStatusSelection (chỉ đồng bộ nếu Viewer đã mở)
-            await EnsureReaderWindow().ShowPageAsync(group, row, preserveZoomMode: false);
+            var reader = EnsureReaderWindow();
+            SetReaderDockVisible(true);
+            await reader.ShowPageAsync(group, row, preserveZoomMode: false);
         }
 
         // ── Kéo CẢ WINDOW (bằng tiêu đề) để sắp xếp lại tự do — không cần nút Lên/Xuống ──
