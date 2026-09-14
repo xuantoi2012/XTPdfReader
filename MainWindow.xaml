@@ -15,7 +15,6 @@
     <xt:XTCadWindow.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="pack://application:,,,/XTCADStyle;component/Themes/Generic.xaml"/>
                 <!-- PdfCardIconButton (dùng chung ở header card/group) + PdfViewerIconButton +
                      ReaderContinuousPageTemplate + 3 converter continuous-mode chuyển sang đây để
                      dùng chung với ReaderWindow, không copy trùng. -->
