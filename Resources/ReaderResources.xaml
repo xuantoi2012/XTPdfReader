@@ -10,7 +10,7 @@
     <conv:ContinuousPagePlaceholderHeightConverter x:Key="ContinuousPagePlaceholderHeightConverter"/>
     <conv:ContinuousPageMarginConverter x:Key="ContinuousPageMarginConverter"/>
 
-    <Style x:Key="PdfCardIconButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTCellIconButton}">
+    <Style x:Key="PdfCardIconButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
         <Setter Property="Width" Value="32"/>
         <Setter Property="Height" Value="32"/>
         <Setter Property="MinWidth" Value="32"/>
@@ -23,7 +23,7 @@
     <Style x:Key="PdfViewerIconButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource PdfCardIconButton}">
         <Setter Property="Foreground" Value="White"/>
         <!-- IconBrush (không phải Foreground) là thứ thật sự tô màu icon Path — style cha
-             (XTCellIconButton) mặc định IconBrush=PrimaryBrush (xanh), Foreground=White ở
+             (XTToolButton) mặc định IconBrush=PrimaryBrush (xanh), Foreground=White ở
              trên không ăn vào icon nên trên nền tối ReaderPanel icon vẫn xanh, khó nhìn. -->
         <Setter Property="IconBrush" Value="White"/>
         <Setter Property="Opacity" Value="0.92"/>
