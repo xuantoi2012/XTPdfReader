@@ -297,18 +297,9 @@ namespace XTPdfMergeApp
             // trên cửa sổ này, nên hễ thấy nó xảy ra trong khi highlight đang bật là dọn ngay.
             PreviewMouseMove += (_, _) => { if (_dropHighlightActive) SetDropHighlight(false); };
             Deactivated += (_, _) => { if (_dropHighlightActive) SetDropHighlight(false); };
-            // Viewer là Window RIÊNG, Hide() (không Close()) khi user bấm nút X của nó — nếu vẫn
-            // còn Hide() lúc MainWindow đóng, nó vẫn nằm trong Application.Current.Windows và
-            // ShutdownMode.OnMainWindowClose sẽ không kích hoạt đúng cách (WPF coi cửa sổ đó vẫn
-            // "đang mở"). Phải chủ động Close() THẬT ở đây (AllowRealClose=true bỏ qua
-            // ReaderWindow_Closing's Cancel+Hide) trước khi cho MainWindow đóng.
             Closing += (_, _) =>
             {
-                if (ReaderWindow.Instance is { } reader)
-                {
-                    reader.AllowRealClose = true;
-                    reader.Close();
-                }
+                ReaderWindow.Instance?.ShutdownReader();
             };
             _diagnosticsTimer.Tick += (_, _) => RefreshDiagnosticsOverlay();
             _workspace.History.StateChanged += (_, _) => RefreshUndoRedoUi();
@@ -2475,7 +2466,9 @@ namespace XTPdfMergeApp
         /// lại nên gọi nhiều lần an toàn, không bị trùng handler.</summary>
         private ReaderWindow EnsureReaderWindow()
         {
-            var reader = ReaderWindow.GetOrCreate(this, _groups);
+            var reader = ReaderWindow.GetOrCreate(_groups);
+            if (!ReferenceEquals(ReaderHost.Content, reader))
+                ReaderHost.Content = reader;
             reader.IsVisibleChanged -= ReaderWindow_IsVisibleChanged;
             reader.IsVisibleChanged += ReaderWindow_IsVisibleChanged;
             return reader;
@@ -2486,6 +2479,14 @@ namespace XTPdfMergeApp
             bool visible = (bool)e.NewValue;
             ViewerToggleButton.IsChecked = visible;
             ViewerToggleButton.ToolTip = visible ? "Ẩn Viewer" : "Hiện Viewer";
+            ReaderHost.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            ReaderSplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            ReaderSplitterColumn.Width = visible ? new GridLength(6) : new GridLength(0);
+            ReaderColumn.MinWidth = visible ? 360 : 0;
+            if (visible && ReaderColumn.Width.Value <= 1)
+                ReaderColumn.Width = new GridLength(Math.Min(620, Math.Max(420, ActualWidth * 0.42)));
+            else if (!visible)
+                ReaderColumn.Width = new GridLength(0);
         }
 
         private async void ViewerToggleButton_Click(object sender, RoutedEventArgs e)
@@ -2507,8 +2508,7 @@ namespace XTPdfMergeApp
         }
 
         /// <summary>Ctrl+Z/Y (undo/redo) và Ctrl+↑/↓/Home/End (đẩy trang đang chọn). Phím tắt
-        /// điều hướng/zoom của Viewer giờ nằm ở ReaderWindow_PreviewKeyDown riêng, vì Viewer là
-        /// Window độc lập — WPF tự phân luồng input theo đúng Window nào đang focus.</summary>
+        /// điều hướng/zoom của Viewer nằm ở ReaderWindow_PreviewKeyDown riêng trong docked control.</summary>
         private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
@@ -3099,11 +3099,10 @@ namespace XTPdfMergeApp
         /// <summary>WpfToolkit.Controls.VirtualizingWrapPanel đôi khi KHÔNG tự dàn lại số cột dù
         /// kích thước item (ThumbnailWidth/Height, qua binding) hay kích thước viewport chứa nó vừa
         /// đổi — panel ảo hoá cache lại phép đo trước đó để tối ưu hiệu năng, không phải lúc nào
-        /// cũng tự phát hiện binding đổi giá trị là đủ để ép đo lại. Xác nhận qua báo lỗi: kéo
-        /// ReaderSplitter (đổi bề rộng vùng chứa) hoặc maximize/restore cửa sổ qua tiêu đề (đổi
-        /// ActualWidth toàn bộ cây) đều không tự kích hoạt dàn lại, phải thao tác thêm 1 lệnh khác
-        /// (đổi chế độ layout chẳng hạn) mới thấy đúng. Gọi InvalidateMeasure/InvalidateArrange
-        /// TRỰC TIẾP lên panel ngay sau mỗi lần layout thay đổi để ép nó dàn lại ngay lập tức.</summary>
+        /// cũng tự phát hiện binding đổi giá trị là đủ để ép đo lại. Kéo ReaderSplitter docked,
+        /// maximize/restore cửa sổ chính, hoặc đổi layout đều cần ép đo lại ngay để thumbnail không
+        /// giữ bố cục cũ. Gọi InvalidateMeasure/InvalidateArrange trực tiếp lên panel ngay sau mỗi
+        /// lần layout thay đổi để ép nó dàn lại.</summary>
         private void InvalidateWrapPanelsLayout()
         {
             if (GroupsList == null) return;

@@ -28,9 +28,8 @@ namespace XTPdfMergeApp.Services
             catch { }
         }
 
-        /// <summary>Vị trí/kích thước/trạng thái Maximized của ReaderWindow (giờ là Window riêng,
-        /// không còn tỉ lệ cột chia với MainWindow) — null nếu chưa từng lưu (lần đầu mở, để
-        /// ReaderWindow tự dùng Width/Height mặc định khai báo trong XAML).</summary>
+        /// <summary>Legacy bounds from the old top-level reader window. Kept only so older
+        /// registry values are harmless if users downgrade or run an older build.</summary>
         public static (double Left, double Top, double Width, double Height, bool Maximized)? GetReaderWindowBounds()
         {
             try

@@ -934,7 +934,13 @@
         </Border>
 
         <Grid x:Name="MainContentGrid" Grid.Row="1" Background="#E5E9EE">
-            <AdornerDecorator>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition x:Name="ReaderSplitterColumn" Width="0"/>
+                <ColumnDefinition x:Name="ReaderColumn" Width="0" MinWidth="0"/>
+            </Grid.ColumnDefinitions>
+
+            <AdornerDecorator Grid.Column="0">
             <Grid>
                 <!-- Danh sách các "window" PDF — kéo-thả file PDF (từ Explorer/XTSheet/XTPrint) thả vào đây để tạo window mới (GroupsArea_Drop), kéo trang qua lại giữa các window, kéo cả window bằng tiêu đề để sắp xếp lại tự do. Không còn panel duyệt file bên trái — user tự biết file in ra ở đâu (nút "Mở thư mục xuất" bên XTSheet/XTPrint) rồi kéo thẳng vào đây. -->
                 <Border x:Name="DropZoneOuterBorder" Margin="3"
@@ -1036,6 +1042,14 @@
                 </Border>
             </Grid>
             </AdornerDecorator>
+
+            <GridSplitter x:Name="ReaderSplitter" Grid.Column="1" Width="6"
+                          ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          Background="{DynamicResource BorderBrush}" Opacity="0.7"
+                          Visibility="Collapsed"/>
+            <ContentControl x:Name="ReaderHost" Grid.Column="2" Visibility="Collapsed"
+                            HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
 
         </Grid>
 

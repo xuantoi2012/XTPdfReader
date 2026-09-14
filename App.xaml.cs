@@ -35,11 +35,8 @@ namespace XTPdfMergeApp
         {
             base.OnStartup(e);
 
-            // Giờ có 2 Window (MainWindow + ReaderWindow, xem ReaderWindow.xaml.cs) — mặc định
-            // OnLastWindowClose sẽ KHÔNG thoát app nếu ReaderWindow đã từng Show() rồi Hide() (không
-            // Close()) lúc MainWindow đóng, vì Hide() không xoá nó khỏi Application.Current.Windows.
-            // Đặt rõ OnMainWindowClose + gán MainWindow bên dưới để việc thoát app chỉ phụ thuộc
-            // đúng 1 cửa sổ (MainWindow.Closing đã tự Close() thật ReaderWindow trước khi tới đây).
+            // Reader hiện được dock trong MainWindow, nên vòng đời app chỉ cần phụ thuộc đúng
+            // cửa sổ chính. Giữ explicit để single-instance/pdfFactory path forwarding ổn định.
             ShutdownMode = ShutdownMode.OnMainWindowClose;
 
             // Lưới an toàn để debug: exception ném ra từ 1 Task "fire-and-forget" (không ai await)

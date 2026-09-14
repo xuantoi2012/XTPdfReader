@@ -16,31 +16,27 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using XTPdfMergeApp.Services;
 using static XTPdfMergeApp.Services.VisualTreeHelpers;
-using XTCADStyle.Controls;
 using PageRow = XTPdfMergeApp.Domain.PagePlacement;
 using DocumentGroup = XTPdfMergeApp.Domain.WorkspaceDocument;
 
 namespace XTPdfMergeApp
 {
-    /// <summary>Cửa sổ xem PDF (Viewer) — tách riêng khỏi MainWindow để cửa sổ chính chỉ tập
-    /// trung vào merge/sắp xếp trang. CHỈ 1 instance dùng chung (singleton, xem GetOrCreate):
-    /// double-click trang khác thì cửa sổ đang có tự đổi sang xem trang đó, không tạo cửa sổ
-    /// mới — giống hệt hành vi panel nhúng cũ. Đóng bằng nút X chỉ ẩn (Hide), không huỷ — xem
-    /// OnClosing + AllowRealClose (App.xaml.cs/MainWindow.Closing gọi lúc thoát hẳn app).</summary>
-    public partial class ReaderWindow : XTCadWindow
+    /// <summary>Docked PDF viewer control. Giữ tên ReaderWindow để tránh đổi lan rộng,
+    /// nhưng không còn là top-level Window riêng.</summary>
+    public partial class ReaderWindow : UserControl
     {
         /// <summary>Instance DUY NHẤT đang dùng, null nếu chưa từng mở Viewer lần nào trong phiên
         /// làm việc này. KHÔNG tự tạo mới nếu Instance đã có — double-click trang khác chỉ đổi
-        /// nội dung đang xem qua ShowPageAsync, không tạo cửa sổ mới (đúng quyết định "1 Viewer
-        /// window dùng chung" thay vì multi-instance).</summary>
+        /// nội dung đang xem qua ShowPageAsync, không tạo control mới (đúng quyết định "1 Viewer
+        /// dock dùng chung" thay vì multi-instance).</summary>
         public static ReaderWindow? Instance { get; private set; }
 
         private readonly ObservableCollection<DocumentGroup> _groups;
 
-        internal static ReaderWindow GetOrCreate(Window owner, ObservableCollection<DocumentGroup> groups)
+        internal static ReaderWindow GetOrCreate(ObservableCollection<DocumentGroup> groups)
         {
             if (Instance != null) return Instance;
-            Instance = new ReaderWindow(groups) { Owner = owner };
+            Instance = new ReaderWindow(groups);
             return Instance;
         }
 
@@ -57,7 +53,7 @@ namespace XTPdfMergeApp
                 _qualityRestoreTimer.Stop();
                 ReaderBitmapScalingMode = BitmapScalingMode.HighQuality;
             };
-            RestoreWindowBounds();
+            Visibility = Visibility.Collapsed;
             _groups = groups;
             // Group đang xem bị xoá khỏi workspace (đóng cả window PDF, không phải chỉ xoá vài
             // trang — trường hợp đó qua NotifyPagesChanged) → tự ẩn Viewer, không cần MainWindow
@@ -68,51 +64,15 @@ namespace XTPdfMergeApp
             };
         }
 
-        /// <summary>Áp lại vị trí/kích thước đã lưu lần trước (nếu có) — không có gì để làm nếu
-        /// đây là lần đầu tiên mở Viewer trong máy này, giữ nguyên Width/Height mặc định khai báo
-        /// trong XAML.</summary>
-        private void RestoreWindowBounds()
+        internal void ShutdownReader()
         {
-            var saved = MergeAppSettingsStore.GetReaderWindowBounds();
-            if (saved is not { } b) return;
-
-            Left = b.Left;
-            Top = b.Top;
-            Width = b.Width;
-            Height = b.Height;
-            if (b.Maximized) WindowState = WindowState.Maximized;
-        }
-
-        /// <summary>Lưu lại vị trí/kích thước THẬT sự để khôi phục (RestoreBounds, không phải
-        /// Left/Top/Width/Height hiện tại — các giá trị đó phản ánh kích thước ĐÃ MAXIMIZE lúc
-        /// đang ở WindowState.Maximized, lưu nhầm sẽ khiến lần mở sau "Normal" bị full màn hình).</summary>
-        private void SaveWindowBounds()
-        {
-            bool maximized = WindowState == WindowState.Maximized;
-            Rect bounds = maximized ? RestoreBounds : new Rect(Left, Top, Width, Height);
-            MergeAppSettingsStore.SetReaderWindowBounds(bounds.Left, bounds.Top, bounds.Width, bounds.Height, maximized);
-        }
-
-        /// <summary>MainWindow bật cờ này lên rồi mới gọi Close() thật khi thoát cả app — nếu
-        /// không, OnClosing sẽ tự Cancel + Hide() thay vì đóng, khiến tiến trình app không bao
-        /// giờ thoát hẳn (Window đã Hide() vẫn nằm trong Application.Current.Windows).</summary>
-        internal bool AllowRealClose { get; set; }
-
-        private void ReaderWindow_Closing(object? sender, CancelEventArgs e)
-        {
-            SaveWindowBounds();
-            if (AllowRealClose)
-            {
-                _readerTileRefreshCts.Cancel();
-                _readerPageCts.Cancel();
-                _readerRealtimeRenderCts?.Cancel();
-                _viewportRenderScheduler.Dispose();
-                _qualityRestoreTimer.Stop();
-                _tilePresentation.Dispose();
-                return;
-            }
-            e.Cancel = true;
-            HideReader();
+            _readerTileRefreshCts.Cancel();
+            _readerPageCts.Cancel();
+            _readerPrefetchCts.Cancel();
+            _readerRealtimeRenderCts?.Cancel();
+            _viewportRenderScheduler.Dispose();
+            _qualityRestoreTimer.Stop();
+            _tilePresentation.Dispose();
         }
 
         /// <summary>True nếu Viewer đã từng hiện ít nhất 1 trang — dùng thay cho check
@@ -470,19 +430,15 @@ namespace XTPdfMergeApp
             }
         }
 
-        /// <summary>Hiện cửa sổ Viewer (tạo mới lần đầu qua GetOrCreate, các lần sau chỉ Show/Activate
-        /// lại NGAY — không tạo lại instance, giữ nguyên trang/zoom đang xem dở, xem lớp GetOrCreate).
-        /// KHÔNG còn "mượn/trả" bề rộng cột 0 của MainContentGrid nữa — Viewer giờ là 1 Window độc
-        /// lập, không còn chung layout Grid với MainWindow.</summary>
+        /// <summary>Hiện docked Viewer trong MainWindow.</summary>
         public void ShowAndActivate()
         {
             MergeAppSettingsStore.SetViewerVisible(true);
-            Show();
-            Activate();
+            Visibility = Visibility.Visible;
+            Focus();
         }
 
-        /// <summary>Ẩn (KHÔNG đóng — xem AllowRealClose/OnClosing) và dọn state đang xem để lần mở
-        /// lại sau (double-click trang khác) không còn dính ảnh/tile của trang cũ.</summary>
+        /// <summary>Ẩn docked Viewer và dọn state đang xem.</summary>
         public void HideReader()
         {
             Interlocked.Increment(ref _readerRequestId);
@@ -490,7 +446,7 @@ namespace XTPdfMergeApp
             _tilePresentation.Clear();
             ReaderBitmapScalingMode = BitmapScalingMode.HighQuality;
             MergeAppSettingsStore.SetViewerVisible(false);
-            Hide();
+            Visibility = Visibility.Collapsed;
             _readerPageCts.Cancel();
             _readerPageCts.Dispose();
             _readerPageCts = new();
@@ -513,7 +469,7 @@ namespace XTPdfMergeApp
         }
         /// <summary>MainWindow gọi khi user chỉ ĐỔI SELECTION (không double-click) trong lúc Viewer
         /// đang mở — đồng bộ nội dung xem theo trang mới chọn, giữ nguyên mức zoom hiện tại. Không
-        /// tự Show() — chỉ nên gọi khi đã biết Viewer đang hiện (IsVisible), vì Organizer là chức
+        /// tự hiện dock — chỉ nên gọi khi đã biết Viewer đang hiện (IsVisible), vì Organizer là chức
         /// năng chính, chọn trang không tự mở Viewer.</summary>
         internal void NotifySelectionChanged(DocumentGroup group, PageRow page)
         {

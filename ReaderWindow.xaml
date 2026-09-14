@@ -1,17 +1,15 @@
-<xt:XTCadWindow x:Class="XTPdfMergeApp.ReaderWindow"
+<UserControl x:Class="XTPdfMergeApp.ReaderWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:xt="clr-namespace:XTCADStyle.Controls;assembly=XTCADStyle"
         xmlns:conv="clr-namespace:XTPdfMergeApp.Converters"
-        Title="Xem PDF" Width="900" Height="760"
-        MinWidth="420" MinHeight="360" TitleBarMode="Full"
-        TitleIcon="{DynamicResource Mat.FilePdfBox}" TitleIconBrush="{DynamicResource DangerBrush}"
+        xmlns:local="clr-namespace:XTPdfMergeApp"
         FontFamily="Segoe UI" FontSize="13"
         UseLayoutRounding="True" SnapsToDevicePixels="True"
-        Closing="ReaderWindow_Closing"
+        Focusable="True"
         PreviewKeyDown="ReaderWindow_PreviewKeyDown">
 
-    <xt:XTCadWindow.Resources>
+    <UserControl.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/XTCADStyle;component/Themes/Generic.xaml"/>
@@ -36,7 +34,7 @@
                  lại bắt nhầm trang" đã gặp). -->
             <DataTemplate x:Key="ReaderContinuousPageTemplate">
                 <Border Background="White" HorizontalAlignment="Center"
-                        Margin="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=ReaderContinuousZoom, Converter={StaticResource ContinuousPageMarginConverter}}"
+                        Margin="{Binding RelativeSource={RelativeSource AncestorType=local:ReaderWindow}, Path=ReaderContinuousZoom, Converter={StaticResource ContinuousPageMarginConverter}}"
                         BorderBrush="#33000000" BorderThickness="1">
                     <!-- Canvas = "sizer" — Width/Height = ĐÚNG kích thước Image đã tự đo được
                          (ActualWidth/ActualHeight, ElementName binding tới chính ContinuousPageImage
@@ -51,13 +49,13 @@
                         <Canvas.Width>
                             <MultiBinding Converter="{StaticResource ContinuousPageSizeConverter}">
                                 <Binding ElementName="ContinuousPageImage" Path="ActualWidth"/>
-                                <Binding RelativeSource="{RelativeSource AncestorType=Window}" Path="ReaderContinuousZoom"/>
+                                <Binding RelativeSource="{RelativeSource AncestorType=local:ReaderWindow}" Path="ReaderContinuousZoom"/>
                             </MultiBinding>
                         </Canvas.Width>
                         <Canvas.Height>
                             <MultiBinding Converter="{StaticResource ContinuousPageSizeConverter}">
                                 <Binding ElementName="ContinuousPageImage" Path="ActualHeight"/>
-                                <Binding RelativeSource="{RelativeSource AncestorType=Window}" Path="ReaderContinuousZoom"/>
+                                <Binding RelativeSource="{RelativeSource AncestorType=local:ReaderWindow}" Path="ReaderContinuousZoom"/>
                             </MultiBinding>
                         </Canvas.Height>
                         <!-- Image giữ kích thước NATIVE CỐ ĐỊNH (không đổi theo zoom) + RenderTransform
@@ -67,10 +65,10 @@
                              → neo sai, nhảy lệch khi đổi hướng zoom. Canvas.Left/Top mặc định = 0,0 nên
                              Image nằm đúng góc trên-trái Canvas, khớp RenderTransformOrigin=0,0. -->
                         <Image x:Name="ContinuousPageImage" Source="{Binding ReaderDisplayBitmap}"
-                               Width="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=ReaderPageBaseWidth}"
+                               Width="{Binding RelativeSource={RelativeSource AncestorType=local:ReaderWindow}, Path=ReaderPageBaseWidth}"
                                Stretch="Uniform"
                                RenderTransformOrigin="0,0"
-                               RenderOptions.BitmapScalingMode="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=ReaderBitmapScalingMode}"
+                               RenderOptions.BitmapScalingMode="{Binding RelativeSource={RelativeSource AncestorType=local:ReaderWindow}, Path=ReaderBitmapScalingMode}"
                                Loaded="ReaderContinuousImage_Loaded">
                             <!-- Chưa có bitmap thật (Thumbnail lẫn ReaderBitmap đều null) → giữ chỗ 1
                                  chiều cao NATIVE ước lượng (tỉ lệ A-series) thay vì để co về 0 — nếu
@@ -81,13 +79,13 @@
                             <Image.Height>
                                 <MultiBinding Converter="{StaticResource ContinuousPagePlaceholderHeightConverter}">
                                     <Binding Path="ReaderDisplayBitmap"/>
-                                    <Binding RelativeSource="{RelativeSource AncestorType=Window}" Path="ReaderPageBaseWidth"/>
+                                    <Binding RelativeSource="{RelativeSource AncestorType=local:ReaderWindow}" Path="ReaderPageBaseWidth"/>
                                     <Binding Path="AspectRatio"/>
                                 </MultiBinding>
                             </Image.Height>
                             <Image.RenderTransform>
-                                <ScaleTransform ScaleX="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=ReaderContinuousZoom}"
-                                                ScaleY="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=ReaderContinuousZoom}"/>
+                                <ScaleTransform ScaleX="{Binding RelativeSource={RelativeSource AncestorType=local:ReaderWindow}, Path=ReaderContinuousZoom}"
+                                                ScaleY="{Binding RelativeSource={RelativeSource AncestorType=local:ReaderWindow}, Path=ReaderContinuousZoom}"/>
                             </Image.RenderTransform>
                         </Image>
                         <!-- Retain the previous resolution underneath incoming sharp tiles.
@@ -121,13 +119,13 @@
                 </Border>
             </DataTemplate>
         </ResourceDictionary>
-    </xt:XTCadWindow.Resources>
+    </UserControl.Resources>
 
     <!-- Toàn bộ nội dung dưới đây chuyển nguyên trạng từ MainWindow.xaml (Border "ReaderPanel",
          trước đó là panel nhúng cột 2 của MainContentGrid) — giữ NGUYÊN mọi x:Name/wiring sự
          kiện để phần code-behind (chuyển sang ReaderWindow.xaml.cs ở bước kế) không cần sửa gì
          thêm ngoài việc đổi tên class chứa. -->
-    <Border Margin="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+    <Border Margin="6" BorderBrush="{DynamicResource CadChromeBorder}" BorderThickness="1"
             CornerRadius="4" Background="{DynamicResource PdfViewerBackgroundBrush}">
         <Grid>
             <Grid.RowDefinitions>
@@ -135,7 +133,8 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <DockPanel Grid.Row="0" Margin="8,6" LastChildFill="True" TextElement.Foreground="White" Background="Gray">
+            <DockPanel Grid.Row="0" Margin="0" LastChildFill="True" TextElement.Foreground="{DynamicResource CadChromeText}"
+                       Background="{DynamicResource CadToolbarBackground}">
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                     <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{DynamicResource Mat.ChevronLeft}"
                                  ToolTip="Trang trước" Click="ReaderPreviousPage_Click"/>
@@ -143,7 +142,7 @@
                              TextAlignment="Center" VerticalContentAlignment="Center"
                              KeyDown="ReaderPageBox_KeyDown" LostFocus="ReaderPageBox_LostFocus"/>
                     <TextBlock x:Name="ReaderPageTotalText" MinWidth="44" Margin="4,0,6,0"
-                               VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                               VerticalAlignment="Center" Foreground="{DynamicResource CadTextSecondary}"/>
                     <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{DynamicResource Mat.ChevronRight}"
                                  ToolTip="Trang sau" Click="ReaderNextPage_Click"/>
                     <xt:XTButton x:Name="ReaderContinuousToggle" Style="{StaticResource PdfViewerIconButton}"
@@ -157,7 +156,7 @@
                     <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{DynamicResource Mat.Minus}"
                                  ToolTip="Thu nhỏ" Click="ReaderZoomOut_Click"/>
                     <TextBlock x:Name="ReaderZoomText" Width="46" TextAlignment="Center"
-                               VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                               VerticalAlignment="Center" Foreground="{DynamicResource CadTextSecondary}"/>
                     <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{DynamicResource Mat.Plus}"
                                  ToolTip="Phóng to" Click="ReaderZoomIn_Click"/>
                     <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{DynamicResource Mat.RotateLeft}"
@@ -168,7 +167,7 @@
                                  ToolTip="Mở file bằng ứng dụng PDF mặc định" Click="ReaderOpenExternal_Click"/>
                 </StackPanel>
                 <TextBlock x:Name="ReaderTitleText" VerticalAlignment="Center"
-                           FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="4,0,12,0"/>
+                           FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="8,0,12,0"/>
             </DockPanel>
 
             <ScrollViewer x:Name="ReaderScrollViewer" Grid.Row="1"
@@ -193,7 +192,7 @@
                     <Canvas x:Name="ReaderContentCanvas">
                         <Image x:Name="ReaderImage" Stretch="Fill"
                                RenderTransformOrigin="0.5,0.5"
-                               RenderOptions.BitmapScalingMode="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=ReaderBitmapScalingMode}" Cursor="Hand"
+                               RenderOptions.BitmapScalingMode="{Binding RelativeSource={RelativeSource AncestorType=local:ReaderWindow}, Path=ReaderBitmapScalingMode}" Cursor="Hand"
                                MouseLeftButtonDown="ReaderImage_MouseLeftButtonDown"
                                MouseDown="ReaderImage_MouseDown"
                                MouseUp="ReaderImage_MouseUp"
@@ -277,4 +276,4 @@
             </ListBox>
         </Grid>
     </Border>
-</xt:XTCadWindow>
+</UserControl>

@@ -21,16 +21,16 @@
         <Setter Property="BorderBrush" Value="Transparent"/>
     </Style>
     <Style x:Key="PdfViewerIconButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource PdfCardIconButton}">
-        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="Foreground" Value="{DynamicResource CadChromeText}"/>
         <!-- IconBrush (không phải Foreground) là thứ thật sự tô màu icon Path — style cha
              (XTToolButton) mặc định IconBrush=PrimaryBrush (xanh), Foreground=White ở
              trên không ăn vào icon nên trên nền tối ReaderPanel icon vẫn xanh, khó nhìn. -->
-        <Setter Property="IconBrush" Value="White"/>
+        <Setter Property="IconBrush" Value="{DynamicResource CadChromeText}"/>
         <Setter Property="Opacity" Value="0.92"/>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Foreground" Value="#111827"/>
-                <Setter Property="IconBrush" Value="#111827"/>
+                <Setter Property="Foreground" Value="{DynamicResource CadButtonHoverText}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource CadButtonHoverText}"/>
                 <Setter Property="Opacity" Value="1"/>
             </Trigger>
         </Style.Triggers>
