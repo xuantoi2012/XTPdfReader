@@ -12,6 +12,15 @@
         UseLayoutRounding="True" SnapsToDevicePixels="True"
         PreviewKeyDown="MainWindow_PreviewKeyDown">
 
+    <xt:XTCadWindow.TitleBarRightContent>
+        <xt:XTToggleButton x:Name="ThemeToggleButton"
+                           UncheckedText="Light" CheckedText="Dark"
+                           VerticalAlignment="Center" Margin="0,0,8,0"
+                           ToolTip="Đổi giao diện Light/Dark"
+                           Checked="ThemeToggleButton_Changed"
+                           Unchecked="ThemeToggleButton_Changed"/>
+    </xt:XTCadWindow.TitleBarRightContent>
+
     <xt:XTCadWindow.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>

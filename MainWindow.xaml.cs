@@ -358,6 +358,9 @@ namespace XTPdfMergeApp
                 LogWindowResizeDebug($"GroupsScrollViewer.SizeChanged fired -> NewSize=({e.NewSize.Width:F0},{e.NewSize.Height:F0})");
 
             CleanupAfterMergeCheck.IsChecked = MergeAppSettingsStore.GetCleanupAfterMerge();
+            bool darkTheme = string.Equals(MergeAppSettingsStore.GetTheme(), "Dark", StringComparison.OrdinalIgnoreCase);
+            ThemeToggleButton.IsChecked = darkTheme;
+            ApplyTheme(darkTheme);
 
             // Nếu user đã bật trước đó, tự kiểm tra registry pdfFactory có
             // còn khớp không (có thể bị lệch nếu cài lại/update pdfFactory)
@@ -377,6 +380,34 @@ namespace XTPdfMergeApp
             // trước nhưng workspace hiện đang rỗng, mở một cửa sổ Viewer trống tạo cảm giác app bị
             // nhân đôi. Bounds vẫn được nhớ; Viewer chỉ bật khi user chọn/mở một trang thật.
             ViewerToggleButton.IsChecked = false;
+        }
+
+        private void ThemeToggleButton_Changed(object sender, RoutedEventArgs e)
+        {
+            if (ThemeToggleButton == null) return;
+            bool darkTheme = ThemeToggleButton.IsChecked == true;
+            ApplyTheme(darkTheme);
+            MergeAppSettingsStore.SetTheme(darkTheme ? "Dark" : "Light");
+        }
+
+        private static void ApplyTheme(bool darkTheme)
+        {
+            var dictionaries = Application.Current.Resources.MergedDictionaries;
+            for (int i = dictionaries.Count - 1; i >= 0; i--)
+            {
+                string source = dictionaries[i].Source?.OriginalString ?? string.Empty;
+                if (source.EndsWith("CadLight.xaml", StringComparison.OrdinalIgnoreCase) ||
+                    source.EndsWith("CadDark.xaml", StringComparison.OrdinalIgnoreCase))
+                    dictionaries.RemoveAt(i);
+            }
+
+            dictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri(darkTheme
+                    ? "pack://application:,,,/XTCADStyle;component/Themes/CadDark.xaml"
+                    : "pack://application:,,,/XTCADStyle;component/Themes/CadLight.xaml",
+                    UriKind.Absolute)
+            });
         }
 
         private void UndoButton_Click(object sender, RoutedEventArgs e)
@@ -2555,12 +2586,13 @@ namespace XTPdfMergeApp
             }
         }
 
-        // ── Double-click 1 trang: chọn + hiện cửa sổ Viewer riêng về Fit width ──
+        // ── Double-click 1 trang: chọn + hiện dock Viewer về Fit width ──
 
         private async void PageListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
             if (sender is not ListBox lb) return;
-            if (FindListBoxItem(e.OriginalSource as DependencyObject)?.DataContext is not PageRow row) return;
+            var item = FindListBoxItem(e.OriginalSource as DependencyObject);
+            if ((item?.DataContext ?? lb.SelectedItem) is not PageRow row) return;
             if (lb.Tag is not DocumentGroup group) return;
 
             e.Handled = true;

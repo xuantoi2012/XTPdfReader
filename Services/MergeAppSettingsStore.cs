@@ -101,6 +101,26 @@ namespace XTPdfMergeApp.Services
             catch { }
         }
 
+        public static string GetTheme()
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RegKey);
+                return key?.GetValue("Theme") as string ?? "Light";
+            }
+            catch { return "Light"; }
+        }
+
+        public static void SetTheme(string value)
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(RegKey, writable: true);
+                key?.SetValue("Theme", string.Equals(value, "Dark", StringComparison.OrdinalIgnoreCase) ? "Dark" : "Light");
+            }
+            catch { }
+        }
+
         // ── Tích hợp pdfFactory "View PDF file" — xem PdfFactoryIntegrationService ──
 
         public static bool GetPdfFactoryViewEnabled()

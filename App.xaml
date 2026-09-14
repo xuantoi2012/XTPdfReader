@@ -5,7 +5,7 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/XTCADStyle;component/Themes/Generic.xaml"/>
-                <ResourceDictionary Source="pack://application:,,,/XTCADStyle;component/Themes/CadDark.xaml"/>
+                <ResourceDictionary Source="pack://application:,,,/XTCADStyle;component/Themes/CadLight.xaml"/>
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>
