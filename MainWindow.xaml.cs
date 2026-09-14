@@ -382,15 +382,10 @@ namespace XTPdfMergeApp
             ApplyLayoutMode(string.Equals(savedLayout, "Column", StringComparison.OrdinalIgnoreCase)
                 ? GroupLayoutMode.Column
                 : GroupLayoutMode.Row);
-            if (MergeAppSettingsStore.GetViewerVisible())
-            {
-                ViewerToggleButton.IsChecked = true;
-                // Hoãn tới sau khi MainWindow đã Show() xong (App.xaml.cs gọi Show() NGAY SAU khi
-                // constructor này return) — ReaderWindow.Owner = this sẽ ném
-                // InvalidOperationException nếu gán lúc MainWindow còn chưa từng hiện ra lần nào.
-                _ = Dispatcher.InvokeAsync(() => EnsureReaderWindow().ShowAndActivate(), DispatcherPriority.Loaded);
-            }
-            else ViewerToggleButton.IsChecked = false;
+            // ReaderWindow không tự mở ở startup nữa. Nếu registry còn ViewerVisible=1 từ phiên
+            // trước nhưng workspace hiện đang rỗng, mở một cửa sổ Viewer trống tạo cảm giác app bị
+            // nhân đôi. Bounds vẫn được nhớ; Viewer chỉ bật khi user chọn/mở một trang thật.
+            ViewerToggleButton.IsChecked = false;
         }
 
         private void UndoButton_Click(object sender, RoutedEventArgs e)
@@ -2505,7 +2500,10 @@ namespace XTPdfMergeApp
             if (_statusSelectedGroup != null && _statusSelectedPage != null)
                 await reader.ShowPageAsync(_statusSelectedGroup, _statusSelectedPage, preserveZoomMode: true);
             else
-                reader.ShowAndActivate();
+            {
+                ViewerToggleButton.IsChecked = false;
+                ViewerToggleButton.ToolTip = "Chọn một trang trước";
+            }
         }
 
         /// <summary>Ctrl+Z/Y (undo/redo) và Ctrl+↑/↓/Home/End (đẩy trang đang chọn). Phím tắt
