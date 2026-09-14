@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap2="http://schemas.microsoft.com/appx/manifest/uap/windows10/2"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap2 uap3 uap10 rescap">
+
+  <Identity
+    Name="XTPdfMergeApp.ContextMenu"
+    Publisher="CN=XTPdfMergeApp"
+    Version="1.0.0.0"
+    ProcessorArchitecture="neutral" />
+
+  <Properties>
+    <DisplayName>XT PDF Merge</DisplayName>
+    <PublisherDisplayName>XT Toolbox</PublisherDisplayName>
+    <Logo>PDF icon.ico</Logo>
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+  </Properties>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
+  </Capabilities>
+
+  <Applications>
+    <Application
+      Id="XTPdfMergeApp"
+      Executable="XTPdfMergeApp.exe"
+      uap10:TrustLevel="mediumIL"
+      uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements
+        AppListEntry="none"
+        DisplayName="XT PDF Merge"
+        Description="Merge and reorder PDF files"
+        BackgroundColor="transparent"
+        Square150x150Logo="PDF icon.ico"
+        Square44x44Logo="PDF icon.ico" />
+      <Extensions>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap3:FileTypeAssociation Name="xtpdfmergepdf" MultiSelectModel="Player">
+            <uap2:SupportedVerbs>
+              <uap3:Verb Id="xtpdfmerge" MultiSelectModel="Player">Gộp bằng XT PDF Merge</uap3:Verb>
+            </uap2:SupportedVerbs>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.pdf</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap3:FileTypeAssociation>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

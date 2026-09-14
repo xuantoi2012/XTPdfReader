@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="../../XTStyle.NET/XTStyle.NET/XTStyle.NET.csproj" />
+  <Project Path="XTPdfMergeApp.csproj" />
+</Solution>

@@ -1,0 +1,12 @@
+bin/
+obj/
+.vs/
+
+*.user
+*.suo
+*.rsuser
+
+.claude/settings.local.json
+
+TestResults/
+*.log

@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- windows10.0.19041.0 cho WPF desktop; thumbnail PDF render trực tiếp bằng PDFium native. -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>XTPdfMergeApp</AssemblyName>
+    <RootNamespace>XTPdfMergeApp</RootNamespace>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <PlatformTarget>x64</PlatformTarget>
+    <StartupObject>XTPdfMergeApp.App</StartupObject>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!-- Publish làm 1 file exe gọn: dotnet publish, -r win-x64, -c Release,
+         PublishSingleFile=true, SelfContained=true (xem README khi cần). -->
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <ApplicationIcon>PDF icon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Tests\**\*.cs" />
+    <EmbeddedResource Remove="Tests\**\*" />
+    <None Remove="Tests\**\*" />
+    <InternalsVisibleTo Include="XTPdfMergeApp.PerformanceTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="PDF icon.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="itext" Version="9.6.0" />
+    <PackageReference Include="itext.bouncy-castle-adapter" Version="9.6.0" />
+    <PackageReference Include="bblanchon.PDFium.Win32" Version="147.0.7690" />
+    <PackageReference Include="VirtualizingWrapPanel" Version="2.5.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\XTStyle.NET\XTStyle.NET\XTStyle.NET.csproj" />
+  </ItemGroup>
+
+  <Target Name="ExcludeNativeSymbolsFromPublish" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(ResolvedFileToPublish.Extension)' == '.pdb'" />
+    </ItemGroup>
+  </Target>
+
+</Project>

@@ -1,0 +1,1204 @@
+<xt:XTWindow x:Class="XTPdfMergeApp.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
+        xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
+        xmlns:conv="clr-namespace:XTPdfMergeApp.Converters"
+        Title="XT PDF Merge" Width="1180" Height="760"
+        MinWidth="760" MinHeight="520" TitleBarMode="Full"
+        WindowStartupLocation="CenterScreen"
+        TitleIcon="{DynamicResource Mat.FilePdfBox}" TitleIconBrush="{DynamicResource DangerBrush}"
+        FontFamily="Segoe UI" FontSize="13"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        PreviewKeyDown="MainWindow_PreviewKeyDown">
+
+    <xt:XTWindow.TitleBarLeftContent>
+        <StackPanel Orientation="Horizontal" Margin="8,0,0,0">
+            <xt:XTButton x:Name="UndoButton" Style="{DynamicResource XTSecondaryButton}"
+                         Icon="{DynamicResource Mat.Undo}" Text="Hoàn tác" Padding="8,4"
+                         IsEnabled="False" Click="UndoButton_Click"/>
+            <xt:XTButton x:Name="RedoButton" Style="{DynamicResource XTSecondaryButton}"
+                         Icon="{DynamicResource Mat.Redo}" Text="Làm lại" Padding="8,4" Margin="5,0,0,0"
+                         IsEnabled="False" Click="RedoButton_Click"/>
+        </StackPanel>
+    </xt:XTWindow.TitleBarLeftContent>
+
+    <xt:XTWindow.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/XTStyle;component/Themes/Generic.xaml"/>
+                <!-- PdfCardIconButton (dùng chung ở header card/group) + PdfViewerIconButton +
+                     ReaderContinuousPageTemplate + 3 converter continuous-mode chuyển sang đây để
+                     dùng chung với ReaderWindow, không copy trùng. -->
+                <ResourceDictionary Source="pack://application:,,,/XTPdfMergeApp;component/Resources/ReaderResources.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+
+            <conv:SourceFileColorConverter x:Key="SourceFileColorConverter"/>
+
+            <SolidColorBrush x:Key="PdfCardBackgroundBrush" Color="#F5F8FC"/>
+            <SolidColorBrush x:Key="PdfCardBorderBrush" Color="#D7E1EC"/>
+            <SolidColorBrush x:Key="PdfHeaderBackgroundBrush" Color="#E8EDF4"/>
+            <SolidColorBrush x:Key="PdfHeaderTextBrush" Color="#263445"/>
+            <SolidColorBrush x:Key="PdfPageBackgroundBrush" Color="#FFFFFF"/>
+            <SolidColorBrush x:Key="PdfPageSelectedBackgroundBrush" Color="#EAF3FF"/>
+            <SolidColorBrush x:Key="PdfViewerBackgroundBrush" Color="#20242A"/>
+
+            <!-- Tím (khác hẳn PrimaryBrush xanh dương của vạch chèn kéo-thả RowDropIndicator/
+                 GroupDropIndicator) — dùng riêng cho hover/selected của page và window để không bị
+                 trùng màu, dễ phân biệt "đang được chọn" với "vị trí sẽ thả vào". -->
+            <SolidColorBrush x:Key="PdfHoverBorderBrush" Color="#7C3AED"/>
+            <SolidColorBrush x:Key="PdfHoverBackgroundBrush" Color="#F5F0FF"/>
+            <SolidColorBrush x:Key="PdfSelectedBorderBrush" Color="#6D28D9"/>
+            <SolidColorBrush x:Key="PdfSelectedBackgroundBrush" Color="#EDE4FF"/>
+
+            <ControlTemplate x:Key="PdfVerticalScrollThumbTemplate" TargetType="Thumb">
+                <Border x:Name="thumbBd"
+                        Background="{DynamicResource TextSecondaryBrush}"
+                        CornerRadius="4"
+                        Margin="4,2"
+                        Opacity="0.72"/>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter TargetName="thumbBd" Property="Opacity" Value="1"/>
+                        <Setter TargetName="thumbBd" Property="Margin" Value="3,2"/>
+                    </Trigger>
+                    <Trigger Property="IsDragging" Value="True">
+                        <Setter TargetName="thumbBd" Property="Background" Value="{DynamicResource PrimaryBrush}"/>
+                        <Setter TargetName="thumbBd" Property="Opacity" Value="1"/>
+                        <Setter TargetName="thumbBd" Property="Margin" Value="3,2"/>
+                    </Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate>
+
+            <ControlTemplate x:Key="PdfHorizontalScrollThumbTemplate" TargetType="Thumb">
+                <Border x:Name="thumbBd"
+                        Background="{DynamicResource TextSecondaryBrush}"
+                        CornerRadius="4"
+                        Margin="2,4"
+                        Opacity="0.72"/>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter TargetName="thumbBd" Property="Opacity" Value="1"/>
+                        <Setter TargetName="thumbBd" Property="Margin" Value="2,3"/>
+                    </Trigger>
+                    <Trigger Property="IsDragging" Value="True">
+                        <Setter TargetName="thumbBd" Property="Background" Value="{DynamicResource PrimaryBrush}"/>
+                        <Setter TargetName="thumbBd" Property="Opacity" Value="1"/>
+                        <Setter TargetName="thumbBd" Property="Margin" Value="2,3"/>
+                    </Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate>
+
+            <Style TargetType="ScrollBar">
+                <Setter Property="Width" Value="20"/>
+                <Setter Property="MinWidth" Value="20"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Stylus.IsFlicksEnabled" Value="False"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ScrollBar">
+                            <Grid Background="Transparent" SnapsToDevicePixels="True">
+                                <Track x:Name="PART_Track" IsDirectionReversed="True" Margin="0,2">
+                                    <Track.DecreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0" Focusable="False"/>
+                                    </Track.DecreaseRepeatButton>
+                                    <Track.Thumb>
+                                        <Thumb Template="{StaticResource PdfVerticalScrollThumbTemplate}"
+                                               MinHeight="64" UseLayoutRounding="False"/>
+                                    </Track.Thumb>
+                                    <Track.IncreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageDownCommand" Opacity="0" Focusable="False"/>
+                                    </Track.IncreaseRepeatButton>
+                                </Track>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+                <Style.Triggers>
+                    <Trigger Property="Orientation" Value="Horizontal">
+                        <Setter Property="Height" Value="20"/>
+                        <Setter Property="MinHeight" Value="20"/>
+                        <Setter Property="Width" Value="Auto"/>
+                        <Setter Property="MinWidth" Value="0"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ScrollBar">
+                                    <Grid Background="Transparent" SnapsToDevicePixels="True">
+                                        <Track x:Name="PART_Track" IsDirectionReversed="False" Margin="2,0">
+                                            <Track.DecreaseRepeatButton>
+                                                <RepeatButton Command="ScrollBar.PageLeftCommand" Opacity="0" Focusable="False"/>
+                                            </Track.DecreaseRepeatButton>
+                                            <Track.Thumb>
+                                                <Thumb Template="{StaticResource PdfHorizontalScrollThumbTemplate}"
+                                                       MinWidth="88" UseLayoutRounding="False"/>
+                                            </Track.Thumb>
+                                            <Track.IncreaseRepeatButton>
+                                                <RepeatButton Command="ScrollBar.PageRightCommand" Opacity="0" Focusable="False"/>
+                                            </Track.IncreaseRepeatButton>
+                                        </Track>
+                                    </Grid>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style TargetType="ScrollViewer">
+                <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
+                <Setter Property="HorizontalScrollBarVisibility" Value="Auto"/>
+                <Setter Property="CanContentScroll" Value="True"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ScrollViewer">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <ScrollContentPresenter Grid.Row="0" Grid.Column="0"
+                                                        CanContentScroll="{TemplateBinding CanContentScroll}"
+                                                        Margin="{TemplateBinding Padding}"/>
+
+                                <ScrollBar x:Name="PART_VerticalScrollBar"
+                                           Grid.Row="0" Grid.Column="1"
+                                           Orientation="Vertical"
+                                           Minimum="0"
+                                           Maximum="{TemplateBinding ScrollableHeight}"
+                                           Value="{TemplateBinding VerticalOffset}"
+                                           ViewportSize="{TemplateBinding ViewportHeight}"
+                                           Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"/>
+
+                                <ScrollBar x:Name="PART_HorizontalScrollBar"
+                                           Grid.Row="1" Grid.Column="0"
+                                           Orientation="Horizontal"
+                                           Minimum="0"
+                                           Maximum="{TemplateBinding ScrollableWidth}"
+                                           Value="{TemplateBinding HorizontalOffset}"
+                                           ViewportSize="{TemplateBinding ViewportWidth}"
+                                           Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}"/>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="ViewerToggleButtonStyle" TargetType="{x:Type xt:XTToggleButton}">
+                <Setter Property="Width" Value="108"/>
+                <Setter Property="Height" Value="28"/>
+                <Setter Property="SegmentWidth" Value="52"/>
+                <Setter Property="Background" Value="White"/>
+                <Setter Property="Foreground" Value="#111827"/>
+                <Setter Property="BorderBrush" Value="#CBD5E1"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type xt:XTToggleButton}">
+                            <Grid Width="{TemplateBinding Width}"
+                                  Height="{TemplateBinding Height}"
+                                  ClipToBounds="True">
+                                <Border x:Name="Chrome"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        CornerRadius="4"/>
+                                <Grid Margin="2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Border x:Name="PART_Thumb" Grid.Column="0"
+                                            Background="{DynamicResource PrimaryBrush}" CornerRadius="3">
+                                        <Border.RenderTransform>
+                                            <TranslateTransform x:Name="PART_ThumbTransform"/>
+                                        </Border.RenderTransform>
+                                    </Border>
+                                    <TextBlock x:Name="PART_UncheckedText" Grid.Column="0"
+                                               Text="{TemplateBinding UncheckedText}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               FontSize="12" FontWeight="SemiBold" Foreground="White"/>
+                                    <TextBlock x:Name="PART_CheckedText" Grid.Column="1"
+                                               Text="{TemplateBinding CheckedText}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               FontSize="12" FontWeight="SemiBold" Foreground="#111827"/>
+                                </Grid>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="PART_CheckedText" Property="Foreground" Value="White"/>
+                                    <Setter TargetName="PART_UncheckedText" Property="Foreground" Value="#111827"/>
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetName="PART_ThumbTransform"
+                                                                 Storyboard.TargetProperty="X"
+                                                                 To="52" Duration="0:0:0.12"/>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.EnterActions>
+                                    <Trigger.ExitActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetName="PART_ThumbTransform"
+                                                                 Storyboard.TargetProperty="X"
+                                                                 To="0" Duration="0:0:0.12"/>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.ExitActions>
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Chrome" Property="BorderBrush" Value="#94A3B8"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.45"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style x:Key="PdfPageListItem" TargetType="ListBoxItem">
+                <Setter Property="Padding" Value="0"/>
+                <Setter Property="Margin" Value="0"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ListBoxItem">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <ContextMenu x:Key="PageContextMenu" x:Shared="False"
+                         DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                <MenuItem Header="Cắt" InputGestureText="Ctrl+X" Click="PageContextCut_Click"/>
+                <MenuItem Header="Sao chép" InputGestureText="Ctrl+C" Click="PageContextCopy_Click"/>
+                <Separator/>
+                <MenuItem Header="Dán trước trang đang chọn" InputGestureText="Ctrl+V" Click="PageContextPasteBefore_Click"/>
+                <MenuItem Header="Dán vào cuối window" Click="PageContextPasteEnd_Click"/>
+                <Separator/>
+                <MenuItem Header="Chuyển về window nguồn" Click="PageContextRestoreSource_Click"/>
+                <MenuItem Header="Xóa khỏi workspace" InputGestureText="Delete" Click="PageContextDelete_Click"/>
+            </ContextMenu>
+
+            <ContextMenu x:Key="DocumentContextMenu" x:Shared="False"
+                         DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                <MenuItem Header="Lưu thành PDF…" Click="SaveGroup_Click"/>
+                <MenuItem Header="Chọn tất cả trang" Click="DocumentContextSelectAll_Click"/>
+                <Separator/>
+                <MenuItem Header="Đóng window" Click="RemoveGroup_Click"/>
+            </ContextMenu>
+
+            <!-- 1 trang trong 1 "window" (DocumentGroup) — số thứ tự đè góc trái là vị trí TRONG WINDOW ĐÓ (mỗi window tự lưu riêng nên đánh số theo phạm vi của chính nó). Cỡ ô đổi qua ThumbnailSizeCombo. -->
+            <DataTemplate x:Key="MergeFileTemplate">
+                <Border x:Name="PageCardBorder" Margin="1" BorderBrush="{DynamicResource PdfCardBorderBrush}" BorderThickness="1"
+                        Background="{DynamicResource PdfPageBackgroundBrush}" ToolTip="{Binding PageLabel}"
+                        Width="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=ThumbnailWidth}"
+                        Height="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=ThumbnailHeight}">
+                    <Grid>
+                        <!-- Loaded thay vì render sẵn NGAY LÚC thêm file — kết hợp
+                             VirtualizingStackPanel (xem ItemsPanel bên dưới), WPF
+                             chỉ thật sự tạo Image này khi trang lọt vào/gần
+                             viewport, nên chỉ vài trang ĐẦU TIÊN được render ngay,
+                             các trang xa hơn tự load dần khi cuộn tới — nhanh hơn
+                             hẳn so với render TẤT CẢ 17+ trang cùng lúc lúc thêm
+                             file. Có cache theo (đường dẫn, số trang) nên trang
+                             giống hệt (VD vừa copy sang window khác) không phải
+                             render lại từ đầu. -->
+                        <Image Source="{Binding Thumbnail}" Stretch="Uniform" Margin="2"
+                               RenderOptions.BitmapScalingMode="HighQuality" SnapsToDevicePixels="True"/>
+                        <Border HorizontalAlignment="Left" VerticalAlignment="Top" Width="20" Height="20"
+                                CornerRadius="0,0,6,0" Background="{DynamicResource PrimarySoftBrush}">
+                            <TextBlock Text="{Binding Index}" FontSize="10" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource PrimaryBrush}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <!-- Màu theo file NGUỒN THẬT (SourcePath, không phải OwnerSourcePath = window
+                             hiện tại) — cùng 1 file luôn ra cùng 1 màu (xem SourceFileColorConverter),
+                             để phân biệt bằng mắt khi 1 window trộn trang từ NHIỀU file khác nhau, thay
+                             vì mọi trang nhập đều 1 màu/1 icon giống hệt nhau như trước. Path (không
+                             phải TextBlock ký tự "↗") + Stretch=Uniform trong Viewbox để icon LUÔN vừa
+                             khít, không bị cắt tuỳ theo font-metrics của ký tự như trước.-->
+                        <Border x:Name="ImportedBadge" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                Width="22" Height="22" CornerRadius="11" Margin="3"
+                                Background="{Binding SourcePath, Converter={StaticResource SourceFileColorConverter}}"
+                                Visibility="Collapsed">
+                            <Viewbox Width="12" Height="12">
+                                <Path Data="{DynamicResource Mat.ArrowTopRight}" Fill="White" Stretch="Uniform"/>
+                            </Viewbox>
+                        </Border>
+                    </Grid>
+                </Border>
+                <DataTemplate.Triggers>
+                    <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsMouseOver}" Value="True">
+                        <Setter TargetName="PageCardBorder" Property="Background" Value="{DynamicResource PdfHoverBackgroundBrush}"/>
+                        <Setter TargetName="PageCardBorder" Property="BorderBrush" Value="{DynamicResource PdfHoverBorderBrush}"/>
+                        <Setter TargetName="PageCardBorder" Property="BorderThickness" Value="2"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsSelected}" Value="True">
+                        <Setter TargetName="PageCardBorder" Property="Background" Value="{DynamicResource PdfSelectedBackgroundBrush}"/>
+                        <Setter TargetName="PageCardBorder" Property="BorderBrush" Value="{DynamicResource PdfSelectedBorderBrush}"/>
+                        <Setter TargetName="PageCardBorder" Property="BorderThickness" Value="3"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding IsImported}" Value="True">
+                        <Setter TargetName="PageCardBorder" Property="BorderBrush"
+                                Value="{Binding SourcePath, Converter={StaticResource SourceFileColorConverter}}"/>
+                        <Setter TargetName="PageCardBorder" Property="BorderThickness" Value="2"/>
+                        <Setter TargetName="ImportedBadge" Property="Visibility" Value="Visible"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsMouseOver}" Value="True">
+                        <Setter TargetName="PageCardBorder" Property="Background" Value="{DynamicResource PdfHoverBackgroundBrush}"/>
+                        <Setter TargetName="PageCardBorder" Property="BorderBrush" Value="{DynamicResource PdfHoverBorderBrush}"/>
+                        <Setter TargetName="PageCardBorder" Property="BorderThickness" Value="2"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsSelected}" Value="True">
+                        <Setter TargetName="PageCardBorder" Property="Background" Value="{DynamicResource PdfSelectedBackgroundBrush}"/>
+                        <Setter TargetName="PageCardBorder" Property="BorderBrush" Value="{DynamicResource PdfSelectedBorderBrush}"/>
+                        <Setter TargetName="PageCardBorder" Property="BorderThickness" Value="3"/>
+                    </DataTrigger>
+                </DataTemplate.Triggers>
+            </DataTemplate>
+
+            <!-- Thumbnail chia đôi giữ đúng kích thước preset như mọi layout khác;
+                 WrapPanel chỉ phân phối số item trên từng hàng. -->
+            <DataTemplate x:Key="MergeFileTemplateSplit">
+                <Border x:Name="SplitPageCard" Margin="2" Height="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=ThumbnailHeight}"
+                        Width="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=ThumbnailWidth}"
+                        BorderBrush="{DynamicResource PdfCardBorderBrush}" BorderThickness="1"
+                        Background="{DynamicResource PdfPageBackgroundBrush}" ToolTip="{Binding PageLabel}">
+                    <Grid>
+                        <Image Source="{Binding Thumbnail}" Stretch="Uniform" Margin="3"
+                               RenderOptions.BitmapScalingMode="HighQuality" SnapsToDevicePixels="True"/>
+                        <Border HorizontalAlignment="Left" VerticalAlignment="Top" Width="20" Height="20"
+                                CornerRadius="0,0,6,0" Background="{DynamicResource PrimarySoftBrush}">
+                            <TextBlock Text="{Binding Index}" FontSize="10" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource PrimaryBrush}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <Border x:Name="SplitImportedBadge" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                Width="22" Height="22" CornerRadius="11" Margin="3"
+                                Background="{Binding SourcePath, Converter={StaticResource SourceFileColorConverter}}"
+                                Visibility="Collapsed">
+                            <Viewbox Width="12" Height="12">
+                                <Path Data="{DynamicResource Mat.ArrowTopRight}" Fill="White" Stretch="Uniform"/>
+                            </Viewbox>
+                        </Border>
+                    </Grid>
+                </Border>
+                <DataTemplate.Triggers>
+                    <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsMouseOver}" Value="True">
+                        <Setter TargetName="SplitPageCard" Property="Background" Value="{DynamicResource PdfHoverBackgroundBrush}"/>
+                        <Setter TargetName="SplitPageCard" Property="BorderBrush" Value="{DynamicResource PdfHoverBorderBrush}"/>
+                        <Setter TargetName="SplitPageCard" Property="BorderThickness" Value="2"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsSelected}" Value="True">
+                        <Setter TargetName="SplitPageCard" Property="Background" Value="{DynamicResource PdfSelectedBackgroundBrush}"/>
+                        <Setter TargetName="SplitPageCard" Property="BorderBrush" Value="{DynamicResource PdfSelectedBorderBrush}"/>
+                        <Setter TargetName="SplitPageCard" Property="BorderThickness" Value="3"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding IsImported}" Value="True">
+                        <Setter TargetName="SplitPageCard" Property="BorderBrush"
+                                Value="{Binding SourcePath, Converter={StaticResource SourceFileColorConverter}}"/>
+                        <Setter TargetName="SplitPageCard" Property="BorderThickness" Value="2"/>
+                        <Setter TargetName="SplitImportedBadge" Property="Visibility" Value="Visible"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsMouseOver}" Value="True">
+                        <Setter TargetName="SplitPageCard" Property="Background" Value="{DynamicResource PdfHoverBackgroundBrush}"/>
+                        <Setter TargetName="SplitPageCard" Property="BorderBrush" Value="{DynamicResource PdfHoverBorderBrush}"/>
+                        <Setter TargetName="SplitPageCard" Property="BorderThickness" Value="2"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsSelected}" Value="True">
+                        <Setter TargetName="SplitPageCard" Property="Background" Value="{DynamicResource PdfSelectedBackgroundBrush}"/>
+                        <Setter TargetName="SplitPageCard" Property="BorderBrush" Value="{DynamicResource PdfSelectedBorderBrush}"/>
+                        <Setter TargetName="SplitPageCard" Property="BorderThickness" Value="3"/>
+                    </DataTrigger>
+                </DataTemplate.Triggers>
+            </DataTemplate>
+
+            <!--
+            1 "WINDOW" = 1 file/nhóm trang riêng (DocumentGroup), cuộn ngang riêng.
+            - Kéo tự do bằng tiêu đề (GroupHeaderText) để sắp xếp lại vị trí, giống kéo 1 cửa sổ/tab — không có nút Lên/Xuống.
+            - RowIndicatorHost có ClipToBounds="True" + vạch chèn trang RIÊNG (RowDropIndicator) nằm NGAY BÊN TRONG window này — không thể "nhảy" ra hiện ở window khác.
+            - Nút Lưu (Mat.ContentSave) lưu riêng các trang trong CHÍNH window này ra 1 file PDF (SaveGroup_Click) — KHÔNG đóng window sau khi lưu (user có thể lưu lại nhiều lần).
+            -->
+            <DataTemplate x:Key="DocumentGroupTemplateRow">
+                <!-- Chỉ 1 file (Items.Count==1) → bỏ khung "window" (border/bo góc/nền
+                     riêng), cho card hoà thẳng vào DropZoneOuterBorder như 1 panel duy
+                     nhất — khung window chỉ có ý nghĩa để PHÂN BIỆT nhiều file, dư thừa
+                     khi chỉ có đúng 1 file. Nhiều file trở lại → tự động có khung lại. -->
+                <Border ClipToBounds="True"
+                        ContextMenu="{StaticResource DocumentContextMenu}"
+                        Width="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=RowCardWidth}"
+                        MaxWidth="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=RowCardWidth}">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Margin" Value="0,0,0,6"/>
+                            <Setter Property="BorderBrush" Value="{DynamicResource PdfCardBorderBrush}"/>
+                            <Setter Property="BorderThickness" Value="1"/>
+                            <Setter Property="CornerRadius" Value="4"/>
+                            <Setter Property="Background" Value="{DynamicResource PdfCardBackgroundBrush}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ItemsControl}, Path=Items.Count}" Value="1">
+                                    <Setter Property="Margin" Value="0"/>
+                                    <Setter Property="BorderThickness" Value="0"/>
+                                    <Setter Property="CornerRadius" Value="0"/>
+                                    <Setter Property="Background" Value="Transparent"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsSelected}" Value="True">
+                                    <Setter Property="BorderBrush" Value="{DynamicResource PdfSelectedBorderBrush}"/>
+                                    <Setter Property="BorderThickness" Value="1.5"/>
+                                    <Setter Property="Background" Value="{DynamicResource PdfSelectedBackgroundBrush}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <Border Grid.Row="0" Background="{DynamicResource PdfHeaderBackgroundBrush}" Padding="7,4,7,3">
+                            <DockPanel LastChildFill="True">
+                            <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource PdfCardIconButton}"
+                                    Icon="{DynamicResource Mat.Close}"
+                                    ToolTip="Bỏ cả window này" Click="RemoveGroup_Click"/>
+                            <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource PdfCardIconButton}"
+                                    Icon="{DynamicResource Mat.ContentSave}"
+                                    ToolTip="Lưu các trang trong window này thành 1 file PDF" Click="SaveGroup_Click"/>
+                            <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource PdfCardIconButton}"
+                                    Icon="{DynamicResource Mat.Delete}"
+                                    ToolTip="Xóa trang đang chọn trong window này" Click="RemoveSelectedPages_Click"/>
+                            <!-- Hiện SUỐT lúc đang mở file (chưa biết số trang) VÀ lúc thumbnail chưa tải
+                                 hết (IsThumbnailLoading, xem WorkspaceDocument) — tự ẩn khi đạt 100%. Đặt
+                                 ở TIÊU ĐỀ (không đè lên vùng thumbnail), luôn trước tên file dù Hàng/Cột.
+                                 Lỗi mở file thì HeaderText tự có sẵn thông báo, không cần hiển thị riêng. -->
+                            <!-- Value=30 (không phải mặc định 0) — hình cung của XTCircularProgress
+                                 tính theo Value/Minimum/Maximum bất kể IsIndeterminate hay không, chỉ
+                                 riêng phần TỰ XOAY mới do IsIndeterminate bật; Value=0 → cung dài 0 →
+                                 nhìn như 1 chấm tròn xoay thay vì 1 cung tròn xoay (đúng bug đã gặp). -->
+                            <xt:XTCircularProgress IsIndeterminate="True" Value="30" Width="14" Height="14" StrokeThickness="2"
+                                                    Margin="0,0,6,0" VerticalAlignment="Center">
+                                <xt:XTCircularProgress.Style>
+                                    <Style TargetType="{x:Type xt:XTCircularProgress}" BasedOn="{StaticResource XTCircularProgressSmall}">
+                                        <Setter Property="Width" Value="14"/>
+                                        <Setter Property="Height" Value="14"/>
+                                        <Setter Property="StrokeThickness" Value="2"/>
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsThumbnailLoading}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </xt:XTCircularProgress.Style>
+                            </xt:XTCircularProgress>
+                            <TextBlock x:Name="GroupHeaderText" Text="{Binding HeaderText}" FontSize="12" FontWeight="Bold"
+                                       Foreground="{DynamicResource PdfHeaderTextBrush}"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Cursor="Arrow"
+                                       Margin="0,0,8,0"
+                                       ToolTip="{Binding HeaderText}"
+                                       PreviewMouseLeftButtonDown="GroupHeader_PreviewMouseLeftButtonDown"
+                                       PreviewMouseMove="GroupHeader_PreviewMouseMove"/>
+                            </DockPanel>
+                        </Border>
+
+                        <!-- Đường kẻ phân tách tiêu đề / thumbnail — nhất là khi chỉ 1 file (không
+                             còn khung window bao quanh nữa) thì đây là ranh giới trực quan DUY NHẤT. -->
+                        <Border Grid.Row="0" Height="1" VerticalAlignment="Bottom" Background="{DynamicResource PdfCardBorderBrush}"/>
+
+                        <Grid Grid.Row="1" x:Name="RowIndicatorHost" ClipToBounds="False">
+                            <!-- Không bọc ListBox bằng ScrollViewer ngoài: để ScrollViewer nội bộ của
+                                 ListBox đo viewport hữu hạn, giữ virtualization/lazy-load ổn định.
+                                 Margin phải/dưới ĐỦ LỚN (8, không phải 0) để thanh cuộn ngang (nằm
+                                 sát đáy, kéo dài hết bề rộng) không lấn vào vùng bo góc CornerRadius=6
+                                 của Border ngoài — ClipToBounds="True" ở đó cắt theo hình chữ nhật BO
+                                 GÓC, nếu thumb cuộn chạm đúng góc sẽ bị cắt mất 1 miếng (đúng lỗi đã
+                                 gặp: kéo thanh cuộn ngang tới gần cuối, ví dụ file 400 trang, phần thumb
+                                 bên phải bị vạt mất 1 đoạn theo đúng cung bo góc). -->
+                            <ListBox ItemsSource="{Binding Pages}" Tag="{Binding}"
+                                     ContextMenu="{StaticResource PageContextMenu}"
+                                     BorderThickness="0" Background="Transparent" Margin="0,0,8,28"
+                                     SelectionMode="Extended"
+                                     ItemTemplate="{StaticResource MergeFileTemplate}"
+                                     ItemContainerStyle="{StaticResource PdfPageListItem}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Hidden"
+                                     ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                     ScrollViewer.CanContentScroll="True"
+                                     VirtualizingPanel.IsVirtualizing="True"
+                                     VirtualizingPanel.VirtualizationMode="Recycling"
+                                     VirtualizingPanel.ScrollUnit="Pixel"
+                                     VirtualizingPanel.CacheLength="0.25"
+                                     VirtualizingPanel.CacheLengthUnit="Page"
+                                     AllowDrop="True" Drop="PageListBox_Drop" DragOver="PageListBox_DragOver"
+                                     DragLeave="PageListBox_DragLeave"
+                                     SelectionChanged="PageListBox_SelectionChanged"
+                                     PreviewMouseLeftButtonDown="PageListBox_PreviewMouseLeftButtonDown"
+                                     PreviewMouseRightButtonDown="PageListBox_PreviewMouseRightButtonDown"
+                                     PreviewMouseLeftButtonUp="PageListBox_PreviewMouseLeftButtonUp"
+                                     PreviewMouseMove="PageListBox_PreviewMouseMove"
+                                     PreviewMouseWheel="PageListBox_PreviewMouseWheel"
+                                     RequestBringIntoView="PageListBox_RequestBringIntoView"
+                                     MouseDoubleClick="PageListBox_MouseDoubleClick"
+                                     Loaded="PageListBox_Loaded"
+                                     SizeChanged="PageListBox_SizeChanged"
+                                     ScrollViewer.ScrollChanged="PageListBox_ScrollChanged">
+                                <!-- 1 DẢI NGANG duy nhất (không wrap nhiều hàng) — window chỉ hiện 1 hàng
+                                     thumbnail, chiều cao Auto = đúng chiều cao 1 thumbnail theo preset đang
+                                     chọn, không phụ thuộc số trang. HorizontalScrollBarVisibility=Hidden
+                                     (không phải Disabled) — vẫn cuộn được (Shift+lăn chuột, kéo-thả gần
+                                     mép) để xem hết trang khi file dài hơn bề rộng window, chỉ ẩn thanh
+                                     cuộn cho gọn. -->
+                                <ListBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <VirtualizingStackPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                </ListBox.ItemsPanel>
+                            </ListBox>
+                            <!-- Width/Height do code-behind set động (dọc 3px rộng ở đây vì Hàng cuộn ngang) -->
+                            <Border x:Name="RowDropIndicator" Background="{DynamicResource PrimaryBrush}"
+                                    HorizontalAlignment="Left" VerticalAlignment="Top"
+                                    Visibility="Collapsed" IsHitTestVisible="False"/>
+                            <Grid x:Name="PageScrollOverlay" Height="20" Margin="10,0,10,8"
+                                  HorizontalAlignment="Stretch" VerticalAlignment="Bottom"
+                                  Visibility="Collapsed" Background="Transparent"
+                                  Panel.ZIndex="20"
+                                  MouseLeftButtonDown="PageScrollOverlay_MouseLeftButtonDown">
+                                <Border Height="4" VerticalAlignment="Center"
+                                        CornerRadius="2" Background="#3364748B"/>
+                                <Border x:Name="PageScrollThumb" Width="100" MinWidth="100" Height="13"
+                                        HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        CornerRadius="6" Background="{DynamicResource TextSecondaryBrush}"
+                                        Opacity="0.86" Cursor="SizeWE"
+                                        MouseLeftButtonDown="PageScrollThumb_MouseLeftButtonDown"
+                                        MouseMove="PageScrollThumb_MouseMove"
+                                        MouseLeftButtonUp="PageScrollThumb_MouseLeftButtonUp"
+                                        LostMouseCapture="PageScrollThumb_LostMouseCapture">
+                                    <Border.RenderTransform>
+                                        <TranslateTransform/>
+                                    </Border.RenderTransform>
+                                </Border>
+                            </Grid>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </DataTemplate>
+
+            <!--
+            Chế độ CỘT (transposed) — mỗi file là 1 dải DỌC, cuộn dọc riêng; các cột xếp NGANG, cuộn ngang ở ScrollViewer ngoài.
+            Height="Auto" (KHÔNG "*") để card tự fit theo đúng số trang đang có — tránh kéo giãn card cao hết viewport dù chỉ có 1-2 trang (lỗi "không fit" trước đó, do GroupsList.VerticalContentAlignment="Stretch" ép card cao hết cỡ). MaxHeight ở ScrollViewer bên trong để chặn lại khi có QUÁ nhiều trang (chuyển sang tự cuộn dọc thay vì phá cao vô hạn).
+            KHÔNG đặt Width cố định trên Border ngoài — Auto theo nội dung (trang bên trong đã tự rộng theo ThumbnailWidth).
+            -->
+            <DataTemplate x:Key="DocumentGroupTemplateColumn">
+                <!-- MaxWidth = ThumbnailWidth + đệm (CardMaxWidth, xem code-behind) — TRƯỚC ĐÂY không
+                     có ràng buộc chiều rộng nào ở đây (Auto theo nội dung), nên tiêu đề PDF dài đẩy
+                     TextTrimming vô tác dụng (TextTrimming chỉ cắt khi có bề rộng hữu hạn để so),
+                     card cứ giãn theo độ dài tên file — đúng bug "window không fit nội dung" khi
+                     đổi sang chế độ Cột. Giờ card LUÔN cố định theo cỡ thumbnail, tên dài tự "...". -->
+                <!-- Chỉ 1 file → bỏ khung window (viền/bo góc/nền), NHƯNG GIỮ NGUYÊN
+                     MaxWidth=CardMaxWidth (không nới ra Infinity như trước) — nếu bỏ luôn
+                     trần này thì tiêu đề dài lại mất chỗ dựa để TextTrimming hoạt động
+                     (Auto-width không giới hạn → tiêu đề tràn ra thay vì cắt "..." như lúc
+                     nhiều file). Cắt tiêu đề phải nhất quán dù 1 hay nhiều file. -->
+                <Border ClipToBounds="True" ContextMenu="{StaticResource DocumentContextMenu}" VerticalAlignment="Stretch">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Margin" Value="3"/>
+                            <Setter Property="BorderBrush" Value="{DynamicResource PdfCardBorderBrush}"/>
+                            <Setter Property="BorderThickness" Value="1"/>
+                            <Setter Property="CornerRadius" Value="4"/>
+                            <Setter Property="Background" Value="{DynamicResource PdfCardBackgroundBrush}"/>
+                            <Setter Property="Width" Value="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=AdaptiveDocumentWidth}"/>
+                            <Setter Property="MaxWidth" Value="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=AdaptiveDocumentWidth}"/>
+                            <Setter Property="Height" Value="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=ColumnMaxContentHeight}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ItemsControl}, Path=Items.Count}" Value="1">
+                                    <Setter Property="Margin" Value="0"/>
+                                    <Setter Property="BorderThickness" Value="0"/>
+                                    <Setter Property="CornerRadius" Value="0"/>
+                                    <Setter Property="Background" Value="Transparent"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsSelected}" Value="True">
+                                    <Setter Property="BorderBrush" Value="{DynamicResource PdfSelectedBorderBrush}"/>
+                                    <Setter Property="BorderThickness" Value="1.5"/>
+                                    <Setter Property="Background" Value="{DynamicResource PdfSelectedBackgroundBrush}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <!-- "*" (không phải Auto) — window cao HẾT view chứa nó (đúng bằng chiều
+                                 cao border kéo-file), không tự co theo số trang nữa. Trang bên trong vẫn
+                                 tự cuộn dọc RIÊNG của window đó (ScrollViewer.VerticalScrollBarVisibility
+                                 bên dưới), chỉ là cuộn trong khoảng "*" này thay vì MaxHeight cố định. -->
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <Border Grid.Row="0" Background="{DynamicResource PdfHeaderBackgroundBrush}" Padding="7,4,7,3">
+                            <DockPanel LastChildFill="True">
+                            <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource PdfCardIconButton}"
+                                    Icon="{DynamicResource Mat.Close}"
+                                    ToolTip="Bỏ cả window này" Click="RemoveGroup_Click"/>
+                            <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource PdfCardIconButton}"
+                                    Icon="{DynamicResource Mat.ContentSave}"
+                                    ToolTip="Lưu các trang trong window này thành 1 file PDF" Click="SaveGroup_Click"/>
+                            <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource PdfCardIconButton}"
+                                    Icon="{DynamicResource Mat.Delete}"
+                                    ToolTip="Xóa trang đang chọn trong window này" Click="RemoveSelectedPages_Click"/>
+                            <!-- Hiện SUỐT lúc đang mở file (chưa biết số trang) VÀ lúc thumbnail chưa tải
+                                 hết (IsThumbnailLoading, xem WorkspaceDocument) — tự ẩn khi đạt 100%. Đặt
+                                 ở TIÊU ĐỀ (không đè lên vùng thumbnail), luôn trước tên file dù Hàng/Cột.
+                                 Lỗi mở file thì HeaderText tự có sẵn thông báo, không cần hiển thị riêng. -->
+                            <!-- Value=30 (không phải mặc định 0) — hình cung của XTCircularProgress
+                                 tính theo Value/Minimum/Maximum bất kể IsIndeterminate hay không, chỉ
+                                 riêng phần TỰ XOAY mới do IsIndeterminate bật; Value=0 → cung dài 0 →
+                                 nhìn như 1 chấm tròn xoay thay vì 1 cung tròn xoay (đúng bug đã gặp). -->
+                            <xt:XTCircularProgress IsIndeterminate="True" Value="30" Width="14" Height="14" StrokeThickness="2"
+                                                    Margin="0,0,6,0" VerticalAlignment="Center">
+                                <xt:XTCircularProgress.Style>
+                                    <Style TargetType="{x:Type xt:XTCircularProgress}" BasedOn="{StaticResource XTCircularProgressSmall}">
+                                        <Setter Property="Width" Value="14"/>
+                                        <Setter Property="Height" Value="14"/>
+                                        <Setter Property="StrokeThickness" Value="2"/>
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsThumbnailLoading}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </xt:XTCircularProgress.Style>
+                            </xt:XTCircularProgress>
+                            <TextBlock x:Name="GroupHeaderText" Text="{Binding HeaderText}" FontSize="12" FontWeight="Bold"
+                                       Foreground="{DynamicResource PdfHeaderTextBrush}"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Cursor="Arrow"
+                                       Margin="0,0,8,0"
+                                       ToolTip="{Binding HeaderText}"
+                                       PreviewMouseLeftButtonDown="GroupHeader_PreviewMouseLeftButtonDown"
+                                       PreviewMouseMove="GroupHeader_PreviewMouseMove"/>
+                            </DockPanel>
+                        </Border>
+
+                        <Border Grid.Row="0" Height="1" VerticalAlignment="Bottom" Background="{DynamicResource PdfCardBorderBrush}"/>
+
+                        <Grid Grid.Row="1" x:Name="RowIndicatorHost" ClipToBounds="False">
+                            <!-- Margin phải/dưới 8 (không phải 6/0) — chừa đủ chỗ cho thanh cuộn dọc
+                                 (chạy sát cạnh phải, kéo dài hết chiều cao) khỏi lấn vào vùng bo góc
+                                 CornerRadius=6 của Border ngoài, tránh bị ClipToBounds vạt mất 1 đoạn
+                                 thumb khi cuộn gần cuối (cùng lỗi như chế độ Hàng). -->
+                            <ListBox ItemsSource="{Binding Pages}" Tag="{Binding}"
+                                     ContextMenu="{StaticResource PageContextMenu}"
+                                     BorderThickness="0" Background="Transparent" Margin="0,0,28,4"
+                                     VerticalAlignment="Stretch"
+                                     Width="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=ColumnPageListWidth}"
+                                     SelectionMode="Extended"
+                                     ItemTemplate="{StaticResource MergeFileTemplate}"
+                                     ItemContainerStyle="{StaticResource PdfPageListItem}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.VerticalScrollBarVisibility="Hidden"
+                                     ScrollViewer.CanContentScroll="True"
+                                     VirtualizingPanel.IsVirtualizing="True"
+                                     VirtualizingPanel.VirtualizationMode="Recycling"
+                                     VirtualizingPanel.ScrollUnit="Pixel"
+                                     VirtualizingPanel.CacheLength="0.25"
+                                     VirtualizingPanel.CacheLengthUnit="Page"
+                                     AllowDrop="True" Drop="PageListBox_Drop" DragOver="PageListBox_DragOver"
+                                     DragLeave="PageListBox_DragLeave"
+                                     SelectionChanged="PageListBox_SelectionChanged"
+                                     PreviewMouseLeftButtonDown="PageListBox_PreviewMouseLeftButtonDown"
+                                     PreviewMouseRightButtonDown="PageListBox_PreviewMouseRightButtonDown"
+                                     PreviewMouseLeftButtonUp="PageListBox_PreviewMouseLeftButtonUp"
+                                     PreviewMouseMove="PageListBox_PreviewMouseMove"
+                                     PreviewMouseWheel="PageListBox_PreviewMouseWheel"
+                                     RequestBringIntoView="PageListBox_RequestBringIntoView"
+                                     MouseDoubleClick="PageListBox_MouseDoubleClick"
+                                     Loaded="PageListBox_Loaded"
+                                     SizeChanged="PageListBox_SizeChanged"
+                                     ScrollViewer.ScrollChanged="PageListBox_ScrollChanged">
+                                <ListBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <VirtualizingStackPanel Orientation="Vertical"/>
+                                    </ItemsPanelTemplate>
+                                </ListBox.ItemsPanel>
+                            </ListBox>
+                            <!-- Width/Height do code-behind set động (ngang 3px cao ở đây vì Cột cuộn dọc) -->
+                            <Border x:Name="RowDropIndicator" Background="{DynamicResource PrimaryBrush}"
+                                    HorizontalAlignment="Left" VerticalAlignment="Top"
+                                    Visibility="Collapsed" IsHitTestVisible="False"/>
+                            <Grid x:Name="PageScrollOverlay" Width="20" Margin="0,10,8,10"
+                                  HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                                  Visibility="Collapsed" Background="Transparent"
+                                  Panel.ZIndex="20"
+                                  MouseLeftButtonDown="PageScrollOverlay_MouseLeftButtonDown">
+                                <Border Width="4" HorizontalAlignment="Center"
+                                        CornerRadius="2" Background="#3364748B"/>
+                                <Border x:Name="PageScrollThumb" Width="13" MinHeight="72"
+                                        HorizontalAlignment="Center" VerticalAlignment="Top"
+                                        CornerRadius="6" Background="{DynamicResource TextSecondaryBrush}"
+                                        Opacity="0.86" Cursor="SizeNS"
+                                        MouseLeftButtonDown="PageScrollThumb_MouseLeftButtonDown"
+                                        MouseMove="PageScrollThumb_MouseMove"
+                                        MouseLeftButtonUp="PageScrollThumb_MouseLeftButtonUp"
+                                        LostMouseCapture="PageScrollThumb_LostMouseCapture">
+                                    <Border.RenderTransform>
+                                        <TranslateTransform/>
+                                    </Border.RenderTransform>
+                                </Border>
+                            </Grid>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </DataTemplate>
+
+            <!-- Chế độ chia đôi: mỗi file chiếm đúng nửa workspace; thumbnail tự wrap
+                 theo chiều rộng pane thay vì tạo một dải cuộn ngang. -->
+            <DataTemplate x:Key="DocumentGroupTemplateSplit">
+                <Border Margin="3" BorderBrush="{DynamicResource PdfCardBorderBrush}" BorderThickness="1"
+                        ContextMenu="{StaticResource DocumentContextMenu}"
+                        CornerRadius="5" Background="{DynamicResource PdfCardBackgroundBrush}" ClipToBounds="True"
+                        VerticalAlignment="Stretch">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Border Grid.Row="0" Background="{DynamicResource PdfHeaderBackgroundBrush}" Padding="8,5">
+                            <DockPanel LastChildFill="True">
+                            <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource PdfCardIconButton}"
+                                         Icon="{DynamicResource Mat.Close}" ToolTip="Bỏ file" Click="RemoveGroup_Click"/>
+                            <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource PdfCardIconButton}"
+                                         Icon="{DynamicResource Mat.ContentSave}" ToolTip="Lưu file" Click="SaveGroup_Click"/>
+                            <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource PdfCardIconButton}"
+                                         Icon="{DynamicResource Mat.Delete}" ToolTip="Xóa trang đã chọn" Click="RemoveSelectedPages_Click"/>
+                            <TextBlock Text="{Binding HeaderText}" FontWeight="Bold" TextTrimming="CharacterEllipsis"
+                                       Foreground="{DynamicResource PdfHeaderTextBrush}"
+                                       VerticalAlignment="Center" ToolTip="{Binding HeaderText}" Cursor="Arrow"
+                                       PreviewMouseLeftButtonDown="GroupHeader_PreviewMouseLeftButtonDown"/>
+                            </DockPanel>
+                        </Border>
+                        <Grid Grid.Row="1" x:Name="RowIndicatorHost" ClipToBounds="False">
+                            <ListBox ItemsSource="{Binding Pages}" Tag="{Binding}" Margin="5,5,28,5"
+                                     ContextMenu="{StaticResource PageContextMenu}"
+                                     BorderThickness="0" Background="Transparent" SelectionMode="Extended"
+                                     ItemTemplate="{StaticResource MergeFileTemplateSplit}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.VerticalScrollBarVisibility="Hidden"
+                                     ScrollViewer.CanContentScroll="True"
+                                     VirtualizingPanel.IsVirtualizing="True"
+                                     VirtualizingPanel.VirtualizationMode="Recycling"
+                                     VirtualizingPanel.ScrollUnit="Pixel"
+                                     VirtualizingPanel.CacheLength="2"
+                                     VirtualizingPanel.CacheLengthUnit="Page"
+                                     AllowDrop="True" Drop="PageListBox_Drop" DragOver="PageListBox_DragOver"
+                                     DragLeave="PageListBox_DragLeave" SelectionChanged="PageListBox_SelectionChanged"
+                                     PreviewMouseLeftButtonDown="PageListBox_PreviewMouseLeftButtonDown"
+                                     PreviewMouseRightButtonDown="PageListBox_PreviewMouseRightButtonDown"
+                                     PreviewMouseLeftButtonUp="PageListBox_PreviewMouseLeftButtonUp"
+                                     PreviewMouseMove="PageListBox_PreviewMouseMove"
+                                     PreviewMouseWheel="PageListBox_PreviewMouseWheel"
+                                     RequestBringIntoView="PageListBox_RequestBringIntoView"
+                                     MouseDoubleClick="PageListBox_MouseDoubleClick" Loaded="PageListBox_Loaded"
+                                     SizeChanged="PageListBox_SizeChanged"
+                                     ScrollViewer.ScrollChanged="PageListBox_ScrollChanged">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                        <Setter Property="Width" Value="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=SplitThumbnailItemWidth}"/>
+                                        <Setter Property="Height" Value="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=SplitThumbnailItemHeight}"/>
+                                        <Setter Property="Padding" Value="0"/>
+                                        <Setter Property="Margin" Value="0"/>
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem">
+                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <vwp:VirtualizingWrapPanel Orientation="Horizontal"
+                                            SpacingMode="Uniform" StretchItems="False"
+                                            IsGridLayoutEnabled="True"/>
+                                    </ItemsPanelTemplate>
+                                </ListBox.ItemsPanel>
+                            </ListBox>
+                            <Border x:Name="RowDropIndicator" Background="{DynamicResource PrimaryBrush}"
+                                    HorizontalAlignment="Left" VerticalAlignment="Top" Visibility="Collapsed"
+                                    IsHitTestVisible="False" Width="3"/>
+                            <Grid x:Name="PageScrollOverlay" Width="20" Margin="0,10,8,10"
+                                  HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                                  Visibility="Collapsed" Background="Transparent"
+                                  Panel.ZIndex="20"
+                                  MouseLeftButtonDown="PageScrollOverlay_MouseLeftButtonDown">
+                                <Border Width="4" HorizontalAlignment="Center"
+                                        CornerRadius="2" Background="#3364748B"/>
+                                <Border x:Name="PageScrollThumb" Width="13" MinHeight="72"
+                                        HorizontalAlignment="Center" VerticalAlignment="Top"
+                                        CornerRadius="6" Background="{DynamicResource TextSecondaryBrush}"
+                                        Opacity="0.86" Cursor="SizeNS"
+                                        MouseLeftButtonDown="PageScrollThumb_MouseLeftButtonDown"
+                                        MouseMove="PageScrollThumb_MouseMove"
+                                        MouseLeftButtonUp="PageScrollThumb_MouseLeftButtonUp"
+                                        LostMouseCapture="PageScrollThumb_LostMouseCapture">
+                                    <Border.RenderTransform>
+                                        <TranslateTransform/>
+                                    </Border.RenderTransform>
+                                </Border>
+                            </Grid>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </DataTemplate>
+
+            <ItemsPanelTemplate x:Key="GroupsPanelRow">
+                <StackPanel Orientation="Vertical"/>
+            </ItemsPanelTemplate>
+            <!-- StackPanel (không phải WrapPanel) — mỗi window là 1 cột cao HẾT view chứa nó, xếp
+                 thành 1 DÃY NGANG duy nhất, không wrap xuống hàng mới (WrapPanel không stretch con
+                 theo chiều cao được, chỉ StackPanel/Grid 1 hàng mới làm được "cao hết view"). Nhiều
+                 file hơn chỗ chứa thì GroupsScrollViewer tự cuộn NGANG (xem ApplyLayoutMode). -->
+            <ItemsPanelTemplate x:Key="GroupsPanelColumn">
+                <StackPanel Orientation="Horizontal"/>
+            </ItemsPanelTemplate>
+            <ItemsPanelTemplate x:Key="GroupsPanelSplit">
+                <UniformGrid Columns="2"/>
+            </ItemsPanelTemplate>
+        </ResourceDictionary>
+    </xt:XTWindow.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="{DynamicResource CardBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="10,6">
+            <DockPanel LastChildFill="False">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <xt:XTButton Style="{StaticResource XTSecondaryButton}" Icon="{DynamicResource Mat.Bug}"
+                                 ToolTip="Debug tải PDF" Click="DiagnosticsButton_Click"/>
+                    <xt:XTButton Style="{StaticResource XTSecondaryButton}" Icon="{DynamicResource Mat.Cog}"
+                                 ToolTip="Cài đặt" Margin="5,0,0,0" Click="SettingsButton_Click"/>
+                    <xt:XTToggleButton x:Name="ViewerToggleButton" Style="{StaticResource ViewerToggleButtonStyle}"
+                       UncheckedText="Tắt" CheckedText="Viewer" Margin="5,0,0,0"
+                       ToolTip="Hiện Viewer" Click="ViewerToggleButton_Click"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <xt:XTButton Style="{StaticResource XTPrimaryButton}" Icon="{DynamicResource Mat.Plus}"
+                                 Text="Thêm file" Padding="11,6" Click="AddFiles_Click"/>
+                    <ComboBox x:Name="ThumbnailSizeCombo" Width="118" Height="30" Margin="8,0,0,0"
+                              SelectionChanged="ThumbnailSizeCombo_SelectionChanged">
+                        <ComboBoxItem Content="Tự động" IsSelected="True"/>
+                        <ComboBoxItem Content="Mặc định"/>
+                        <ComboBoxItem Content="Vừa"/>
+                        <ComboBoxItem Content="Lớn"/>
+                        <ComboBoxItem Content="Rất lớn"/>
+                    </ComboBox>
+                    <xt:XTButton x:Name="LayoutModeButton" Style="{StaticResource XTSecondaryButton}"
+                                 Icon="{DynamicResource Mat.ViewColumn}" Text="Lưới" Padding="9,6" Margin="8,0,0,0"
+                                 ToolTip="Đổi bố cục Hàng ⇄ Lưới thích nghi" Click="LayoutModeButton_Click"/>
+                    <xt:XTButton x:Name="SplitViewButton" Style="{StaticResource XTSecondaryButton}"
+                                 Icon="{DynamicResource Mat.ViewColumn}" Text="Chia đôi" Padding="9,6" Margin="8,0,0,0"
+                                 ToolTip="Chọn đúng 2 file rồi bấm để chia đôi" Click="SplitViewButton_Click"/>
+                    <xt:XTButton Style="{StaticResource XTSecondaryButton}" Icon="{DynamicResource Mat.Merge}"
+                                 Text="Ghép đã chọn" Padding="9,6" Margin="8,0,0,0"
+                                 ToolTip="Ghép các file PDF đang chọn" Click="MergeSelectedGroups_Click"/>
+                    <xt:XTButton Style="{StaticResource XTSecondaryButton}" Icon="{DynamicResource Mat.Merge}"
+                                 Text="Ghép tất cả" Padding="9,6" Margin="8,0,0,0"
+                                 ToolTip="Ghép tất cả file theo thứ tự hiện tại" Click="MergeAllGroups_Click"/>
+                    <xt:XTButton x:Name="ResetLayoutButton" Style="{StaticResource XTSecondaryButton}"
+                                 Icon="{DynamicResource Mat.Restore}" Text="Đặt lại" Padding="9,6" Margin="8,0,0,0"
+                                 ToolTip="Về bố cục ban đầu" Click="ResetLayoutButton_Click"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <Grid x:Name="MainContentGrid" Grid.Row="1" Background="#E5E9EE">
+            <AdornerDecorator>
+            <Grid>
+                <!-- Danh sách các "window" PDF — kéo-thả file PDF (từ Explorer/XTSheet/XTPrint) thả vào đây để tạo window mới (GroupsArea_Drop), kéo trang qua lại giữa các window, kéo cả window bằng tiêu đề để sắp xếp lại tự do. Không còn panel duyệt file bên trái — user tự biết file in ra ở đâu (nút "Mở thư mục xuất" bên XTSheet/XTPrint) rồi kéo thẳng vào đây. -->
+                <Border x:Name="DropZoneOuterBorder" Margin="3"
+                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                        CornerRadius="4" Background="{DynamicResource CardBrush}"
+                        AllowDrop="True" DragEnter="GroupsArea_DragOver"
+                        DragOver="GroupsArea_DragOver" Drop="GroupsArea_Drop"
+                        DragLeave="GroupsArea_DragLeave"
+                        PreviewMouseLeftButtonDown="DropZoneOuterBorder_PreviewMouseLeftButtonDown">
+                    <Grid x:Name="GroupsOverlayGrid">
+                        <Border x:Name="EmptyHint" Padding="36,30" CornerRadius="16"
+                                Background="Transparent"
+                                BorderBrush="Transparent" BorderThickness="0"
+                                MinWidth="320" MaxWidth="440"
+                                HorizontalAlignment="Center" VerticalAlignment="Center"
+                                IsHitTestVisible="False"
+                                RenderTransformOrigin="0.5,0.5">
+                            <Border.RenderTransform>
+                                <ScaleTransform x:Name="EmptyHintScale" ScaleX="1" ScaleY="1"/>
+                            </Border.RenderTransform>
+                            <Grid>
+                                <!-- Viền nét đứt kiểu drop-zone hiện đại (Border không hỗ trợ dash nên dùng Rectangle riêng) -->
+                                <Rectangle x:Name="EmptyHintDash" RadiusX="16" RadiusY="16"
+                                           Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5"
+                                           StrokeDashArray="5 4" Fill="{DynamicResource CardBrush}" Opacity="0.6"/>
+                                <StackPanel Margin="8,20" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Viewbox Width="48" Height="48" Margin="0,0,0,12">
+                                        <Path x:Name="EmptyHintIcon" Data="{DynamicResource Mat.CloudUpload}"
+                                              Fill="{DynamicResource TextMutedBrush}"/>
+                                    </Viewbox>
+                                    <TextBlock Text="Kéo-thả file PDF vào đây"
+                                               FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center"
+                                               Foreground="{DynamicResource TextBrush}"/>
+                                    <TextBlock Text="hoặc double-click để chọn file"
+                                               FontSize="12" HorizontalAlignment="Center" Margin="0,4,0,0"
+                                               Foreground="{DynamicResource TextMutedBrush}"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <ScrollViewer x:Name="GroupsScrollViewer" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="6" Visibility="Collapsed"
+                                      PreviewMouseWheel="GroupsScrollViewer_PreviewMouseWheel">
+                            <ListBox x:Name="GroupsList" ItemTemplate="{StaticResource DocumentGroupTemplateRow}"
+                                     ItemsPanel="{StaticResource GroupsPanelRow}" SelectionMode="Extended"
+                                     BorderThickness="0" Background="Transparent"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                     HorizontalContentAlignment="Stretch"
+                                     SelectionChanged="GroupsList_SelectionChanged"
+                                     RequestBringIntoView="GroupsList_RequestBringIntoView">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+                                        <Setter Property="Padding" Value="0"/>
+                                        <Setter Property="Margin" Value="0"/>
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Setter Property="BorderBrush" Value="Transparent"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem">
+                                                    <ContentPresenter
+                                                        HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                        VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                            </ListBox>
+                        </ScrollViewer>
+
+                        <!-- Host chia đôi tách hẳn khỏi GroupsList/ScrollViewer thường.
+                             Hai cột * bảo đảm mỗi pane luôn nhận một chiều rộng hữu hạn bằng nhau,
+                             bất kể thumbnail bên trong đang ở preset nào. -->
+                        <Grid x:Name="SplitHostGrid" Visibility="Collapsed" Margin="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition x:Name="SplitLeftColumn" Width="*"/>
+                                <ColumnDefinition x:Name="SplitDividerColumn" Width="6"/>
+                                <ColumnDefinition x:Name="SplitRightColumn" Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <ContentControl x:Name="SplitLeftContent" Grid.Column="0"
+                                            ContentTemplate="{StaticResource DocumentGroupTemplateSplit}"
+                                            HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+                            <Border Grid.Column="1" Width="1" HorizontalAlignment="Center"
+                                    Background="{DynamicResource BorderBrush}"/>
+                            <ContentControl x:Name="SplitRightContent" Grid.Column="2"
+                                            ContentTemplate="{StaticResource DocumentGroupTemplateSplit}"
+                                            HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+                        </Grid>
+
+                        <!-- Vạch đánh dấu vị trí sẽ chèn window đang kéo vào giữa các window khác (kéo bằng tiêu đề). -->
+                        <Border x:Name="GroupDropIndicator" Background="{DynamicResource PrimaryBrush}"
+                                HorizontalAlignment="Left" VerticalAlignment="Top"
+                                Visibility="Collapsed" IsHitTestVisible="False"/>
+                    </Grid>
+                </Border>
+            </Grid>
+            </AdornerDecorator>
+
+        </Grid>
+
+        <Border Grid.Row="2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
+                Background="{DynamicResource CardBrush}" Padding="16,7">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="FileCountStatusText" Foreground="{DynamicResource TextSecondaryBrush}"
+                           FontSize="12" VerticalAlignment="Center"/>
+                <TextBlock x:Name="SelectedFileStatusText" Grid.Column="1"
+                           Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"
+                           TextAlignment="Right" TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center" Margin="16,0,0,0"/>
+            </Grid>
+        </Border>
+
+        <!--
+        Overlay Cài đặt — theo đúng mẫu overlay modal của XTLicenseAdmin (changePasswordOverlay/publishOverlay):
+        nền mờ #66000000 phủ toàn cửa sổ + 2 Border chồng nhau ở giữa (1 cái CHỈ để đổ bóng, 1 cái chứa nội dung
+        thật) — tách riêng bóng đổ khỏi nội dung chữ để tránh WPF rasterize cả card ra bitmap gây mờ chữ trên
+        màn hình DPI cao (đúng lý do XTLicenseAdmin đã làm vậy).
+        -->
+        <Grid x:Name="SettingsOverlay" Grid.RowSpan="3" Visibility="Collapsed" Background="#78000000"
+              MouseLeftButtonUp="SettingsOverlay_MouseLeftButtonUp">
+            <Border MaxWidth="640" Height="{Binding ActualHeight, ElementName=SettingsCard}"
+                    Margin="32" CornerRadius="14" Background="{DynamicResource CardBrush}"
+                    HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                    IsHitTestVisible="False">
+                <Border.Effect><DropShadowEffect BlurRadius="30" ShadowDepth="4" Opacity="0.28"/></Border.Effect>
+            </Border>
+            <Border x:Name="SettingsCard" MaxWidth="640" Margin="32" Padding="28,24" CornerRadius="14"
+                    Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                    MouseLeftButtonUp="SettingsCard_MouseLeftButtonUp">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Text="Cài đặt" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,22"/>
+
+                    <StackPanel Grid.Row="1">
+                        <TextBlock Text="Khi lưu" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,10"/>
+                        <Grid Margin="0,0,0,20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="48"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <CheckBox x:Name="CleanupAfterMergeCheck" Style="{StaticResource XTToggleSwitch}"
+                                      VerticalAlignment="Top"
+                                      Checked="CleanupAfterMergeCheck_Changed" Unchecked="CleanupAfterMergeCheck_Changed"/>
+                            <TextBlock Grid.Column="1" Text="Dọn file nguồn vào thư mục &quot;Đã ghép&quot; sau khi lưu"
+                                       TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <TextBlock Text="pdfFactory" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,10"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="48"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <CheckBox x:Name="UsePdfFactoryViewCheck" Style="{StaticResource XTToggleSwitch}"
+                                      ToolTip="Ghi đè registry 'ViewPdf' của pdfFactory để bấm 'View PDF file' sẽ mở app này thay vì Foxit/trình xem mặc định"
+                                      VerticalAlignment="Top"
+                                      Checked="UsePdfFactoryViewCheck_Changed" Unchecked="UsePdfFactoryViewCheck_Changed"/>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="Dùng ứng dụng này khi nhấn &quot;View PDF&quot; trong pdfFactory"
+                                           TextWrapping="Wrap"/>
+                                <TextBlock x:Name="PdfFactoryStatusText" FontSize="11" Margin="0,6,0,0"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Grid x:Name="DiagnosticsOverlay" Grid.RowSpan="3" Visibility="Collapsed" Background="#66000000"
+              MouseLeftButtonUp="DiagnosticsOverlay_MouseLeftButtonUp">
+            <Border MaxWidth="760" Height="{Binding ActualHeight, ElementName=DiagnosticsCard}"
+                    Margin="32" CornerRadius="14" Background="{DynamicResource CardBrush}"
+                    HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                    IsHitTestVisible="False">
+                <Border.Effect><DropShadowEffect BlurRadius="30" ShadowDepth="4" Opacity="0.28"/></Border.Effect>
+            </Border>
+            <Border x:Name="DiagnosticsCard" MaxWidth="760" MaxHeight="560" Margin="32" Padding="28,24"
+                    CornerRadius="14" Background="{DynamicResource CardBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                    HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                    MouseLeftButtonUp="DiagnosticsCard_MouseLeftButtonUp">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="Debug tải PDF" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,18"/>
+
+                        <UniformGrid Columns="2" Margin="0,0,0,14">
+                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6"
+                                    Padding="12" Margin="0,0,6,6" Background="{DynamicResource BackgroundBrush}">
+                                <StackPanel>
+                                    <TextBlock Text="Tổng quan" FontSize="11" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8"/>
+                                    <TextBlock x:Name="DiagnosticsSummaryText" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6"
+                                    Padding="12" Margin="6,0,0,6" Background="{DynamicResource BackgroundBrush}">
+                                <StackPanel>
+                                    <TextBlock Text="RAM" FontSize="11" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8"/>
+                                    <TextBlock x:Name="DiagnosticsMemoryText" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6"
+                                    Padding="12" Margin="0,6,6,0" Background="{DynamicResource BackgroundBrush}">
+                                <StackPanel>
+                                    <TextBlock Text="Luồng" FontSize="11" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8"/>
+                                    <TextBlock x:Name="DiagnosticsThreadsText" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6"
+                                    Padding="12" Margin="6,6,0,0" Background="{DynamicResource BackgroundBrush}">
+                                <StackPanel>
+                                    <TextBlock Text="Tải thumbnail" FontSize="11" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8"/>
+                                    <TextBlock x:Name="DiagnosticsLoadText" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+                        </UniformGrid>
+
+                        <TextBlock Text="Gợi ý đọc số liệu" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,8"/>
+                        <TextBlock x:Name="DiagnosticsHintText" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- Ghép/lưu PDF chạy NỀN (Task.Run bên code-behind) — overlay này chỉ để hiện tiến trình,
+             không chặn UI thread như trước (đúng bug "lưu file lớn bị đơ" đã bàn). -->
+        <Grid x:Name="SavingOverlay" Grid.RowSpan="3" Visibility="Collapsed" Background="#78000000">
+            <Border MaxWidth="380" Padding="28,26" CornerRadius="14" Background="{DynamicResource CardBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Border.Effect><DropShadowEffect BlurRadius="30" ShadowDepth="4" Opacity="0.28"/></Border.Effect>
+                <StackPanel HorizontalAlignment="Center">
+                    <xt:XTCircularProgress Style="{StaticResource XTCircularProgressLarge}"
+                                            Value="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=SavingProgressPercent}"
+                                            HorizontalAlignment="Center" Margin="0,0,0,18"/>
+                    <TextBlock Text="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=SavingStatusText}"
+                               HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"
+                               MaxWidth="320" Margin="0,0,0,18"/>
+                    <xt:XTButton Text="Huỷ" Style="{StaticResource XTSecondaryButton}"
+                                 HorizontalAlignment="Center" Click="SavingCancelButton_Click"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+    </Grid>
+</xt:XTWindow>
