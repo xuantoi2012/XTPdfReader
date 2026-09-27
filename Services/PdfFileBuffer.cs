@@ -1,52 +1,46 @@
 using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 
 namespace XTPdfMergeApp.Services
 {
     /// <summary>
-    /// Bước #0 tối ưu hiệu năng: đọc tuần tự CẢ file PDF vào RAM một lần, để PDFium parse trang từ bộ nhớ
-    /// (FPDF_LoadMemDocument64) thay vì tự seek/đọc từng khối nhỏ qua ổ mạng — mỗi lần seek qua SMB là 1
-    /// vòng hỏi-đáp, dao động rất lớn theo tải mạng (đo thật trên ổ P: parse/trang mới 43 ms ↔ 449 ms).
+    /// Bước #0 tối ưu hiệu năng (phương án C): PDFium không đọc file trên ổ mạng trực tiếp mà đọc qua
+    /// <see cref="PdfBlockCache"/> — bộ đệm cả file chia khối 256 KB, nạp dần bởi 1 luồng đọc nền. Lệnh đọc
+    /// của trang đang xem được chen lên trước đọc nền.
     ///
-    /// Đọc NỀN, không chặn lần mở đầu: trong lúc đang đọc, PdfThumbnailService vẫn mở file bằng
-    /// FPDF_LoadDocument như cũ (trang đầu hiện nhanh như trước); đọc xong → <see cref="BufferReady"/> báo
-    /// để lease cũ được thay bằng lease đọc từ RAM.
+    /// Vì sao không đọc hết file rồi FPDF_LoadMemDocument64 (thiết kế #0 đầu tiên): trong ~8 s đọc nền, lệnh
+    /// đọc nhỏ của PDFium phải xếp hàng sau khối đọc nền trên cùng đường truyền. Đo bằng
+    /// <c>PdfBench window</c> trên file thật 163 MB ở ổ P: (~21 MB/s, đã chạm trần băng thông, đọc song song
+    /// không nhanh hơn): parse trang mới TB 1041–1154 ms khi không đọc nền, 1637–1739 ms (max 11–12 s) khi
+    /// đọc nền kiểu cũ, 116–127 ms với bộ đệm khối.
     ///
     /// Giới hạn: file &gt; <see cref="MaxFileBytes"/> hoặc vượt tổng ngân sách <see cref="TotalBudgetBytes"/>
-    /// thì KHÔNG đệm (dùng cách đọc cũ) — tránh ăn hết RAM trên máy yếu.
+    /// thì không đệm — PDFium mở file như cũ (FPDF_LoadDocument), tránh ăn hết RAM trên máy yếu.
     /// </summary>
     public static class PdfFileBuffer
     {
-        /// <summary>File lớn hơn mức này không đọc vào RAM (theo đề xuất: ~500 MB).</summary>
+        /// <summary>File lớn hơn mức này không đệm vào RAM.</summary>
         public const long MaxFileBytes = 500L * 1024 * 1024;
 
         /// <summary>Tổng RAM tối đa cho mọi file đang đệm: min(2 GB, 1/4 RAM máy).</summary>
         public static readonly long TotalBudgetBytes = Math.Min(2L * 1024 * 1024 * 1024,
             Math.Max(256L * 1024 * 1024, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 4));
 
-        private sealed class Entry
-        {
-            public required long Length { get; init; }
-            public required DateTime LastWriteUtc { get; init; }
-            public required Task<byte[]?> Task { get; init; }
-            public CancellationTokenSource Cancel { get; } = new();
-        }
-
-        private static readonly ConcurrentDictionary<string, Entry> _entries = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, PdfBlockCache> _entries = new(StringComparer.OrdinalIgnoreCase);
         private static long _reservedBytes;
-
-        /// <summary>Đọc xong 1 file (đường dẫn đã chuẩn hoá) — PdfThumbnailService thay lease đọc-từ-file bằng lease RAM.</summary>
-        public static event Action<string>? BufferReady;
 
         public static long ReservedBytes => Interlocked.Read(ref _reservedBytes);
 
-        /// <summary>Buffer đã đọc xong và còn khớp file trên đĩa (độ dài + thời điểm ghi), hoặc null. Nếu chưa có
-        /// thì bắt đầu đọc nền (khi còn ngân sách).</summary>
-        public static byte[]? TryGetOrStart(string normalizedPath)
+        /// <summary>Bộ đệm của file (đường dẫn đã chuẩn hoá), đã tăng số tham chiếu — người gọi phải
+        /// <see cref="PdfBlockCache.Release"/> khi xong (với PDFium: SAU FPDF_CloseDocument). Chưa có thì tạo và
+        /// bắt đầu đọc nền. null = không đệm được (file quá lớn, hết ngân sách, không đọc được) → đọc file như cũ.</summary>
+        public static PdfBlockCache? Acquire(string normalizedPath)
         {
             FileInfo info;
             try
@@ -59,94 +53,256 @@ namespace XTPdfMergeApp.Services
                 return null;
             }
 
-            if (_entries.TryGetValue(normalizedPath, out var entry))
+            for (int attempt = 0; attempt < 3; attempt++)
             {
-                if (entry.Length == info.Length && entry.LastWriteUtc == info.LastWriteTimeUtc)
-                    return entry.Task.IsCompletedSuccessfully ? entry.Task.Result : null;
-                Invalidate(normalizedPath); // file đổi trên ổ mạng (người khác lưu đè) → đọc lại
-            }
+                if (_entries.TryGetValue(normalizedPath, out var existing))
+                {
+                    if (existing.Length == info.Length && existing.LastWriteUtc == info.LastWriteTimeUtc)
+                    {
+                        if (existing.TryAddRef()) return existing;
+                        continue; // vừa bị bỏ giữa chừng — thử lại
+                    }
+                    Invalidate(normalizedPath); // file đổi trên ổ mạng (người khác lưu đè) → đọc lại
+                }
 
-            Start(normalizedPath, info);
+                long length = info.Length;
+                if (length <= 0 || length > MaxFileBytes) return null;
+                if (Interlocked.Add(ref _reservedBytes, length) > TotalBudgetBytes)
+                {
+                    Interlocked.Add(ref _reservedBytes, -length);
+                    return null;
+                }
+
+                PdfBlockCache created;
+                try
+                {
+                    created = new PdfBlockCache(normalizedPath, length, info.LastWriteTimeUtc,
+                        onFreed: () => Interlocked.Add(ref _reservedBytes, -length));
+                }
+                catch
+                {
+                    Interlocked.Add(ref _reservedBytes, -length);
+                    return null;
+                }
+
+                if (!_entries.TryAdd(normalizedPath, created))
+                {
+                    created.Release(); // luồng khác vừa tạo trước — dùng bản đó
+                    continue;
+                }
+                created.StartBackgroundRead();
+                if (created.TryAddRef()) return created; // 1 tham chiếu của registry + 1 của người gọi
+                // (vừa bị Invalidate ngay sau khi thêm — thử lại từ đầu)
+            }
             return null;
         }
 
-        private static void Start(string path, FileInfo info)
-        {
-            long length = info.Length;
-            if (length <= 0 || length > MaxFileBytes || length > int.MaxValue) return;
-            if (Interlocked.Add(ref _reservedBytes, length) > TotalBudgetBytes)
-            {
-                Interlocked.Add(ref _reservedBytes, -length);
-                return;
-            }
-
-            var cancel = new CancellationTokenSource();
-            Entry? entry = null;
-            entry = new Entry
-            {
-                Length = length,
-                LastWriteUtc = info.LastWriteTimeUtc,
-                Task = Task.Run(() => ReadAll(path, length, cancel.Token))
-            };
-            if (!_entries.TryAdd(path, entry))
-            {
-                Interlocked.Add(ref _reservedBytes, -length);
-                return;
-            }
-            entry.Cancel.Token.Register(() => cancel.Cancel());
-            _ = entry.Task.ContinueWith(t =>
-            {
-                if (t.IsCompletedSuccessfully && t.Result != null && _entries.TryGetValue(path, out var current) && ReferenceEquals(current, entry))
-                    BufferReady?.Invoke(path);
-                else if (!t.IsCompletedSuccessfully || t.Result == null)
-                    Remove(path, entry);
-            }, TaskScheduler.Default);
-        }
-
-        private static byte[]? ReadAll(string path, long length, CancellationToken token)
-        {
-            long start = Stopwatch.GetTimestamp();
-            try
-            {
-                // Pinned (POH): PDFium giữ con trỏ vào buffer suốt đời document, GC không được dời nó.
-                var data = GC.AllocateUninitializedArray<byte>((int)length, pinned: true);
-                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
-                    FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.SequentialScan);
-                int read = 0;
-                while (read < data.Length)
-                {
-                    token.ThrowIfCancellationRequested();
-                    int n = fs.Read(data, read, Math.Min(4 << 20, data.Length - read)); // khối 4 MB, tuần tự
-                    if (n <= 0) return null; // file bị cắt ngắn giữa chừng
-                    read += n;
-                }
-                RenderDiagnostics.FileBufferRead.Record(start);
-                return data;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        /// <summary>File sắp bị ghi đè (xoay trang, annotation) hoặc đã đổi — bỏ buffer cũ.</summary>
+        /// <summary>File sắp bị ghi đè (xoay trang, annotation) hoặc đã đổi — bỏ bộ đệm cũ. Document PDFium
+        /// đang dùng nó vẫn đọc được tới khi đóng (bộ nhớ chỉ trả khi mọi tham chiếu đã Release).</summary>
         public static void Invalidate(string normalizedPath)
         {
-            if (_entries.TryGetValue(normalizedPath, out var entry)) Remove(normalizedPath, entry);
+            if (_entries.TryRemove(normalizedPath, out var entry)) entry.Release();
         }
 
-        /// <summary>Bỏ buffer của các file không còn mở.</summary>
+        /// <summary>Bỏ bộ đệm của các file không còn mở.</summary>
         public static void ReleaseExcept(Func<string, bool> isActive)
         {
             foreach (var key in _entries.Keys)
                 if (!isActive(key)) Invalidate(key);
         }
+    }
 
-        private static void Remove(string path, Entry entry)
+    /// <summary>
+    /// Bộ đệm cả file chia khối <see cref="BlockSize"/>. Khối chưa có → đọc ngay khối đó (lệnh của trang đang
+    /// xem); luồng nền lấp dần các khối còn thiếu theo thứ tự, mỗi lần 1 khối, và đứng chờ khi có lệnh đọc của
+    /// trang đang chờ. Khối đã có thì không bao giờ đổi → đọc ra không cần khoá.
+    ///
+    /// An toàn đa luồng: PDFium (dưới gate toàn cục) và iText (PdfLayerService, ngoài gate) có thể đọc cùng lúc.
+    /// </summary>
+    public sealed class PdfBlockCache
+    {
+        /// <summary>Cỡ khối — cũng là cỡ mỗi lần đọc nền. Đo trên ổ P: khối 256 KB cho độ trễ trang tốt nhất
+        /// (khối nhỏ hơn: quá nhiều lần hỏi-đáp; lớn hơn: lệnh của trang chờ khối nền lâu hơn).</summary>
+        public const int BlockSize = 256 * 1024;
+
+        private readonly Func<bool, IBlockFile> _open;
+        private readonly byte[] _data;
+        private readonly int[] _present;          // 1 = khối đã nạp (ghi bằng Volatile.Write SAU khi chép dữ liệu)
+        private int _presentCount;
+        private readonly object _lock = new();
+        private int _foregroundWaiting;
+        private readonly IBlockFile _file;          // cho lệnh đọc của trang (đọc theo vị trí, không seek chung)
+        private readonly CancellationTokenSource _stop = new();
+        private readonly Action _onFreed;
+        private int _refs = 1;
+
+        internal PdfBlockCache(string path, long length, DateTime lastWriteUtc, Action onFreed)
+            : this(length, lastWriteUtc, onFreed, sequential => new FileBlockFile(path, sequential))
         {
-            if (!_entries.TryRemove(new System.Collections.Generic.KeyValuePair<string, Entry>(path, entry))) return;
-            entry.Cancel.Cancel();
-            Interlocked.Add(ref _reservedBytes, -entry.Length);
         }
+
+        /// <param name="open">Mở 1 nguồn đọc (true = cho luồng nền, đọc tuần tự). PdfBench truyền bản đọc không
+        /// qua cache Windows / giả lập ổ mạng để đo đúng code này.</param>
+        internal PdfBlockCache(long length, DateTime lastWriteUtc, Action onFreed, Func<bool, IBlockFile> open)
+        {
+            Length = length;
+            LastWriteUtc = lastWriteUtc;
+            _onFreed = onFreed;
+            _open = open;
+            _data = GC.AllocateUninitializedArray<byte>(checked((int)length));
+            _present = new int[(int)((length + BlockSize - 1) / BlockSize)];
+            _file = open(false);
+        }
+
+        public long Length { get; }
+        public DateTime LastWriteUtc { get; }
+        public bool IsComplete => Volatile.Read(ref _presentCount) == _present.Length;
+
+        internal bool TryAddRef()
+        {
+            while (true)
+            {
+                int refs = Volatile.Read(ref _refs);
+                if (refs <= 0) return false;
+                if (Interlocked.CompareExchange(ref _refs, refs + 1, refs) == refs) return true;
+            }
+        }
+
+        public void Release()
+        {
+            if (Interlocked.Decrement(ref _refs) != 0) return;
+            _stop.Cancel();
+            lock (_lock) Monitor.PulseAll(_lock);
+            _file.Dispose();
+            _onFreed();
+        }
+
+        /// <summary>Chép [position, position+count) sang bộ nhớ native (callback m_GetBlock của PDFium).</summary>
+        public bool CopyTo(long position, IntPtr destination, int count)
+        {
+            if (!EnsureRange(position, count)) return false;
+            System.Runtime.InteropServices.Marshal.Copy(_data, (int)position, destination, count);
+            return true;
+        }
+
+        /// <summary>Chép [position, position+count) sang mảng (iText đọc /OCProperties).</summary>
+        public bool CopyTo(long position, byte[] destination, int offset, int count)
+        {
+            if (!EnsureRange(position, count)) return false;
+            Buffer.BlockCopy(_data, (int)position, destination, offset, count);
+            return true;
+        }
+
+        private bool EnsureRange(long position, int count)
+        {
+            if (position < 0 || count < 0 || position + count > Length) return false;
+            if (count == 0) return true;
+            int first = (int)(position / BlockSize), last = (int)((position + count - 1) / BlockSize);
+            for (int block = first; block <= last; block++)
+                if (Volatile.Read(ref _present[block]) == 0 && !ReadBlockNow(block)) return false;
+            return true;
+        }
+
+        /// <summary>Lệnh của trang đang xem: đọc ngay khối còn thiếu, luồng nền đứng chờ tới khi xong.</summary>
+        private bool ReadBlockNow(int block)
+        {
+            Interlocked.Increment(ref _foregroundWaiting);
+            long start = Stopwatch.GetTimestamp();
+            byte[] scratch = ArrayPool<byte>.Shared.Rent(BlockSize);
+            try
+            {
+                if (!ReadFromFile(_file, block, scratch)) return false;
+                Commit(block, scratch);
+                RenderDiagnostics.FileBlockRead.Record(start);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(scratch);
+                if (Interlocked.Decrement(ref _foregroundWaiting) == 0)
+                    lock (_lock) Monitor.PulseAll(_lock);
+            }
+        }
+
+        private bool ReadFromFile(IBlockFile file, int block, byte[] scratch)
+        {
+            long offset = (long)block * BlockSize;
+            int size = (int)Math.Min(BlockSize, Length - offset), read = 0;
+            while (read < size)
+            {
+                int n = file.Read(offset + read, scratch.AsSpan(read, size - read));
+                if (n <= 0) return false; // file bị cắt ngắn giữa chừng
+                read += n;
+            }
+            return true;
+        }
+
+        private void Commit(int block, byte[] scratch)
+        {
+            long offset = (long)block * BlockSize;
+            int size = (int)Math.Min(BlockSize, Length - offset);
+            lock (_lock)
+            {
+                if (_present[block] != 0) return; // luồng khác vừa nạp — dữ liệu giống nhau, giữ bản đã có
+                Buffer.BlockCopy(scratch, 0, _data, (int)offset, size);
+                Volatile.Write(ref _present[block], 1);
+                _presentCount++;
+            }
+        }
+
+        internal void StartBackgroundRead()
+            => Task.Factory.StartNew(BackgroundRead, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+        private void BackgroundRead()
+        {
+            long start = Stopwatch.GetTimestamp();
+            var token = _stop.Token;
+            byte[] scratch = new byte[BlockSize];
+            try
+            {
+                using var handle = _open(true);
+                for (int block = 0; block < _present.Length; block++)
+                {
+                    if (Volatile.Read(ref _present[block]) != 0) continue; // trang đang xem đã nạp khối này
+                    lock (_lock)
+                    {
+                        // Nhường trang đang xem: không chiếm đường truyền khi nó đang chờ khối.
+                        while (Volatile.Read(ref _foregroundWaiting) > 0 && !token.IsCancellationRequested)
+                            Monitor.Wait(_lock, 50);
+                    }
+                    if (token.IsCancellationRequested) return;
+                    if (Volatile.Read(ref _present[block]) != 0) continue;
+                    if (!ReadFromFile(handle, block, scratch)) return;
+                    Commit(block, scratch);
+                }
+                RenderDiagnostics.FileBufferRead.Record(start);
+            }
+            catch
+            {
+                // Lỗi đọc nền (mạng rớt, file bị xoá…): dừng nền, lệnh của trang vẫn tự đọc khối khi cần.
+            }
+        }
+    }
+
+    /// <summary>Nguồn đọc theo vị trí của <see cref="PdfBlockCache"/>.</summary>
+    internal interface IBlockFile : IDisposable
+    {
+        /// <summary>Đọc tối đa destination.Length byte tại offset; trả số byte đọc được (0 = hết file).</summary>
+        int Read(long offset, Span<byte> destination);
+    }
+
+    internal sealed class FileBlockFile(string path, bool sequential) : IBlockFile
+    {
+        // FileShare.ReadWrite|Delete: không chặn các thao tác khác trên file (chúng tự đóng lease qua
+        // SuspendDocumentAsync + Invalidate trước khi ghi).
+        private readonly SafeFileHandle _handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete, sequential ? FileOptions.SequentialScan : FileOptions.RandomAccess);
+
+        public int Read(long offset, Span<byte> destination) => RandomAccess.Read(_handle, destination, offset);
+        public void Dispose() => _handle.Dispose();
     }
 }

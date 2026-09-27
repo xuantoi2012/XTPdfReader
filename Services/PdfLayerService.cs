@@ -161,14 +161,14 @@ namespace XTPdfMergeApp.Services
         /// File gốc + phần này = 1 PDF hợp lệ mà PDFium vẽ đúng trạng thái layer mong muốn. Chỉ giữ phần đuôi
         /// (vài trăm byte) — không chép cả file (file CAD có thể rất lớn), xem <see cref="LayeredDocumentSource"/>.
         /// </summary>
-        /// <param name="original">Nội dung file đã đọc sẵn vào RAM (PdfFileBuffer) — có thì iText đọc từ đó, không
-        /// seek lại qua ổ mạng.</param>
-        public static byte[] BuildVisibilityTail(string path, IReadOnlySet<string> hidden, out long originalLength, byte[]? original = null)
+        /// <param name="cache">Bộ đệm khối của file (PdfFileBuffer) — có thì iText đọc qua đó (khối đã có không
+        /// phải đọc lại qua ổ mạng, khối thiếu được ưu tiên hơn đọc nền), không mở file riêng.</param>
+        public static byte[] BuildVisibilityTail(string path, IReadOnlySet<string> hidden, out long originalLength, PdfBlockCache? cache = null)
         {
-            originalLength = original?.LongLength ?? new FileInfo(path).Length;
+            originalLength = cache?.Length ?? new FileInfo(path).Length;
             var tail = new TailOnlyStream(originalLength);
-            using (var reader = original != null
-                ? new PdfReader(new iText.IO.Source.RandomAccessSourceFactory().CreateSource(original), new ReaderProperties())
+            using (var reader = cache != null
+                ? new PdfReader(new BlockCacheSource(cache), new ReaderProperties())
                 : new PdfReader(path))
             using (var writer = new PdfWriter(tail))
             using (var doc = new PdfDocument(reader, writer, new StampingProperties().UseAppendMode()))
@@ -201,6 +201,33 @@ namespace XTPdfMergeApp.Services
                 }
             }
             return tail.ToArray();
+        }
+
+        /// <summary>iText đọc file gốc qua <see cref="PdfBlockCache"/>. Không sở hữu bộ đệm (người gọi giữ tham chiếu).</summary>
+        private sealed class BlockCacheSource(PdfBlockCache cache) : iText.IO.Source.IRandomAccessSource
+        {
+            private readonly byte[] _one = new byte[1];
+
+            public int Get(long position)
+            {
+                if (position < 0 || position >= cache.Length) return -1;
+                if (!cache.CopyTo(position, _one, 0, 1)) throw new IOException("Không đọc được file PDF gốc.");
+                return _one[0];
+            }
+
+            public int Get(long position, byte[] bytes, int off, int len)
+            {
+                if (position < 0 || position >= cache.Length) return -1;
+                int count = (int)Math.Min(len, cache.Length - position);
+                if (!cache.CopyTo(position, bytes, off, count)) throw new IOException("Không đọc được file PDF gốc.");
+                return count;
+            }
+
+            public long Length() => cache.Length;
+
+            public void Close()
+            {
+            }
         }
 
         /// <summary>Stream cho iText ghi bản append-mode: bỏ qua đúng <c>originalLength</c> byte đầu (iText

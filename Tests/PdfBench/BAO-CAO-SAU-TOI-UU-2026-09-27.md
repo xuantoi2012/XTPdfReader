@@ -62,3 +62,28 @@ dotnet run -c Release -- bench "P:\...\03. QUYEN 2.2 ... TCTC.pdf" --mem  # pars
 Mỗi lệnh chạy 2–3 lần. Mục 0 (số lần đọc/trang) và mục 5–6 (từng bước) là những số quan trọng nhất.
 Sau đó mở app thật, xem bảng Debug, và bấm giờ so với Foxit: mở → trang đầu, zoom 400% → nét, cuộn
 20 trang.
+
+## Cập nhật: #0 đổi sang bộ đệm khối (phương án C)
+
+Đo trên file thật 163 MB ở ổ P: (`readtest`, `window --block 256 --bgkb 256`, mỗi lệnh 2 lần):
+- Đọc tuần tự 16–26 MB/s với mọi cỡ khối (1/4/16 MB) và số luồng (1/2/4): đã chạm trần băng thông, đọc
+  song song không có lợi.
+- Parse trang mới trong lúc đọc nền:
+
+| Kịch bản | TB | Trung vị | Max |
+|---|---:|---:|---:|
+| A. Trước #0 (không đọc nền) | 1041–1154 ms | 1184–1238 | 1785–2038 |
+| B. #0 cũ (đọc hết file nền, rồi `FPDF_LoadMemDocument64`) | 1637–1739 ms | 1026–1070 | 11145–12022 |
+| C. Bộ đệm khối 256 KB, trang ưu tiên | **116–127 ms** | 71–103 | 552–652 |
+
+Vì vậy #0 giờ là: PDFium luôn mở file qua `FPDF_LoadCustomDocument` trên `PdfBlockCache`:
+- Khối trang cần thì đọc ngay; luồng nền nạp các khối còn thiếu, mỗi lượt 256 KB, và đứng chờ khi trang
+  đang chờ khối.
+- Không còn bước "đọc xong → đổi sang document trong RAM", nên cũng không phải parse lại trang đang xem.
+- iText (bật/tắt layer) cũng đọc qua bộ đệm này.
+- File > 500 MB hoặc hết ngân sách RAM: `FPDF_LoadDocument` như cũ.
+
+Kịch bản **D** của `window` chạy đúng code này của app. Trên máy thử (giả lập 6 ms/21 MB/s, file
+tổng hợp có kiểu đọc giống file thật), D = TB 100 ms, trung vị 70, max 571 ms, khớp C. Mở file 57 ms,
+so với 60 ms khi đọc kiểu cũ. Cần chạy lại trên ổ P: để xác nhận.
+

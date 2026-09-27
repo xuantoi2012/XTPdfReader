@@ -1,13 +1,15 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace XTPdfMergeApp.Services
 {
     /// <summary>
-    /// Nguồn dữ liệu cho FPDF_LoadCustomDocument: "file gốc trên đĩa + phần nối thêm trong RAM" (xem
-    /// <see cref="PdfLayerService.BuildVisibilityTail"/>). PDFium đọc từng khối qua callback m_GetBlock nên
-    /// không phải nạp cả file CAD lớn vào bộ nhớ như FPDF_LoadMemDocument64, và file trên đĩa không bị sửa.
+    /// Nguồn dữ liệu cho FPDF_LoadCustomDocument: "file gốc + phần nối thêm trong RAM". Phần nối thêm là
+    /// incremental update đổi /D/ON, /D/OFF (xem <see cref="PdfLayerService.BuildVisibilityTail"/>), hoặc rỗng
+    /// khi file đang ở trạng thái layer mặc định. File gốc đọc qua bộ đệm khối <see cref="PdfBlockCache"/>
+    /// (bước #0) — hoặc thẳng từ file nếu file quá lớn để đệm. File trên đĩa không bị sửa.
     ///
     /// Phải sống tới SAU FPDF_CloseDocument (PDFium còn gọi callback đọc trong suốt đời document); mọi lệnh
     /// PDFium đã tuần tự qua gate toàn cục nên callback không bị gọi song song.
@@ -29,13 +31,13 @@ namespace XTPdfMergeApp.Services
         private delegate int GetBlockCallback(IntPtr param, CULong position, IntPtr buffer, CULong size);
 
         private readonly FileStream? _file;
-        /// <summary>Nội dung file gốc đã có sẵn trong RAM (PdfFileBuffer) — có thì không đụng tới file nữa.</summary>
-        private readonly byte[]? _original;
+        /// <summary>Bộ đệm khối của file gốc — nguồn giữ 1 tham chiếu, trả khi Dispose.</summary>
+        private PdfBlockCache? _cache;
         private readonly long _originalLength;
         private readonly byte[] _tail;
         private readonly GetBlockCallback _callback; // giữ tham chiếu: GC thu delegate = crash native
         private IntPtr _fileAccess;
-        private byte[] _scratch = new byte[64 * 1024];
+        private byte[] _scratch = Array.Empty<byte>();
 
         public LayeredDocumentSource(string path, long originalLength, byte[] tail)
             : this(originalLength, tail,
@@ -43,18 +45,19 @@ namespace XTPdfMergeApp.Services
                 // qua SuspendDocumentAsync trước khi ghi).
                 new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.RandomAccess), null)
         {
+            _scratch = new byte[64 * 1024];
         }
 
-        /// <summary>File gốc đã nằm trong RAM (PdfFileBuffer): đọc từ đó, không seek qua ổ mạng.</summary>
-        public LayeredDocumentSource(byte[] original, byte[] tail)
-            : this(original.LongLength, tail, null, original)
+        /// <summary>Đọc file gốc qua bộ đệm khối. Nhận quyền sở hữu 1 tham chiếu của <paramref name="cache"/>.</summary>
+        public LayeredDocumentSource(PdfBlockCache cache, byte[] tail)
+            : this(cache.Length, tail, null, cache)
         {
         }
 
-        private LayeredDocumentSource(long originalLength, byte[] tail, FileStream? file, byte[]? original)
+        private LayeredDocumentSource(long originalLength, byte[] tail, FileStream? file, PdfBlockCache? cache)
         {
             _file = file;
-            _original = original;
+            _cache = cache;
             _originalLength = originalLength;
             _tail = tail;
             TotalLength = originalLength + tail.Length;
@@ -75,8 +78,6 @@ namespace XTPdfMergeApp.Services
         }
 
         public long TotalLength { get; }
-        public bool ReadsFromMemory => _original != null;
-
         /// <summary>Con trỏ FPDF_FILEACCESS* truyền cho FPDF_LoadCustomDocument.</summary>
         public IntPtr FileAccessPointer => _fileAccess;
 
@@ -93,10 +94,10 @@ namespace XTPdfMergeApp.Services
                     int chunk;
                     if (at < _originalLength)
                     {
-                        if (_original != null)
+                        if (_cache != null)
                         {
                             chunk = (int)Math.Min(count - written, _originalLength - at);
-                            Marshal.Copy(_original, (int)at, buffer + (int)written, chunk);
+                            if (!_cache.CopyTo(at, buffer + (int)written, chunk)) return 0;
                             written += chunk;
                             continue;
                         }
@@ -130,6 +131,7 @@ namespace XTPdfMergeApp.Services
                 _fileAccess = IntPtr.Zero;
             }
             _file?.Dispose();
+            Interlocked.Exchange(ref _cache, null)?.Release();
             _scratch = Array.Empty<byte>();
         }
     }

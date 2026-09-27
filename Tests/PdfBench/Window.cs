@@ -7,11 +7,13 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
+using XTPdfMergeApp.Services;
 
 /// <summary>
 /// Đo 2 câu hỏi sau bước #0, trên ổ mạng thật:
 ///   readtest — tốc độ đọc tuần tự theo cỡ khối × số luồng song song (đọc KHÔNG qua cache Windows).
 ///   window   — parse trang mới TRONG LÚC đang đọc nền cả file (khoảng ~8 s với file 163 MB ở 21 MB/s).
+///              Kịch bản D chạy đúng code của app (PdfBlockCache + LayeredDocumentSource, link từ Services/).
 /// </summary>
 static unsafe class WindowBench
 {
@@ -113,18 +115,20 @@ static unsafe class WindowBench
             pageCount = Native.FPDF_GetPageCount(d);
             Native.FPDF_CloseDocument(d);
         }
-        int range = Math.Max(1, Math.Min(pages, pageCount / 3));
+        int range = Math.Max(1, Math.Min(pages, pageCount / 4));
         var scenarios = new (string Name, int BlockKb, bool Background)[]
         {
             ("A. Như trước #0 (PDFium đọc kiểu cũ, không đọc nền)", 0, false),
-            ("B. App hiện tại TRONG lúc đọc nền (đọc kiểu cũ + luồng nền tranh băng thông)", 0, true),
+            ("B. #0 cũ TRONG lúc đọc nền (đọc kiểu cũ + luồng nền đọc hết file, tranh băng thông)", 0, true),
             ($"C. Đề xuất: bộ đệm theo khối {blockKb} KB, trang đang xem ưu tiên hơn luồng nền", blockKb, true),
         };
         for (int s = 0; s < scenarios.Length; s++)
         {
             var sc = scenarios[s];
             using var src = new SourceFile(path, len, sc.BlockKb * 1024, sc.Background, netLatency, netMBps, bgChunkKb * 1024);
+            var openSw = Stopwatch.StartNew();
             IntPtr doc = Native.FPDF_LoadCustomDocument(src.Pointer, null);
+            double openMs = openSw.Elapsed.TotalMilliseconds;
             var times = new List<double>();
             int first = s * range;
             for (int p = first; p < Math.Min(pageCount, first + range); p++)
@@ -137,10 +141,97 @@ static unsafe class WindowBench
             double bgDone = src.StopBackground();
             var sorted = times.OrderBy(x => x).ToList();
             Console.WriteLine($"\n{sc.Name}");
+            Console.WriteLine($"   Mở file (FPDF_LoadCustomDocument): {openMs:F0} ms");
             Console.WriteLine($"   Parse trang mới: TB {times.Average(),5:F0} ms, trung vị {sorted[sorted.Count / 2],5:F0}, max {sorted[^1],5:F0} ms (n={times.Count})");
             Console.WriteLine($"   Đọc qua mạng: {src.ForegroundReads} lần cho trang đang xem ({src.ForegroundBytes / 1024} KB)" +
                               (sc.Background ? $", luồng nền đã đọc {src.BackgroundBytes / 1048576} MB" + (bgDone > 0 ? $" (xong cả file sau {bgDone / 1000:F1} s)" : " (chưa xong khi đo xong)") : ""));
         }
+        AppCache(path, len, pageCount, 3 * range, range, netLatency, netMBps);
+    }
+
+    /// <summary>D: đúng đường đọc của app sau phương án C — PdfBlockCache (khối và lượt đọc nền
+    /// PdfBlockCache.BlockSize) + LayeredDocumentSource + FPDF_LoadCustomDocument. Chỉ thay nguồn đọc file
+    /// bằng bản không qua cache Windows (và giả lập mạng nếu có --netsim) để so được với A/B/C.</summary>
+    static void AppCache(string path, long len, int pageCount, int first, int range, double netLatency, double netMBps)
+    {
+        var link = new SimLink(netLatency, netMBps);
+        var fg = new Counter(); var bg = new Counter();
+        var clock = Stopwatch.StartNew();
+        long bgDoneBefore = RenderDiagnostics.FileBufferRead.Count;
+        var cache = new PdfBlockCache(len, DateTime.MinValue, () => { },
+            sequential => new RawBlockFile(path, len, link, sequential ? bg : fg));
+        cache.StartBackgroundRead();
+        var times = new List<double>();
+        double openMs;
+        using (var source = new LayeredDocumentSource(cache, Array.Empty<byte>())) // nhận tham chiếu của cache
+        {
+            var openSw = Stopwatch.StartNew();
+            IntPtr doc = Native.FPDF_LoadCustomDocument(source.FileAccessPointer, null);
+            openMs = openSw.Elapsed.TotalMilliseconds;
+            for (int p = first; p < Math.Min(pageCount, first + range); p++)
+            {
+                var sw = Stopwatch.StartNew();
+                Native.FPDF_ClosePage(Native.FPDF_LoadPage(doc, p));
+                times.Add(sw.Elapsed.TotalMilliseconds);
+            }
+            Native.FPDF_CloseDocument(doc);
+        }
+        bool bgDone = RenderDiagnostics.FileBufferRead.Count > bgDoneBefore;
+        var sorted = times.OrderBy(x => x).ToList();
+        Console.WriteLine($"\nD. Code của app (PdfBlockCache: khối {PdfBlockCache.BlockSize / 1024} KB, đọc nền {PdfBlockCache.BlockSize / 1024} KB/lượt, trang ưu tiên)");
+        Console.WriteLine($"   Mở file (FPDF_LoadCustomDocument): {openMs:F0} ms");
+        if (times.Count == 0) { Console.WriteLine("   (file quá ít trang cho kịch bản D)"); return; }
+        Console.WriteLine($"   Parse trang mới: TB {times.Average(),5:F0} ms, trung vị {sorted[sorted.Count / 2],5:F0}, max {sorted[^1],5:F0} ms (n={times.Count})");
+        Console.WriteLine($"   Đọc qua mạng: {fg.Reads} lần cho trang đang xem ({fg.Bytes / 1024} KB), luồng nền đã đọc {bg.Bytes / 1048576} MB" +
+                          (bgDone ? " (xong cả file)" : $" (chưa xong khi đo xong, {clock.Elapsed.TotalSeconds:F1} s)"));
+    }
+
+    sealed class Counter { public long Reads, Bytes; }
+
+    /// <summary>Giả lập 1 đường truyền dùng chung: mỗi lần nhảy vị trí tốn latency ms, băng thông mbps chung.</summary>
+    sealed class SimLink(double latency, double mbps)
+    {
+        readonly object _link = new();
+        long _lastEnd = -1;
+
+        public void Charge(long pos, long size)
+        {
+            if (latency < 0) return;
+            double wait = pos != Interlocked.Exchange(ref _lastEnd, pos + size) ? latency : 0;
+            Spin(wait);
+            lock (_link) Spin(size / (mbps * 1048576.0) * 1000); // truyền: dùng chung băng thông
+        }
+    }
+
+    /// <summary>Nguồn đọc cho PdfBlockCache của app: không qua cache Windows, có giả lập mạng.</summary>
+    sealed class RawBlockFile : IBlockFile
+    {
+        readonly SafeFileHandle _h; readonly long _len; readonly SimLink _link; readonly Counter _counter;
+        readonly byte* _scratch; const int ScratchSize = 1024 * 1024;
+
+        public RawBlockFile(string path, long len, SimLink link, Counter counter)
+        {
+            _h = OpenRaw(path); _len = len; _link = link; _counter = counter;
+            _scratch = (byte*)NativeMemory.AlignedAlloc(ScratchSize, Align);
+        }
+
+        public int Read(long offset, Span<byte> destination)
+        {
+            int n = (int)Math.Min(destination.Length, _len - offset);
+            if (n <= 0) return 0;
+            Interlocked.Increment(ref _counter.Reads); Interlocked.Add(ref _counter.Bytes, n);
+            _link.Charge(offset, n);
+            fixed (byte* dst = destination) lock (this) ReadAligned(_h, _len, offset, n, dst, _scratch, ScratchSize);
+            return n;
+        }
+
+        public void Dispose() { _h.Dispose(); NativeMemory.AlignedFree(_scratch); }
+    }
+
+    static void Spin(double ms)
+    {
+        long until = Stopwatch.GetTimestamp() + (long)(ms * Stopwatch.Frequency / 1000);
+        while (Stopwatch.GetTimestamp() < until) Thread.SpinWait(50);
     }
 
     static int Opt(string[] o, string name, int def) { int i = Array.IndexOf(o, name); return i >= 0 && i + 1 < o.Length ? int.Parse(o[i + 1]) : def; }
@@ -189,12 +280,6 @@ static unsafe class WindowBench
             _lastEnd = pos + size;
             Spin(wait);
             lock (_link) Spin(size / (_mbps * 1048576.0) * 1000); // truyền: dùng chung băng thông
-        }
-
-        static void Spin(double ms)
-        {
-            long until = Stopwatch.GetTimestamp() + (long)(ms * Stopwatch.Frequency / 1000);
-            while (Stopwatch.GetTimestamp() < until) Thread.SpinWait(50);
         }
 
         int GetBlock(IntPtr param, CULong posC, IntPtr buf, CULong sizeC)

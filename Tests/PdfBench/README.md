@@ -35,8 +35,10 @@ Các tuỳ chọn thêm:
 # Tốc độ đọc tuần tự của ổ: khối 1/4/16 MB × 1/2/4 luồng song song (Windows: bỏ qua cache hệ điều hành)
 dotnet run -c Release -- readtest "P:\...\file.pdf"
 # Độ trễ mỗi trang mới trong lúc đang đọc nền:
-#   A = kiểu cũ (không đọc nền), B = app hiện tại (đọc nền tranh băng thông),
-#   C = đề xuất: cache khối --block KB, lệnh đọc của trang được ưu tiên hơn đọc nền (--bgkb KB mỗi lần)
+#   A = kiểu cũ (không đọc nền), B = #0 cũ (đọc hết file ở nền, tranh băng thông),
+#   C = mô hình phương án C: cache khối --block KB, trang ưu tiên hơn đọc nền (--bgkb KB mỗi lần)
+#   D = CODE THẬT của app (Services/PdfFileBuffer.cs + LayeredDocumentSource.cs, link vào PdfBench):
+#       khối 256 KB, đọc nền 256 KB/lượt — không phụ thuộc --block/--bgkb
 dotnet run -c Release -- window "P:\...\file.pdf" --block 256 --bgkb 256
 dotnet run -c Release -- window file.pdf --netsim 6 21 --block 256 --bgkb 256 --pages 20
 ```

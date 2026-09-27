@@ -135,8 +135,6 @@ namespace XTPdfMergeApp.Services
             }
 
             public string SourcePath { get; }
-            /// <summary>Document đang parse từ RAM (PdfFileBuffer) chứ không đọc file.</summary>
-            public bool ReadsFromMemory { get; init; }
             /// <summary>Trạng thái layer mà document PDFium này được mở theo (xem PdfLayerStateStore).</summary>
             public string LayerToken { get; }
             /// <summary>Nguồn đọc của FPDF_LoadCustomDocument — chỉ được huỷ SAU FPDF_CloseDocument.</summary>
@@ -160,11 +158,9 @@ namespace XTPdfMergeApp.Services
                 }
             }
 
-            /// <param name="cancelInFlight">false = để các lệnh vẽ đang chạy trên lease này làm nốt (chỉ không nhận
-            /// lệnh mới) — dùng khi chuyển sang lease đọc từ RAM, không có gì sai cần huỷ.</param>
-            public void RequestDispose(bool cancelInFlight = true)
+            public void RequestDispose()
             {
-                if (cancelInFlight) _retired.Cancel();
+                _retired.Cancel();
                 bool closeNow;
                 lock (_lifetimeGate)
                 {
@@ -512,7 +508,10 @@ namespace XTPdfMergeApp.Services
         private static PdfDocumentLease? LoadDocumentLease(string pdfPath)
         {
             IntPtr document = IntPtr.Zero;
-            LayeredDocumentSource? layeredSource = null;
+            LayeredDocumentSource? source = null;
+            // #0: PDFium đọc file qua bộ đệm khối (khối trang cần được đọc trước, phần còn lại nạp nền). null =
+            // file quá lớn / hết ngân sách → FPDF_LoadDocument đọc file như cũ.
+            PdfBlockCache? cache = PdfFileBuffer.Acquire(pdfPath);
             try
             {
                 EnsurePdfiumInitialized();
@@ -523,36 +522,34 @@ namespace XTPdfMergeApp.Services
                     // iText chạy NGOÀI gate PDFium (đọc /OCProperties có thể mất chút thời gian với file lớn).
                     try
                     {
-                        byte[]? original = PdfFileBuffer.TryGetOrStart(pdfPath);
-                        byte[] tail = PdfLayerService.BuildVisibilityTail(pdfPath, hiddenLayers, out long originalLength, original);
-                        layeredSource = original != null
-                            ? new LayeredDocumentSource(original, tail)
+                        byte[] tail = PdfLayerService.BuildVisibilityTail(pdfPath, hiddenLayers, out long originalLength, cache);
+                        source = cache != null
+                            ? new LayeredDocumentSource(cache, tail)
                             : new LayeredDocumentSource(pdfPath, originalLength, tail);
+                        cache = null; // tham chiếu đã giao cho source
                     }
                     catch (Exception ex)
                     {
                         // Không dựng được bản đổi layer (file mã hoá, > 4 GB trên Windows…) → mở bình thường,
                         // vẫn gắn token để không bị coi là lease cũ và mở lại liên tục.
                         Debug.WriteLine("[PdfLayer] Fallback to default layer state: " + ex.Message);
-                        layeredSource = null;
                     }
                 }
-
-                // #0: file đã đọc sẵn vào RAM → PDFium parse từ bộ nhớ, không seek qua ổ mạng nữa. Chưa có thì
-                // mở từ file như cũ (trang đầu không phải chờ đọc cả file) và bắt đầu đọc nền.
-                byte[]? memory = layeredSource == null ? PdfFileBuffer.TryGetOrStart(pdfPath) : null;
+                if (source == null && cache != null)
+                {
+                    source = new LayeredDocumentSource(cache, Array.Empty<byte>());
+                    cache = null;
+                }
 
                 using var native = EnterPdfiumGate();
                 long openStart = Stopwatch.GetTimestamp();
-                document = layeredSource != null
-                    ? FPDF_LoadCustomDocument(layeredSource.FileAccessPointer, null)
-                    : memory != null
-                        ? FPDF_LoadMemDocument64(ref memory[0], (nuint)memory.Length, null)
-                        : FPDF_LoadDocument(pdfPath, null);
+                document = source != null
+                    ? FPDF_LoadCustomDocument(source.FileAccessPointer, null)
+                    : FPDF_LoadDocument(pdfPath, null);
                 RenderDiagnostics.DocumentOpen.Record(openStart);
                 if (document == IntPtr.Zero)
                 {
-                    layeredSource?.Dispose();
+                    source?.Dispose();
                     _documentCache.TryRemove(pdfPath, out _);
                     return null;
                 }
@@ -562,17 +559,13 @@ namespace XTPdfMergeApp.Services
                 {
                     FPDF_CloseDocument(document);
                     document = IntPtr.Zero;
-                    layeredSource?.Dispose();
+                    source?.Dispose();
                     _documentCache.TryRemove(pdfPath, out _);
                     return null;
                 }
 
-                // Buffer RAM phải sống tới sau FPDF_CloseDocument: giao cho lease giữ (MemoryOwner) — mảng đã pinned.
-                IDisposable? source = layeredSource != null ? layeredSource : memory != null ? new MemoryOwner(memory) : null;
-                return new PdfDocumentLease(pdfPath, document, pageCount, layerToken, source)
-                {
-                    ReadsFromMemory = memory != null || layeredSource?.ReadsFromMemory == true
-                };
+                // Nguồn đọc (và bộ đệm khối) phải sống tới sau FPDF_CloseDocument: giao cho lease giữ.
+                return new PdfDocumentLease(pdfPath, document, pageCount, layerToken, source);
             }
             catch
             {
@@ -581,9 +574,13 @@ namespace XTPdfMergeApp.Services
                     using var native = EnterPdfiumGate();
                     FPDF_CloseDocument(document);
                 }
-                layeredSource?.Dispose();
+                source?.Dispose();
                 _documentCache.TryRemove(pdfPath, out _);
                 return null;
+            }
+            finally
+            {
+                cache?.Release(); // chỉ còn khác null khi chưa kịp giao cho source
             }
         }
 
@@ -694,38 +691,6 @@ namespace XTPdfMergeApp.Services
 
         [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
         private static extern void FPDF_CloseDocument(IntPtr document);
-
-        /// <summary>FPDF_DOCUMENT FPDF_LoadMemDocument64(const void* data_buf, size_t size, FPDF_BYTESTRING password)
-        /// — buffer phải còn sống (và không bị dời) tới khi FPDF_CloseDocument.</summary>
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr FPDF_LoadMemDocument64(ref byte data, nuint size,
-            [MarshalAs(UnmanagedType.LPUTF8Str)] string? password);
-
-        /// <summary>Giữ tham chiếu buffer RAM cho tới khi lease đóng document.</summary>
-        private sealed class MemoryOwner(byte[] data) : IDisposable
-        {
-            private byte[]? _data = data;
-            public void Dispose() => _data = null;
-        }
-
-        static PdfThumbnailService()
-        {
-            // Đọc nền xong → thay lease đang đọc từ file bằng lease đọc từ RAM. Không chặn, không huỷ gì: lệnh vẽ
-            // kế tiếp tự mở lease mới (parse lại trang đang xem 1 lần — từ RAM, nhanh).
-            PdfFileBuffer.BufferReady += path => _ = RetireFileBackedLeaseAsync(path);
-        }
-
-        private static async Task RetireFileBackedLeaseAsync(string normalizedPath)
-        {
-            if (!_documentCache.TryGetValue(normalizedPath, out var lazy) || !lazy.IsValueCreated) return;
-            PdfDocumentLease? lease;
-            try { lease = await lazy.Value.ConfigureAwait(false); }
-            catch { return; }
-            if (lease == null || lease.ReadsFromMemory) return;
-            // Lệnh mới đi sang lease RAM; lệnh đang dở trên lease file làm nốt rồi lease file mới đóng.
-            _documentCache.TryRemove(new KeyValuePair<string, Lazy<Task<PdfDocumentLease?>>>(normalizedPath, lazy));
-            lease.RequestDispose(cancelInFlight: false);
-        }
 
         /// <summary>FPDF_DOCUMENT FPDF_LoadCustomDocument(FPDF_FILEACCESS* pFileAccess, FPDF_BYTESTRING password)</summary>
         [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
