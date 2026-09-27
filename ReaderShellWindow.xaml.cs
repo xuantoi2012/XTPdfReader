@@ -12,7 +12,7 @@ namespace XTPdfMergeApp
     /// <see cref="MainWindow"/> nắm — nó giờ là cửa sổ "Ghép nhiều file" chạy ẩn và chỉ hiện khi bấm nút
     /// trên ribbon, nên 2 cửa sổ luôn thấy CÙNG danh sách file.
     /// </summary>
-    public partial class ReaderShellWindow : XTCadWindow
+    public partial class ReaderShellWindow : XTWindow
     {
         public static ReaderShellWindow? Instance { get; private set; }
 
