@@ -62,6 +62,15 @@ static class P
         Check(PdfThumbnailService.NativePageCacheHits >= hits0 + 2, $"vẽ lại trang vừa vẽ: dùng lại page handle ({PdfThumbnailService.NativePageCacheHits - hits0} lần trúng)");
         Check(await PdfThumbnailService.GetPageAspectRatioAsync(small, 0) is > 0, "tỉ lệ trang");
 
+        // ── Khổ giấy thật của mọi trang (bố cục Cuộn liên tục kiểu Chromium) ──
+        string mixed = MakeMixedSizes();
+        var sizes = await PdfThumbnailService.GetPageSizesAsync(mixed);
+        Check(sizes is { Length: 3 } && Math.Abs(sizes[0].Width - 2384) < 1 && Math.Abs(sizes[0].Height - 1684) < 1 &&
+              Math.Abs(sizes[1].Width - 1191) < 1 && Math.Abs(sizes[1].Height - 842) < 1 &&
+              Math.Abs(sizes[2].Width - 842) < 1 && Math.Abs(sizes[2].Height - 1191) < 1,
+            "GetPageSizesAsync: A1 ngang, A3 ngang, A3 dọc (/Rotate 90) đúng kích thước point" +
+            (sizes == null ? "" : " — " + string.Join(", ", sizes.Select(z => $"{z.Width:F0}x{z.Height:F0}"))));
+
         // ── Tốc độ: 12 trang file lớn cùng lúc ──
         int bigPages = await PdfThumbnailService.GetPageCountAsync(big);
         await PdfThumbnailService.RenderPageAsync(big, 0, 256); // mở document, khởi động
@@ -165,6 +174,19 @@ static class P
         Check(PdfThumbnailService.ActiveNativeCalls == 0, "shutdown: không còn lệnh PDFium nào chạy");
         Console.WriteLine(fails == 0 ? "ALL PASS" : fails + " FAILED");
         return fails;
+    }
+
+    static string MakeMixedSizes()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "xtpooltest"); Directory.CreateDirectory(dir);
+        string f = Path.Combine(dir, "mixed.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(f)))
+        {
+            doc.AddNewPage(new iText.Kernel.Geom.PageSize(2384, 1684));           // A1 ngang
+            doc.AddNewPage(new iText.Kernel.Geom.PageSize(1191, 842));            // A3 ngang
+            doc.AddNewPage(new iText.Kernel.Geom.PageSize(1191, 842)).SetRotation(90); // A3 ngang xoay 90 → hiện dọc
+        }
+        return f;
     }
 
     static string MakeLayers()

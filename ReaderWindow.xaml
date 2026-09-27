@@ -33,26 +33,14 @@
                 <ResourceDictionary Source="pack://application:,,,/XTPdfMergeApp;component/Resources/ReaderResources.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- 1 trang trong chế độ Cuộn liên tục — ảnh độ phân giải READER (nét hơn hẳn
-                 thumbnail), Loaded lazy-load + VirtualizingStackPanel (xem ReaderContinuousList)
-                 nên chỉ trang đang/gần hiện mới thật sự render. Đặt Ở ĐÂY (Resources của chính
-                 ReaderWindow, có x:Class) chứ không phải ReaderResources.xaml dùng chung — vì có
-                 Loaded="ReaderContinuousImage_Loaded" (event handler), cần code-behind mới compile
-                 được. KHÔNG dùng DropShadowEffect (đã bỏ) — Border này bọc Canvas "sizer" có
-                 Width/Height đổi theo MỖI nấc zoom; DropShadowEffect buộc WPF render lại 1 bitmap
-                 đổ bóng bằng PHẦN MỀM mỗi khi kích thước phần tử đổi, tức TẤT CẢ trang đang hiện
-                 trong viewport đều phải tính lại bóng ở MỖI nấc zoom — đây là nguyên nhân thật của
-                 hiện tượng nhấp nháy lúc zoom continuous. Foxit/Chrome PDF không đổ bóng thời gian
-                 thực khi đang tương tác — dùng viền tĩnh (BorderBrush/BorderThickness) thay thế.
-                 Margin PHẢI scale theo zoom (ContinuousPageMarginConverter), KHÔNG để cố định —
-                 ZoomContinuousAtPoint tính vị trí cuộn mới bằng công thức tỉ lệ thuần, giả định
-                 TOÀN BỘ chiều cao nội dung (cả trang lẫn khoảng cách giữa các trang) scale đều
-                 theo đúng 1 tỉ lệ; margin cố định phá vỡ giả định đó (đúng bug "zoom nhỏ rồi zoom
-                 lại bắt nhầm trang" đã gặp). -->
+            <!-- 1 trang trong chế độ Cuộn liên tục. Đặt Ở ĐÂY (Resources của chính ReaderWindow, có x:Class) vì có
+                 Loaded="ReaderContinuousImage_Loaded" (cần code-behind). Chỉ trang đang/gần hiện được tạo phần tử
+                 (ContinuousPagesPanel). KHÔNG dùng DropShadowEffect: nó buộc WPF vẽ lại bóng bằng phần mềm mỗi nấc zoom
+                 (nguyên nhân nhấp nháy lúc zoom trước đây) — dùng viền tĩnh như Foxit/Chrome. -->
             <DataTemplate x:Key="ReaderContinuousPageTemplate">
-                <Border Background="White" HorizontalAlignment="Center"
-                        Margin="{Binding RelativeSource={RelativeSource AncestorType=local:ReaderWindow}, Path=ReaderContinuousZoom, Converter={StaticResource ContinuousPageMarginConverter}}"
-                        BorderBrush="#33000000" BorderThickness="1">
+                <!-- Vị trí + kích thước do ContinuousPagesPanel xếp theo ContinuousPageLayout (khổ giấy thật × zoom,
+                     khe giữa trang cũng do panel lo) — phần tử không tự đo theo bitmap nữa. -->
+                <Border Background="White" BorderBrush="#33000000" BorderThickness="1">
                     <!-- Canvas = "sizer" — Width/Height = ĐÚNG kích thước Image đã tự đo được
                          (ActualWidth/ActualHeight, ElementName binding tới chính ContinuousPageImage
                          bên dưới) nhân zoom, để VirtualizingStackPanel xếp dọc biết đúng chiều cao
@@ -65,13 +53,13 @@
                     <Canvas>
                         <Canvas.Width>
                             <MultiBinding Converter="{StaticResource ContinuousPageSizeConverter}">
-                                <Binding ElementName="ContinuousPageImage" Path="ActualWidth"/>
+                                <Binding Path="LayoutWidth"/>
                                 <Binding RelativeSource="{RelativeSource AncestorType=local:ReaderWindow}" Path="ReaderContinuousZoom"/>
                             </MultiBinding>
                         </Canvas.Width>
                         <Canvas.Height>
                             <MultiBinding Converter="{StaticResource ContinuousPageSizeConverter}">
-                                <Binding ElementName="ContinuousPageImage" Path="ActualHeight"/>
+                                <Binding Path="LayoutHeight"/>
                                 <Binding RelativeSource="{RelativeSource AncestorType=local:ReaderWindow}" Path="ReaderContinuousZoom"/>
                             </MultiBinding>
                         </Canvas.Height>
@@ -81,25 +69,14 @@
                              Width/Height của Image đổi theo zoom thì hệ toạ độ cục bộ đó TRÔI theo zoom
                              → neo sai, nhảy lệch khi đổi hướng zoom. Canvas.Left/Top mặc định = 0,0 nên
                              Image nằm đúng góc trên-trái Canvas, khớp RenderTransformOrigin=0,0. -->
+                        <!-- Kích thước logic cố định của trang (khổ giấy thật, zoom 1) — bitmap mọi độ phân giải (thumbnail,
+                             ảnh Reader) được Fill vào đúng khung này, trang không đổi cỡ khi ảnh nét về. -->
                         <Image x:Name="ContinuousPageImage" Source="{Binding ReaderDisplayBitmap}"
-                               Width="{Binding RelativeSource={RelativeSource AncestorType=local:ReaderWindow}, Path=ReaderPageBaseWidth}"
-                               Stretch="Uniform"
+                               Width="{Binding LayoutWidth}" Height="{Binding LayoutHeight}"
+                               Stretch="Fill"
                                RenderTransformOrigin="0,0"
                                RenderOptions.BitmapScalingMode="{Binding RelativeSource={RelativeSource AncestorType=local:ReaderWindow}, Path=ReaderBitmapScalingMode}"
                                Loaded="ReaderContinuousImage_Loaded">
-                            <!-- Chưa có bitmap thật (Thumbnail lẫn ReaderBitmap đều null) → giữ chỗ 1
-                                 chiều cao NATIVE ước lượng (tỉ lệ A-series) thay vì để co về 0 — nếu
-                                 không, Canvas (lấy kích thước thẳng từ ActualHeight của chính Image này)
-                                 cũng co về 0 theo, hàng loạt trang chưa tải dồn hết vào 1 màn hình cùng
-                                 lúc. Đã có bitmap thật thì converter trả NaN (=Auto) để Stretch=Uniform
-                                 tự đo đúng theo bitmap như bình thường. -->
-                            <Image.Height>
-                                <MultiBinding Converter="{StaticResource ContinuousPagePlaceholderHeightConverter}">
-                                    <Binding Path="ReaderDisplayBitmap"/>
-                                    <Binding RelativeSource="{RelativeSource AncestorType=local:ReaderWindow}" Path="ReaderPageBaseWidth"/>
-                                    <Binding Path="AspectRatio"/>
-                                </MultiBinding>
-                            </Image.Height>
                             <Image.RenderTransform>
                                 <ScaleTransform ScaleX="{Binding RelativeSource={RelativeSource AncestorType=local:ReaderWindow}, Path=ReaderContinuousZoom}"
                                                 ScaleY="{Binding RelativeSource={RelativeSource AncestorType=local:ReaderWindow}, Path=ReaderContinuousZoom}"/>
@@ -400,24 +377,26 @@
                  của chính ListBox để ScrollIntoView/virtualization hoạt động đúng, tránh
                  lặp lại bug "2 ScrollViewer giẫm chân nhau" đã gặp trước đó. -->
             <ListBox x:Name="ReaderContinuousList"
-                     Background="{DynamicResource PdfViewerBackgroundBrush}" BorderThickness="0" Padding="16"
+                     Background="{DynamicResource PdfViewerBackgroundBrush}" BorderThickness="0" Padding="0"
                      Visibility="Collapsed"
                      ItemTemplate="{StaticResource ReaderContinuousPageTemplate}"
                      HorizontalContentAlignment="Center"
                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
                      ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     ScrollViewer.CanContentScroll="True"
                      VirtualizingPanel.IsVirtualizing="True"
                      VirtualizingPanel.VirtualizationMode="Recycling"
-                     VirtualizingPanel.ScrollUnit="Pixel"
                      PreviewMouseWheel="ReaderContinuousList_PreviewMouseWheel"
                      PreviewMouseLeftButtonDown="ReaderContinuousList_MouseLeftButtonDown"
                      PreviewMouseLeftButtonUp="ReaderContinuousList_MouseLeftButtonUp"
                      PreviewMouseMove="ReaderContinuousList_MouseMove"
                      LostMouseCapture="ReaderContinuousList_LostMouseCapture"
                      ScrollViewer.ScrollChanged="ReaderContinuousList_ScrollChanged">
+                <!-- Bố cục kiểu Chromium: vị trí mọi trang tính từ khổ giấy thật (ContinuousPageLayout), lề 16 và
+                     khe giữa trang do panel lo (nên Padding của ListBox = 0). -->
                 <ListBox.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <VirtualizingStackPanel Orientation="Vertical"/>
+                        <ctl:ContinuousPagesPanel Zoom="{Binding ReaderContinuousZoom, RelativeSource={RelativeSource AncestorType=local:ReaderWindow}}"/>
                     </ItemsPanelTemplate>
                 </ListBox.ItemsPanel>
                 <ListBox.ItemContainerStyle>

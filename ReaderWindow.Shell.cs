@@ -53,6 +53,7 @@ namespace XTPdfMergeApp
                 ReaderDocumentTabs.ScrollIntoView(group);
                 _syncingDocumentTabs = false;
             }
+            ScheduleNearbyThumbnailWarmup();
             if (_continuousScrollFast)
             {
                 // Đang cuộn nhanh: panel trái không chạy theo từng trang lướt qua (mỗi lần chạy theo lại xin thumbnail
@@ -66,6 +67,80 @@ namespace XTPdfMergeApp
         private (DocumentGroup Group, PageRow Row)? _pendingSidePanelSync;
 
         private System.Windows.Threading.DispatcherTimer? _loadProgressTimer;
+        private bool _waitingForFullLoad;
+
+        // ── Làm ấm thumbnail quanh trang đang xem (Foxit "xoay xong là mượt") ──────────────────────
+        private const int NearbyThumbnailWarmupPages = 16;
+        private System.Windows.Threading.DispatcherTimer? _thumbnailWarmupTimer;
+        private System.Threading.CancellationTokenSource _thumbnailWarmupCts = new();
+
+        /// <summary>Hẹn làm ấm (400 ms sau lần đổi trang cuối — cuộn liên tục không khởi động lại liên tục).</summary>
+        private void ScheduleNearbyThumbnailWarmup()
+        {
+            if (_thumbnailWarmupTimer == null)
+            {
+                _thumbnailWarmupTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background, Dispatcher)
+                {
+                    Interval = TimeSpan.FromMilliseconds(400)
+                };
+                _thumbnailWarmupTimer.Tick += (_, _) =>
+                {
+                    _thumbnailWarmupTimer!.Stop();
+                    if (_continuousScrollFast) { _thumbnailWarmupTimer.Start(); return; }
+                    _ = WarmNearbyThumbnailsAsync();
+                };
+            }
+            _thumbnailWarmupCts.Cancel(); // trang đổi: lượt làm ấm cũ (quanh trang cũ) không còn đúng chỗ
+            _thumbnailWarmupTimer.Stop();
+            _thumbnailWarmupTimer.Start();
+        }
+
+        /// <summary>
+        /// Vẽ trước ảnh 340 px (dùng chung cho panel thumbnail và ảnh xem trước của Viewer) cho ±16 trang quanh trang
+        /// đang xem, gần trước xa sau, ưu tiên Background (nhường ảnh đang hiện; tự đứng chờ khi zoom/pan — #5), chạy song
+        /// song trên (số bản PDFium − 1) luồng để luôn chừa 1 bản cho trang đang xem. Chỉ chạy khi file đã nạp xong vào RAM:
+        /// trước đó băng thông mạng dành cho trang đang xem và đọc nền.
+        /// </summary>
+        private async System.Threading.Tasks.Task WarmNearbyThumbnailsAsync()
+        {
+            _thumbnailWarmupCts.Cancel();
+            _thumbnailWarmupCts = new System.Threading.CancellationTokenSource();
+            var token = _thumbnailWarmupCts.Token;
+            if (_readerGroup is not { } group || _readerPage is not { } current) return;
+            int center = group.Pages.IndexOf(current);
+            if (center < 0) return;
+
+            var order = new List<PageRow>();
+            for (int d = 1; d <= NearbyThumbnailWarmupPages; d++)
+                foreach (int i in new[] { center + d, center - d })
+                    if (i >= 0 && i < group.Pages.Count) order.Add(group.Pages[i]);
+            // Không gồm trang đang xem: Viewer đã xin nó ở ưu tiên Visible — gộp vào lượt Background này sẽ bắt nó chờ.
+
+            bool Loaded(PageRow row)
+            {
+                try { return PdfFileBuffer.GetLoadedFraction(System.IO.Path.GetFullPath(row.SourcePath)) is >= 1; }
+                catch { return false; }
+            }
+
+            int parallel = Math.Max(1, PdfiumPool.Count - 1);
+            using var slots = new System.Threading.SemaphoreSlim(parallel);
+            var work = new List<System.Threading.Tasks.Task>();
+            foreach (var row in order)
+            {
+                if (token.IsCancellationRequested) break;
+                if (row.Thumbnail != null || !Loaded(row)) continue;
+                try { await slots.WaitAsync(token); }
+                catch (OperationCanceledException) { break; }
+                work.Add(WarmOneAsync(row));
+            }
+            try { await System.Threading.Tasks.Task.WhenAll(work); } catch { }
+
+            async System.Threading.Tasks.Task WarmOneAsync(PageRow row)
+            {
+                try { await ThumbnailCache.LoadPreviewAsync(row, token, PdfRenderPriority.Background); }
+                finally { slots.Release(); }
+            }
+        }
 
         /// <summary>Thanh trạng thái: "Nạp vào RAM x%" của file đang xem, cập nhật 2 lần/giây, ẩn khi nạp xong.</summary>
         private void EnsureLoadProgressTimer()
@@ -91,8 +166,15 @@ namespace XTPdfMergeApp
             {
                 ReaderLoadProgressText.Text = $"Nạp vào RAM {fraction:P0}";
                 ReaderLoadProgressText.Visibility = Visibility.Visible;
+                _waitingForFullLoad = true;
             }
-            else ReaderLoadProgressText.Visibility = Visibility.Collapsed;
+            else
+            {
+                ReaderLoadProgressText.Visibility = Visibility.Collapsed;
+                // Vừa nạp xong cả file: giờ mới làm ấm thumbnail quanh trang đang xem (trước đó băng thông dành cho trang).
+                if (_waitingForFullLoad && loaded is >= 1) ScheduleNearbyThumbnailWarmup();
+                _waitingForFullLoad = false;
+            }
         }
 
         /// <summary>Gọi khi cuộn nhanh vừa dừng: đưa panel trái tới trang đang xem, rồi xin thumbnail cho các ô đang hiện

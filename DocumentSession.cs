@@ -455,6 +455,9 @@ namespace XTPdfMergeApp
                 row.ReaderBitmapLoadQueued = false;
                 row.AspectRatio = null;
                 row.AspectRatioLoadQueued = false;
+                // Xoay trang đổi khổ (rộng ↔ cao): Viewer đọc lại kích thước thật (EnsureContinuousPageSizesAsync).
+                row.PageWidthPoints = null;
+                row.PageHeightPoints = null;
             }
 
             ReaderWindow.Instance?.OnSourcePagesEdited(path, pages, geometryChanged);

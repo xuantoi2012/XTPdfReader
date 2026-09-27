@@ -488,6 +488,47 @@ namespace XTPdfMergeApp.Services
             }
         }
 
+        /// <summary>Kích thước (point, đã tính /Rotate) của MỌI trang — như Chromium đọc hết khổ giấy lúc mở tài liệu để
+        /// dựng bố cục chính xác (ContinuousPageLayout). Không parse nội dung trang (FPDF_GetPageSizeByIndex), 1 lần giữ
+        /// gate cho cả file. null = không mở được. Trang không đọc được kích thước → (0, 0).</summary>
+        public static async Task<(double Width, double Height)[]?> GetPageSizesAsync(string pdfPath, CancellationToken cancellationToken = default)
+        {
+            if (_shuttingDown) return null;
+            Interlocked.Increment(ref _inFlightPublicCalls);
+            PdfiumInstance? pdfium = null;
+            try
+            {
+                if (_shuttingDown) return null;
+                string normalized = NormalizePath(pdfPath);
+                pdfium = ChooseInstance(normalized, -1);
+                pdfium.AddLoad(1);
+                using var usage = await AcquireDocumentAsync(normalized, pdfium, cancellationToken).ConfigureAwait(false);
+                if (usage == null) return null;
+                var lease = usage.Lease;
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lease.RetiredToken);
+                // Bố cục cần ngay để hiện đúng khổ giấy → ưu tiên Visible.
+                using var native = await EnterPdfiumGateAsync(lease.Pdfium, PdfRenderPriority.Visible, linked.Token).ConfigureAwait(false);
+                linked.Token.ThrowIfCancellationRequested();
+                return await Task.Run(() =>
+                {
+                    var sizes = new (double, double)[lease.PageCount];
+                    for (int i = 0; i < sizes.Length; i++)
+                        sizes[i] = lease.Pdfium.GetPageSizeByIndex(lease.Document, i, out double w, out double h) && w > 0 && h > 0
+                            ? (w, h) : (0, 0);
+                    return sizes;
+                }, linked.Token).ConfigureAwait(false);
+            }
+            catch
+            {
+                return null;
+            }
+            finally
+            {
+                pdfium?.AddLoad(-1);
+                Interlocked.Decrement(ref _inFlightPublicCalls);
+            }
+        }
+
         private static double? GetPageAspectRatioCore(PdfiumInstance pdfium, IntPtr document, int pageIndex)
         {
             return pdfium.GetPageSizeByIndex(document, pageIndex, out double width, out double height) && width > 0 && height > 0

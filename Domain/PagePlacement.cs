@@ -81,9 +81,31 @@ internal sealed class PagePlacement : INotifyPropertyChanged
     public double? AspectRatio
     {
         get => _aspectRatio;
-        set { _aspectRatio = value; Notify(); }
+        set { _aspectRatio = value; Notify(); Notify(nameof(LayoutHeight)); }
     }
     public bool AspectRatioLoadQueued { get; set; }
+
+    // ── Khổ giấy thật (chế độ Cuộn liên tục, như Chromium) ──
+    /// <summary>Chiều rộng logic (DIP, zoom 1) mặc định khi chưa biết khổ giấy — trang rộng nhất tài liệu cũng dùng số này.</summary>
+    public const double DefaultLayoutWidth = 2200;
+    /// <summary>Tỉ lệ ISO 216 (A-series) — chỉ dùng khi chưa biết tỉ lệ thật.</summary>
+    public const double DefaultAspect = 1.4142;
+
+    /// <summary>Kích thước trang trong file PDF (point, đã tính /Rotate) — null = chưa đọc.</summary>
+    public double? PageWidthPoints { get; set; }
+    public double? PageHeightPoints { get; set; }
+
+    private double? _baseWidth;
+    /// <summary>Chiều rộng logic của trang ở zoom 1: trang rộng nhất tài liệu = DefaultLayoutWidth, trang khác tỉ lệ
+    /// theo khổ giấy thật (A3 cạnh A1 hiện nhỏ hơn, không bị kéo cùng 1 cỡ).</summary>
+    public double? BaseWidth
+    {
+        get => _baseWidth;
+        set { _baseWidth = value; Notify(); Notify(nameof(LayoutWidth)); Notify(nameof(LayoutHeight)); }
+    }
+
+    public double LayoutWidth => _baseWidth ?? DefaultLayoutWidth;
+    public double LayoutHeight => LayoutWidth * (_aspectRatio ?? DefaultAspect);
 
     public PagePlacement Copy() => new()
     {
@@ -92,7 +114,10 @@ internal sealed class PagePlacement : INotifyPropertyChanged
         PageNumber = PageNumber,
         Rotation = Rotation,
         Bookmark = Bookmark,
-        Thumbnail = Thumbnail
+        Thumbnail = Thumbnail,
+        PageWidthPoints = PageWidthPoints,
+        PageHeightPoints = PageHeightPoints,
+        AspectRatio = AspectRatio
     };
 
     public event PropertyChangedEventHandler? PropertyChanged;
