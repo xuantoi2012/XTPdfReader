@@ -22,6 +22,8 @@ unsafe sealed class PdfiumApi
     public readonly delegate* unmanaged[Cdecl]<IntPtr, double> GetPageWidth;
     public readonly delegate* unmanaged[Cdecl]<IntPtr, double> GetPageHeight;
     public readonly delegate* unmanaged[Cdecl]<int, int, int, IntPtr> BitmapCreate;
+    /// <summary>FPDFBitmap_CreateEx(width, height, format, first_scan, stride) — vẽ vào bộ nhớ do mình cấp (dùng lại được).</summary>
+    public readonly delegate* unmanaged[Cdecl]<int, int, int, void*, int, IntPtr> BitmapCreateEx;
     public readonly delegate* unmanaged[Cdecl]<IntPtr, int, int, int, int, uint, int> BitmapFillRect;
     public readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr> BitmapGetBuffer;
     public readonly delegate* unmanaged[Cdecl]<IntPtr, void> BitmapDestroy;
@@ -44,6 +46,7 @@ unsafe sealed class PdfiumApi
         GetPageWidth = (delegate* unmanaged[Cdecl]<IntPtr, double>)F("FPDF_GetPageWidth");
         GetPageHeight = (delegate* unmanaged[Cdecl]<IntPtr, double>)F("FPDF_GetPageHeight");
         BitmapCreate = (delegate* unmanaged[Cdecl]<int, int, int, IntPtr>)F("FPDFBitmap_Create");
+        BitmapCreateEx = (delegate* unmanaged[Cdecl]<int, int, int, void*, int, IntPtr>)F("FPDFBitmap_CreateEx");
         BitmapFillRect = (delegate* unmanaged[Cdecl]<IntPtr, int, int, int, int, uint, int>)F("FPDFBitmap_FillRect");
         BitmapGetBuffer = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr>)F("FPDFBitmap_GetBuffer");
         BitmapDestroy = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("FPDFBitmap_Destroy");
@@ -125,3 +128,31 @@ sealed class CountingBlockFile(IBlockFile inner) : IBlockFile
 
     public void Dispose() => inner.Dispose();
 }
+
+/// <summary>Thời gian CPU của LUỒNG hiện tại, tách user / kernel (kernel: cấp phát bộ nhớ lớn, page fault, khoá của
+/// hệ điều hành…). So với thời gian thực để biết luồng bị chậm do CPU hay do chờ.</summary>
+static class ThreadCpu
+{
+    [DllImport("kernel32")] static extern IntPtr GetCurrentThread();
+    [DllImport("kernel32")] static extern bool GetThreadTimes(IntPtr thread, out long creation, out long exit, out long kernel, out long user);
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct RUsage
+    {
+        public long UtimeSec, UtimeUsec, StimeSec, StimeUsec;
+        public long F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13;
+    }
+    [DllImport("libc", SetLastError = true)] static extern int getrusage(int who, out RUsage usage);
+
+    public static (double UserMs, double KernelMs) Now()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            GetThreadTimes(GetCurrentThread(), out _, out _, out long kernel, out long user);
+            return (user / 10000.0, kernel / 10000.0); // đơn vị 100 ns
+        }
+        if (getrusage(1 /* RUSAGE_THREAD */, out var u) != 0) return (0, 0);
+        return (u.UtimeSec * 1000.0 + u.UtimeUsec / 1000.0, u.StimeSec * 1000.0 + u.StimeUsec / 1000.0);
+    }
+}
+

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -75,14 +76,28 @@ public static partial class PdfThumbnailService
 
     private static bool IsHot(NativePage page)
         => Volatile.Read(ref _hotPages).Contains((page.PathKey, page.Index));
-    private static readonly PdfRenderGate _renderBufferSlots = new(2);
-    private static readonly Dictionary<(IntPtr Document, int Index), NativePage> _nativePages = new();
-    private static long _pageUseSequence;
-    private static int _nativePageCount;
+    // Tối đa 2 bitmap đang vẽ dở cho mỗi bản PDFium (trước bước 3: 2 cho cả app, 1 bản).
+    private static readonly Lazy<PdfRenderGate> _renderBufferSlots = new(() => new PdfRenderGate(2 * PdfiumPool.Count));
+
+    /// <summary>Page handle đã parse của 1 bản PDFium. Chỉ đọc/ghi khi đang giữ gate của CHÍNH bản đó.</summary>
+    private sealed class InstancePages
+    {
+        public readonly Dictionary<(IntPtr Document, int Index), NativePage> Pages = new();
+        public long UseSequence;
+        public int Count;
+    }
+
+    private static readonly InstancePages[] _pagesByInstance =
+        Enumerable.Range(0, PdfiumPool.MaxInstances).Select(_ => new InstancePages()).ToArray();
+
+    private static InstancePages PagesOf(PdfiumInstance pdfium) => _pagesByInstance[pdfium.Index];
+
+    /// <summary>Gợi ý cho việc chọn bản (đọc không cần gate): (đường dẫn chữ hoa, trang, bản) đang có page handle.</summary>
+    private static readonly ConcurrentDictionary<(string PathKey, int Index, int Instance), byte> _parsedPages = new();
     private static long _pageLoads, _pageCacheHits, _progressiveYields, _cancelledRenders;
     private static long _maxSliceTicks;
 
-    public static int CachedNativePageCount => Volatile.Read(ref _nativePageCount);
+    public static int CachedNativePageCount => _pagesByInstance.Sum(p => Volatile.Read(ref p.Count));
     public static long NativePageLoads => Interlocked.Read(ref _pageLoads);
     public static long NativePageCacheHits => Interlocked.Read(ref _pageCacheHits);
     public static long ProgressiveYields => Interlocked.Read(ref _progressiveYields);
@@ -90,8 +105,7 @@ public static partial class PdfThumbnailService
     public static double MaxNativeRenderSliceMilliseconds =>
         Interlocked.Read(ref _maxSliceTicks) * 1000d / Stopwatch.Frequency;
 
-    // Only access the dictionary/refcounts while holding the native gate. (Hiện chỉ có 1 bản PDFium; khi có
-    // nhiều bản, mỗi bản cần bộ đệm page handle riêng dưới gate của nó.)
+    // Only access a page's dictionary/refcounts while holding the native gate of the page's PdfiumInstance.
     // A page has one progressive render context, so its operation gate stays held
     // across pauses while other pages may use the native gate between slices.
     private sealed class NativePage
@@ -114,8 +128,9 @@ public static partial class PdfThumbnailService
     {
         using var native = await EnterGateAfterInteractionAsync(document.Pdfium, priority, token).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
+        var pages = PagesOf(document.Pdfium);
         var key = (document.Document, index);
-        if (!_nativePages.TryGetValue(key, out var page))
+        if (!pages.Pages.TryGetValue(key, out var page))
         {
             long loadStart = Stopwatch.GetTimestamp();
             var handle = document.Pdfium.LoadPage(document.Document, index);
@@ -123,14 +138,15 @@ public static partial class PdfThumbnailService
             if (handle == IntPtr.Zero) throw new InvalidOperationException("PDFium could not open the page.");
             page = new NativePage { Pdfium = document.Pdfium, Document = document.Document, Index = index, Handle = handle,
                 PathKey = NormalizePath(document.SourcePath).ToUpperInvariant() };
-            _nativePages.Add(key, page);
+            pages.Pages.Add(key, page);
+            _parsedPages[(page.PathKey, index, document.Pdfium.Index)] = 0;
             Interlocked.Increment(ref _pageLoads);
         }
         else Interlocked.Increment(ref _pageCacheHits);
         page.Users++;
         page.KeepWarm |= priority == PdfRenderPriority.Visible;
-        page.LastUse = ++_pageUseSequence;
-        TrimNativePages();
+        page.LastUse = ++pages.UseSequence;
+        TrimNativePages(document.Pdfium);
         return page;
     }
 
@@ -138,32 +154,42 @@ public static partial class PdfThumbnailService
     {
         using var native = await EnterPdfiumGateAsync(page.Pdfium).ConfigureAwait(false);
         page.Users--;
-        page.LastUse = ++_pageUseSequence;
-        TrimNativePages();
+        page.LastUse = ++PagesOf(page.Pdfium).UseSequence;
+        TrimNativePages(page.Pdfium);
     }
 
-    private static void TrimNativePages()
+    /// <summary>Gọi khi đang giữ gate của <paramref name="pdfium"/>. Mỗi bản giữ tối đa NativePageCacheCapacity trang
+    /// (ngoài các trang nóng) — như 1 bản trước bước 3.</summary>
+    private static void TrimNativePages(PdfiumInstance pdfium)
     {
-        int hotCount = _nativePages.Values.Count(IsHot);
-        foreach (var page in _nativePages.Values.Where(p => p.Users == 0).OrderBy(p => p.LastUse).ToArray())
+        var pages = PagesOf(pdfium);
+        int hotCount = pages.Pages.Values.Count(IsHot);
+        foreach (var page in pages.Pages.Values.Where(p => p.Users == 0).OrderBy(p => p.LastUse).ToArray())
         {
             if (IsHot(page)) continue; // #3: trang đang hiện / sắp hiện — giữ bản đã parse
-            if (page.KeepWarm && _nativePages.Count - hotCount <= NativePageCacheCapacity) continue;
-            page.Pdfium.ClosePage(page.Handle);
-            _nativePages.Remove((page.Document, page.Index));
+            if (page.KeepWarm && pages.Pages.Count - hotCount <= NativePageCacheCapacity) continue;
+            ClosePage(pages, page);
         }
-        Volatile.Write(ref _nativePageCount, _nativePages.Count);
+        Volatile.Write(ref pages.Count, pages.Pages.Count);
     }
 
-    private static void RemoveDocumentPages(IntPtr document)
+    /// <summary>Gọi khi đang giữ gate của <paramref name="pdfium"/>.</summary>
+    private static void RemoveDocumentPages(PdfiumInstance pdfium, IntPtr document)
     {
-        foreach (var page in _nativePages.Values.Where(p => p.Document == document).ToArray())
+        var pages = PagesOf(pdfium);
+        foreach (var page in pages.Pages.Values.Where(p => p.Document == document).ToArray())
         {
             Debug.Assert(page.Users == 0);
-            page.Pdfium.ClosePage(page.Handle);
-            _nativePages.Remove((page.Document, page.Index));
+            ClosePage(pages, page);
         }
-        Volatile.Write(ref _nativePageCount, _nativePages.Count);
+        Volatile.Write(ref pages.Count, pages.Pages.Count);
+    }
+
+    private static void ClosePage(InstancePages pages, NativePage page)
+    {
+        page.Pdfium.ClosePage(page.Handle);
+        pages.Pages.Remove((page.Document, page.Index));
+        _parsedPages.TryRemove((page.PathKey, page.Index, page.Pdfium.Index), out _);
     }
 
     public static void ReleaseCachedPages()
@@ -173,9 +199,12 @@ public static partial class PdfThumbnailService
         {
             try
             {
-                using var native = await EnterPdfiumGateAsync(PdfiumInstance.Primary).ConfigureAwait(false);
-                foreach (var page in _nativePages.Values) page.KeepWarm = false;
-                TrimNativePages();
+                foreach (var pdfium in PdfiumPool.Instances)
+                {
+                    using var native = await EnterPdfiumGateAsync(pdfium).ConfigureAwait(false);
+                    foreach (var page in PagesOf(pdfium).Pages.Values) page.KeepWarm = false;
+                    TrimNativePages(pdfium);
+                }
             }
             finally { Interlocked.Decrement(ref _inFlightPublicCalls); }
         });
@@ -251,7 +280,7 @@ public static partial class PdfThumbnailService
         if (width <= 0 || height <= 0 || (long)width * height > MaxRenderPixels) return null;
         using var pause = new ProgressivePause(token);
         long bufferStart = Stopwatch.GetTimestamp();
-        await _renderBufferSlots.WaitAsync(priority, token).ConfigureAwait(false);
+        await _renderBufferSlots.Value.WaitAsync(priority, token).ConfigureAwait(false);
         RenderDiagnostics.BufferQueue.Record(bufferStart);
         var pdfium = page.Pdfium;
         IntPtr bitmap = IntPtr.Zero, pixels = IntPtr.Zero;
@@ -311,7 +340,7 @@ public static partial class PdfThumbnailService
                 if (started) pdfium.RenderPageClose(page.Handle);
                 if (bitmap != IntPtr.Zero) pdfium.BitmapDestroy(bitmap);
             }
-            finally { _renderBufferSlots.Release(); }
+            finally { _renderBufferSlots.Value.Release(); }
         }
     }
 

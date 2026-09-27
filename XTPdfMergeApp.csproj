@@ -47,6 +47,29 @@
     <ProjectReference Include="..\XTStyle\XTStyle.csproj" />
   </ItemGroup>
 
+  <!-- Vẽ song song: bản sao pdfium.dll mang tên khác (pdfium_1..3.dll) nằm cạnh bản gốc. Mỗi tên file là 1
+       module riêng với trạng thái toàn cục riêng, nên các bản chạy song song được (Services/PdfiumInstance.cs,
+       PdfiumPool: tối đa 4 bản). -->
+  <Target Name="CopyPdfiumInstances" AfterTargets="Build">
+    <ItemGroup>
+      <_PdfiumOriginal Include="$(OutDir)pdfium.dll" Condition="Exists('$(OutDir)pdfium.dll')" />
+      <_PdfiumOriginal Include="$(OutDir)runtimes\win-x64\native\pdfium.dll" Condition="Exists('$(OutDir)runtimes\win-x64\native\pdfium.dll')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_PdfiumOriginal)" DestinationFiles="@(_PdfiumOriginal->'%(RootDir)%(Directory)pdfium_1.dll')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_PdfiumOriginal)" DestinationFiles="@(_PdfiumOriginal->'%(RootDir)%(Directory)pdfium_2.dll')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_PdfiumOriginal)" DestinationFiles="@(_PdfiumOriginal->'%(RootDir)%(Directory)pdfium_3.dll')" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyPdfiumInstancesToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <_PdfiumPublished Include="$(PublishDir)pdfium.dll" Condition="Exists('$(PublishDir)pdfium.dll')" />
+      <_PdfiumPublished Include="$(PublishDir)runtimes\win-x64\native\pdfium.dll" Condition="Exists('$(PublishDir)runtimes\win-x64\native\pdfium.dll')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_PdfiumPublished)" DestinationFiles="@(_PdfiumPublished->'%(RootDir)%(Directory)pdfium_1.dll')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_PdfiumPublished)" DestinationFiles="@(_PdfiumPublished->'%(RootDir)%(Directory)pdfium_2.dll')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_PdfiumPublished)" DestinationFiles="@(_PdfiumPublished->'%(RootDir)%(Directory)pdfium_3.dll')" SkipUnchangedFiles="true" />
+  </Target>
+
   <Target Name="ExcludeNativeSymbolsFromPublish" AfterTargets="ComputeFilesToPublish">
     <ItemGroup>
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(ResolvedFileToPublish.Extension)' == '.pdb'" />

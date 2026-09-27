@@ -97,6 +97,9 @@ namespace XTPdfMergeApp.Services
             return null;
         }
 
+        /// <summary>File đang có bộ đệm khối (mọi bản PDFium đọc chung, file chỉ qua mạng 1 lần).</summary>
+        public static bool IsBuffered(string normalizedPath) => _entries.ContainsKey(normalizedPath);
+
         /// <summary>File sắp bị ghi đè (xoay trang, annotation) hoặc đã đổi — bỏ bộ đệm cũ. Document PDFium
         /// đang dùng nó vẫn đọc được tới khi đóng (bộ nhớ chỉ trả khi mọi tham chiếu đã Release).</summary>
         public static void Invalidate(string normalizedPath)

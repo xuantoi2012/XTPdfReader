@@ -50,6 +50,7 @@ dotnet run -c Release -- scroll "P:\...\file.pdf"                  # 3 trang/mà
 dotnet run -c Release -- scroll "P:\...\file.pdf" --visible 2      # 2 trang/màn
 # --width PX: độ rộng ảnh nét (mặc định: N trang vừa khung nhìn cao --viewport 880 px, lượng tử 256 px)
 # --ram-only / --net-only; --netsim ms MBps (giả lập, chỉ để thử khi không có ổ mạng)
+# --reuse-bitmap: vẽ vào bộ nhớ dùng lại (FPDFBitmap_CreateEx) thay vì cấp bitmap mới mỗi lần
 ```
 
 Mỗi màn có N trang mới. Mỗi trang được parse, vẽ ảnh xem trước 340 px, rồi vẽ ảnh nét. Công cụ so 2
@@ -61,7 +62,11 @@ cách:
   `PdfBlockCache` (khối đang được luồng khác đọc thì chờ, không đọc trùng). Kịch bản này cũng kiểm tra ảnh vẽ
   song song giống hệt từng bit ảnh do 1 bản vẽ.
 
-Thời gian mỗi trang được tách thành chờ đọc file, parse CPU và vẽ CPU. Có 2 chế độ:
+Thời gian mỗi trang được tách thành chờ đọc file, parse CPU và vẽ CPU. Dòng "CPU của luồng" cho thời gian
+CPU user/kernel của luồng vẽ, so với thời gian thực:
+- Gần 100% nhưng lớn hơn 1 tiến trình: CPU chạy chậm đi (tranh bộ nhớ/cache, hoặc chạy trên nhân yếu).
+- Thấp hơn 100% nhiều: luồng phải chờ (khoá).
+- Kernel cao: cấp phát bộ nhớ lớn / page fault. Có 2 chế độ:
 - **RAM:** như sau khi đọc nền xong, chỉ còn CPU.
 - **net:** bộ đệm chưa có gì, mỗi worker tự đọc file riêng.
 

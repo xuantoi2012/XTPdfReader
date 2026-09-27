@@ -24,7 +24,11 @@ static unsafe class ScrollBench
     const int AppFlags = 0x01 | 0x02 | 0x04 | 0x200;
 
     sealed record PageTimes(double IoMs, double ParseMs, double PreviewMs, double SharpMs, double CopyMs,
-        long PreviewDoneTs, long SharpDoneTs, long IoBytes);
+        long PreviewDoneTs, long SharpDoneTs, long IoBytes, double UserMs = 0, double KernelMs = 0);
+
+    /// <summary>--reuse-bitmap: vẽ vào bộ nhớ dùng lại (FPDFBitmap_CreateEx) thay vì PDFium cấp bitmap mới mỗi lần —
+    /// để thử xem cấp phát/giải phóng bitmap lớn có phải chỗ các luồng trong 1 tiến trình tranh nhau không.</summary>
+    static bool ReuseBitmap;
 
     /// <summary>1 bản PDFium + nguồn đọc file. "ram": cả file nằm sẵn trong RAM (chỉ đo CPU). "net": đọc theo khối
     /// 256 KB qua PdfBlockCache của app, KHÔNG qua cache Windows, không đọc nền (chỉ đo lệnh đọc của trang).</summary>
@@ -32,6 +36,7 @@ static unsafe class ScrollBench
     {
         readonly PdfiumApi _api;
         readonly byte[]? _mem;
+        byte[]? _bitmapBuffer; // pinned, dùng lại giữa các lần vẽ (--reuse-bitmap)
         readonly LayeredDocumentSource? _source;
         public IntPtr Doc { get; }
         public int PageCount { get; }
@@ -96,6 +101,7 @@ static unsafe class ScrollBench
         public PageTimes Render(int index, int sharpWidth, MemoryMappedViewAccessor? sink, Action<ulong>? hash = null)
         {
             var io0 = IoSnapshot;
+            var cpu0 = ThreadCpu.Now();
             long t0 = Stopwatch.GetTimestamp();
             IntPtr page = _api.LoadPage(Doc, index);
             long t1 = Stopwatch.GetTimestamp();
@@ -110,16 +116,25 @@ static unsafe class ScrollBench
             long t3 = Stopwatch.GetTimestamp();
             var io3 = IoSnapshot;
             _api.ClosePage(page);
+            var cpu1 = ThreadCpu.Now();
 
             double Ms(long a, long b) => (b - a) * 1000.0 / Stopwatch.Frequency;
             double ioParse = io1.Ms - io0.Ms, ioPreview = io2.Ms - io1.Ms, ioSharp = io3.Ms - io2.Ms;
             return new PageTimes(io3.Ms - io0.Ms, Ms(t0, t1) - ioParse, Ms(t1, t2) - ioPreview,
-                Ms(t2, t3) - ioSharp - copyMs, copyMs, t2, t3, io3.Bytes - io0.Bytes);
+                Ms(t2, t3) - ioSharp - copyMs, copyMs, t2, t3, io3.Bytes - io0.Bytes,
+                cpu1.UserMs - cpu0.UserMs, cpu1.KernelMs - cpu0.KernelMs);
         }
 
         double Raster(IntPtr page, int w, int h, MemoryMappedViewAccessor? sink, Action<ulong>? hash)
         {
-            IntPtr bmp = _api.BitmapCreate(w, h, 0);
+            IntPtr bmp;
+            if (ReuseBitmap)
+            {
+                long need = (long)w * h * 4;
+                if (_bitmapBuffer == null || _bitmapBuffer.LongLength < need) _bitmapBuffer = GC.AllocateUninitializedArray<byte>((int)need, pinned: true);
+                fixed (byte* buffer = _bitmapBuffer) bmp = _api.BitmapCreateEx(w, h, 3 /* FPDFBitmap_BGRx, như Create(alpha 0) */, buffer, w * 4);
+            }
+            else bmp = _api.BitmapCreate(w, h, 0);
             _api.BitmapFillRect(bmp, 0, 0, w, h, 0xFFFFFFFF);
             _api.RenderPageBitmap(bmp, page, 0, 0, w, h, 0, AppFlags);
             double copyMs = 0;
@@ -190,6 +205,7 @@ static unsafe class ScrollBench
     public static int Worker(string[] a)
     {
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
+        ReuseBitmap = a.Length > 6 && a[6] == "reuse";
         using var engine = new Engine(a[0], a[1] == "ram", double.Parse(a[2], CultureInfo.InvariantCulture), double.Parse(a[3], CultureInfo.InvariantCulture));
         using var mmf = SharedBitmap.Open(a[4], long.Parse(a[5]));
         using var view = mmf.CreateViewAccessor();
@@ -201,7 +217,7 @@ static unsafe class ScrollBench
         {
             var p = line.Split(' ');
             var t = engine.Render(int.Parse(p[1]), int.Parse(p[2]), view);
-            Console.Out.WriteLine(string.Join(' ', t.IoMs, t.ParseMs, t.PreviewMs, t.SharpMs, t.CopyMs, t.PreviewDoneTs, t.SharpDoneTs, t.IoBytes));
+            Console.Out.WriteLine(string.Join(' ', t.IoMs, t.ParseMs, t.PreviewMs, t.SharpMs, t.CopyMs, t.PreviewDoneTs, t.SharpDoneTs, t.IoBytes, t.UserMs, t.KernelMs));
             Console.Out.Flush();
         }
         return 0;
@@ -222,7 +238,7 @@ static unsafe class ScrollBench
             if (Path.GetFileNameWithoutExtension(self).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
                 psi.ArgumentList.Add(typeof(ScrollBench).Assembly.Location);
             foreach (var arg in new[] { "scroll-worker", file, mode, lat.ToString(CultureInfo.InvariantCulture),
-                         mbps.ToString(CultureInfo.InvariantCulture), _mapName, mmfBytes.ToString() })
+                         mbps.ToString(CultureInfo.InvariantCulture), _mapName, mmfBytes.ToString(), ReuseBitmap ? "reuse" : "new" })
                 psi.ArgumentList.Add(arg);
             _p = Process.Start(psi)!;
         }
@@ -239,7 +255,7 @@ static unsafe class ScrollBench
         {
             var v = _p.StandardOutput.ReadLine()!.Split(' ');
             double D(int i) => double.Parse(v[i], CultureInfo.InvariantCulture);
-            return new PageTimes(D(0), D(1), D(2), D(3), D(4), long.Parse(v[5]), long.Parse(v[6]), long.Parse(v[7]));
+            return new PageTimes(D(0), D(1), D(2), D(3), D(4), long.Parse(v[5]), long.Parse(v[6]), long.Parse(v[7]), D(8), D(9));
         }
 
         public void Dispose()
@@ -256,6 +272,7 @@ static unsafe class ScrollBench
     public static void Run(string path, string[] opts)
     {
         int visible = Opt(opts, "--visible", 3), screens = Opt(opts, "--screens", 5);
+        ReuseBitmap = opts.Contains("--reuse-bitmap");
         int viewportH = Opt(opts, "--viewport", 880); // màn 1080 trừ ribbon/tab/thanh trạng thái
         double lat = -1, mbps = 0;
         int ni = Array.IndexOf(opts, "--netsim");
@@ -273,7 +290,8 @@ static unsafe class ScrollBench
         long mmfBytes = (long)sharpW * (long)Math.Ceiling(sharpW * aspect) * 4;
 
         Console.WriteLine($"File {new FileInfo(path).Length / 1048576.0:F0} MB, {pageCount} trang. Mỗi màn {visible} trang MỚI, {screens} màn/kịch bản.");
-        Console.WriteLine($"Mỗi trang: parse + ảnh xem trước {PreviewWidth} px + ảnh nét {sharpW} px. Máy có {Environment.ProcessorCount} nhân logic.");
+        Console.WriteLine($"Mỗi trang: parse + ảnh xem trước {PreviewWidth} px + ảnh nét {sharpW} px. Máy có {Environment.ProcessorCount} nhân logic." +
+                          (ReuseBitmap ? " Bitmap: dùng lại bộ nhớ (--reuse-bitmap)." : " Bitmap: PDFium cấp mới mỗi lần vẽ."));
         Console.WriteLine(lat >= 0 ? $"Giả lập mạng {lat} ms/lần nhảy, {mbps} MB/s — N worker mỗi cái 1 đường {mbps / visible:F1} MB/s (chia đều băng thông)."
             : OperatingSystem.IsWindows() ? "net: đọc KHÔNG qua cache Windows (mỗi lần đọc đi qua mạng thật)." : "Linux: net đọc qua cache hệ điều hành (chỉ để thử code).");
 
@@ -412,6 +430,8 @@ static unsafe class ScrollBench
         double total = io + parse + pre + sharp;
         Console.WriteLine($"   {label,-14} mỗi trang TB: chờ đọc file {io,6:F0} ms ({io / total:P0}) | parse CPU {parse,6:F0} ms ({parse / total:P0}) | " +
                           $"vẽ xem trước* {pre,5:F0} ms | vẽ nét {sharp,6:F0} ms ({(pre + sharp) / total:P0}) | đọc {t.Average(x => x.IoBytes) / 1024:F0} KB");
+        double user = t.Average(x => x.UserMs), kernel = t.Average(x => x.KernelMs), wall = t.Average(x => x.IoMs + x.ParseMs + x.PreviewMs + x.SharpMs + x.CopyMs);
+        Console.WriteLine($"   {"",-14}   CPU của luồng mỗi trang: user {user,6:F0} ms, kernel {kernel,5:F0} ms = {(user + kernel) / wall:P0} thời gian thực {wall:F0} ms");
     }
 
     static void Stat(string label, List<double> v)

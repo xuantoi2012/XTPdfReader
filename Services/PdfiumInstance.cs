@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -10,7 +13,7 @@ namespace XTPdfMergeApp.Services;
 /// 1 bản thư viện PDFium đã nạp: bảng hàm (con trỏ hàm lấy bằng NativeLibrary) + gate riêng. PDFium giữ trạng
 /// thái toàn cục (bộ đệm font, bộ giải mã ảnh…) nên trong 1 bản mọi lệnh phải tuần tự qua <see cref="Gate"/>.
 /// Nhiều bản sao file DLL (tên khác nhau) là nhiều module riêng, chạy song song được — xem
-/// Tests/PdfBench/BAO-CAO-DA-LUONG-2026-09-27.md. Hiện app chỉ dùng <see cref="Primary"/>.
+/// Tests/PdfBench/BAO-CAO-DA-LUONG-2026-09-27.md. Các bản do <see cref="PdfiumPool"/> quản lý.
 ///
 /// Document, page, bitmap do bản nào tạo thì chỉ được đưa lại cho ĐÚNG bản đó.
 /// </summary>
@@ -82,8 +85,32 @@ internal sealed unsafe class PdfiumInstance
     /// <summary>Bản chính — pdfium.dll gốc.</summary>
     public static PdfiumInstance Primary => _primary.Value;
 
+    /// <summary>Nạp bản sao đã có sẵn trên đĩa (tạo lúc build, xem XTPdfMergeApp.csproj). null = không có/không nạp được.</summary>
+    internal static PdfiumInstance? TryLoadCopy(int index, string path)
+    {
+        try
+        {
+            return File.Exists(path) ? new PdfiumInstance(index, NativeLibrary.Load(path)) : null;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[PdfiumPool] Không nạp được {path}: {ex.Message}");
+            return null;
+        }
+    }
+
     /// <summary>0 = bản chính.</summary>
     public int Index { get; }
+
+    private int _load;
+    /// <summary>Số việc (render/đếm trang…) đang giao cho bản này, kể cả đang chờ gate — để chia việc.</summary>
+    public int Load => Volatile.Read(ref _load);
+    internal void AddLoad(int delta) => Interlocked.Add(ref _load, delta);
+
+    private long _completed;
+    /// <summary>Tổng số việc bản này đã làm (bảng Debug).</summary>
+    public long Completed => Interlocked.Read(ref _completed);
+    internal void MarkCompleted() => Interlocked.Increment(ref _completed);
 
     /// <summary>Mọi lệnh gọi vào bản PDFium này phải giữ gate (thứ tự ưu tiên Visible/Thumbnail/Background).</summary>
     public PdfRenderGate Gate { get; } = new();
@@ -137,3 +164,87 @@ internal sealed unsafe class PdfiumInstance
         return bytes;
     }
 }
+
+/// <summary>
+/// K bản PDFium chạy song song: bản 0 là pdfium.dll gốc, bản i là pdfium_i.dll (bản sao file, tạo lúc build).
+/// K = biến môi trường XTPDF_PDFIUM_INSTANCES nếu có (để so sánh), mặc định clamp(số nhân / 2, 1, 4). Bản sao nào
+/// thiếu / không nạp được thì pool chạy với ít bản hơn (tối thiểu 1 — như trước bước 3).
+/// </summary>
+internal static class PdfiumPool
+{
+    public const int MaxInstances = 8;
+
+    private static readonly Lazy<PdfiumInstance[]> _instances = new(Create, LazyThreadSafetyMode.ExecutionAndPublication);
+
+    public static IReadOnlyList<PdfiumInstance> Instances => _instances.Value;
+    public static int Count => _instances.Value.Length;
+
+    /// <summary>Số bản mong muốn (trước khi biết bản sao có nạp được không).</summary>
+    public static int DesiredCount
+    {
+        get
+        {
+            if (int.TryParse(Environment.GetEnvironmentVariable("XTPDF_PDFIUM_INSTANCES"), out int forced))
+                return Math.Clamp(forced, 1, MaxInstances);
+            return Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
+        }
+    }
+
+    private static PdfiumInstance[] Create()
+    {
+        var list = new List<PdfiumInstance> { PdfiumInstance.Primary };
+        int desired = DesiredCount;
+        string? directory = desired > 1 ? LocatePrimaryDirectory() : null;
+        for (int i = 1; i < desired && directory != null; i++)
+        {
+            var copy = PdfiumInstance.TryLoadCopy(i, Path.Combine(directory, CopyFileName(i)));
+            if (copy == null) break;
+            list.Add(copy);
+        }
+        Debug.WriteLine($"[PdfiumPool] {list.Count}/{desired} bản PDFium");
+        return list.ToArray();
+    }
+
+    public static string CopyFileName(int index)
+        => OperatingSystem.IsWindows() ? $"pdfium_{index}.dll" : OperatingSystem.IsMacOS() ? $"libpdfium_{index}.dylib" : $"libpdfium_{index}.so";
+
+    /// <summary>Thư mục chứa thư viện gốc (bản sao nằm cạnh nó): gốc app, hoặc runtimes/&lt;rid&gt;/native.</summary>
+    private static string? LocatePrimaryDirectory()
+    {
+        string file = OperatingSystem.IsWindows() ? "pdfium.dll" : OperatingSystem.IsMacOS() ? "libpdfium.dylib" : "libpdfium.so";
+        string baseDir = AppContext.BaseDirectory;
+        string arch = RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
+        string os = OperatingSystem.IsWindows() ? "win" : OperatingSystem.IsMacOS() ? "osx" : "linux";
+        foreach (var dir in new[]
+                 {
+                     baseDir,
+                     Path.Combine(baseDir, "runtimes", RuntimeInformation.RuntimeIdentifier, "native"),
+                     Path.Combine(baseDir, "runtimes", $"{os}-{arch}", "native"),
+                 })
+            if (File.Exists(Path.Combine(dir, file))) return dir;
+        return null;
+    }
+
+    /// <summary>
+    /// Chọn bản cho 1 việc: ít việc nhất; bản đã có trang này parse sẵn được ưu tiên hơn 1 bậc (parse lại tốn
+    /// 20–450 ms/trang trên file thật), bản đã mở document được ưu tiên khi hoà. Hoà nữa → bản số nhỏ hơn.
+    /// </summary>
+    public static PdfiumInstance Choose(Func<PdfiumInstance, bool> hasPage, Func<PdfiumInstance, bool> hasDocument)
+    {
+        var instances = _instances.Value;
+        if (instances.Length == 1) return instances[0];
+        PdfiumInstance best = instances[0];
+        int bestScore = int.MaxValue;
+        foreach (var instance in instances)
+        {
+            int score = instance.Load * 4 + (hasPage(instance) ? 0 : 3) + (hasDocument(instance) ? 0 : 1);
+            if (score < bestScore)
+            {
+                best = instance;
+                bestScore = score;
+            }
+        }
+        return best;
+    }
+}
+
