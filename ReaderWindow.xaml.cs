@@ -1740,7 +1740,6 @@ namespace XTPdfMergeApp
             _readerGroup = group;
             _readerPage = row;
             UpdateReaderChrome(group, row);
-            _ = EnsureContinuousPageSizesAsync(group);
 
             if (needsRebind)
             {
@@ -1749,14 +1748,31 @@ namespace XTPdfMergeApp
                 // 1 phiên làm việc dài (các PageRow của tài liệu đã đóng không bao giờ được GC vì
                 // Dictionary này vẫn giữ tham chiếu).
                 _continuousTileActiveIsA.Clear();
-                ReaderContinuousList.ItemsSource = group.Pages;
-                if (_readerZoomMode == ReaderZoomMode.Manual)
-                    SetReaderContinuousZoom(_readerZoom, ReaderZoomMode.Manual);
-                else
-                    SetReaderContinuousZoom(ComputeReaderContinuousFitWidthZoom(), ReaderZoomMode.FitWidth);
+                // Như Chromium: dựng bố cục từ khổ giấy thật NGAY lần đầu — không hiện trang với khổ mặc định rồi mới
+                // dời (trang nhảy ngay sau khi mở). Trong lúc chờ đọc khổ (thường vài chục ms) danh sách để trống.
+                ReaderContinuousList.ItemsSource = null;
+                _ = BindContinuousWhenSizesKnownAsync(group);
+                return;
             }
 
+            _ = EnsureContinuousPageSizesAsync(group);
             ScrollReaderContinuousTo(row);
+        }
+
+        /// <summary>Gán tài liệu cho danh sách Cuộn liên tục sau khi biết khổ giấy mọi trang (tối đa 1,5 s — quá thì dựng
+        /// bằng khổ mặc định rồi cập nhật khi đọc xong), đặt zoom, cuộn tới trang đang xem.</summary>
+        private async Task BindContinuousWhenSizesKnownAsync(DocumentGroup group)
+        {
+            var sizes = EnsureContinuousPageSizesAsync(group);
+            await Task.WhenAny(sizes, Task.Delay(1500));
+            if (!_readerContinuousMode || !ReferenceEquals(_readerGroup, group) ||
+                ReferenceEquals(ReaderContinuousList.ItemsSource, group.Pages)) return;
+            ReaderContinuousList.ItemsSource = group.Pages;
+            if (_readerZoomMode == ReaderZoomMode.Manual)
+                SetReaderContinuousZoom(_readerZoom, ReaderZoomMode.Manual);
+            else
+                SetReaderContinuousZoom(ComputeReaderContinuousFitWidthZoom(), ReaderZoomMode.FitWidth);
+            if (_readerPage is { } current) ScrollReaderContinuousTo(current);
         }
 
         private void ScrollReaderContinuousTo(PageRow row)
@@ -1777,9 +1793,10 @@ namespace XTPdfMergeApp
 
         private double ComputeReaderContinuousFitWidthZoom()
         {
-            // Trang RỘNG NHẤT (ReaderRenderWidthPx) vừa khung nhìn, trừ lề + viền của ContinuousPageLayout.
-            double available = FindPageScrollViewer(ReaderContinuousList) is { ViewportWidth: > 0 } sv
-                ? sv.ViewportWidth : ReaderContinuousList.ActualWidth - SystemParameters.VerticalScrollBarWidth;
+            // Trang RỘNG NHẤT (ReaderRenderWidthPx) vừa khung nhìn, trừ lề + viền của ContinuousPageLayout. LUÔN trừ chỗ
+            // thanh cuộn dọc (tài liệu cuộn liên tục hầu như luôn cao hơn màn hình): dùng ViewportWidth thì kết quả đổi
+            // theo lúc thanh cuộn đã hiện hay chưa → trang rộng hơn khung 17 px → hiện thanh cuộn ngang → bố cục đổi lần nữa.
+            double available = ReaderContinuousList.ActualWidth - SystemParameters.VerticalScrollBarWidth;
             double viewportWidth = Math.Max(1, available - 2 * ContinuousPageLayout.Margin - 2 * ContinuousPageLayout.BorderThickness);
             return ReaderZoomMath.Clamp(ReaderZoomMath.FitWidthZoom(viewportWidth, ReaderRenderWidthPx), ReaderMinZoom, ReaderMaxZoom);
         }
@@ -1788,6 +1805,7 @@ namespace XTPdfMergeApp
         private void SetReaderContinuousZoom(double zoom, ReaderZoomMode mode = ReaderZoomMode.Manual)
         {
             double newZoom = ReaderZoomMath.Clamp(zoom, ReaderMinZoom, ReaderMaxZoom);
+            BeginContinuousZoomScroll();
             if (ContinuousPanel is { } panel && FindPageScrollViewer(ReaderContinuousList) is { ViewportWidth: > 0 } sv)
                 panel.ZoomAt(newZoom, new Point(sv.ViewportWidth / 2, 0), () => ApplyReaderContinuousZoom(newZoom, mode));
             else ApplyReaderContinuousZoom(newZoom, mode);
@@ -1881,7 +1899,7 @@ namespace XTPdfMergeApp
             ScheduleReaderTileRefresh();
         }
 
-        private readonly HashSet<DocumentGroup> _pageSizeLoads = new();
+        private readonly Dictionary<DocumentGroup, Task> _pageSizeLoads = new();
 
         /// <summary>
         /// Khổ giấy thật cho mọi trang của <paramref name="group"/> — như Chromium đọc kích thước MỌI trang lúc mở để
@@ -1889,9 +1907,17 @@ namespace XTPdfMergeApp
         /// (A3 cạnh A1 hiện nhỏ hơn, không bị kéo cùng cỡ). Chỉ đọc file có trang chưa biết kích thước (lần đầu, trang mới
         /// chèn, trang vừa xoay). Trang ở đỉnh khung nhìn giữ nguyên khi bố cục đổi.
         /// </summary>
-        private async Task EnsureContinuousPageSizesAsync(DocumentGroup group)
+        private Task EnsureContinuousPageSizesAsync(DocumentGroup group)
         {
-            if (!_pageSizeLoads.Add(group)) return;
+            // Lượt đọc đang chạy cho group này → dùng chung (người gọi sau cũng chờ được tới khi có khổ giấy).
+            if (_pageSizeLoads.TryGetValue(group, out var running)) return running;
+            var task = LoadContinuousPageSizesAsync(group);
+            if (!task.IsCompleted) _pageSizeLoads[group] = task;
+            return task;
+        }
+
+        private async Task LoadContinuousPageSizesAsync(DocumentGroup group)
+        {
             try
             {
                 var missing = group.Pages.Where(p => p.PageWidthPoints == null).Select(p => p.SourcePath)
@@ -1987,7 +2013,30 @@ namespace XTPdfMergeApp
                 return;
             }
 
+            // Như Chrome trên Windows: 100 px mỗi nấc chuột (3 dòng × 33 px), tỉ lệ theo Delta — bàn di chuột (Delta nhỏ,
+            // nhiều sự kiện) cuộn mượt đúng quãng đường thay vì mỗi sự kiện 1 nấc cố định.
+            // Gọi thẳng panel: offset của nó đổi NGAY (ScrollViewer.VerticalOffset chỉ cập nhật sau lượt layout kế tiếp —
+            // 2 sự kiện trong cùng 1 khung hình sẽ ghi đè nhau, mất quãng cuộn).
+            if (ContinuousPanel is { } panel)
+            {
+                int lines = SystemParameters.WheelScrollLines;
+                double perNotch = lines < 0 ? panel.ViewportHeight : lines * (100.0 / 3); // -1 = "cuộn 1 màn hình mỗi nấc"
+                panel.SetVerticalOffset(panel.VerticalOffset - e.Delta / 120.0 * perNotch);
+                e.Handled = true;
+                return;
+            }
             e.Handled = false;
+        }
+
+        /// <summary>Phần tử trang vừa được tái dùng cho trang khác (ContinuousPagesPanel tái dùng khi cuộn): xoá ngay tile
+        /// nét của trang cũ — như Chromium không bao giờ hiện nội dung của trang khác. Ảnh trang (Image) tự đổi theo binding.</summary>
+        private void ContinuousTileCanvas_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            if (sender is not Canvas canvas) return;
+            ClearTileCanvas(canvas);
+            canvas.Width = 0;
+            canvas.Height = 0;
+            canvas.Visibility = Visibility.Collapsed;
         }
 
         /// <summary>Cập nhật "đang xem trang mấy" theo trang đang nằm GẦN ĐỈNH viewport nhất
@@ -2078,7 +2127,7 @@ namespace XTPdfMergeApp
                 if (top < bestTop) { bestTop = top; best = row; }
             }
 
-            if (best != null && _readerPage != null && !visibleRows.Contains(_readerPage))
+            if (best != null && _readerPage != null && !visibleRows.Contains(_readerPage) && !_continuousZoomScrollActive)
             {
                 // The previous destination has left the screen. Do not queue this
                 // destination behind full-page renders and tiles from earlier pages.
@@ -2117,10 +2166,18 @@ namespace XTPdfMergeApp
                 LogContinuousZoomDebug($"ScrollChanged -> best=NULL (không tìm thấy item nào trong viewport) offset=({sv.HorizontalOffset:F0},{sv.VerticalOffset:F0})");
             }
 
-            if (e.VerticalChange != 0) _continuousScrollDirection = Math.Sign(e.VerticalChange);
             _lastVisibleContinuousRows = visibleRows;
             if (visibleRows.Any(r => r.PageWidthPoints == null)) _ = EnsureContinuousPageSizesAsync(_readerGroup);
             CancelContinuousPreviewsExcept(visibleRows);
+            // Offset đổi do zoom / bố cục đổi (khổ giấy vừa đọc xong, cửa sổ đổi cỡ) — không phải người dùng cuộn.
+            bool layoutDriven = _continuousZoomScrollActive || e.ExtentHeightChange != 0 || e.ExtentWidthChange != 0 ||
+                                e.ViewportHeightChange != 0 || e.ViewportWidthChange != 0;
+            if (layoutDriven)
+            {
+                ScheduleReaderTileRefresh();
+                return;
+            }
+            if (e.VerticalChange != 0) _continuousScrollDirection = Math.Sign(e.VerticalChange);
             if (NoteContinuousScroll(e.VerticalChange, sv.ViewportHeight))
             {
                 // Đang kéo/cuộn nhanh: trang đang lướt qua sẽ rời màn hình trước khi kịp vẽ — không xin gì cho chúng,
@@ -2358,9 +2415,27 @@ namespace XTPdfMergeApp
         {
             double newZoom = ReaderZoomMath.Clamp(newZoomRaw, ReaderMinZoom, ReaderMaxZoom);
             if (Math.Abs(newZoom - ReaderContinuousZoom) < 0.0001) return;
+            BeginContinuousZoomScroll();
             if (ContinuousPanel is { } panel)
                 panel.ZoomAt(newZoom, viewportPoint, () => ApplyReaderContinuousZoom(newZoom, ReaderZoomMode.Manual));
             else ApplyReaderContinuousZoom(newZoom, ReaderZoomMode.Manual);
+        }
+
+        // ── Như Chromium Viewport.mightZoom_ / stop_scrolling_: vị trí cuộn đổi DO zoom không phải người dùng cuộn ──
+        // Không cô lập thì mỗi nấc zoom (offset nhảy để giữ điểm dưới con trỏ) bị ScrollChanged coi là cuộn: đánh dấu
+        // "cuộn nhanh" rồi hoãn vẽ, đổi hướng tải trước, huỷ tải trước "vì nhảy xa" — trang chớp trống/mờ khi zoom.
+        private int _continuousZoomScrollGeneration;
+        private bool _continuousZoomScrollActive;
+
+        private void BeginContinuousZoomScroll()
+        {
+            _continuousZoomScrollActive = true;
+            int generation = ++_continuousZoomScrollGeneration;
+            // ScrollChanged do lượt zoom này bắn trong lượt layout kế tiếp (ưu tiên Render); hết lượt đó thì thôi cô lập.
+            _ = Dispatcher.InvokeAsync(() =>
+            {
+                if (generation == _continuousZoomScrollGeneration) _continuousZoomScrollActive = false;
+            }, DispatcherPriority.Loaded);
         }
 
         /// <summary>Gọi từ wheel handler thay vì ZoomReaderAtPoint/ZoomContinuousAtPoint trực
@@ -2506,6 +2581,22 @@ namespace XTPdfMergeApp
                 // WPF không còn tự làm việc này giúp mình như hồi còn Grid tự canh giữa.
                 ApplyReaderLayout();
             ScheduleReaderTileRefresh();
+        }
+
+        private bool _continuousRefitPending;
+
+        /// <summary>Như Chromium Viewport.resize_(): đang "vừa chiều rộng" thì đổi cỡ cửa sổ / kéo panel trái → khớp lại zoom
+        /// (giữ trang ở đỉnh khung nhìn). Gộp nhiều sự kiện đổi cỡ liên tiếp thành 1 lần.</summary>
+        private void ReaderContinuousList_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (!_readerContinuousMode || _readerZoomMode != ReaderZoomMode.FitWidth || !e.WidthChanged || _continuousRefitPending) return;
+            _continuousRefitPending = true;
+            _ = Dispatcher.InvokeAsync(() =>
+            {
+                _continuousRefitPending = false;
+                if (_readerContinuousMode && _readerZoomMode == ReaderZoomMode.FitWidth)
+                    SetReaderContinuousZoom(ComputeReaderContinuousFitWidthZoom(), ReaderZoomMode.FitWidth);
+            }, DispatcherPriority.Loaded);
         }
 
         private void ReaderScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)

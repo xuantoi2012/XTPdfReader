@@ -85,6 +85,7 @@
                         <!-- Retain the previous resolution underneath incoming sharp tiles.
                              Both layers use the same top-left page origin. -->
                         <Canvas x:Name="ContinuousTileCanvas" Width="0" Height="0"
+                                DataContextChanged="ContinuousTileCanvas_DataContextChanged"
                                 RenderTransformOrigin="0,0"
                                 ClipToBounds="True" IsHitTestVisible="False"
                                 Panel.ZIndex="2"
@@ -101,6 +102,7 @@
                             </Canvas.RenderTransform>
                         </Canvas>
                         <Canvas x:Name="ContinuousTileCanvasB" Width="0" Height="0"
+                                DataContextChanged="ContinuousTileCanvas_DataContextChanged"
                                 RenderTransformOrigin="0,0"
                                 ClipToBounds="True" IsHitTestVisible="False"
                                 Panel.ZIndex="2"
@@ -391,7 +393,8 @@
                      PreviewMouseLeftButtonUp="ReaderContinuousList_MouseLeftButtonUp"
                      PreviewMouseMove="ReaderContinuousList_MouseMove"
                      LostMouseCapture="ReaderContinuousList_LostMouseCapture"
-                     ScrollViewer.ScrollChanged="ReaderContinuousList_ScrollChanged">
+                     ScrollViewer.ScrollChanged="ReaderContinuousList_ScrollChanged"
+                     SizeChanged="ReaderContinuousList_SizeChanged">
                 <!-- Bố cục kiểu Chromium: vị trí mọi trang tính từ khổ giấy thật (ContinuousPageLayout), lề 16 và
                      khe giữa trang do panel lo (nên Padding của ListBox = 0). -->
                 <ListBox.ItemsPanel>
