@@ -28,7 +28,9 @@ namespace XTPdfMergeApp.Services
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate int GetBlockCallback(IntPtr param, CULong position, IntPtr buffer, CULong size);
 
-        private readonly FileStream _file;
+        private readonly FileStream? _file;
+        /// <summary>Nội dung file gốc đã có sẵn trong RAM (PdfFileBuffer) — có thì không đụng tới file nữa.</summary>
+        private readonly byte[]? _original;
         private readonly long _originalLength;
         private readonly byte[] _tail;
         private readonly GetBlockCallback _callback; // giữ tham chiếu: GC thu delegate = crash native
@@ -36,16 +38,29 @@ namespace XTPdfMergeApp.Services
         private byte[] _scratch = new byte[64 * 1024];
 
         public LayeredDocumentSource(string path, long originalLength, byte[] tail)
+            : this(originalLength, tail,
+                // FileShare.ReadWrite|Delete: không chặn các thao tác khác trên file (chúng vẫn tự đóng lease
+                // qua SuspendDocumentAsync trước khi ghi).
+                new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.RandomAccess), null)
         {
-            // FileShare.ReadWrite|Delete: không chặn các thao tác khác trên file (chúng vẫn tự đóng lease
-            // qua SuspendDocumentAsync trước khi ghi).
-            _file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.RandomAccess);
+        }
+
+        /// <summary>File gốc đã nằm trong RAM (PdfFileBuffer): đọc từ đó, không seek qua ổ mạng.</summary>
+        public LayeredDocumentSource(byte[] original, byte[] tail)
+            : this(original.LongLength, tail, null, original)
+        {
+        }
+
+        private LayeredDocumentSource(long originalLength, byte[] tail, FileStream? file, byte[]? original)
+        {
+            _file = file;
+            _original = original;
             _originalLength = originalLength;
             _tail = tail;
             TotalLength = originalLength + tail.Length;
             if (Environment.OSVersion.Platform == PlatformID.Win32NT && TotalLength > uint.MaxValue)
             {
-                _file.Dispose();
+                _file?.Dispose();
                 throw new NotSupportedException("FPDF_LoadCustomDocument trên Windows chỉ nhận file < 4 GB (unsigned long 32 bit).");
             }
 
@@ -60,6 +75,7 @@ namespace XTPdfMergeApp.Services
         }
 
         public long TotalLength { get; }
+        public bool ReadsFromMemory => _original != null;
 
         /// <summary>Con trỏ FPDF_FILEACCESS* truyền cho FPDF_LoadCustomDocument.</summary>
         public IntPtr FileAccessPointer => _fileAccess;
@@ -77,8 +93,15 @@ namespace XTPdfMergeApp.Services
                     int chunk;
                     if (at < _originalLength)
                     {
+                        if (_original != null)
+                        {
+                            chunk = (int)Math.Min(count - written, _originalLength - at);
+                            Marshal.Copy(_original, (int)at, buffer + (int)written, chunk);
+                            written += chunk;
+                            continue;
+                        }
                         chunk = (int)Math.Min(Math.Min(count - written, _originalLength - at), _scratch.Length);
-                        _file.Position = at;
+                        _file!.Position = at;
                         int read = _file.ReadAtLeast(_scratch.AsSpan(0, chunk), chunk, throwOnEndOfStream: false);
                         if (read != chunk) return 0; // file gốc bị cắt ngắn giữa chừng
                         Marshal.Copy(_scratch, 0, buffer + (int)written, chunk);
@@ -106,7 +129,7 @@ namespace XTPdfMergeApp.Services
                 Marshal.FreeHGlobal(_fileAccess);
                 _fileAccess = IntPtr.Zero;
             }
-            _file.Dispose();
+            _file?.Dispose();
             _scratch = Array.Empty<byte>();
         }
     }

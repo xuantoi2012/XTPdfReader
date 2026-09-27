@@ -161,11 +161,15 @@ namespace XTPdfMergeApp.Services
         /// File gốc + phần này = 1 PDF hợp lệ mà PDFium vẽ đúng trạng thái layer mong muốn. Chỉ giữ phần đuôi
         /// (vài trăm byte) — không chép cả file (file CAD có thể rất lớn), xem <see cref="LayeredDocumentSource"/>.
         /// </summary>
-        public static byte[] BuildVisibilityTail(string path, IReadOnlySet<string> hidden, out long originalLength)
+        /// <param name="original">Nội dung file đã đọc sẵn vào RAM (PdfFileBuffer) — có thì iText đọc từ đó, không
+        /// seek lại qua ổ mạng.</param>
+        public static byte[] BuildVisibilityTail(string path, IReadOnlySet<string> hidden, out long originalLength, byte[]? original = null)
         {
-            originalLength = new FileInfo(path).Length;
+            originalLength = original?.LongLength ?? new FileInfo(path).Length;
             var tail = new TailOnlyStream(originalLength);
-            using (var reader = new PdfReader(path))
+            using (var reader = original != null
+                ? new PdfReader(new iText.IO.Source.RandomAccessSourceFactory().CreateSource(original), new ReaderProperties())
+                : new PdfReader(path))
             using (var writer = new PdfWriter(tail))
             using (var doc = new PdfDocument(reader, writer, new StampingProperties().UseAppendMode()))
             {

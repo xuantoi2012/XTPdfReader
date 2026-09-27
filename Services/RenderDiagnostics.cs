@@ -25,11 +25,13 @@ internal static class RenderDiagnostics
         public override string ToString() => $"{TotalMilliseconds / Math.Max(1, Count):0.0}/{MaxMilliseconds:0.0}";
     }
     internal static readonly Timing DocumentOpen = new(), NativeWait = new(), PageOpen = new(), RasterSlice = new(),
-        BitmapCopy = new(), PresentationWait = new(), PresentationWork = new(), PageQueue = new(), BufferQueue = new();
+        BitmapCopy = new(), PresentationWait = new(), PresentationWork = new(), PageQueue = new(), BufferQueue = new(),
+        FileBufferRead = new();
     public static string Summary =>
         $"Timing avg/max ms (session): gate {NativeWait}, page queue {PageQueue}, buffer {BufferQueue}\n" +
         $"Doc open {DocumentOpen}, page load/parse {PageOpen}, raster slice {RasterSlice}, WPF copy {BitmapCopy}\n" +
-        $"UI queue {PresentationWait}, UI apply {PresentationWork}";
+        $"UI queue {PresentationWait}, UI apply {PresentationWork}\n" +
+        $"File → RAM (đọc tuần tự cả file) {FileBufferRead}, đang giữ {PdfFileBuffer.ReservedBytes / 1048576.0:0} MB";
     // Disk tracing is opt-in. Frame-critical UI paths should not perform synchronous
     // file writes in ordinary operation or during an uninstrumented benchmark.
     public static bool TraceEnabled { get; } = Environment.GetEnvironmentVariable("XTPDF_RENDER_TRACE") == "1";

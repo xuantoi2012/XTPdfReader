@@ -21,6 +21,14 @@ dotnet run -c Release -- bench "file.pdf" --screen 2560x1440 --dpi 1.25
 Nên chạy 2 lần. Lần 1 có thể chậm hơn do Windows chưa cache file ở ổ mạng/đĩa. Gửi lại toàn bộ
 kết quả in ra.
 
+Các tuỳ chọn thêm:
+- `--mem`: đọc tuần tự CẢ file vào RAM trước, rồi `FPDF_LoadMemDocument64`, giống app sau bước #0.
+  Đo trước/sau #0 bằng cách chạy lần lượt `bench file.pdf` và `bench file.pdf --mem`.
+- `--netsim <độ_trễ_ms> <MB/s>`: giả lập ổ mạng. Mỗi lần PDFium nhảy vị trí đọc tốn 1 vòng độ trễ,
+  cộng thời gian truyền. Ví dụ: `bench file.pdf --netsim 5 60`.
+- Mục **"0. Kiểu đọc I/O"** đếm số lần đọc, số lần nhảy vị trí và số KB PDFium đọc khi mở file và
+  parse 20 trang đầu. Qua SMB, mỗi lần nhảy vị trí là 1 vòng hỏi-đáp.
+
 ## Tạo file tổng hợp khi không có file thật
 
 ```powershell

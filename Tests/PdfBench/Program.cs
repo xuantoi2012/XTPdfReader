@@ -6,6 +6,8 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
+#pragma warning disable CS8500
 
 // Đo đúng các lệnh PDFium mà XTPdfMergeApp gọi (PdfThumbnailService / .Progressive), cùng cờ vẽ, cùng
 // kích thước tile 640 px, cùng lát progressive 8 ms, cùng độ rộng ảnh Viewer (lượng tử 256 px, 512–2304)
@@ -42,6 +44,10 @@ static class Bench
     static int Run(string path, string[] opts)
     {
         int screenW = 1920, screenH = 1080; double dpi = 1.0;
+        bool memMode = opts.Contains("--mem");
+        double netLatency = -1, netMBps = 0;
+        int ni = Array.IndexOf(opts, "--netsim");
+        if (ni >= 0 && ni + 2 < opts.Length) { netLatency = double.Parse(opts[ni + 1]); netMBps = double.Parse(opts[ni + 2]); }
         for (int i = 0; i + 1 < opts.Length; i++)
         {
             if (opts[i] == "--screen") { var p = opts[i + 1].Split('x'); screenW = int.Parse(p[0]); screenH = int.Parse(p[1]); }
@@ -55,15 +61,36 @@ static class Bench
         Console.WriteLine($"File: {fi.Name}  {fi.Length / 1048576.0:F1} MB");
         Console.WriteLine($"Giả lập: màn hình {screenW}x{screenH}, DPI x{dpi}, vùng xem {viewW}x{viewH}px, ảnh Viewer fit-width {readerWidth}px");
         Native.FPDF_InitLibrary();
+        if (netLatency >= 0) Console.WriteLine($"Giả lập ổ mạng: {netLatency} ms mỗi lần nhảy vị trí đọc, {netMBps} MB/s");
+        Console.WriteLine(memMode
+            ? "Chế độ mở: --mem (đọc tuần tự CẢ file vào RAM rồi FPDF_LoadMemDocument64 — như app sau bước #0)"
+            : "Chế độ mở: file (FPDF_LoadDocument, PDFium tự seek/đọc từng phần — như app trước bước #0)");
+
+        // 0. Kiểu đọc I/O của PDFium khi đọc thẳng từ file (mỗi lần đọc = 1 vòng hỏi-đáp nếu là ổ mạng)
+        IoPattern(path, Math.Min(20, 20));
 
         // 1. MỞ FILE → TRANG ĐẦU HIỆN (đúng thứ tự app: đếm trang → trang 1 cho Viewer → 4 thumbnail đầu)
         Section("1. Mở file tới khi trang đầu render xong (lạnh)");
         var sw = Stopwatch.StartNew();
-        IntPtr doc = Native.FPDF_LoadDocument(path, null);
-        double tOpen = Ms(sw);
+        byte[]? memory = null;
+        double tRead = 0;
+        if (memMode)
+        {
+            memory = ReadWholeFile(path);
+            tRead = Ms(sw);
+            Row($"Đọc tuần tự cả file vào RAM ({memory.Length / 1048576.0:F0} MB, {memory.Length / 1048576.0 / Math.Max(tRead, 1) * 1000:F0} MB/s)", tRead);
+            sw.Restart();
+        }
+        NetSimFile? sim = null;
+        if (memMode && netLatency >= 0) { double simRead = netLatency + memory!.Length / (netMBps * 1048576.0) * 1000; tRead = simRead; Row("  (giả lập mạng: đọc tuần tự cả file)", simRead); }
+        if (!memMode && netLatency >= 0) sim = new NetSimFile(path, netLatency, netMBps);
+        IntPtr doc = memMode ? Native.FPDF_LoadMemDocument64(ref memory![0], (nuint)memory.Length, null)
+            : sim != null ? Native.FPDF_LoadCustomDocument(sim.Pointer, null)
+            : Native.FPDF_LoadDocument(path, null);
+        double tOpen = Ms(sw) + tRead;
         if (doc == IntPtr.Zero) { Console.WriteLine("Không mở được file, lỗi PDFium " + Native.FPDF_GetLastError()); return 2; }
         sw.Restart(); int pageCount = Native.FPDF_GetPageCount(doc); double tCount = Ms(sw);
-        Row("FPDF_LoadDocument", tOpen);
+        Row(memMode ? "FPDF_LoadMemDocument64 (cộng cả thời gian đọc file)" : "FPDF_LoadDocument", tOpen);
         Row($"FPDF_GetPageCount ({pageCount} trang)", tCount);
         var first = LoadAndRender(doc, 0, readerWidth, progressive: true);
         Row("Trang 1: FPDF_LoadPage (parse nội dung)", first.Parse);
@@ -150,7 +177,81 @@ static class Bench
         Console.WriteLine($"   Parse chiếm {(perPage > 0 ? coldParse.DefaultIfEmpty().Average() / perPage * 100 : 0):F0}% — phần này KHÔNG chia lát progressive được (chặn gate PDFium toàn cục).");
 
         Native.FPDF_CloseDocument(doc);
+        GC.KeepAlive(memory);
+        sim?.Dispose();
         return 0;
+    }
+
+    /// <summary>File đọc qua FPDF_LoadCustomDocument có cộng độ trễ mạng: mỗi lần PDFium đọc KHÔNG nối tiếp lần
+    /// trước = 1 vòng hỏi-đáp (latency), cộng thời gian truyền theo băng thông — mô phỏng SMB khi Windows chưa cache.</summary>
+    sealed unsafe class NetSimFile : IDisposable
+    {
+        readonly FileStream _fs; readonly Native.GetBlock _cb; readonly double _latencyMs, _mbps; long _lastEnd = -1;
+        public IntPtr Pointer { get; }
+        public NetSimFile(string path, double latencyMs, double mbps)
+        {
+            _fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1, FileOptions.RandomAccess);
+            _latencyMs = latencyMs; _mbps = mbps;
+            _cb = (_, posC, buf, sizeC) =>
+            {
+                long pos = (long)posC.Value, size = (long)sizeC.Value;
+                double wait = (pos != _lastEnd ? _latencyMs : 0) + size / (_mbps * 1048576.0) * 1000;
+                _lastEnd = pos + size;
+                var until = Stopwatch.GetTimestamp() + (long)(wait * Stopwatch.Frequency / 1000);
+                while (Stopwatch.GetTimestamp() < until) Thread.SpinWait(50);
+                _fs.Position = pos;
+                return _fs.ReadAtLeast(new Span<byte>((void*)buf, (int)size), (int)size, false) == (int)size ? 1 : 0;
+            };
+            Pointer = Marshal.AllocHGlobal(Marshal.SizeOf<Native.FileAccess>());
+            Marshal.StructureToPtr(new Native.FileAccess { FileLen = (nuint)_fs.Length, GetBlock = Marshal.GetFunctionPointerForDelegate(_cb) }, Pointer, false);
+        }
+        public void Dispose() { Marshal.FreeHGlobal(Pointer); _fs.Dispose(); GC.KeepAlive(_cb); }
+    }
+
+    /// <summary>Đọc tuần tự 1 lượt, khối lớn — cùng cách app dùng ở bước #0 (PdfFileBuffer).</summary>
+    static byte[] ReadWholeFile(string path)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.SequentialScan);
+        var data = GC.AllocateUninitializedArray<byte>(checked((int)fs.Length), pinned: true);
+        int read = 0;
+        while (read < data.Length)
+        {
+            int n = fs.Read(data, read, Math.Min(4 << 20, data.Length - read));
+            if (n <= 0) throw new IOException("File bị cắt ngắn khi đang đọc.");
+            read += n;
+        }
+        return data;
+    }
+
+    /// <summary>Đếm số lần + cỡ khối PDFium đòi đọc khi mở file và parse N trang đầu (qua FPDF_LoadCustomDocument
+    /// với callback đếm — đúng mẫu truy cập của parser PDFium).</summary>
+    static unsafe void IoPattern(string path, int pages)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1, FileOptions.RandomAccess);
+        long calls = 0, bytes = 0, seeks = 0, lastEnd = -1;
+        Native.GetBlock cb = (_, posC, buf, sizeC) =>
+        {
+            long pos = (long)posC.Value, size = (long)sizeC.Value;
+            calls++; bytes += size;
+            if (pos != lastEnd) seeks++;
+            lastEnd = pos + size;
+            fs.Position = pos;
+            return fs.ReadAtLeast(new Span<byte>((void*)buf, (int)size), (int)size, false) == (int)size ? 1 : 0;
+        };
+        var access = new Native.FileAccess { FileLen = (nuint)fs.Length, GetBlock = Marshal.GetFunctionPointerForDelegate(cb) };
+        var ptr = Marshal.AllocHGlobal(Marshal.SizeOf<Native.FileAccess>());
+        Marshal.StructureToPtr(access, ptr, false);
+        IntPtr doc = Native.FPDF_LoadCustomDocument(ptr, null);
+        long openCalls = calls, openBytes = bytes, openSeeks = seeks;
+        int n = doc == IntPtr.Zero ? 0 : Math.Min(pages, Native.FPDF_GetPageCount(doc));
+        for (int i = 0; i < n; i++) Native.FPDF_ClosePage(Native.FPDF_LoadPage(doc, i));
+        if (doc != IntPtr.Zero) Native.FPDF_CloseDocument(doc);
+        Marshal.FreeHGlobal(ptr); GC.KeepAlive(cb);
+        Section("0. Kiểu đọc I/O của PDFium khi đọc thẳng từ file (không phụ thuộc chế độ mở ở trên)");
+        Console.WriteLine($"   Mở document:        {openCalls,7} lần đọc, {openSeeks,6} lần nhảy vị trí, {openBytes / 1024.0,9:F0} KB");
+        Console.WriteLine($"   Parse {n} trang đầu:  {calls - openCalls,7} lần đọc, {seeks - openSeeks,6} lần nhảy vị trí, {(bytes - openBytes) / 1024.0,9:F0} KB" +
+                          $"  (TB {(calls - openCalls) / Math.Max(1.0, n):F0} lần đọc/trang, khối TB {(bytes - openBytes) / Math.Max(1.0, calls - openCalls) / 1024:F1} KB)");
+        Console.WriteLine("   → Qua ổ mạng, mỗi lần nhảy vị trí là 1 vòng hỏi-đáp SMB nếu Windows chưa cache đoạn đó.");
     }
 
     static int Quantize(double width) => (int)Math.Clamp(Math.Ceiling(width / 256) * 256, 512, 2304);
@@ -241,6 +342,11 @@ static class Native
 {
     const string L = "pdfium";
     [DllImport(L)] public static extern void FPDF_InitLibrary();
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int GetBlock(IntPtr param, CULong position, IntPtr buf, CULong size);
+    [StructLayout(LayoutKind.Sequential)] public struct FileAccess { public CULongWrap FileLenRaw; public IntPtr GetBlock; public IntPtr Param; public nuint FileLen { set => FileLenRaw = new CULongWrap(value); } }
+    [StructLayout(LayoutKind.Sequential)] public struct CULongWrap { public CULong V; public CULongWrap(nuint v) => V = new CULong(v); }
+    [DllImport(L)] public static extern IntPtr FPDF_LoadCustomDocument(IntPtr access, [MarshalAs(UnmanagedType.LPUTF8Str)] string? pw);
+    [DllImport(L)] public static extern IntPtr FPDF_LoadMemDocument64(ref byte data, nuint size, [MarshalAs(UnmanagedType.LPUTF8Str)] string? pw);
     [DllImport(L)] public static extern IntPtr FPDF_LoadDocument([MarshalAs(UnmanagedType.LPUTF8Str)] string path, [MarshalAs(UnmanagedType.LPUTF8Str)] string? pw);
     [DllImport(L)] public static extern uint FPDF_GetLastError();
     [DllImport(L)] public static extern void FPDF_CloseDocument(IntPtr d);
