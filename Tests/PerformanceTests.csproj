@@ -9,6 +9,12 @@
     <AssemblyName>XTPdfMergeApp.PerformanceTests</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <!-- PdfBench là project riêng (công cụ đo PDFium, không WPF) — không gom vào đây. -->
+    <Compile Remove="PdfBench\**" />
+    <None Remove="PdfBench\**" />
+    <EmbeddedResource Remove="PdfBench\**" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\XTPdfMergeApp.csproj" />
     <Compile Include="obj\BaselinePdfThumbnailService.cs" Condition="Exists('obj\BaselinePdfThumbnailService.cs')" />
   </ItemGroup>

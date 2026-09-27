@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Công cụ đo hiệu năng PDFium độc lập (không WPF), chạy được trên Windows và Linux. Cách chạy: xem README.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="itext" Version="9.6.0" />
+    <PackageReference Include="itext.bouncy-castle-adapter" Version="9.6.0" />
+    <!-- Cùng bản PDFium với app (147.0.7690). -->
+    <PackageReference Include="bblanchon.PDFium.Win32" Version="147.0.7690" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+    <PackageReference Include="bblanchon.PDFium.Linux" Version="147.0.7690" Condition="!$([MSBuild]::IsOSPlatform('Windows'))" />
+  </ItemGroup>
+</Project>
