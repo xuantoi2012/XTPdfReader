@@ -140,6 +140,7 @@ public static partial class PdfThumbnailService
                 PathKey = NormalizePath(document.SourcePath).ToUpperInvariant() };
             pages.Pages.Add(key, page);
             _parsedPages[(page.PathKey, index, document.Pdfium.Index)] = 0;
+            document.Pdfium.MarkPageParsed();
             Interlocked.Increment(ref _pageLoads);
         }
         else Interlocked.Increment(ref _pageCacheHits);
@@ -171,6 +172,7 @@ public static partial class PdfThumbnailService
             ClosePage(pages, page);
         }
         Volatile.Write(ref pages.Count, pages.Pages.Count);
+        Volatile.Write(ref pdfium.CachedPages, pages.Pages.Count);
     }
 
     /// <summary>Gọi khi đang giữ gate của <paramref name="pdfium"/>.</summary>
@@ -183,6 +185,7 @@ public static partial class PdfThumbnailService
             ClosePage(pages, page);
         }
         Volatile.Write(ref pages.Count, pages.Pages.Count);
+        Volatile.Write(ref pdfium.CachedPages, pages.Pages.Count);
     }
 
     private static void ClosePage(InstancePages pages, NativePage page)

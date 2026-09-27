@@ -152,7 +152,16 @@ static class P
         Console.WriteLine($"   page handle đang giữ: {PdfThumbnailService.CachedNativePageCount} (tối đa ~{k}×(4 + 12 nóng))");
         Check(PdfThumbnailService.CachedNativePageCount <= k * (PdfThumbnailService.NativePageCacheCapacity + PdfThumbnailService.MaxHotPages), "page handle trong giới hạn");
 
-        PdfThumbnailService.PrepareForShutdown(TimeSpan.FromSeconds(5));
+        // ── Bảng Debug (bước 4): số liệu theo bản khớp với số tổng ──
+        string summary = RenderDiagnostics.Summary;
+        Console.WriteLine(summary.Substring(summary.IndexOf("PDFium:", StringComparison.Ordinal)));
+        Check(PdfiumPool.Instances.Sum(i => Volatile.Read(ref i.CachedPages)) == PdfThumbnailService.CachedNativePageCount,
+            "Debug: tổng page handle theo bản = số tổng");
+        Check(PdfiumPool.Instances.Sum(i => Volatile.Read(ref i.OpenDocuments)) == PdfThumbnailService.CachedDocumentCount,
+            $"Debug: tổng document theo bản = số document đang mở ({PdfThumbnailService.CachedDocumentCount})");
+        Check(PdfiumPool.Instances.All(i => i.GateHeld.Count > 0 && i.PagesParsed > 0), "Debug: mọi bản có số liệu giữ gate và parse trang");
+
+                PdfThumbnailService.PrepareForShutdown(TimeSpan.FromSeconds(5));
         Check(PdfThumbnailService.ActiveNativeCalls == 0, "shutdown: không còn lệnh PDFium nào chạy");
         Console.WriteLine(fails == 0 ? "ALL PASS" : fails + " FAILED");
         return fails;

@@ -35,7 +35,9 @@ internal static class RenderDiagnostics
         $"đang giữ {PdfFileBuffer.ReservedBytes / 1048576.0:0} MB\n" +
         PdfiumPoolSummary;
 
-    /// <summary>Bước 3: số bản PDFium chạy song song và số việc mỗi bản đã làm / đang giữ.</summary>
+    /// <summary>Bước 4: mỗi bản PDFium 1 dòng — việc đã làm/đang giữ, thời gian chờ gate, mức bận, trang đã parse.
+    /// "bận" = % thời gian giữ gate (PDFium thật sự chạy): gần 100% ở mọi bản → thiếu bản; 1 bản bận, các bản khác
+    /// rảnh → chia việc lệch. "chờ gate" cao → việc xếp hàng trong 1 bản.</summary>
     private static string PdfiumPoolSummary
     {
         get
@@ -43,8 +45,16 @@ internal static class RenderDiagnostics
             try
             {
                 var instances = PdfiumPool.Instances;
-                return $"PDFium: {instances.Count}/{PdfiumPool.DesiredCount} bản song song — việc đã làm (đang giữ): " +
-                       string.Join(", ", System.Linq.Enumerable.Select(instances, i => $"#{i.Index} {i.Completed} ({i.Load})"));
+                var lines = new System.Text.StringBuilder(
+                    $"PDFium: {instances.Count}/{PdfiumPool.DesiredCount} bản song song ({Environment.ProcessorCount} nhân logic)");
+                foreach (var i in instances)
+                {
+                    var (recent, session) = i.SampleBusy();
+                    lines.Append($"\n  #{i.Index} {i.Name}: {i.Completed} việc (đang giữ {i.Load}), chờ gate TB/max {i.GateWait} ms, " +
+                                 $"bận {recent:P0} (cả phiên {session:P0}), parse {i.PagesParsed} trang, " +
+                                 $"giữ {Volatile.Read(ref i.CachedPages)} page handle, {Volatile.Read(ref i.OpenDocuments)} document");
+                }
+                return lines.ToString();
             }
             catch (Exception ex)
             {
@@ -52,6 +62,7 @@ internal static class RenderDiagnostics
             }
         }
     }
+
     // Disk tracing is opt-in. Frame-critical UI paths should not perform synchronous
     // file writes in ordinary operation or during an uninstrumented benchmark.
     public static bool TraceEnabled { get; } = Environment.GetEnvironmentVariable("XTPDF_RENDER_TRACE") == "1";

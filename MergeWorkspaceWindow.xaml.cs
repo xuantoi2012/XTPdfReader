@@ -504,7 +504,7 @@ namespace XTPdfMergeApp
                 $"ThreadPool workers đang dùng: {maxWorkers - availableWorkers}/{maxWorkers}\n" +
                 $"ThreadPool I/O đang dùng: {maxIo - availableIo}/{maxIo}\n" +
                 $"Render jobs: {activeRenderJobs}/{ThumbnailRenderConcurrency}\n" +
-                $"PDFium native gate: {activeNativePdfium} active, {waitingNativePdfium} waiting";
+                $"PDFium native gate (mọi bản): {activeNativePdfium} active, {waitingNativePdfium} waiting";
 
             DiagnosticsLoadText.Text =
                 $"Thumbnail cache: {cacheStats.Cache} ảnh, {cacheStats.Bytes / 1048576d:0.0}/48 MB\n" +
@@ -522,7 +522,8 @@ namespace XTPdfMergeApp
                 "Thumbnail tải theo vùng nhìn";
 
             DiagnosticsHintText.Text =
-                $"PDFium native safe mode: app giữ document handle cho file đang active; render jobs chạy nền nhưng native PDFium được serialize để tránh crash. " +
+                $"PDFium: {PdfiumPool.Count} bản chạy song song (pdfium.dll + bản sao pdfium_N.dll); trong mỗi bản các lệnh vẫn tuần tự qua gate riêng để tránh crash. " +
+                "Đặt biến môi trường XTPDF_PDFIUM_INSTANCES=1 trước khi mở app để so với 1 bản. " +
                 $"Prefetch gần viewport chạy trước cho hàng/cột vừa scroll; prefetch nền dùng tối đa {BackgroundThumbnailPrefetchConcurrency} slot và giữ cache thumbnail tối đa 48 MB.";
         }
 

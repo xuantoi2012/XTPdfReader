@@ -52,6 +52,7 @@ namespace XTPdfMergeApp.Services
             public void Dispose()
             {
                 _held.Stop();
+                _pdfium.GateHeld.AddMilliseconds(_held.Elapsed.TotalMilliseconds);
                 Interlocked.Decrement(ref _activeNativeCalls);
                 _pdfium.Gate.Release();
                 RecordPdfiumGateSample(_caller, _waitMs, _held.ElapsedMilliseconds);
@@ -211,6 +212,7 @@ namespace XTPdfMergeApp.Services
                     using var native = EnterPdfiumGate(Pdfium);
                     RemoveDocumentPages(Pdfium, Document);
                     Pdfium.CloseDocument(Document);
+                    Interlocked.Decrement(ref Pdfium.OpenDocuments);
                 }
                 finally
                 {
@@ -616,6 +618,7 @@ namespace XTPdfMergeApp.Services
                 }
 
                 // Nguồn đọc (và bộ đệm khối) phải sống tới sau FPDF_CloseDocument: giao cho lease giữ.
+                Interlocked.Increment(ref pdfium.OpenDocuments);
                 return new PdfDocumentLease(pdfium, pdfPath, document, pageCount, layerToken, source);
             }
             catch
@@ -726,6 +729,7 @@ namespace XTPdfMergeApp.Services
             {
                 pdfium.Gate.Wait();
                 sw.Stop();
+                pdfium.GateWait.AddMilliseconds(sw.Elapsed.TotalMilliseconds);
                 Interlocked.Increment(ref _activeNativeCalls);
                 return new PdfiumGateLease(pdfium, caller, sw.ElapsedMilliseconds);
             }
@@ -743,6 +747,7 @@ namespace XTPdfMergeApp.Services
             {
                 await pdfium.Gate.WaitAsync(priority, cancellationToken).ConfigureAwait(false);
                 sw.Stop();
+                pdfium.GateWait.AddMilliseconds(sw.Elapsed.TotalMilliseconds);
                 Interlocked.Increment(ref _activeNativeCalls);
                 return new PdfiumGateLease(pdfium, caller, sw.ElapsedMilliseconds);
             }

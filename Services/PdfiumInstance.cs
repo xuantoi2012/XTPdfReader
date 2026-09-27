@@ -41,9 +41,10 @@ internal sealed unsafe class PdfiumInstance
 
     private readonly Lazy<bool> _initialized;
 
-    private PdfiumInstance(int index, IntPtr library)
+    private PdfiumInstance(int index, IntPtr library, string name)
     {
         Index = index;
+        Name = name;
         IntPtr F(string name) => NativeLibrary.GetExport(library, name);
         _initLibrary = (delegate* unmanaged[Cdecl]<void>)F("FPDF_InitLibrary");
         _destroyLibrary = (delegate* unmanaged[Cdecl]<void>)F("FPDF_DestroyLibrary");
@@ -79,7 +80,7 @@ internal sealed unsafe class PdfiumInstance
 
     private static readonly Lazy<PdfiumInstance> _primary = new(() =>
         // Cùng cách tìm file như [DllImport("pdfium")] trước đây (deps.json → runtimes/<rid>/native/pdfium.dll).
-        new PdfiumInstance(0, NativeLibrary.Load("pdfium", typeof(PdfiumInstance).Assembly, null)),
+        new PdfiumInstance(0, NativeLibrary.Load("pdfium", typeof(PdfiumInstance).Assembly, null), "pdfium"),
         LazyThreadSafetyMode.ExecutionAndPublication);
 
     /// <summary>Bản chính — pdfium.dll gốc.</summary>
@@ -90,7 +91,7 @@ internal sealed unsafe class PdfiumInstance
     {
         try
         {
-            return File.Exists(path) ? new PdfiumInstance(index, NativeLibrary.Load(path)) : null;
+            return File.Exists(path) ? new PdfiumInstance(index, NativeLibrary.Load(path), Path.GetFileNameWithoutExtension(path)) : null;
         }
         catch (Exception ex)
         {
@@ -111,6 +112,34 @@ internal sealed unsafe class PdfiumInstance
     /// <summary>Tổng số việc bản này đã làm (bảng Debug).</summary>
     public long Completed => Interlocked.Read(ref _completed);
     internal void MarkCompleted() => Interlocked.Increment(ref _completed);
+
+    // ── Số liệu cho bảng Debug (bước 4) ──
+    /// <summary>Tên file thư viện (pdfium, pdfium_1…).</summary>
+    public string Name { get; }
+    /// <summary>Thời gian chờ để vào gate của bản này / thời gian giữ gate (≈ thời gian PDFium thật sự chạy).</summary>
+    internal readonly RenderDiagnostics.Timing GateWait = new(), GateHeld = new();
+    private long _pagesParsed;
+    /// <summary>Số lần FPDF_LoadPage (parse trang) trên bản này.</summary>
+    public long PagesParsed => Interlocked.Read(ref _pagesParsed);
+    internal void MarkPageParsed() => Interlocked.Increment(ref _pagesParsed);
+    /// <summary>Page handle đang giữ / document đang mở trên bản này (do PdfThumbnailService cập nhật).</summary>
+    internal int CachedPages, OpenDocuments;
+    private readonly long _createdTimestamp = Stopwatch.GetTimestamp();
+    private long _lastSampleTimestamp, _lastSampleHeldTicks;
+
+    /// <summary>Phần trăm thời gian bản này giữ gate: từ lần hỏi trước (bảng Debug làm mới mỗi giây) và cả phiên.</summary>
+    internal (double Recent, double Session) SampleBusy()
+    {
+        long now = Stopwatch.GetTimestamp();
+        double heldMs = GateHeld.TotalMilliseconds;
+        long heldTicks = (long)(heldMs * Stopwatch.Frequency / 1000);
+        long lastTs = Interlocked.Exchange(ref _lastSampleTimestamp, now);
+        long lastHeld = Interlocked.Exchange(ref _lastSampleHeldTicks, heldTicks);
+        if (lastTs == 0) lastTs = _createdTimestamp;
+        double recent = now > lastTs ? (double)(heldTicks - lastHeld) / (now - lastTs) : 0;
+        double session = now > _createdTimestamp ? heldMs * Stopwatch.Frequency / 1000 / (now - _createdTimestamp) : 0;
+        return (Math.Clamp(recent, 0, 1), Math.Clamp(session, 0, 1));
+    }
 
     /// <summary>Mọi lệnh gọi vào bản PDFium này phải giữ gate (thứ tự ưu tiên Visible/Thumbnail/Background).</summary>
     public PdfRenderGate Gate { get; } = new();
