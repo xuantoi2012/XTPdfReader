@@ -95,6 +95,17 @@ static class P
         }
         Check((await PdfThumbnailService.RenderPageAsync(small, pages[1], 800))?.Hash() == reference[pages[1]], "sau Suspend: vẽ lại đúng");
 
+        // ── Đổi layer (Retire): đóng document để mở lại nhưng file không đổi → giữ bản file trong RAM ──
+        Check(PdfFileBuffer.IsBuffered(small), "sau Suspend + vẽ lại: file lại được đệm");
+        var countersBefore = PdfFileBuffer.Counters;
+        await PdfThumbnailService.RetireDocumentAsync(small);
+        Check(PdfFileBuffer.IsBuffered(small) && PdfFileBuffer.Counters.Edited == countersBefore.Edited,
+            "Retire (đổi layer): không bỏ bản file trong RAM");
+        using (await PdfThumbnailService.SuspendDocumentAsync(small, TimeSpan.FromSeconds(5)))
+            Check(!PdfFileBuffer.IsBuffered(small) && PdfFileBuffer.Counters.Edited == countersBefore.Edited + 1,
+                "Suspend (app sắp ghi file): bỏ bản file trong RAM");
+        Check((await PdfThumbnailService.RenderPageAsync(small, pages[1], 800))?.Hash() == reference[pages[1]], "sau Retire/Suspend: vẽ lại đúng");
+
         // ── Layer: tắt 1 layer → mọi bản vẽ theo trạng thái mới ──
         string layers = MakeLayers();
         var info = PdfLayerService.ReadLayers(layers);

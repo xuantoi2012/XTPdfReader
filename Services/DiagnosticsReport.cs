@@ -19,6 +19,24 @@ internal static class DiagnosticsReport
     /// <summary>Số liệu của Viewer (cache ảnh trang, tile, vùng vẽ cuộn liên tục).</summary>
     public static Func<ViewerStats>? ViewerSection { get; set; }
 
+    /// <summary>Kết quả lần bấm "Dọn RAM" gần nhất (private trước → sau).</summary>
+    public static string? LastCollect { get; private set; }
+
+    /// <summary>Thu gom rác .NET hết mức (kể cả nén vùng mảng lớn) và chạy finalizer — ảnh WPF đã bỏ nhưng chưa được thu gom
+    /// giữ bộ nhớ native tới lúc này. Phần private còn lại sau khi dọn là bộ nhớ thật sự đang/đã được PDFium giữ.</summary>
+    public static void CollectNow()
+    {
+        using var before = Process.GetCurrentProcess();
+        long privateBefore = before.PrivateMemorySize64, gcBefore = GC.GetTotalMemory(false);
+        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        using var after = Process.GetCurrentProcess();
+        LastCollect = $"{DateTime.Now:HH:mm:ss}: private {Mb(privateBefore):0} → {Mb(after.PrivateMemorySize64):0} MB, " +
+                      $"GC heap {Mb(gcBefore):0} → {Mb(GC.GetTotalMemory(false)):0} MB";
+    }
+
     internal readonly record struct ViewerStats(
         int ReaderCacheCount, long ReaderCacheBytes, int ReaderInflight,
         int TileCacheCount, long TileCacheBytes,
@@ -58,6 +76,16 @@ internal static class DiagnosticsReport
         Row(sb, "Vùng nét (cuộn liên tục)", $"{regionMb,8:0} MB        ({viewer?.ContinuousRegions ?? 0} vùng)");
         Row(sb, "Thumbnail", $"{thumbMb,8:0} MB  / 48    ({thumbs.Cache} ảnh, đang vẽ {thumbs.Inflight})");
         Row(sb, "Còn lại ≈ PDFium + WPF + khác", $"{restMb,8:0} MB   (= private − GC − ảnh)");
+        if (LastCollect != null) Row(sb, "Lần \"Dọn RAM\" gần nhất", LastCollect);
+        sb.AppendLine();
+
+        // ── File trong RAM ──
+        var (created, changed, closed, edited) = PdfFileBuffer.Counters;
+        Section(sb, "File PDF trong RAM");
+        foreach (var (path, length, loaded) in PdfFileBuffer.Snapshot())
+            Row(sb, Trim(System.IO.Path.GetFileName(path), 36), $"{Mb(length),8:0} MB, đã nạp {loaded:P0}");
+        Row(sb, "Tạo bộ đệm", $"{created} lần");
+        Row(sb, "Bỏ bộ đệm: file đổi / đóng / app ghi", $"{changed} / {closed} / {edited}");
         sb.AppendLine();
 
         // ── PDFium ──
@@ -84,9 +112,9 @@ internal static class DiagnosticsReport
         // ── Thời gian ──
         Section(sb, "Thời gian (TB/max ms, cả phiên)");
         Row(sb, "Chờ gate / hàng trang / buffer", $"{RenderDiagnostics.NativeWait} | {RenderDiagnostics.PageQueue} | {RenderDiagnostics.BufferQueue}");
-        Row(sb, "Mở doc / parse trang", $"{RenderDiagnostics.DocumentOpen} | {RenderDiagnostics.PageOpen}");
+        Row(sb, "Mở doc / parse trang", $"{RenderDiagnostics.DocumentOpen} ({RenderDiagnostics.DocumentOpen.Count} lần) | {RenderDiagnostics.PageOpen} ({RenderDiagnostics.PageOpen.Count} lần)");
         Row(sb, "Raster slice / copy WPF", $"{RenderDiagnostics.RasterSlice} | {RenderDiagnostics.BitmapCopy}");
-        Row(sb, "File → RAM cả file", $"{RenderDiagnostics.FileBufferRead}");
+        Row(sb, "File → RAM cả file", $"{RenderDiagnostics.FileBufferRead}  ({RenderDiagnostics.FileBufferRead.Count} lần)");
         Row(sb, "Khối 256 KB cần gấp", $"{RenderDiagnostics.FileBlockRead}  ({RenderDiagnostics.FileBlockRead.Count} lần)");
         sb.AppendLine();
 

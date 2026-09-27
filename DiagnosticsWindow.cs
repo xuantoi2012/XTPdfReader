@@ -64,12 +64,15 @@ namespace XTPdfMergeApp
             var copyButton = MakeButton("Copy", (_, _) => CopyText());
             var saveButton = MakeButton("Lưu file…", (_, _) => SaveText());
             _pauseButton = MakeButton("Tạm dừng", (_, _) => TogglePause());
+            var collectButton = MakeButton("Dọn RAM (GC)", (_, _) => { DiagnosticsReport.CollectNow(); bool p = _paused; _paused = false; Refresh(); _paused = p; });
+            collectButton.ToolTip = "Thu gom rác .NET + ảnh WPF đã bỏ. RAM còn lại sau khi dọn ≈ PDFium thật sự giữ.";
             var bar = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Margin = new Thickness(8)
             };
+            bar.Children.Add(collectButton);
             bar.Children.Add(_pauseButton);
             bar.Children.Add(copyButton);
             bar.Children.Add(saveButton);

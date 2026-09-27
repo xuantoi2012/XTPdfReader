@@ -342,11 +342,14 @@ namespace XTPdfMergeApp.Services
         /// dùng trước khi ghi đè file nguồn (xoay trang, ghi annotation): FPDF_LoadDocument giữ
         /// file mở suốt đời lease, Windows không cho ghi đè trong lúc đó. Trong lúc bị chặn, mọi
         /// render/đếm trang của file này trả null như cache-miss; caller tự yêu cầu render lại sau.</summary>
-        public static async Task<IDisposable> SuspendDocumentAsync(string pdfPath, TimeSpan timeout)
+        /// <param name="fileWillChange">false = chỉ đóng để mở lại (đổi layer): file không đổi, giữ nguyên bản file trong RAM.</param>
+        public static async Task<IDisposable> SuspendDocumentAsync(string pdfPath, TimeSpan timeout, bool fileWillChange = true)
         {
             string normalized = NormalizePath(pdfPath);
             _suspendedDocuments.AddOrUpdate(normalized, 1, (_, count) => count + 1);
-            PdfFileBuffer.Invalidate(normalized); // file sắp bị ghi đè — buffer RAM cũ không còn đúng
+            // File sắp bị ghi đè → bản trong RAM không còn đúng. Đổi layer thì file không đổi: trước đây vẫn bỏ bản trong
+            // RAM, mỗi lần bật/tắt layer là đọc lại cả file qua mạng.
+            if (fileWillChange) PdfFileBuffer.Invalidate(normalized, PdfFileBuffer.InvalidateReason.Edited);
             _layerTails.TryRemove(normalized, out _);
             var suspension = new DocumentSuspension(normalized);
             try
@@ -380,7 +383,7 @@ namespace XTPdfMergeApp.Services
         /// trạng thái mới. Dùng lại đúng cơ chế SuspendDocumentAsync/RequestDispose.</summary>
         public static async Task RetireDocumentAsync(string pdfPath)
         {
-            using (await SuspendDocumentAsync(pdfPath, TimeSpan.FromSeconds(3)).ConfigureAwait(false)) { }
+            using (await SuspendDocumentAsync(pdfPath, TimeSpan.FromSeconds(3), fileWillChange: false).ConfigureAwait(false)) { }
         }
 
         private sealed class DocumentSuspension(string normalizedPath) : IDisposable

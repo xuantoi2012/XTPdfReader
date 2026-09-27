@@ -1,8 +1,10 @@
 using System;
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
@@ -35,6 +37,17 @@ namespace XTPdfMergeApp.Services
         private static readonly ConcurrentDictionary<string, PdfBlockCache> _entries = new(StringComparer.OrdinalIgnoreCase);
         private static long _reservedBytes;
 
+        public enum InvalidateReason { Changed, Closed, Edited }
+        private static long _created, _invalidatedChanged, _invalidatedClosed, _invalidatedEdited;
+
+        /// <summary>Cho cửa sổ Debug: số lần tạo bộ đệm và số lần bỏ theo lý do (file đổi trên đĩa / file đóng / app ghi file).</summary>
+        public static (long Created, long Changed, long Closed, long Edited) Counters => (Interlocked.Read(ref _created),
+            Interlocked.Read(ref _invalidatedChanged), Interlocked.Read(ref _invalidatedClosed), Interlocked.Read(ref _invalidatedEdited));
+
+        /// <summary>Cho cửa sổ Debug: các file đang đệm.</summary>
+        public static IReadOnlyList<(string Path, long Length, double Loaded)> Snapshot()
+            => _entries.Select(e => (e.Key, e.Value.Length, e.Value.LoadedFraction)).ToList();
+
         public static long ReservedBytes => Interlocked.Read(ref _reservedBytes);
 
         /// <summary>Bộ đệm của file (đường dẫn đã chuẩn hoá), đã tăng số tham chiếu — người gọi phải
@@ -62,7 +75,7 @@ namespace XTPdfMergeApp.Services
                         if (existing.TryAddRef()) return existing;
                         continue; // vừa bị bỏ giữa chừng — thử lại
                     }
-                    Invalidate(normalizedPath); // file đổi trên ổ mạng (người khác lưu đè) → đọc lại
+                    Invalidate(normalizedPath, InvalidateReason.Changed); // file đổi trên ổ mạng (người khác lưu đè) → đọc lại
                 }
 
                 long length = info.Length;
@@ -90,6 +103,7 @@ namespace XTPdfMergeApp.Services
                     created.Release(); // luồng khác vừa tạo trước — dùng bản đó
                     continue;
                 }
+                Interlocked.Increment(ref _created);
                 created.StartBackgroundRead();
                 if (created.TryAddRef()) return created; // 1 tham chiếu của registry + 1 của người gọi
                 // (vừa bị Invalidate ngay sau khi thêm — thử lại từ đầu)
@@ -106,16 +120,23 @@ namespace XTPdfMergeApp.Services
 
         /// <summary>File sắp bị ghi đè (xoay trang, annotation) hoặc đã đổi — bỏ bộ đệm cũ. Document PDFium
         /// đang dùng nó vẫn đọc được tới khi đóng (bộ nhớ chỉ trả khi mọi tham chiếu đã Release).</summary>
-        public static void Invalidate(string normalizedPath)
+        public static void Invalidate(string normalizedPath, InvalidateReason reason)
         {
-            if (_entries.TryRemove(normalizedPath, out var entry)) entry.Release();
+            if (!_entries.TryRemove(normalizedPath, out var entry)) return;
+            switch (reason)
+            {
+                case InvalidateReason.Changed: Interlocked.Increment(ref _invalidatedChanged); break;
+                case InvalidateReason.Closed: Interlocked.Increment(ref _invalidatedClosed); break;
+                default: Interlocked.Increment(ref _invalidatedEdited); break;
+            }
+            entry.Release();
         }
 
         /// <summary>Bỏ bộ đệm của các file không còn mở.</summary>
         public static void ReleaseExcept(Func<string, bool> isActive)
         {
             foreach (var key in _entries.Keys)
-                if (!isActive(key)) Invalidate(key);
+                if (!isActive(key)) Invalidate(key, InvalidateReason.Closed);
         }
     }
 
