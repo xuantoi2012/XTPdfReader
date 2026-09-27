@@ -22,6 +22,9 @@ namespace XTPdfMergeApp.Services
     public static partial class PdfThumbnailService
     {
         private const int MaxRenderPixels = 24_000_000;
+        /// <summary>FPDF_ANNOT — vẽ cả annotation (typewriter, ghi chú, highlight…). Thiếu cờ này thì annotation
+        /// ghi vào file không bao giờ hiện trong Viewer/thumbnail.</summary>
+        private const int FpdfAnnot = 0x01;
         private const int FpdfLcdText = 0x02;
         private const int FpdfNoNativeText = 0x04;
         private const int FpdfRenderLimitedImageCache = 0x200;

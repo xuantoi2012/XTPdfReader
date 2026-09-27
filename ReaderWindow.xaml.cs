@@ -55,6 +55,7 @@ namespace XTPdfMergeApp
             };
             Visibility = Visibility.Collapsed;
             _groups = groups;
+            ReaderContentHost.LostMouseCapture += (_, _) => CancelHighlightDrag();
             // Group đang xem bị xoá khỏi workspace (đóng cả window PDF, không phải chỉ xoá vài
             // trang — trường hợp đó qua NotifyPagesChanged) → tự ẩn Viewer, không cần MainWindow
             // forward việc này qua API riêng.
@@ -112,6 +113,10 @@ namespace XTPdfMergeApp
                 case Key.OemMinus:
                 case Key.Subtract:
                     ZoomReaderAtPoint(_readerZoom / ReaderZoomStep, ReaderViewportCenter());
+                    e.Handled = true;
+                    break;
+                case Key.Escape:
+                    SetReaderTool(ReaderTool.Hand);
                     e.Handled = true;
                     break;
                 case Key.D0:
@@ -441,6 +446,8 @@ namespace XTPdfMergeApp
         /// <summary>Ẩn docked Viewer và dọn state đang xem.</summary>
         public void HideReader()
         {
+            CommitAnnotationEditor(cancel: true);
+            CancelHighlightDrag();
             Interlocked.Increment(ref _readerRequestId);
             _qualityRestoreTimer.Stop();
             _tilePresentation.Clear();
@@ -515,6 +522,7 @@ namespace XTPdfMergeApp
             }
 
             ShowAndActivate();
+            if (!ReferenceEquals(_readerPage, row)) CommitAnnotationEditor();
             bool groupChanged = !ReferenceEquals(_readerGroup, group);
             if (!ReferenceEquals(_readerPage, row))
             {
@@ -1879,8 +1887,9 @@ namespace XTPdfMergeApp
         }
 
         /// <summary>File nguồn vừa bị sửa (xoay trang/annotation) — bỏ mọi ảnh Viewer đang cache của các
-        /// trang đó rồi render lại trang đang xem. Placement đã được MainWindow xoá bitmap sẵn.</summary>
-        internal void OnSourcePagesEdited(string path, IReadOnlyCollection<int> pages)
+        /// trang đó rồi render lại. <paramref name="geometryChanged"/> = false (chỉ thêm annotation): giữ ảnh
+        /// cũ trên màn hình tới khi ảnh mới xong, không nhảy lại vị trí cuộn/zoom.</summary>
+        internal void OnSourcePagesEdited(string path, IReadOnlyCollection<int> pages, bool geometryChanged)
         {
             bool Matches(string p, int page) =>
                 pages.Contains(page) && string.Equals(p, path, StringComparison.OrdinalIgnoreCase);
@@ -1892,19 +1901,42 @@ namespace XTPdfMergeApp
                     _readerLoads.Remove(key);
             }
             _readerTileCache.RemoveWhere(key => Matches(key.Path, key.Page));
+            InvalidateAnnotationCache(path, pages);
 
             if (_readerGroup == null || _readerPage == null) return;
+            var affected = _readerGroup.Pages.Where(r => Matches(r.SourcePath, r.PageNumber)).ToList();
             if (_readerContinuousMode)
             {
                 ClearReaderTiles();
-                foreach (var row in _readerGroup.Pages.Where(r => Matches(r.SourcePath, r.PageNumber)))
-                    _ = LoadReaderBitmapFor(row);
+                foreach (var row in affected)
+                {
+                    if (geometryChanged) _ = LoadReaderBitmapFor(row);
+                    else if (row.ReaderBitmap != null) _ = RefreshReaderBitmapInPlaceAsync(row);
+                }
                 ScheduleReaderTileRefresh();
             }
-            else if (Matches(_readerPage.SourcePath, _readerPage.PageNumber))
+            else if (affected.Contains(_readerPage))
             {
-                _ = ShowPageAsync(_readerGroup, _readerPage, preserveZoomMode: true);
+                if (geometryChanged) _ = ShowPageAsync(_readerGroup, _readerPage, preserveZoomMode: true);
+                else _ = RefreshReaderBitmapInPlaceAsync(_readerPage);
             }
+        }
+
+        /// <summary>Render lại 1 trang cùng kích thước rồi thay ảnh tại chỗ (không qua trạng thái "Đang
+        /// tải"), sau đó làm mới tile nét cao.</summary>
+        private async Task RefreshReaderBitmapInPlaceAsync(PageRow row)
+        {
+            var bmp = await GetReaderLoadTask((row.SourcePath, row.PageNumber));
+            if (bmp == null) return;
+            row.ReaderBitmap = bmp;
+            if (!_readerContinuousMode && ReferenceEquals(_readerPage, row))
+            {
+                ClearReaderTiles();
+                ReaderImage.Source = bmp;
+                _readerBitmapNativeWidthPx = bmp.PixelWidth;
+                ApplyReaderLayout();
+            }
+            ScheduleReaderTileRefresh();
         }
 
         private void ReaderRotateLeft_Click(object sender, RoutedEventArgs e) => SetReaderRotation((_readerRotation - 90 + 360) % 360);

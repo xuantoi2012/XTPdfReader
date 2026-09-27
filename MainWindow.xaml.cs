@@ -2557,7 +2557,8 @@ namespace XTPdfMergeApp
         /// điều hướng/zoom của Viewer nằm ở ReaderWindow_PreviewKeyDown riêng trong docked control.</summary>
         private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            // Đang gõ trong ô nhập (Typewriter/Ghi chú, ô số trang): Ctrl+Z/Y là của ô nhập đó.
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && Keyboard.FocusedElement is not TextBox)
             {
                 bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
                 if ((e.Key == Key.Y || (e.Key == Key.Z && shift)) && _workspace.History.CanRedo)

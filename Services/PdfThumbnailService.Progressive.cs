@@ -201,7 +201,7 @@ public static partial class PdfThumbnailService
                 pause.BeginSlice();
                 started = true;
                 status = FPDF_RenderPageBitmap_Start(bitmap, page.Handle, -x, -y, fullWidth, fullHeight, 0,
-                    FpdfLcdText | FpdfNoNativeText | FpdfRenderLimitedImageCache, pause.Pointer);
+                    FpdfAnnot | FpdfLcdText | FpdfNoNativeText | FpdfRenderLimitedImageCache, pause.Pointer);
                 pause.RecordSlice();
             }
             while (status == 1) // FPDF_RENDER_TOBECONTINUED

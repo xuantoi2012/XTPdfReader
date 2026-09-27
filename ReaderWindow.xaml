@@ -130,63 +130,121 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <DockPanel Grid.Row="0" Margin="0" LastChildFill="True" TextElement.Foreground="{DynamicResource CadChromeText}"
-                       Background="{DynamicResource CadToolbarBackground}">
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{DynamicResource Mat.ChevronLeft}"
-                                 ToolTip="Trang trước" Click="ReaderPreviousPage_Click"/>
-                    <TextBox x:Name="ReaderPageBox" Width="46" Height="24" Margin="3,0,0,0"
-                             TextAlignment="Center" VerticalContentAlignment="Center"
-                             KeyDown="ReaderPageBox_KeyDown" LostFocus="ReaderPageBox_LostFocus"/>
-                    <TextBlock x:Name="ReaderPageTotalText" MinWidth="44" Margin="4,0,6,0"
-                               VerticalAlignment="Center" Foreground="{DynamicResource CadTextSecondary}"/>
-                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{DynamicResource Mat.ChevronRight}"
-                                 ToolTip="Trang sau" Click="ReaderNextPage_Click"/>
-                    <xt:XTButton x:Name="ReaderContinuousToggle" Style="{StaticResource PdfViewerIconButton}"
-                                 Icon="{DynamicResource Mat.ViewSequential}"
-                                 ToolTip="Xem cuộn liên tục (lăn chuột cuộn qua các trang, Ctrl+lăn chuột để zoom)"
-                                 Click="ReaderContinuousToggle_Click"/>
-                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{DynamicResource Mat.FitToPageOutline}"
-                                 ToolTip="Fit page" Click="ReaderFitPage_Click"/>
-                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{DynamicResource Mat.FitToScreenOutline}"
-                                 ToolTip="Fit width" Click="ReaderFitWidth_Click"/>
-                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{DynamicResource Mat.Minus}"
-                                 ToolTip="Thu nhỏ" Click="ReaderZoomOut_Click"/>
-                    <TextBlock x:Name="ReaderZoomText" Width="46" TextAlignment="Center"
-                               VerticalAlignment="Center" Foreground="{DynamicResource CadTextSecondary}"/>
-                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{DynamicResource Mat.Plus}"
-                                 ToolTip="Phóng to" Click="ReaderZoomIn_Click"/>
-                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{DynamicResource Mat.RotateLeft}"
-                                 ToolTip="Xoay trái (chỉ xem, không đổi file gốc)" Click="ReaderRotateLeft_Click"/>
-                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{DynamicResource Mat.RotateRight}"
-                                 ToolTip="Xoay phải (chỉ xem, không đổi file gốc)" Click="ReaderRotateRight_Click"/>
-                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{DynamicResource Mat.OpenInNew}"
-                                 ToolTip="Mở file bằng ứng dụng PDF mặc định" Click="ReaderOpenExternal_Click"/>
-                </StackPanel>
-                <!-- Công cụ sửa nhanh (mô phỏng Foxit, 1 hàng không chia tab). Xoay/xuất áp lên vùng chọn
-                     trong Organizer nếu trang đang xem nằm trong đó, không thì chỉ trang đang xem. -->
-                <StackPanel x:Name="ReaderEditTools" DockPanel.Dock="Left" Orientation="Horizontal" Margin="4,0,0,0">
-                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{StaticResource PdfEdit.RotatePageLeft}"
-                                 ToolTip="Xoay trang trái 90° — LƯU vào file nguồn (trang đang xem, hoặc các trang đang chọn)"
-                                 Click="ReaderPageRotateLeft_Click"/>
-                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{StaticResource PdfEdit.RotatePageRight}"
-                                 ToolTip="Xoay trang phải 90° — LƯU vào file nguồn (trang đang xem, hoặc các trang đang chọn)"
-                                 Click="ReaderPageRotateRight_Click"/>
-                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{StaticResource PdfEdit.InsertPages}"
-                                 ToolTip="Chèn trang từ file PDF khác vào sau trang đang xem"
-                                 Click="ReaderInsertPages_Click"/>
-                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{StaticResource PdfEdit.ExtractPages}"
-                                 ToolTip="Xuất trang đang xem (hoặc các trang đang chọn) ra file PDF mới"
-                                 Click="ReaderExtractPages_Click"/>
-                    <Border Width="1" Height="18" Margin="6,0" Background="{DynamicResource CadChromeBorder}"/>
-                </StackPanel>
-                <TextBlock x:Name="ReaderTitleText" VerticalAlignment="Center"
-                           FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="8,0,12,0"/>
-            </DockPanel>
+            <!-- ══ Ribbon 1 hàng mô phỏng tab Home của Foxit (không chia tab) ══
+                 Nhóm: Công cụ · Xem · Chú thích · Sắp xếp trang. Thêm nhóm mới (Bookmark, Layer…)
+                 bằng cách chép 1 khối DockPanel nhóm + 1 Border phân cách. Điều hướng trang/zoom nằm
+                 ở thanh trạng thái dưới đáy như Foxit. -->
+            <Border Grid.Row="0" Background="{DynamicResource CadToolbarBackground}"
+                    BorderBrush="{DynamicResource CadChromeBorder}" BorderThickness="0,0,0,1"
+                    TextElement.Foreground="{DynamicResource CadChromeText}">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Focusable="False">
+                    <StackPanel Orientation="Horizontal" Margin="4,3,4,0">
 
-            <ScrollViewer x:Name="ReaderScrollViewer" Grid.Row="1"
+                        <!-- Công cụ -->
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Bottom" Text="Công cụ" Style="{StaticResource PdfRibbonGroupLabel}"/>
+                            <StackPanel Orientation="Horizontal">
+                                <xt:XTButton x:Name="ReaderHandToolButton" Style="{StaticResource PdfRibbonLargeButton}"
+                                             Icon="{StaticResource PdfUi.Hand}" Text="Hand" Tag="Active"
+                                             ToolTip="Kéo để cuộn trang (Esc để quay về công cụ này)" Click="ReaderHandTool_Click"/>
+                                <StackPanel VerticalAlignment="Top">
+                                    <xt:XTButton Style="{StaticResource PdfRibbonSmallButton}" Icon="{StaticResource PdfUi.OpenExternal}"
+                                                 Text="Mở bằng app khác" ToolTip="Mở file bằng ứng dụng PDF mặc định"
+                                                 Click="ReaderOpenExternal_Click"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </DockPanel>
+                        <Border Style="{StaticResource PdfRibbonGroupSeparator}"/>
+
+                        <!-- Xem (chỉ đổi cách xem, không sửa file) -->
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Bottom" Text="Xem" Style="{StaticResource PdfRibbonGroupLabel}"/>
+                            <StackPanel Orientation="Horizontal">
+                                <xt:XTButton x:Name="ReaderContinuousToggle" Style="{StaticResource PdfRibbonLargeButton}"
+                                             Icon="{StaticResource PdfUi.Continuous}" Text="Cuộn liên tục"
+                                             ToolTip="Xem cuộn liên tục (lăn chuột cuộn qua các trang, Ctrl+lăn chuột để zoom)"
+                                             Click="ReaderContinuousToggle_Click"/>
+                                <StackPanel VerticalAlignment="Top">
+                                    <xt:XTButton Style="{StaticResource PdfRibbonSmallButton}" Icon="{StaticResource PdfUi.FitPage}"
+                                                 Text="Vừa trang" ToolTip="Fit page" Click="ReaderFitPage_Click"/>
+                                    <xt:XTButton Style="{StaticResource PdfRibbonSmallButton}" Icon="{StaticResource PdfUi.FitWidth}"
+                                                 Text="Vừa chiều rộng" ToolTip="Fit width" Click="ReaderFitWidth_Click"/>
+                                </StackPanel>
+                                <StackPanel VerticalAlignment="Top">
+                                    <xt:XTButton Style="{StaticResource PdfRibbonSmallButton}" Icon="{StaticResource PdfEdit.RotatePageLeft}"
+                                                 Text="Xoay trái" ToolTip="Xoay khung nhìn sang trái (chỉ xem, không đổi file)"
+                                                 Click="ReaderRotateLeft_Click"/>
+                                    <xt:XTButton Style="{StaticResource PdfRibbonSmallButton}" Icon="{StaticResource PdfEdit.RotatePageRight}"
+                                                 Text="Xoay phải" ToolTip="Xoay khung nhìn sang phải (chỉ xem, không đổi file)"
+                                                 Click="ReaderRotateRight_Click"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </DockPanel>
+                        <Border Style="{StaticResource PdfRibbonGroupSeparator}"/>
+
+                        <!-- Chú thích: bấm để bật công cụ, bấm lại (hoặc Hand/Esc) để tắt -->
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Bottom" Text="Chú thích" Style="{StaticResource PdfRibbonGroupLabel}"/>
+                            <StackPanel Orientation="Horizontal">
+                                <xt:XTButton x:Name="ReaderTypewriterToolButton" Style="{StaticResource PdfRibbonLargeButton}"
+                                             Icon="{StaticResource PdfEdit.Typewriter}" Text="Typewriter"
+                                             ToolTip="Gõ chữ lên trang: bấm vào chỗ cần ghi, gõ rồi Enter (Shift+Enter xuống dòng). Bấm vào chữ đã ghi để sửa."
+                                             Click="ReaderTypewriterTool_Click"/>
+                                <xt:XTButton x:Name="ReaderCommentToolButton" Style="{StaticResource PdfRibbonLargeButton}"
+                                             Icon="{StaticResource PdfEdit.Comment}" Text="Ghi chú"
+                                             ToolTip="Ghi chú dán (sticky note): bấm vào trang, gõ nội dung rồi Enter. Rê chuột lên icon để xem, bấm để sửa."
+                                             Click="ReaderCommentTool_Click"/>
+                                <xt:XTButton x:Name="ReaderHighlightToolButton" Style="{StaticResource PdfRibbonLargeButton}"
+                                             Icon="{StaticResource PdfEdit.Highlight}" Text="Highlight"
+                                             ToolTip="Kéo 1 vùng chữ nhật để tô vàng"
+                                             Click="ReaderHighlightTool_Click"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <Border Style="{StaticResource PdfRibbonGroupSeparator}"/>
+
+                        <!-- Sắp xếp trang: xoay LƯU file; chèn/xoá đổi workspace (Lưu để ghi ra file) -->
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Bottom" Text="Sắp xếp trang" Style="{StaticResource PdfRibbonGroupLabel}"/>
+                            <StackPanel Orientation="Horizontal">
+                                <xt:XTButton x:Name="ReaderRotatePagesButton" Style="{StaticResource PdfRibbonLargeButton}"
+                                             Icon="{StaticResource PdfEdit.RotatePageRight}" Text="Xoay trang ▾"
+                                             ToolTip="Xoay THẬT trang đang xem (hoặc các trang đang chọn) và LƯU vào file nguồn"
+                                             Click="ReaderRotatePagesMenu_Click">
+                                    <xt:XTButton.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Xoay trái 90°" Click="ReaderPageRotateLeft_Click"/>
+                                            <MenuItem Header="Xoay phải 90°" Click="ReaderPageRotateRight_Click"/>
+                                        </ContextMenu>
+                                    </xt:XTButton.ContextMenu>
+                                </xt:XTButton>
+                                <StackPanel VerticalAlignment="Top">
+                                    <xt:XTButton Style="{StaticResource PdfRibbonSmallButton}" Icon="{StaticResource PdfEdit.InsertPages}"
+                                                 Text="Chèn" ToolTip="Chèn trang từ file PDF khác vào sau trang đang xem"
+                                                 Click="ReaderInsertPages_Click"/>
+                                    <xt:XTButton Style="{StaticResource PdfRibbonSmallButton}" Icon="{StaticResource PdfUi.Delete}"
+                                                 Text="Xoá" ToolTip="Xoá trang đang xem (hoặc các trang đang chọn) khỏi window này — có thể Undo"
+                                                 Click="ReaderDeletePages_Click"/>
+                                    <xt:XTButton Style="{StaticResource PdfRibbonSmallButton}" Icon="{StaticResource PdfEdit.ExtractPages}"
+                                                 Text="Trích xuất" ToolTip="Xuất trang đang xem (hoặc các trang đang chọn) ra file PDF mới"
+                                                 Click="ReaderExtractPages_Click"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </DockPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <!-- Vùng xem trang + lớp tương tác (ReaderInteractionLayer) phủ trên cả 2 chế độ xem. -->
+            <Grid x:Name="ReaderContentHost" Grid.Row="1" ClipToBounds="True"
+                  PreviewMouseLeftButtonDown="ReaderContentHost_PreviewMouseLeftButtonDown"
+                  PreviewMouseMove="ReaderContentHost_PreviewMouseMove"
+                  PreviewMouseLeftButtonUp="ReaderContentHost_PreviewMouseLeftButtonUp"
+                  MouseLeave="ReaderContentHost_MouseLeave"
+                  LayoutUpdated="ReaderContentHost_LayoutUpdated">
+            <ScrollViewer x:Name="ReaderScrollViewer"
                           HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
                           Background="{DynamicResource PdfViewerBackgroundBrush}" Padding="16"
                           PreviewMouseWheel="ReaderScrollViewer_PreviewMouseWheel"
@@ -255,7 +313,7 @@
                  ngoài (giống các ListBox trang bên MainWindow) — dùng thẳng ScrollViewer nội bộ
                  của chính ListBox để ScrollIntoView/virtualization hoạt động đúng, tránh
                  lặp lại bug "2 ScrollViewer giẫm chân nhau" đã gặp trước đó. -->
-            <ListBox x:Name="ReaderContinuousList" Grid.Row="1"
+            <ListBox x:Name="ReaderContinuousList"
                      Background="{DynamicResource PdfViewerBackgroundBrush}" BorderThickness="0" Padding="16"
                      Visibility="Collapsed"
                      ItemTemplate="{StaticResource ReaderContinuousPageTemplate}"
@@ -290,6 +348,56 @@
                     </Style>
                 </ListBox.ItemContainerStyle>
             </ListBox>
+
+                <!-- Lớp tương tác chung của Typewriter/Ghi chú/Highlight: không Background nên không
+                     chặn chuột; chỉ ô nhập chữ, khung kéo highlight, popup xem ghi chú nằm ở đây. -->
+                <Canvas x:Name="ReaderInteractionLayer">
+                    <Rectangle x:Name="ReaderHighlightRubberBand" Visibility="Collapsed" IsHitTestVisible="False"
+                               Fill="#66FFE600" Stroke="#FFC9A800" StrokeThickness="1"/>
+                    <Border x:Name="ReaderCommentHoverPopup" Visibility="Collapsed" IsHitTestVisible="False"
+                            MaxWidth="280" Padding="8,6" CornerRadius="3"
+                            Background="#FFFFF6C4" BorderBrush="#FFC9A800" BorderThickness="1">
+                        <TextBlock x:Name="ReaderCommentHoverText" TextWrapping="Wrap" Foreground="#FF222222" FontSize="12"/>
+                    </Border>
+                    <TextBox x:Name="ReaderAnnotationEditor" Visibility="Collapsed"
+                             AcceptsReturn="True" TextWrapping="NoWrap" MinWidth="120"
+                             Padding="1" BorderThickness="1"
+                             BorderBrush="{DynamicResource CadSelectionBlue}" Foreground="Black"
+                             PreviewKeyDown="ReaderAnnotationEditor_PreviewKeyDown"
+                             LostKeyboardFocus="ReaderAnnotationEditor_LostKeyboardFocus"/>
+                </Canvas>
+            </Grid>
+
+            <!-- Thanh trạng thái kiểu Foxit: tên trang · điều hướng trang (giữa) · zoom (phải) -->
+            <Grid Grid.Row="2" Background="{DynamicResource CadToolbarBackground}" Height="30"
+                  TextElement.Foreground="{DynamicResource CadChromeText}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="ReaderTitleText" Grid.Column="0" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" Margin="8,0,12,0" Foreground="{DynamicResource CadTextSecondary}"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{StaticResource PdfUi.ChevronLeft}"
+                                 Height="26" Width="26" ToolTip="Trang trước" Click="ReaderPreviousPage_Click"/>
+                    <TextBox x:Name="ReaderPageBox" Width="46" Height="22" Margin="3,0,0,0"
+                             TextAlignment="Center" VerticalContentAlignment="Center"
+                             KeyDown="ReaderPageBox_KeyDown" LostFocus="ReaderPageBox_LostFocus"/>
+                    <TextBlock x:Name="ReaderPageTotalText" MinWidth="44" Margin="4,0,6,0"
+                               VerticalAlignment="Center" Foreground="{DynamicResource CadTextSecondary}"/>
+                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{StaticResource PdfUi.ChevronRight}"
+                                 Height="26" Width="26" ToolTip="Trang sau" Click="ReaderNextPage_Click"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0">
+                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{StaticResource PdfUi.Minus}"
+                                 Height="26" Width="26" ToolTip="Thu nhỏ" Click="ReaderZoomOut_Click"/>
+                    <TextBlock x:Name="ReaderZoomText" Width="46" TextAlignment="Center"
+                               VerticalAlignment="Center" Foreground="{DynamicResource CadTextSecondary}"/>
+                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{StaticResource PdfUi.Plus}"
+                                 Height="26" Width="26" ToolTip="Phóng to" Click="ReaderZoomIn_Click"/>
+                </StackPanel>
+            </Grid>
         </Grid>
     </Border>
 </UserControl>

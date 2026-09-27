@@ -20,6 +20,98 @@
     <Geometry x:Key="PdfEdit.Comment">M20,2H4A2,2 0 0,0 2,4V22L6,18H20A2,2 0 0,0 22,16V4A2,2 0 0,0 20,2M20,16H5.17L4,17.17V4H20V16M6,7H18V9H6V7M6,11H15V13H6V11Z</Geometry>
     <Geometry x:Key="PdfEdit.Highlight">M18.5,1.15L22.85,5.5L11.5,16.85L7.15,12.5L18.5,1.15M6.44,13.21L10.79,17.56L9.5,18.85H5.15V14.5L6.44,13.21M2,20H22V23H2V20Z</Geometry>
 
+    <Geometry x:Key="PdfUi.Hand">M13,6V11H18V7.75L22.25,12L18,16.25V13H13V18H16.25L12,22.25L7.75,18H11V13H6V16.25L1.75,12L6,7.75V11H11V6H7.75L12,1.75L16.25,6H13Z</Geometry>
+    <Geometry x:Key="PdfUi.Delete">M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z</Geometry>
+    <Geometry x:Key="PdfUi.Minus">M19,13H5V11H19V13Z</Geometry>
+    <Geometry x:Key="PdfUi.Plus">M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z</Geometry>
+    <Geometry x:Key="PdfUi.ChevronLeft">M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z</Geometry>
+    <Geometry x:Key="PdfUi.ChevronRight">M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z</Geometry>
+    <Geometry x:Key="PdfUi.FitPage">M4,4H10V6H6V10H4V4M14,4H20V10H18V6H14V4M4,14H6V18H10V20H4V14M18,14H20V20H14V18H18V14M8,8H16V16H8V8Z</Geometry>
+    <Geometry x:Key="PdfUi.FitWidth">M2,12L6,8V11H18V8L22,12L18,16V13H6V16L2,12M4,3H20V5H4V3M4,19H20V21H4V19Z</Geometry>
+    <Geometry x:Key="PdfUi.Continuous">M4,2H20V10H4V2M6,4V8H18V4H6M4,14H20V22H4V14M6,16V20H18V16H6Z</Geometry>
+    <Geometry x:Key="PdfUi.OpenExternal">M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z</Geometry>
+    <Geometry x:Key="PdfUi.DropDown">M7,10L12,15L17,10H7Z</Geometry>
+
+    <!-- ══ Ribbon 1 hàng kiểu Foxit (không tab): nút LỚN icon trên-chữ dưới, nút NHỎ icon+chữ xếp
+         chồng 3 hàng, nhãn nhóm ở đáy. Vẫn là xt:XTButton (Icon/IconBrush/Text của XTStyle) — chỉ
+         thay template xếp dọc ở app, không sửa XTStyle. Tag="Active" = công cụ đang bật. ══ -->
+    <ControlTemplate x:Key="PdfRibbonLargeButtonTemplate" TargetType="{x:Type xt:XTButton}">
+        <Border x:Name="Bd" CornerRadius="3" Padding="{TemplateBinding Padding}"
+                Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="1" SnapsToDevicePixels="True">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top">
+                <Path Data="{TemplateBinding IconData}" Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}"
+                      Fill="{TemplateBinding IconBrush}" Stretch="Uniform" HorizontalAlignment="Center" Margin="0,2,0,3"/>
+                <TextBlock Text="{TemplateBinding Text}" Foreground="{TemplateBinding Foreground}"
+                           FontSize="12" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="72"
+                           HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.42"/>
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <Style x:Key="PdfRibbonLargeButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
+        <Setter Property="Template" Value="{StaticResource PdfRibbonLargeButtonTemplate}"/>
+        <Setter Property="Width" Value="Auto"/>
+        <Setter Property="MinWidth" Value="48"/>
+        <Setter Property="Height" Value="66"/>
+        <Setter Property="Padding" Value="5,2"/>
+        <Setter Property="Margin" Value="1,0"/>
+        <Setter Property="VerticalAlignment" Value="Top"/>
+        <Setter Property="IconSize" Value="26"/>
+        <Setter Property="Foreground" Value="{DynamicResource CadChromeText}"/>
+        <Setter Property="IconBrush" Value="{DynamicResource CadChromeText}"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource CadChromeHoverBackground}"/>
+                <Setter Property="Foreground" Value="{DynamicResource CadButtonHoverText}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource CadButtonHoverText}"/>
+            </Trigger>
+            <Trigger Property="Tag" Value="Active">
+                <Setter Property="Background" Value="{DynamicResource CadSelectionBackground}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource CadSelectionBlue}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="PdfRibbonSmallButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
+        <Setter Property="Width" Value="Auto"/>
+        <Setter Property="MinWidth" Value="0"/>
+        <Setter Property="Height" Value="22"/>
+        <Setter Property="Padding" Value="4,0,6,0"/>
+        <Setter Property="Margin" Value="1,0"/>
+        <Setter Property="HorizontalAlignment" Value="Left"/>
+        <Setter Property="IconSize" Value="16"/>
+        <Setter Property="IconMargin" Value="0,0,5,0"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="{DynamicResource CadChromeText}"/>
+        <Setter Property="IconBrush" Value="{DynamicResource CadChromeText}"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource CadChromeHoverBackground}"/>
+                <Setter Property="Foreground" Value="{DynamicResource CadButtonHoverText}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource CadButtonHoverText}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="PdfRibbonGroupLabel" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="0,1,0,2"/>
+        <Setter Property="Foreground" Value="{DynamicResource CadTextSecondary}"/>
+    </Style>
+
+    <Style x:Key="PdfRibbonGroupSeparator" TargetType="Border">
+        <Setter Property="Width" Value="1"/>
+        <Setter Property="Margin" Value="4,4,4,4"/>
+        <Setter Property="Background" Value="{DynamicResource CadChromeBorder}"/>
+    </Style>
+
     <Style x:Key="PdfCardIconButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
         <Setter Property="Width" Value="32"/>
         <Setter Property="Height" Value="32"/>

@@ -48,13 +48,45 @@ namespace XTPdfMergeApp
 
         private Task<bool> ApplySourceRotationAsync(
             IReadOnlyList<(string Path, IReadOnlyCollection<int> Pages)> targets, int deltaDegrees)
-            => EditSourceFilesAsync(targets, (path, pages) => PdfPageEditService.RotatePages(path, pages, deltaDegrees));
+            => EditSourceFilesAsync(targets, (path, pages) => PdfPageEditService.RotatePages(path, pages, deltaDegrees),
+                geometryChanged: true);
+
+        // ── Annotation (Typewriter / Ghi chú / Highlight) ─────────────────
+
+        async Task IReaderPageEditHost.ApplyAnnotationChangesAsync(string path, IReadOnlyList<QuickAnnotationChange> changes, string description)
+        {
+            if (changes.Count == 0 || !await ApplyAnnotationChangesCoreAsync(path, changes)) return;
+            var inverse = changes.Reverse().Select(c => c.Inverse()).ToList();
+            _workspace.History.Record(new SourceFileEditCommand(description,
+                () => ApplyAnnotationChangesCoreAsync(path, changes),
+                () => ApplyAnnotationChangesCoreAsync(path, inverse)));
+        }
+
+        private Task<bool> ApplyAnnotationChangesCoreAsync(string path, IReadOnlyList<QuickAnnotationChange> changes)
+        {
+            IReadOnlyCollection<int> pages = changes.Select(c => c.PageNumber).Distinct().ToList();
+            return EditSourceFilesAsync(new[] { (path, pages) },
+                (p, _) => PdfPageEditService.EditInPlace(p, doc => PdfQuickAnnotationService.ApplyChanges(doc, changes)),
+                geometryChanged: false);
+        }
+
+        // ── Xoá trang khỏi window (workspace, có Undo; Lưu mới ghi ra file) ──
+
+        void IReaderPageEditHost.DeletePages(DocumentGroup group, IReadOnlyList<PageRow> pages)
+        {
+            if (pages.Count == 0 || !_groups.Contains(group)) return;
+            _workspace.Execute(new RemovePagesCommand(_workspace, group, pages));
+            if (!_groups.Contains(group)) ReaderWindow.Instance?.NotifyGroupRemoved(group);
+            else ReaderWindow.Instance?.NotifyPagesChanged(group);
+            ReleaseUnusedPdfDocuments();
+            UpdateStatusBar();
+        }
 
         /// <summary>Ghi đè từng file nguồn: đóng handle PDFium → sửa bằng iText (thread nền) → mở khoá →
         /// xoá mọi bitmap cũ của các trang đó để thumbnail/Viewer render lại ngay.</summary>
         internal async Task<bool> EditSourceFilesAsync(
             IReadOnlyList<(string Path, IReadOnlyCollection<int> Pages)> targets,
-            Action<string, IReadOnlyCollection<int>> edit)
+            Action<string, IReadOnlyCollection<int>> edit, bool geometryChanged)
         {
             await _sourceEditGate.WaitAsync();
             try
@@ -68,12 +100,12 @@ namespace XTPdfMergeApp
                     }
                     catch (Exception ex)
                     {
-                        InvalidateSourcePageRenders(path, pages);
+                        InvalidateSourcePageRenders(path, pages, geometryChanged);
                         MessageBox.Show(this, $"Không ghi được file:\n{path}\n\n{ex.Message}", "Sửa PDF",
                             MessageBoxButton.OK, MessageBoxImage.Error);
                         return false;
                     }
-                    InvalidateSourcePageRenders(path, pages);
+                    InvalidateSourcePageRenders(path, pages, geometryChanged);
                 }
                 return true;
             }
@@ -84,8 +116,10 @@ namespace XTPdfMergeApp
         }
 
         /// <summary>File nguồn vừa đổi nội dung — bỏ thumbnail/ảnh Viewer/tỉ lệ trang đang giữ của đúng
-        /// các trang đó (mọi placement trỏ tới chúng, ở mọi window) rồi yêu cầu render lại.</summary>
-        internal void InvalidateSourcePageRenders(string path, IReadOnlyCollection<int> pages)
+        /// các trang đó (mọi placement trỏ tới chúng, ở mọi window) rồi yêu cầu render lại.
+        /// <paramref name="geometryChanged"/> = false (chỉ thêm annotation): giữ ảnh Viewer cũ tới khi ảnh
+        /// mới render xong để trang không chớp trắng.</summary>
+        internal void InvalidateSourcePageRenders(string path, IReadOnlyCollection<int> pages, bool geometryChanged)
         {
             bool Matches(string p, int page) =>
                 pages.Contains(page) && string.Equals(p, path, StringComparison.OrdinalIgnoreCase);
@@ -103,13 +137,14 @@ namespace XTPdfMergeApp
             {
                 row.Thumbnail = null;
                 row.ThumbnailLoadQueued = false;
+                if (!geometryChanged) continue;
                 row.ReaderBitmap = null;
                 row.ReaderBitmapLoadQueued = false;
                 row.AspectRatio = null;
                 row.AspectRatioLoadQueued = false;
             }
 
-            ReaderWindow.Instance?.OnSourcePagesEdited(path, pages);
+            ReaderWindow.Instance?.OnSourcePagesEdited(path, pages, geometryChanged);
             foreach (var row in affected) _ = LoadThumbnailFor(row);
             _ = Dispatcher.InvokeAsync(QueueVisibleThumbnailScans, System.Windows.Threading.DispatcherPriority.ContextIdle);
         }
@@ -220,5 +255,8 @@ namespace XTPdfMergeApp
         Task RotatePagesAsync(IReadOnlyList<PageRow> pages, int deltaDegrees);
         Task InsertPagesFromFileAsync(DocumentGroup target, int insertIndex);
         Task ExtractPagesAsync(DocumentGroup group, IReadOnlyList<PageRow> pages);
+        void DeletePages(DocumentGroup group, IReadOnlyList<PageRow> pages);
+        /// <summary>Ghi các thay đổi annotation vào file nguồn và đưa vào Undo/Redo.</summary>
+        Task ApplyAnnotationChangesAsync(string path, IReadOnlyList<QuickAnnotationChange> changes, string description);
     }
 }
