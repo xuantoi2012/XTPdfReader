@@ -96,6 +96,10 @@ The warmed synthetic vector page's center crop at a 6400px page width, with
 | 1280 px | 17.6 ms | 28.4 ms |
 | 1920 px (one region) | 25.5 ms | 25.5 ms |
 
+> **Superseded (2026-09-27, perf #4):** on dense CAD pages PDFium walks every object for each tile,
+> so the reader now renders one viewport region per page (visible rect + 12.5% margin) instead of
+> 640px tiles. See `PdfBench/BAO-CAO-SAU-TOI-UU-2026-09-27.md` (200%: 185 -> 75 ms).
+
 640px tiles remain the implementation choice: this sample does not demonstrate a
 meaningful total-time advantage for larger regions, and smaller regions appear
 earlier. These are native output times, not interactive display latency.
