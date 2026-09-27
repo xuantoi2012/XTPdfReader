@@ -1838,6 +1838,75 @@ namespace XTPdfMergeApp
             ScheduleReaderTileRefresh();
         }
 
+        // ── Công cụ sửa nhanh kiểu Foxit (xoay trang lưu file, chèn, xuất) ──────────────
+
+        /// <summary>Cửa sổ chủ thực thi các thao tác sửa (nắm selection Organizer, workspace/undo).</summary>
+        internal IReaderPageEditHost? EditHost { get; set; }
+
+        /// <summary>Trang mà công cụ sửa áp lên: nếu trang đang xem nằm trong vùng chọn của Organizer
+        /// thì lấy cả vùng chọn (xoay/xuất nhiều trang cùng lúc), không thì chỉ trang đang xem —
+        /// tránh sửa nhầm 1 vùng chọn cũ user đã quên khi đã chuyển sang xem trang khác.</summary>
+        private IReadOnlyList<PageRow> GetEditTargetPages()
+        {
+            if (_readerGroup == null || _readerPage == null) return Array.Empty<PageRow>();
+            var selected = EditHost?.GetSelectedPages(_readerGroup) ?? Array.Empty<PageRow>();
+            return selected.Contains(_readerPage) ? selected : new[] { _readerPage };
+        }
+
+        private async void ReaderPageRotateLeft_Click(object sender, RoutedEventArgs e) => await RotateEditTargetsAsync(-90);
+        private async void ReaderPageRotateRight_Click(object sender, RoutedEventArgs e) => await RotateEditTargetsAsync(90);
+
+        private async Task RotateEditTargetsAsync(int deltaDegrees)
+        {
+            var pages = GetEditTargetPages();
+            if (pages.Count == 0 || EditHost == null) return;
+            await EditHost.RotatePagesAsync(pages, deltaDegrees);
+        }
+
+        private async void ReaderInsertPages_Click(object sender, RoutedEventArgs e)
+        {
+            if (_readerGroup == null || _readerPage == null || EditHost == null) return;
+            // Chèn SAU trang đang xem (như Foxit mặc định "After current page").
+            int insertIndex = _readerGroup.Pages.IndexOf(_readerPage) + 1;
+            await EditHost.InsertPagesFromFileAsync(_readerGroup, insertIndex);
+        }
+
+        private async void ReaderExtractPages_Click(object sender, RoutedEventArgs e)
+        {
+            var pages = GetEditTargetPages();
+            if (_readerGroup == null || pages.Count == 0 || EditHost == null) return;
+            await EditHost.ExtractPagesAsync(_readerGroup, pages);
+        }
+
+        /// <summary>File nguồn vừa bị sửa (xoay trang/annotation) — bỏ mọi ảnh Viewer đang cache của các
+        /// trang đó rồi render lại trang đang xem. Placement đã được MainWindow xoá bitmap sẵn.</summary>
+        internal void OnSourcePagesEdited(string path, IReadOnlyCollection<int> pages)
+        {
+            bool Matches(string p, int page) =>
+                pages.Contains(page) && string.Equals(p, path, StringComparison.OrdinalIgnoreCase);
+
+            lock (_readerCacheLock)
+            {
+                _readerCache.RemoveWhere(key => Matches(key.Path, key.Page));
+                foreach (var key in _readerLoads.Keys.Where(key => Matches(key.Path, key.Page)).ToList())
+                    _readerLoads.Remove(key);
+            }
+            _readerTileCache.RemoveWhere(key => Matches(key.Path, key.Page));
+
+            if (_readerGroup == null || _readerPage == null) return;
+            if (_readerContinuousMode)
+            {
+                ClearReaderTiles();
+                foreach (var row in _readerGroup.Pages.Where(r => Matches(r.SourcePath, r.PageNumber)))
+                    _ = LoadReaderBitmapFor(row);
+                ScheduleReaderTileRefresh();
+            }
+            else if (Matches(_readerPage.SourcePath, _readerPage.PageNumber))
+            {
+                _ = ShowPageAsync(_readerGroup, _readerPage, preserveZoomMode: true);
+            }
+        }
+
         private void ReaderRotateLeft_Click(object sender, RoutedEventArgs e) => SetReaderRotation((_readerRotation - 90 + 360) % 360);
         private void ReaderRotateRight_Click(object sender, RoutedEventArgs e) => SetReaderRotation((_readerRotation + 90) % 360);
 

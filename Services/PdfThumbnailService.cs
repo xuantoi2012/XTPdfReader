@@ -115,7 +115,11 @@ namespace XTPdfMergeApp.Services
             private bool _disposeRequested;
             private bool _closed;
             private readonly CancellationTokenSource _retired = new();
+            private readonly TaskCompletionSource _nativeClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
             public CancellationToken RetiredToken => _retired.Token;
+            /// <summary>Hoàn tất khi FPDF_CloseDocument đã chạy xong — lúc đó PDFium nhả hẳn handle
+            /// file (Windows mới cho ghi đè file nguồn).</summary>
+            public Task NativeClosed => _nativeClosed.Task;
 
             public PdfDocumentLease(string sourcePath, IntPtr document, int pageCount)
             {
@@ -187,10 +191,17 @@ namespace XTPdfMergeApp.Services
             {
                 // _closed is claimed under the lifetime lock only after all users release.
                 // Native destruction participates in the same global gate as rendering.
-                if (Document == IntPtr.Zero) return;
-                using var native = EnterPdfiumGate();
-                RemoveDocumentPages(Document);
-                FPDF_CloseDocument(Document);
+                try
+                {
+                    if (Document == IntPtr.Zero) return;
+                    using var native = EnterPdfiumGate();
+                    RemoveDocumentPages(Document);
+                    FPDF_CloseDocument(Document);
+                }
+                finally
+                {
+                    _nativeClosed.TrySetResult();
+                }
             }
 
             public sealed class DocumentUsage : IDisposable
@@ -279,6 +290,57 @@ namespace XTPdfMergeApp.Services
 
                 if (_documentCache.TryRemove(key, out var lazy) && lazy.IsValueCreated)
                     _ = Task.Run(() => RequestLeaseDisposalWhenReadyAsync(lazy.Value));
+            }
+        }
+
+        private static readonly ConcurrentDictionary<string, int> _suspendedDocuments =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Đóng hẳn handle PDFium của 1 file và chặn mở lại cho tới khi Dispose kết quả —
+        /// dùng trước khi ghi đè file nguồn (xoay trang, ghi annotation): FPDF_LoadDocument giữ
+        /// file mở suốt đời lease, Windows không cho ghi đè trong lúc đó. Trong lúc bị chặn, mọi
+        /// render/đếm trang của file này trả null như cache-miss; caller tự yêu cầu render lại sau.</summary>
+        public static async Task<IDisposable> SuspendDocumentAsync(string pdfPath, TimeSpan timeout)
+        {
+            string normalized = NormalizePath(pdfPath);
+            _suspendedDocuments.AddOrUpdate(normalized, 1, (_, count) => count + 1);
+            var suspension = new DocumentSuspension(normalized);
+            try
+            {
+                // Lặp: 1 request đã qua check suspended ngay trước khi ta đánh dấu có thể vừa kịp
+                // tạo lease mới sau lần TryRemove đầu.
+                for (int attempt = 0; attempt < 3 && _documentCache.TryRemove(normalized, out var lazy); attempt++)
+                {
+                    if (!lazy.IsValueCreated) continue;
+                    var lease = await lazy.Value.ConfigureAwait(false);
+                    if (lease == null) continue;
+                    lease.RequestDispose();
+                    await lease.NativeClosed.WaitAsync(timeout).ConfigureAwait(false);
+                }
+            }
+            catch (TimeoutException)
+            {
+                // Vẫn trả suspension — ghi file phía caller có retry riêng; nếu handle còn giữ thật
+                // thì lỗi IO sẽ báo rõ cho user.
+            }
+            return suspension;
+        }
+
+        private sealed class DocumentSuspension(string normalizedPath) : IDisposable
+        {
+            private int _disposed;
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+                while (true)
+                {
+                    if (!_suspendedDocuments.TryGetValue(normalizedPath, out int count)) return;
+                    if (count <= 1)
+                    {
+                        if (_suspendedDocuments.TryRemove(new KeyValuePair<string, int>(normalizedPath, count))) return;
+                    }
+                    else if (_suspendedDocuments.TryUpdate(normalizedPath, count - 1, count)) return;
+                }
             }
         }
 
@@ -387,6 +449,7 @@ namespace XTPdfMergeApp.Services
             while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (_suspendedDocuments.ContainsKey(normalized)) return null;
                 var lease = await GetDocumentLeaseAsync(normalized).WaitAsync(cancellationToken).ConfigureAwait(false);
                 if (lease == null) return null;
                 if (lease.TryAcquire(out var usage)) return usage;

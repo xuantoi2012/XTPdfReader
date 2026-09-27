@@ -10,17 +10,23 @@ internal sealed class MergeDocumentsCommand : IWorkspaceCommand
     private readonly PdfWorkspace _workspace;
     private readonly List<WorkspaceDocument> _documents;
     private readonly string? _newName;
+    private readonly int? _insertIndex;
     private List<(WorkspaceDocument Document, int Index, List<PagePlacement> Pages)>? _snapshot;
     private string? _oldTargetName;
 
-    public MergeDocumentsCommand(PdfWorkspace workspace, IEnumerable<WorkspaceDocument> documents, string? newName)
+    /// <param name="insertIndex">null = nối trang vào cuối file đích (ghép thường). Có giá trị = chèn
+    /// trang của các file còn lại vào đúng vị trí đó trong file đích (nút Insert của Viewer).</param>
+    public MergeDocumentsCommand(PdfWorkspace workspace, IEnumerable<WorkspaceDocument> documents, string? newName,
+        int? insertIndex = null)
     {
         _workspace = workspace;
         _documents = documents.ToList();
         _newName = newName;
+        _insertIndex = insertIndex;
     }
 
-    public string Description => !string.IsNullOrWhiteSpace(_newName) ? "Ghép tất cả file" : "Ghép file đã chọn";
+    public string Description => _insertIndex.HasValue ? "Chèn trang từ file"
+        : !string.IsNullOrWhiteSpace(_newName) ? "Ghép tất cả file" : "Ghép file đã chọn";
 
     public void Execute()
     {
@@ -29,12 +35,13 @@ internal sealed class MergeDocumentsCommand : IWorkspaceCommand
         _oldTargetName = target.CaptureDisplayName();
         _snapshot = _documents.Select(d => (d, _workspace.Documents.IndexOf(d), d.Pages.ToList())).ToList();
 
+        int insertAt = Math.Clamp(_insertIndex ?? target.Pages.Count, 0, target.Pages.Count);
         foreach (var source in _documents.Skip(1))
         {
             foreach (var page in source.Pages.ToList())
             {
                 source.Pages.Remove(page);
-                target.Pages.Add(page);
+                target.Pages.Insert(insertAt++, page);
             }
             _workspace.Documents.Remove(source);
         }

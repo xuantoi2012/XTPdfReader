@@ -23,6 +23,15 @@ internal sealed class UndoRedoManager
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>Đưa vào lịch sử 1 lệnh ĐÃ chạy xong bên ngoài (VD sửa file nguồn bất đồng bộ, chỉ
+    /// ghi nhận khi đã ghi file thành công) — không gọi lại Execute.</summary>
+    public void Record(IWorkspaceCommand executedCommand)
+    {
+        _undo.Push(executedCommand);
+        _redo.Clear();
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     public void Undo()
     {
         if (!_undo.TryPop(out var command)) return;

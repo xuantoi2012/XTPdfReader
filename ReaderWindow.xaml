@@ -165,6 +165,23 @@
                     <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{DynamicResource Mat.OpenInNew}"
                                  ToolTip="Mở file bằng ứng dụng PDF mặc định" Click="ReaderOpenExternal_Click"/>
                 </StackPanel>
+                <!-- Công cụ sửa nhanh (mô phỏng Foxit, 1 hàng không chia tab). Xoay/xuất áp lên vùng chọn
+                     trong Organizer nếu trang đang xem nằm trong đó, không thì chỉ trang đang xem. -->
+                <StackPanel x:Name="ReaderEditTools" DockPanel.Dock="Left" Orientation="Horizontal" Margin="4,0,0,0">
+                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{StaticResource PdfEdit.RotatePageLeft}"
+                                 ToolTip="Xoay trang trái 90° — LƯU vào file nguồn (trang đang xem, hoặc các trang đang chọn)"
+                                 Click="ReaderPageRotateLeft_Click"/>
+                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{StaticResource PdfEdit.RotatePageRight}"
+                                 ToolTip="Xoay trang phải 90° — LƯU vào file nguồn (trang đang xem, hoặc các trang đang chọn)"
+                                 Click="ReaderPageRotateRight_Click"/>
+                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{StaticResource PdfEdit.InsertPages}"
+                                 ToolTip="Chèn trang từ file PDF khác vào sau trang đang xem"
+                                 Click="ReaderInsertPages_Click"/>
+                    <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{StaticResource PdfEdit.ExtractPages}"
+                                 ToolTip="Xuất trang đang xem (hoặc các trang đang chọn) ra file PDF mới"
+                                 Click="ReaderExtractPages_Click"/>
+                    <Border Width="1" Height="18" Margin="6,0" Background="{DynamicResource CadChromeBorder}"/>
+                </StackPanel>
                 <TextBlock x:Name="ReaderTitleText" VerticalAlignment="Center"
                            FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="8,0,12,0"/>
             </DockPanel>

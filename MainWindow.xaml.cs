@@ -660,23 +660,25 @@ namespace XTPdfMergeApp
             return Task.WhenAll(tasks);
         }
 
-        private async Task AddFileAsGroup(string fullPath)
+        /// <returns>Group vừa mở xong (đã có trang), hoặc null nếu file đã có window riêng / đang mở
+        /// dở / không đọc được.</returns>
+        private async Task<DocumentGroup?> AddFileAsGroup(string fullPath)
         {
-            if (string.IsNullOrWhiteSpace(fullPath)) return;
+            if (string.IsNullOrWhiteSpace(fullPath)) return null;
 
             try { fullPath = Path.GetFullPath(fullPath); }
-            catch { return; }
+            catch { return null; }
 
             if (Dispatcher.CheckAccess())
             {
-                if (HasGroupForSource(fullPath)) return;
+                if (HasGroupForSource(fullPath)) return null;
             }
             else if (await Dispatcher.InvokeAsync(() => HasGroupForSource(fullPath)))
             {
-                return;
+                return null;
             }
 
-            if (!TryReserveLoadingSource(fullPath)) return;
+            if (!TryReserveLoadingSource(fullPath)) return null;
 
             // Card hiện NGAY ở trạng thái "đang mở" trước khi biết số trang — user không phải
             // chờ round-trip đếm trang mới thấy có gì đó xuất hiện, dù việc đếm/tải vẫn cần
@@ -686,7 +688,7 @@ namespace XTPdfMergeApp
             if (placeholder == null)
             {
                 ReleaseLoadingSource(fullPath);
-                return;
+                return null;
             }
 
             try
@@ -703,6 +705,8 @@ namespace XTPdfMergeApp
                 }
 
                 await Dispatcher.InvokeAsync(() => FinishOpeningGroup(placeholder, fullPath, pageCount));
+                return await Dispatcher.InvokeAsync(() =>
+                    _groups.Contains(placeholder) && placeholder.Pages.Count > 0 ? placeholder : null);
             }
             finally
             {
@@ -2500,6 +2504,7 @@ namespace XTPdfMergeApp
         private ReaderWindow EnsureReaderWindow()
         {
             var reader = ReaderWindow.GetOrCreate(_groups);
+            reader.EditHost = this;
             if (!ReferenceEquals(ReaderHost.Content, reader))
                 ReaderHost.Content = reader;
             reader.IsVisibleChanged -= ReaderWindow_IsVisibleChanged;
