@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiểm tra pool K bản PDFium (bước 3) bằng ĐÚNG code PdfThumbnailService của app, không cần WPF (vài kiểu WPF
+       được thay bằng WpfStubs.cs). Chạy được trên Windows và Linux. Cách chạy: README.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PlatformTarget>x64</PlatformTarget>
+    <NoWarn>CS8500</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="itext" Version="9.6.0" />
+    <PackageReference Include="itext.bouncy-castle-adapter" Version="9.6.0" />
+    <PackageReference Include="bblanchon.PDFium.Win32" Version="147.0.7690" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+    <PackageReference Include="bblanchon.PDFium.Linux" Version="147.0.7690" Condition="!$([MSBuild]::IsOSPlatform('Windows'))" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\Services\PdfThumbnailService.cs" Link="App\PdfThumbnailService.cs" />
+    <Compile Include="..\..\Services\PdfThumbnailService.Progressive.cs" Link="App\PdfThumbnailService.Progressive.cs" />
+    <Compile Include="..\..\Services\PdfiumInstance.cs" Link="App\PdfiumInstance.cs" />
+    <Compile Include="..\..\Services\PdfRenderGate.cs" Link="App\PdfRenderGate.cs" />
+    <Compile Include="..\..\Services\PdfFileBuffer.cs" Link="App\PdfFileBuffer.cs" />
+    <Compile Include="..\..\Services\LayeredDocumentSource.cs" Link="App\LayeredDocumentSource.cs" />
+    <Compile Include="..\..\Services\PdfLayerService.cs" Link="App\PdfLayerService.cs" />
+    <Compile Include="..\..\Services\RenderDiagnostics.cs" Link="App\RenderDiagnostics.cs" />
+  </ItemGroup>
+  <!-- Như target CopyPdfiumInstances của app: bản sao thư viện PDFium tên khác, cạnh bản gốc. -->
+  <Target Name="CopyPdfiumCopies" AfterTargets="Build">
+    <ItemGroup>
+      <_Pdfium Include="$(OutDir)runtimes\win-x64\native\pdfium.dll" Condition="Exists('$(OutDir)runtimes\win-x64\native\pdfium.dll')" Prefix="pdfium_" Ext=".dll" />
+      <_Pdfium Include="$(OutDir)runtimes\linux-x64\native\libpdfium.so" Condition="Exists('$(OutDir)runtimes\linux-x64\native\libpdfium.so')" Prefix="libpdfium_" Ext=".so" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_Pdfium)" DestinationFiles="@(_Pdfium->'%(RootDir)%(Directory)%(Prefix)1%(Ext)')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_Pdfium)" DestinationFiles="@(_Pdfium->'%(RootDir)%(Directory)%(Prefix)2%(Ext)')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_Pdfium)" DestinationFiles="@(_Pdfium->'%(RootDir)%(Directory)%(Prefix)3%(Ext)')" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

@@ -9,10 +9,10 @@
     <AssemblyName>XTPdfMergeApp.PerformanceTests</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <!-- PdfBench là project riêng (công cụ đo PDFium, không WPF) — không gom vào đây. -->
-    <Compile Remove="PdfBench\**" />
-    <None Remove="PdfBench\**" />
-    <EmbeddedResource Remove="PdfBench\**" />
+    <!-- PdfBench, PoolTest là project riêng (không WPF) — không gom vào đây. -->
+    <Compile Remove="PdfBench\**;PoolTest\**" />
+    <None Remove="PdfBench\**;PoolTest\**" />
+    <EmbeddedResource Remove="PdfBench\**;PoolTest\**" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XTPdfMergeApp.csproj" />
