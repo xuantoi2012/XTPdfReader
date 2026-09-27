@@ -17,6 +17,30 @@ public static partial class PdfThumbnailService
     // to invoke the pause callback. Parsing and individual image operations may exceed it.
     internal const int ProgressiveSliceMilliseconds = 8;
     internal const int NativePageCacheCapacity = 4;
+
+    /// <summary>
+    /// Tối ưu #3: trang "nóng" (đang hiện + đang tải trước theo hướng cuộn, do Viewer khai báo) GIỮ page handle
+    /// đã parse dù vượt <see cref="NativePageCacheCapacity"/> — trước đây panel thumbnail + Viewer + tải trước
+    /// dùng chung 4 chỗ nên trang vừa xem bị đóng rồi phải parse lại (43–449 ms/trang trên file thật qua ổ mạng).
+    /// Giới hạn <see cref="MaxHotPages"/> để RAM native không phình với bản vẽ CAD nặng.
+    /// </summary>
+    internal const int MaxHotPages = 12;
+    private static HashSet<(string Path, int Index)> _hotPages = new();
+
+    /// <summary>Viewer khai báo các trang cần giữ đã-parse (số trang 1-based của file nguồn).</summary>
+    public static void SetHotPages(IEnumerable<(string Path, int PageNumber)> pages)
+    {
+        var set = new HashSet<(string, int)>();
+        foreach (var (path, pageNumber) in pages)
+        {
+            if (set.Count >= MaxHotPages) break;
+            set.Add((NormalizePath(path).ToUpperInvariant(), pageNumber - 1));
+        }
+        Volatile.Write(ref _hotPages, set);
+    }
+
+    private static bool IsHot(NativePage page)
+        => Volatile.Read(ref _hotPages).Contains((page.PathKey, page.Index));
     private static readonly PdfRenderGate _renderBufferSlots = new(2);
     private static readonly Dictionary<(IntPtr Document, int Index), NativePage> _nativePages = new();
     private static long _pageUseSequence;
@@ -38,6 +62,8 @@ public static partial class PdfThumbnailService
     private sealed class NativePage
     {
         public required IntPtr Document { get; init; }
+        /// <summary>Đường dẫn chuẩn hoá (chữ hoa) — để so với tập trang nóng.</summary>
+        public required string PathKey { get; init; }
         public required int Index { get; init; }
         public required IntPtr Handle { get; init; }
         public readonly PdfRenderGate OperationGate = new();
@@ -58,7 +84,8 @@ public static partial class PdfThumbnailService
             var handle = FPDF_LoadPage(document.Document, index);
             RenderDiagnostics.PageOpen.Record(loadStart);
             if (handle == IntPtr.Zero) throw new InvalidOperationException("PDFium could not open the page.");
-            page = new NativePage { Document = document.Document, Index = index, Handle = handle };
+            page = new NativePage { Document = document.Document, Index = index, Handle = handle,
+                PathKey = NormalizePath(document.SourcePath).ToUpperInvariant() };
             _nativePages.Add(key, page);
             Interlocked.Increment(ref _pageLoads);
         }
@@ -80,9 +107,11 @@ public static partial class PdfThumbnailService
 
     private static void TrimNativePages()
     {
+        int hotCount = _nativePages.Values.Count(IsHot);
         foreach (var page in _nativePages.Values.Where(p => p.Users == 0).OrderBy(p => p.LastUse).ToArray())
         {
-            if (page.KeepWarm && _nativePages.Count <= NativePageCacheCapacity) continue;
+            if (IsHot(page)) continue; // #3: trang đang hiện / sắp hiện — giữ bản đã parse
+            if (page.KeepWarm && _nativePages.Count - hotCount <= NativePageCacheCapacity) continue;
             FPDF_ClosePage(page.Handle);
             _nativePages.Remove((page.Document, page.Index));
         }

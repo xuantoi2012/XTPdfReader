@@ -461,6 +461,7 @@ namespace XTPdfMergeApp
         {
             _continuousPrefetchCts.Cancel();
             _continuousPrefetchWindow = (-1, -1, 0, 0);
+            PdfThumbnailService.SetHotPages(Array.Empty<(string, int)>());
             CommitAnnotationEditor(cancel: true);
             CancelHighlightDrag();
             Interlocked.Increment(ref _readerRequestId);
@@ -574,6 +575,11 @@ namespace XTPdfMergeApp
             ReaderTileRotateTransformB.Angle = 0;
 
             UpdateReaderChrome(group, row);
+            // #3: chế độ 1 trang — giữ bản đã parse của trang đang xem và 2 trang kề (Trang trước/sau không parse lại).
+            int hotIndex = group.Pages.IndexOf(row);
+            PdfThumbnailService.SetHotPages(Enumerable.Range(hotIndex - 1, 3)
+                .Where(i => i >= 0 && i < group.Pages.Count)
+                .Select(i => (group.Pages[i].SourcePath, group.Pages[i].PageNumber)));
             BitmapSource? preview = row.ReaderDisplayBitmap;
             if (preview != null)
             {
@@ -1862,6 +1868,12 @@ namespace XTPdfMergeApp
                 _continuousPrefetchCts = new();
             }
             var token = _continuousPrefetchCts.Token;
+            // #3: giữ bản đã parse của trang đang hiện + 1 trang phía sau + các trang sắp tải trước.
+            var hot = new List<(string, int)>();
+            for (int i = Math.Max(0, first - (dir > 0 ? 1 : ContinuousPrefetchSharpPages));
+                 i <= Math.Min(pages.Count - 1, last + (dir > 0 ? ContinuousPrefetchSharpPages : 1)); i++)
+                hot.Add((pages[i].SourcePath, pages[i].PageNumber));
+            PdfThumbnailService.SetHotPages(hot);
 
             int edge = dir > 0 ? last : first;
             for (int step = 1; step <= ContinuousPrefetchPreviewPages; step++)
