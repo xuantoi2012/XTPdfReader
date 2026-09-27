@@ -64,6 +64,20 @@ namespace XTPdfMergeApp
             _groups.CollectionChanged += (_, _) => OnGroupsChanged();
             InitializeShellParts();
             HookContinuousView();
+            DiagnosticsReport.ViewerSection = GetViewerDiagnostics;
+        }
+
+        private DiagnosticsReport.ViewerStats GetViewerDiagnostics()
+        {
+            var reader = GetReaderCacheStats();
+            var continuous = ReaderContinuousView.MemoryStats;
+            int pageCount = _readerGroup?.Pages.Count ?? 0;
+            int current = _readerGroup != null && _readerPage != null ? _readerGroup.Pages.IndexOf(_readerPage) : -1;
+            return new DiagnosticsReport.ViewerStats(
+                reader.Cache, reader.Bytes, reader.Inflight,
+                _readerTileCache.Count, _readerTileCache.Bytes,
+                continuous.Pages, continuous.Regions, continuous.RegionBytes,
+                _readerContinuousMode ? "Cuộn liên tục" : "1 trang", _readerZoom, current, pageCount);
         }
 
         internal void ShutdownReader()
@@ -105,6 +119,10 @@ namespace XTPdfMergeApp
 
             switch (e.Key)
             {
+                case Key.F12:
+                    DiagnosticsWindow.ShowFor(this);
+                    e.Handled = true;
+                    break;
                 case Key.Left:
                 case Key.PageUp:
                     _ = NavigateReaderAsync(-1);

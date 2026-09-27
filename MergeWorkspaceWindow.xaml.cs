@@ -120,10 +120,6 @@ namespace XTPdfMergeApp
         private readonly HashSet<ListBox> _thumbnailViewportScanQueued = new();
         private readonly HashSet<ListBox> _nearbyPrefetchScanQueued = new();
         private readonly Dictionary<ListBox, int> _nearbyPrefetchDirections = new();
-        private readonly DispatcherTimer _diagnosticsTimer = new(DispatcherPriority.Background)
-        {
-            Interval = TimeSpan.FromMilliseconds(500)
-        };
         private long _prefetchThumbnailCompleted;
 
         // ── Cỡ xem trước thumbnail — 4 mức, đổi qua ThumbnailSizeCombo ───────
@@ -298,7 +294,7 @@ namespace XTPdfMergeApp
             // trên cửa sổ này, nên hễ thấy nó xảy ra trong khi highlight đang bật là dọn ngay.
             PreviewMouseMove += (_, _) => { if (_dropHighlightActive) SetDropHighlight(false); };
             Deactivated += (_, _) => { if (_dropHighlightActive) SetDropHighlight(false); };
-            _diagnosticsTimer.Tick += (_, _) => RefreshDiagnosticsOverlay();
+            DiagnosticsReport.ThumbnailSection = BuildThumbnailDiagnostics;
 
             // Mọi đăng ký vào session/workspace (sống lâu hơn cửa sổ này) phải gỡ khi đóng — xem Closed.
             _workspace.History.StateChanged += History_StateChanged;
@@ -308,7 +304,7 @@ namespace XTPdfMergeApp
             _session.OrganizerSelection = OrganizerSelectionFor;
             Closed += (_, _) =>
             {
-                _diagnosticsTimer.Stop();
+                if (DiagnosticsReport.ThumbnailSection == BuildThumbnailDiagnostics) DiagnosticsReport.ThumbnailSection = null;
                 _workspace.History.StateChanged -= History_StateChanged;
                 _session.ThumbnailScanRequested -= Session_ThumbnailScanRequested;
                 _session.StatusChanged -= UpdateStatusBar;
@@ -443,88 +439,20 @@ namespace XTPdfMergeApp
         private void SettingsOverlay_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => SettingsOverlay.Visibility = Visibility.Collapsed;
         private void SettingsCard_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => e.Handled = true;
 
-        private void DiagnosticsButton_Click(object sender, RoutedEventArgs e)
+        private void DiagnosticsButton_Click(object sender, RoutedEventArgs e) => DiagnosticsWindow.ShowFor(this);
+
+        /// <summary>Mục "Tải thumbnail" của cửa sổ Debug — số liệu riêng của cửa sổ ghép.</summary>
+        private string BuildThumbnailDiagnostics()
         {
-            DiagnosticsOverlay.Visibility = Visibility.Visible;
-            RefreshDiagnosticsOverlay();
-            if (!_diagnosticsTimer.IsEnabled)
-                _diagnosticsTimer.Start();
-        }
-
-        private void DiagnosticsOverlay_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        {
-            DiagnosticsOverlay.Visibility = Visibility.Collapsed;
-            _diagnosticsTimer.Stop();
-        }
-
-        private void DiagnosticsCard_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => e.Handled = true;
-
-        private void RefreshDiagnosticsOverlay()
-        {
-            if (DiagnosticsOverlay.Visibility != Visibility.Visible) return;
-
-            var cacheStats = GetThumbnailCacheStats();
-            var readerStats = ReaderWindow.GetReaderCacheStats();
-            int totalPages = _groups.Sum(g => g.Pages.Count);
-            int loading = _session.LoadingFileCount;
-            int activeFileLoads = _session.ActiveFileLoadCount;
-            int activeRenderJobs = Volatile.Read(ref _activeThumbnailRenderCount);
-            int activeNativePdfium = PdfThumbnailService.ActiveNativeCalls;
-            int waitingNativePdfium = PdfThumbnailService.WaitingNativeCalls;
-            int activeWarmGroups = _session.ActiveWarmThumbnailGroups;
-            int foregroundRequests = Volatile.Read(ref _foregroundThumbnailRequests);
-            int activeForegroundLoads = Volatile.Read(ref _activeForegroundThumbnailLoads);
-            int backgroundWaiting = Volatile.Read(ref _backgroundPrefetchWaitingCount);
-            int activeNearbyPrefetches = Volatile.Read(ref _activeNearbyPrefetches);
-            long warmDone = _session.WarmThumbnailCompleted;
-            long nearbyDone = Interlocked.Read(ref _nearbyPrefetchCompleted);
-
-            ThreadPool.GetAvailableThreads(out int availableWorkers, out int availableIo);
-            ThreadPool.GetMaxThreads(out int maxWorkers, out int maxIo);
-
-            using var process = Process.GetCurrentProcess();
-            double privateMb = process.PrivateMemorySize64 / 1024d / 1024d;
-            double workingMb = process.WorkingSet64 / 1024d / 1024d;
-            double heapMb = GC.GetTotalMemory(false) / 1024d / 1024d;
-            int processThreads = process.Threads.Count;
-
-            DiagnosticsSummaryText.Text =
-                $"File: {_groups.Count}\n" +
-                $"Trang: {totalPages}\n" +
-                $"Đang đọc file: {loading} (active {activeFileLoads})";
-
-            DiagnosticsMemoryText.Text =
-                $"Private: {privateMb:0} MB\n" +
-                $"Working set: {workingMb:0} MB\n" +
-                $"GC heap: {heapMb:0} MB\n" +
-                $"WPF rendering tier: {RenderCapability.Tier >> 16} (0 = software)";
-
-            DiagnosticsThreadsText.Text =
-                $"Process threads: {processThreads}\n" +
-                $"ThreadPool workers đang dùng: {maxWorkers - availableWorkers}/{maxWorkers}\n" +
-                $"ThreadPool I/O đang dùng: {maxIo - availableIo}/{maxIo}\n" +
-                $"Render jobs: {activeRenderJobs}/{ThumbnailRenderConcurrency}\n" +
-                $"PDFium native gate (mọi bản): {activeNativePdfium} active, {waitingNativePdfium} waiting";
-
-            DiagnosticsLoadText.Text =
-                $"Thumbnail cache: {cacheStats.Cache} ảnh, {cacheStats.Bytes / 1048576d:0.0}/48 MB\n" +
-                $"PDF docs/pages cache: {PdfThumbnailService.CachedDocumentCount}/{PdfThumbnailService.CachedNativePageCount}\n" +
-                $"Page hits/loads: {PdfThumbnailService.NativePageCacheHits}/{PdfThumbnailService.NativePageLoads}\n" +
-                $"Progressive yields: {PdfThumbnailService.ProgressiveYields}, max slice: {PdfThumbnailService.MaxNativeRenderSliceMilliseconds:0.0} ms, nhường khi zoom/pan: {PdfThumbnailService.InteractionDeferrals}\n" +
-                $"Tile UI queue: {ReaderWindow.Instance?.PendingTilePresentations ?? 0}, max batch: {ReaderWindow.Instance?.MaxTilePresentationMilliseconds ?? 0:0.0} ms\n" +
-                RenderDiagnostics.Summary + "\n" +
-                $"Reader cache: {readerStats.Cache} ảnh, {readerStats.Bytes / 1048576d:0.0}/160 MB (in-flight {readerStats.Inflight})\n" +
-                $"Đang render/in-flight: {cacheStats.Inflight}\n" +
-                $"Viewport pending: {foregroundRequests} (active {activeForegroundLoads}/{ForegroundThumbnailConcurrency})\n" +
-                $"Prefetch đang chờ: {backgroundWaiting}\n" +
-                $"Prefetch gần viewport: {activeNearbyPrefetches} - xong {nearbyDone}\n" +
-                $"Warm nhóm đầu: {activeWarmGroups} - xong {warmDone}\n" +
-                "Thumbnail tải theo vùng nhìn";
-
-            DiagnosticsHintText.Text =
-                $"PDFium: {PdfiumPool.Count} bản chạy song song (pdfium.dll + bản sao pdfium_N.dll); trong mỗi bản các lệnh vẫn tuần tự qua gate riêng để tránh crash. " +
-                "Đặt biến môi trường XTPDF_PDFIUM_INSTANCES=1 trước khi mở app để so với 1 bản. " +
-                $"Prefetch gần viewport chạy trước cho hàng/cột vừa scroll; prefetch nền dùng tối đa {BackgroundThumbnailPrefetchConcurrency} slot và giữ cache thumbnail tối đa 48 MB.";
+            static string Row(string label, string value) => $"  {label,-36} {value}\n";
+            return
+                Row("File / trang", $"{_groups.Count} / {_groups.Sum(g => g.Pages.Count)}") +
+                Row("Đang đọc file (active)", $"{_session.LoadingFileCount} ({_session.ActiveFileLoadCount})") +
+                Row("Render jobs", $"{Volatile.Read(ref _activeThumbnailRenderCount)}/{ThumbnailRenderConcurrency}") +
+                Row("Viewport pending (active)", $"{Volatile.Read(ref _foregroundThumbnailRequests)} ({Volatile.Read(ref _activeForegroundThumbnailLoads)}/{ForegroundThumbnailConcurrency})") +
+                Row("Prefetch nền đang chờ", $"{Volatile.Read(ref _backgroundPrefetchWaitingCount)} (tối đa {BackgroundThumbnailPrefetchConcurrency} slot)") +
+                Row("Prefetch gần viewport (xong)", $"{Volatile.Read(ref _activeNearbyPrefetches)} ({Interlocked.Read(ref _nearbyPrefetchCompleted)})") +
+                Row("Warm nhóm đầu (xong)", $"{_session.ActiveWarmThumbnailGroups} ({_session.WarmThumbnailCompleted})").TrimEnd('\n');
         }
 
         private void CleanupAfterMergeCheck_Changed(object sender, RoutedEventArgs e)

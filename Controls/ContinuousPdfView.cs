@@ -229,6 +229,23 @@ public sealed class ContinuousPdfView : Grid
         ScheduleUpdate(immediate: true);
     }
 
+    /// <summary>Cho cửa sổ Debug: số trang đang giữ ảnh riêng, số vùng nét và dung lượng vùng nét.</summary>
+    internal (int Pages, int Regions, long RegionBytes) MemoryStats
+    {
+        get
+        {
+            int regions = 0;
+            long bytes = 0;
+            foreach (var state in _states.Values)
+                foreach (var region in state.Regions)
+                {
+                    regions++;
+                    bytes += (long)region.Bitmap.PixelWidth * region.Bitmap.PixelHeight * 4;
+                }
+            return (_states.Count, regions, bytes);
+        }
+    }
+
     /// <summary>Huỷ mọi việc vẽ đang chờ (ẩn Viewer, đổi chế độ xem).</summary>
     public void CancelAll()
     {

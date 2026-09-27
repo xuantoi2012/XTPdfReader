@@ -1127,67 +1127,6 @@
             </Border>
         </Grid>
 
-        <Grid x:Name="DiagnosticsOverlay" Grid.RowSpan="3" Visibility="Collapsed" Background="#66000000"
-              MouseLeftButtonUp="DiagnosticsOverlay_MouseLeftButtonUp">
-            <Border MaxWidth="760" Height="{Binding ActualHeight, ElementName=DiagnosticsCard}"
-                    Margin="32" CornerRadius="14" Background="{DynamicResource CardBrush}"
-                    HorizontalAlignment="Stretch" VerticalAlignment="Center"
-                    IsHitTestVisible="False">
-                <Border.Effect><DropShadowEffect BlurRadius="30" ShadowDepth="4" Opacity="0.28"/></Border.Effect>
-            </Border>
-            <Border x:Name="DiagnosticsCard" MaxWidth="760" MaxHeight="560" Margin="32" Padding="28,24"
-                    CornerRadius="14" Background="{DynamicResource CardBrush}"
-                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                    HorizontalAlignment="Stretch" VerticalAlignment="Center"
-                    MouseLeftButtonUp="DiagnosticsCard_MouseLeftButtonUp">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel>
-                        <TextBlock Text="Debug tải PDF" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,18"/>
-
-                        <UniformGrid Columns="2" Margin="0,0,0,14">
-                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6"
-                                    Padding="12" Margin="0,0,6,6" Background="{DynamicResource BackgroundBrush}">
-                                <StackPanel>
-                                    <TextBlock Text="Tổng quan" FontSize="11" FontWeight="SemiBold"
-                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8"/>
-                                    <TextBlock x:Name="DiagnosticsSummaryText" TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </Border>
-                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6"
-                                    Padding="12" Margin="6,0,0,6" Background="{DynamicResource BackgroundBrush}">
-                                <StackPanel>
-                                    <TextBlock Text="RAM" FontSize="11" FontWeight="SemiBold"
-                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8"/>
-                                    <TextBlock x:Name="DiagnosticsMemoryText" TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </Border>
-                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6"
-                                    Padding="12" Margin="0,6,6,0" Background="{DynamicResource BackgroundBrush}">
-                                <StackPanel>
-                                    <TextBlock Text="Luồng" FontSize="11" FontWeight="SemiBold"
-                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8"/>
-                                    <TextBlock x:Name="DiagnosticsThreadsText" TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </Border>
-                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6"
-                                    Padding="12" Margin="6,6,0,0" Background="{DynamicResource BackgroundBrush}">
-                                <StackPanel>
-                                    <TextBlock Text="Tải thumbnail" FontSize="11" FontWeight="SemiBold"
-                                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8"/>
-                                    <TextBlock x:Name="DiagnosticsLoadText" TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </Border>
-                        </UniformGrid>
-
-                        <TextBlock Text="Gợi ý đọc số liệu" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,8"/>
-                        <TextBlock x:Name="DiagnosticsHintText" TextWrapping="Wrap"
-                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
-                    </StackPanel>
-                </ScrollViewer>
-            </Border>
-        </Grid>
-
         <!-- Ghép/lưu PDF chạy NỀN (Task.Run bên code-behind) — overlay này chỉ để hiện tiến trình,
              không chặn UI thread như trước (đúng bug "lưu file lớn bị đơ" đã bàn). -->
         <Grid x:Name="SavingOverlay" Grid.RowSpan="3" Visibility="Collapsed" Background="#78000000">
