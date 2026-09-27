@@ -21,6 +21,7 @@ static class Bench
     const int ThumbWidth = 340;           // ThumbnailCache.RenderThumbnailWidthPx
     const int SliceMs = 8;                // PdfThumbnailService.ProgressiveSliceMilliseconds
     static int _flags = AppFlags;
+    static double RegionMargin = double.TryParse(Environment.GetEnvironmentVariable("BENCH_REGION_MARGIN"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var m) ? m : 0.125;
 
     static int Main(string[] args)
     {
@@ -148,7 +149,12 @@ static class Bench
             int fullW = (int)(ReaderBaseWidth * zoom * dpi), fullH = (int)(fullW * pageAspect);
             int x0 = Math.Max(0, (fullW - viewW) / 2), y0 = Math.Max(0, (fullH - viewH) / 2);
             var one = RenderRegion(first.Page, fullW, fullH, (x0, y0, Math.Min(viewW, fullW), Math.Min(viewH, fullH))).Total;
-            Console.Write($"   {zoom * 100,4:F0}%  1 vùng {viewW}x{viewH}: {one,5:F0} ms");
+            // Vùng app vẽ sau #4: vùng xem + lề 25% mỗi phía (≥128 px), bám lưới 64 px.
+            int mx = Math.Max(128, (int)(viewW * RegionMargin)), my = Math.Max(128, (int)(viewH * RegionMargin));
+            int rx0 = Math.Max(0, (x0 - mx) / 64 * 64), ry0 = Math.Max(0, (y0 - my) / 64 * 64);
+            int rx1 = Math.Min(fullW, (x0 + viewW + mx + 63) / 64 * 64), ry1 = Math.Min(fullH, (y0 + viewH + my + 63) / 64 * 64);
+            var region = RenderRegion(first.Page, fullW, fullH, (rx0, ry0, rx1 - rx0, ry1 - ry0)).Total;
+            Console.Write($"   {zoom * 100,4:F0}%  1 vùng {viewW}x{viewH}: {one,5:F0} ms | vùng app #4 {rx1 - rx0}x{ry1 - ry0}: {region,4:F0} ms");
             foreach (int size in new[] { 640, 960, 1280 })
             {
                 var tiles = VisibleTiles(fullW, fullH, viewW, viewH, size);

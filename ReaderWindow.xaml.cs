@@ -189,8 +189,6 @@ namespace XTPdfMergeApp
         private double _readerPageAspect = 1.0;
 
         private CancellationTokenSource? _readerRealtimeRenderCts;
-        private const int ReaderTileSizePx = 640;
-        private const int ReaderTileOverscan = 0;
 
         private const double ReaderTileStartWidthPx = 3200;
         /// <summary>Layers = "phiên bản trạng thái layer" của file lúc yêu cầu tile (PdfLayerStateStore).</summary>
@@ -1051,23 +1049,10 @@ namespace XTPdfMergeApp
                 return;
             }
 
-            int startX = Math.Max(0, ((int)Math.Floor(visible.Left / ReaderTileSizePx) - ReaderTileOverscan) * ReaderTileSizePx);
-            int startY = Math.Max(0, ((int)Math.Floor(visible.Top / ReaderTileSizePx) - ReaderTileOverscan) * ReaderTileSizePx);
-            int endX = Math.Min(fullWidth, ((int)Math.Ceiling(visible.Right / ReaderTileSizePx) + ReaderTileOverscan) * ReaderTileSizePx);
-            int endY = Math.Min(fullHeight, ((int)Math.Ceiling(visible.Bottom / ReaderTileSizePx) + ReaderTileOverscan) * ReaderTileSizePx);
-
-            var needed = new HashSet<ReaderTileKey>();
-            for (int y = startY; y < endY; y += ReaderTileSizePx)
+            var needed = new HashSet<ReaderTileKey>
             {
-                for (int x = startX; x < endX; x += ReaderTileSizePx)
-                {
-                    int w = Math.Min(ReaderTileSizePx, fullWidth - x);
-                    int h = Math.Min(ReaderTileSizePx, fullHeight - y);
-                    if (w <= 0 || h <= 0) continue;
-                    needed.Add(new ReaderTileKey(_readerPage.SourcePath, _readerPage.PageNumber, fullWidth, fullHeight, x, y, w, h,
-                        RenderCacheKeys.TileLayers(_readerPage.SourcePath)));
-                }
-            }
+                ComputeViewportRegion(_readerPage.SourcePath, _readerPage.PageNumber, fullWidth, fullHeight, visible)
+            };
 
             Canvas? fallback = null;
             if (_readerTileCoordSpace != (fullWidth, fullHeight))
@@ -1087,9 +1072,51 @@ namespace XTPdfMergeApp
             PositionReaderTileCanvas(ComputeReaderEffectiveLayout());
             _visibleReaderTiles.Clear();
             foreach (var key in needed) _visibleReaderTiles.Add(key);
-            RemoveReaderTileVisualsNotIn(needed);
+            // #4: vùng cũ giữ trên màn hình tới khi vùng mới hiện xong (vùng mới vẽ đè lên), rồi mới gỡ.
             await RefineCanvasAsync(ActiveReaderTileCanvas, fallback ?? InactiveReaderTileCanvas,
                 needed, visible, requestId);
+            if (requestId == Volatile.Read(ref _readerTileRequestId)) RemoveReaderTileVisualsNotIn(needed);
+        }
+
+        // ── Tối ưu #4: zoom sâu vẽ 1 VÙNG/trang thay vì lưới tile 640 px (cách của Chromium) ─────────────────
+        // Đo trên bản vẽ CAD dày nét (PdfBench mục 2d): phủ vùng xem 1650×880 ở zoom 200% bằng tile 640 px mất
+        // 184 ms (9 tile, mỗi tile PDFium duyệt lại TOÀN BỘ đối tượng của trang, lại phủ rộng hơn vùng xem), vẽ
+        // đúng vùng xem 1 lần chỉ 51 ms. ReaderTileKey vốn là hình chữ nhật bất kỳ nên cache, hiển thị, giữ ảnh
+        // cũ khi đổi độ phân giải… giữ nguyên — chỉ đổi cách chọn hình chữ nhật.
+        // Lề mỗi phía: pan trong lề không phải vẽ lại. Đo PdfBench 2d (zoom 200%): lề 25% → 115 ms, 12,5% → 75 ms
+        // (tile 640 cũ: 185 ms) — chọn 12,5%.
+        private const double RegionMarginFraction = 0.125;
+        private const int RegionSnapPx = 64;
+        private const long MaxRegionPixels = 12_000_000;
+
+        /// <summary>Vùng cần vẽ của 1 trang: dùng lại vùng đang hiện nếu nó còn chứa trọn phần đang nhìn; nếu
+        /// không thì vùng mới = phần đang nhìn + lề, bám lưới 64 px, không quá <see cref="MaxRegionPixels"/>.</summary>
+        private ReaderTileKey ComputeViewportRegion(string path, int page, int fullWidth, int fullHeight, Rect visible)
+        {
+            string layers = RenderCacheKeys.TileLayers(path);
+            foreach (var k in _visibleReaderTiles)
+            {
+                if (k.Page == page && k.FullWidth == fullWidth && k.FullHeight == fullHeight &&
+                    string.Equals(k.Layers, layers, StringComparison.Ordinal) &&
+                    string.Equals(k.Path, path, StringComparison.OrdinalIgnoreCase) &&
+                    k.X <= visible.Left && k.Y <= visible.Top &&
+                    k.X + k.Width >= visible.Right && k.Y + k.Height >= visible.Bottom)
+                    return k;
+            }
+
+            double marginX = Math.Max(RegionSnapPx * 2, visible.Width * RegionMarginFraction);
+            double marginY = Math.Max(RegionSnapPx * 2, visible.Height * RegionMarginFraction);
+            while (true)
+            {
+                int x0 = Math.Max(0, (int)Math.Floor((visible.Left - marginX) / RegionSnapPx) * RegionSnapPx);
+                int y0 = Math.Max(0, (int)Math.Floor((visible.Top - marginY) / RegionSnapPx) * RegionSnapPx);
+                int x1 = Math.Min(fullWidth, (int)Math.Ceiling((visible.Right + marginX) / RegionSnapPx) * RegionSnapPx);
+                int y1 = Math.Min(fullHeight, (int)Math.Ceiling((visible.Bottom + marginY) / RegionSnapPx) * RegionSnapPx);
+                if ((long)(x1 - x0) * (y1 - y0) <= MaxRegionPixels || (marginX < 1 && marginY < 1))
+                    return new ReaderTileKey(path, page, fullWidth, fullHeight, x0, y0, Math.Max(1, x1 - x0), Math.Max(1, y1 - y0), layers);
+                marginX /= 2;
+                marginY /= 2;
+            }
         }
 
         /// <summary>Vùng NHÌN THẤY của trang, quy đổi ra toạ độ tile fullWidth×fullHeight — THUẦN
@@ -1278,26 +1305,9 @@ namespace XTPdfMergeApp
                     continue;
                 }
 
-                int startX = Math.Max(0, ((int)Math.Floor(visible.Left / ReaderTileSizePx) - ReaderTileOverscan) * ReaderTileSizePx);
-                int startY = Math.Max(0, ((int)Math.Floor(visible.Top / ReaderTileSizePx) - ReaderTileOverscan) * ReaderTileSizePx);
-                int endX = Math.Min(target.FullWidth, ((int)Math.Ceiling(visible.Right / ReaderTileSizePx) + ReaderTileOverscan) * ReaderTileSizePx);
-                int endY = Math.Min(target.FullHeight, ((int)Math.Ceiling(visible.Bottom / ReaderTileSizePx) + ReaderTileOverscan) * ReaderTileSizePx);
-
-                var needed = new HashSet<ReaderTileKey>();
-                for (int y = startY; y < endY; y += ReaderTileSizePx)
-                {
-                    for (int x = startX; x < endX; x += ReaderTileSizePx)
-                    {
-                        int w = Math.Min(ReaderTileSizePx, target.FullWidth - x);
-                        int h = Math.Min(ReaderTileSizePx, target.FullHeight - y);
-                        if (w <= 0 || h <= 0) continue;
-
-                        var key = new ReaderTileKey(target.Row.SourcePath, target.Row.PageNumber, target.FullWidth, target.FullHeight, x, y, w, h,
-                            RenderCacheKeys.TileLayers(target.Row.SourcePath));
-                        needed.Add(key);
-                        visibleTiles.Add(key);
-                    }
-                }
+                var region = ComputeViewportRegion(target.Row.SourcePath, target.Row.PageNumber, target.FullWidth, target.FullHeight, visible);
+                var needed = new HashSet<ReaderTileKey> { region };
+                visibleTiles.Add(region);
 
                 var destination = target.ActiveCanvas;
                 var fallback = target.InactiveCanvas;
@@ -1309,10 +1319,9 @@ namespace XTPdfMergeApp
                     ConfigureContinuousTileCanvas(destination, target.FullWidth, target.FullHeight, target.TileScale);
                     SwapContinuousTileCanvas(target.Row);
                 }
-                RemoveTileVisualsNotIn(destination, needed);
                 cacheHits += needed.Count(k => _readerTileCache.ContainsKey(k));
                 queued += needed.Count(k => !_readerTileCache.ContainsKey(k));
-                refinements.Add(RefineCanvasAsync(destination, fallback, needed, visible, requestId));
+                refinements.Add(RefineThenPruneAsync(destination, fallback, needed, visible, requestId));
             }
 
             _visibleReaderTiles.Clear();
@@ -1323,6 +1332,13 @@ namespace XTPdfMergeApp
             await Task.WhenAll(refinements);
             LogContinuousTileDebug($"zoom={ReaderContinuousZoom:F2} targets={targets.Count} " +
                 $"tiles={visibleTiles.Count} cached={cacheHits} queued={queued} buildMs={buildMs} processMs={processMs}");
+        }
+
+        /// <summary>#4: như RefineCanvasAsync nhưng chỉ gỡ vùng cũ SAU khi vùng mới đã hiện.</summary>
+        private async Task RefineThenPruneAsync(Canvas canvas, Canvas fallback, HashSet<ReaderTileKey> needed, Rect visible, long requestId)
+        {
+            await RefineCanvasAsync(canvas, fallback, needed, visible, requestId);
+            if (requestId == Volatile.Read(ref _readerTileRequestId)) RemoveTileVisualsNotIn(canvas, needed);
         }
 
         private async Task RefineCanvasAsync(Canvas canvas, Canvas fallback,
