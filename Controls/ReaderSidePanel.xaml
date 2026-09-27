@@ -19,8 +19,8 @@
                 <Setter Property="IconSize" Value="18"/>
                 <Style.Triggers>
                     <Trigger Property="Tag" Value="Active">
-                        <Setter Property="Background" Value="{DynamicResource CadSelectionBackground}"/>
-                        <Setter Property="BorderBrush" Value="{DynamicResource CadSelectionBlue}"/>
+                        <Setter Property="Background" Value="{DynamicResource XTSelectionBackground}"/>
+                        <Setter Property="BorderBrush" Value="{DynamicResource XTSelectionBlue}"/>
                     </Trigger>
                 </Style.Triggers>
             </Style>
@@ -42,14 +42,14 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <Grid Background="{DynamicResource CadPanelBackground}">
+    <Grid Background="{DynamicResource XTPanelBackground}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Column="0" Background="{DynamicResource CadToolbarBackground}"
-                BorderBrush="{DynamicResource CadChromeBorder}" BorderThickness="0,0,1,0">
+        <Border Grid.Column="0" Background="{DynamicResource XTToolbarBackground}"
+                BorderBrush="{DynamicResource XTChromeBorder}" BorderThickness="0,0,1,0">
             <StackPanel>
                 <xt:XTButton x:Name="ThumbnailTabButton" Style="{StaticResource SideTabButton}" Tag="Active"
                              Icon="{StaticResource PdfUi.PagesPanel}" ToolTip="Trang (thumbnail)" Click="ThumbnailTab_Click"/>
@@ -61,10 +61,10 @@
         </Border>
 
         <DockPanel Grid.Column="1">
-            <Border DockPanel.Dock="Top" Padding="8,5" BorderBrush="{DynamicResource CadBorder}" BorderThickness="0,0,0,1">
+            <Border DockPanel.Dock="Top" Padding="8,5" BorderBrush="{DynamicResource XTBorder}" BorderThickness="0,0,0,1">
                 <StackPanel>
-                    <TextBlock x:Name="PanelTitleText" Text="Trang" FontWeight="SemiBold" Foreground="{DynamicResource CadTextPrimary}"/>
-                    <TextBlock x:Name="PanelSourceText" Foreground="{DynamicResource CadTextSecondary}" FontSize="11"
+                    <TextBlock x:Name="PanelTitleText" Text="Trang" FontWeight="SemiBold" Foreground="{DynamicResource XTTextPrimary}"/>
+                    <TextBlock x:Name="PanelSourceText" Foreground="{DynamicResource XTTextSecondary}" FontSize="11"
                                TextTrimming="CharacterEllipsis" Visibility="Collapsed"/>
                 </StackPanel>
             </Border>
@@ -92,7 +92,7 @@
                                            Loaded="ThumbnailImage_Loaded" DataContextChanged="ThumbnailImage_DataContextChanged"/>
                                 </Border>
                                 <TextBlock Text="{Binding Index}" HorizontalAlignment="Center" Margin="0,3,0,0"
-                                           Foreground="{DynamicResource CadTextSecondary}"/>
+                                           Foreground="{DynamicResource XTTextSecondary}"/>
                             </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
@@ -105,7 +105,7 @@
                           VirtualizingPanel.IsVirtualizing="True"/>
 
                 <TextBlock x:Name="PanelEmptyText" Visibility="Collapsed" Margin="12" TextWrapping="Wrap"
-                           Foreground="{DynamicResource CadTextSecondary}"/>
+                           Foreground="{DynamicResource XTTextSecondary}"/>
             </Grid>
         </DockPanel>
     </Grid>
