@@ -8,11 +8,14 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
-  <!-- Đo đúng code của app: bộ đệm khối (bước #0) và nguồn đọc cho FPDF_LoadCustomDocument (window, kịch bản D). -->
+  <!-- Đo đúng code của app: bộ đệm khối (bước #0), nguồn đọc cho FPDF_LoadCustomDocument (window, kịch bản D),
+       bảng hàm PDFium PdfiumInstance (apicheck). -->
   <ItemGroup>
     <Compile Include="..\..\Services\PdfFileBuffer.cs" Link="App\PdfFileBuffer.cs" />
     <Compile Include="..\..\Services\LayeredDocumentSource.cs" Link="App\LayeredDocumentSource.cs" />
     <Compile Include="..\..\Services\RenderDiagnostics.cs" Link="App\RenderDiagnostics.cs" />
+    <Compile Include="..\..\Services\PdfiumInstance.cs" Link="App\PdfiumInstance.cs" />
+    <Compile Include="..\..\Services\PdfRenderGate.cs" Link="App\PdfRenderGate.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="itext" Version="9.6.0" />

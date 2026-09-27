@@ -930,7 +930,7 @@ namespace XTPdfMergeApp
 
         // Đảm bảo KHÔNG BAO GIỜ có 2 lượt UpdateReaderTilesAsync chạy CHỒNG LẤN nhau — quan trọng vì
         // PDFium bị khoá 1 luồng cho TOÀN BỘ ứng dụng (native library không an toàn gọi đồng thời, xem
-        // PdfThumbnailService._pdfiumGate) nên tải hết 1 bộ tile (12-25 viên) có thể mất VÀI GIÂY,
+        // PdfiumInstance.Gate) nên tải hết 1 bộ tile (12-25 viên) có thể mất VÀI GIÂY,
         // lâu hơn hẳn 200ms debounce — nếu zoom vẫn tiếp tục đổi trong lúc đó, lượt debounce MỚI sẽ
         // khởi động trong khi lượt CŨ còn dở dang (đang await PDFium), 2 lượt cùng đọc/ghi
         // _continuousTileActiveIsA (canvas nào đang active cho từng trang) ĐỘC LẬP nhau → tráo canvas

@@ -28,7 +28,6 @@ namespace XTPdfMergeApp.Services
         private const int FpdfLcdText = 0x02;
         private const int FpdfNoNativeText = 0x04;
         private const int FpdfRenderLimitedImageCache = 0x200;
-        private static readonly PdfRenderGate _pdfiumGate = new();
         private static int _activeNativeCalls;
         private static int _waitingNativeCalls;
 
@@ -37,12 +36,14 @@ namespace XTPdfMergeApp.Services
 
         private sealed class PdfiumGateLease : IDisposable
         {
+            private readonly PdfiumInstance _pdfium;
             private readonly string _caller;
             private readonly long _waitMs;
             private readonly Stopwatch _held = Stopwatch.StartNew();
 
-            public PdfiumGateLease(string caller, long waitMs)
+            public PdfiumGateLease(PdfiumInstance pdfium, string caller, long waitMs)
             {
+                _pdfium = pdfium;
                 _caller = caller;
                 _waitMs = waitMs;
                 RenderDiagnostics.NativeWait.AddMilliseconds(waitMs);
@@ -52,7 +53,7 @@ namespace XTPdfMergeApp.Services
             {
                 _held.Stop();
                 Interlocked.Decrement(ref _activeNativeCalls);
-                _pdfiumGate.Release();
+                _pdfium.Gate.Release();
                 RecordPdfiumGateSample(_caller, _waitMs, _held.ElapsedMilliseconds);
             }
         }
@@ -124,9 +125,10 @@ namespace XTPdfMergeApp.Services
             /// file (Windows mới cho ghi đè file nguồn).</summary>
             public Task NativeClosed => _nativeClosed.Task;
 
-            public PdfDocumentLease(string sourcePath, IntPtr document, int pageCount,
+            public PdfDocumentLease(PdfiumInstance pdfium, string sourcePath, IntPtr document, int pageCount,
                 string layerToken = "", IDisposable? nativeSource = null)
             {
+                Pdfium = pdfium;
                 LayerToken = layerToken;
                 _nativeSource = nativeSource;
                 SourcePath = sourcePath;
@@ -135,6 +137,8 @@ namespace XTPdfMergeApp.Services
             }
 
             public string SourcePath { get; }
+            /// <summary>Bản PDFium đã mở document này — mọi lệnh trên document/page của nó phải qua bản này.</summary>
+            public PdfiumInstance Pdfium { get; }
             /// <summary>Trạng thái layer mà document PDFium này được mở theo (xem PdfLayerStateStore).</summary>
             public string LayerToken { get; }
             /// <summary>Nguồn đọc của FPDF_LoadCustomDocument — chỉ được huỷ SAU FPDF_CloseDocument.</summary>
@@ -204,9 +208,9 @@ namespace XTPdfMergeApp.Services
                 try
                 {
                     if (Document == IntPtr.Zero) return;
-                    using var native = EnterPdfiumGate();
+                    using var native = EnterPdfiumGate(Pdfium);
                     RemoveDocumentPages(Document);
-                    FPDF_CloseDocument(Document);
+                    Pdfium.CloseDocument(Document);
                 }
                 finally
                 {
@@ -226,17 +230,6 @@ namespace XTPdfMergeApp.Services
                     => Interlocked.Exchange(ref _owner, null)?.ReleaseUsage();
             }
         }
-
-        private static readonly Lazy<bool> _libraryInitialized = new(() =>
-        {
-            FPDF_InitLibrary();
-            AppDomain.CurrentDomain.ProcessExit += (_, _) =>
-            {
-                try { FPDF_DestroyLibrary(); }
-                catch { }
-            };
-            return true;
-        }, LazyThreadSafetyMode.ExecutionAndPublication);
 
         private static volatile bool _shuttingDown;
 
@@ -423,9 +416,9 @@ namespace XTPdfMergeApp.Services
                 cancellationToken = linked.Token;
                 if (pageIndex < 0 || pageIndex >= lease.PageCount) return null;
 
-                using var native = await EnterPdfiumGateAsync(PdfRenderPriority.Background, cancellationToken).ConfigureAwait(false);
+                using var native = await EnterPdfiumGateAsync(lease.Pdfium, PdfRenderPriority.Background, cancellationToken).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
-                return await Task.Run(() => GetPageAspectRatioCore(lease.Document, pageIndex), cancellationToken).ConfigureAwait(false);
+                return await Task.Run(() => GetPageAspectRatioCore(lease.Pdfium, lease.Document, pageIndex), cancellationToken).ConfigureAwait(false);
             }
             catch
             {
@@ -437,9 +430,9 @@ namespace XTPdfMergeApp.Services
             }
         }
 
-        private static double? GetPageAspectRatioCore(IntPtr document, int pageIndex)
+        private static double? GetPageAspectRatioCore(PdfiumInstance pdfium, IntPtr document, int pageIndex)
         {
-            return FPDF_GetPageSizeByIndex(document, pageIndex, out double width, out double height) != 0 && width > 0 && height > 0
+            return pdfium.GetPageSizeByIndex(document, pageIndex, out double width, out double height) && width > 0 && height > 0
                 ? height / width : null;
         }
 
@@ -512,9 +505,12 @@ namespace XTPdfMergeApp.Services
             // #0: PDFium đọc file qua bộ đệm khối (khối trang cần được đọc trước, phần còn lại nạp nền). null =
             // file quá lớn / hết ngân sách → FPDF_LoadDocument đọc file như cũ.
             PdfBlockCache? cache = PdfFileBuffer.Acquire(pdfPath);
+            PdfiumInstance? pdfium = null;
             try
             {
-                EnsurePdfiumInitialized();
+                // Trong try như trước: không nạp được pdfium.dll → trả null, không ném ra ngoài.
+                pdfium = PdfiumInstance.Primary;
+                pdfium.EnsureInitialized();
 
                 var hiddenLayers = PdfLayerStateStore.GetHiddenOverride(pdfPath, out string layerToken);
                 if (hiddenLayers != null)
@@ -541,11 +537,11 @@ namespace XTPdfMergeApp.Services
                     cache = null;
                 }
 
-                using var native = EnterPdfiumGate();
+                using var native = EnterPdfiumGate(pdfium);
                 long openStart = Stopwatch.GetTimestamp();
                 document = source != null
-                    ? FPDF_LoadCustomDocument(source.FileAccessPointer, null)
-                    : FPDF_LoadDocument(pdfPath, null);
+                    ? pdfium.LoadCustomDocument(source.FileAccessPointer)
+                    : pdfium.LoadDocument(pdfPath);
                 RenderDiagnostics.DocumentOpen.Record(openStart);
                 if (document == IntPtr.Zero)
                 {
@@ -554,10 +550,10 @@ namespace XTPdfMergeApp.Services
                     return null;
                 }
 
-                int pageCount = FPDF_GetPageCount(document);
+                int pageCount = pdfium.GetPageCount(document);
                 if (pageCount <= 0)
                 {
-                    FPDF_CloseDocument(document);
+                    pdfium.CloseDocument(document);
                     document = IntPtr.Zero;
                     source?.Dispose();
                     _documentCache.TryRemove(pdfPath, out _);
@@ -565,14 +561,14 @@ namespace XTPdfMergeApp.Services
                 }
 
                 // Nguồn đọc (và bộ đệm khối) phải sống tới sau FPDF_CloseDocument: giao cho lease giữ.
-                return new PdfDocumentLease(pdfPath, document, pageCount, layerToken, source);
+                return new PdfDocumentLease(pdfium, pdfPath, document, pageCount, layerToken, source);
             }
             catch
             {
-                if (document != IntPtr.Zero)
+                if (document != IntPtr.Zero && pdfium != null)
                 {
-                    using var native = EnterPdfiumGate();
-                    FPDF_CloseDocument(document);
+                    using var native = EnterPdfiumGate(pdfium);
+                    pdfium.CloseDocument(document);
                 }
                 source?.Dispose();
                 _documentCache.TryRemove(pdfPath, out _);
@@ -638,19 +634,16 @@ namespace XTPdfMergeApp.Services
             }
         }
 
-        private static void EnsurePdfiumInitialized()
-            => _ = _libraryInitialized.Value;
-
-        private static PdfiumGateLease EnterPdfiumGate([CallerMemberName] string caller = "")
+        private static PdfiumGateLease EnterPdfiumGate(PdfiumInstance pdfium, [CallerMemberName] string caller = "")
         {
             Interlocked.Increment(ref _waitingNativeCalls);
             var sw = Stopwatch.StartNew();
             try
             {
-                _pdfiumGate.Wait();
+                pdfium.Gate.Wait();
                 sw.Stop();
                 Interlocked.Increment(ref _activeNativeCalls);
-                return new PdfiumGateLease(caller, sw.ElapsedMilliseconds);
+                return new PdfiumGateLease(pdfium, caller, sw.ElapsedMilliseconds);
             }
             finally
             {
@@ -658,16 +651,16 @@ namespace XTPdfMergeApp.Services
             }
         }
 
-        private static async Task<PdfiumGateLease> EnterPdfiumGateAsync(PdfRenderPriority priority = PdfRenderPriority.Visible, CancellationToken cancellationToken = default, [CallerMemberName] string caller = "")
+        private static async Task<PdfiumGateLease> EnterPdfiumGateAsync(PdfiumInstance pdfium, PdfRenderPriority priority = PdfRenderPriority.Visible, CancellationToken cancellationToken = default, [CallerMemberName] string caller = "")
         {
             Interlocked.Increment(ref _waitingNativeCalls);
             var sw = Stopwatch.StartNew();
             try
             {
-                await _pdfiumGate.WaitAsync(priority, cancellationToken).ConfigureAwait(false);
+                await pdfium.Gate.WaitAsync(priority, cancellationToken).ConfigureAwait(false);
                 sw.Stop();
                 Interlocked.Increment(ref _activeNativeCalls);
-                return new PdfiumGateLease(caller, sw.ElapsedMilliseconds);
+                return new PdfiumGateLease(pdfium, caller, sw.ElapsedMilliseconds);
             }
             finally
             {
@@ -677,58 +670,6 @@ namespace XTPdfMergeApp.Services
 
         private static string NormalizePath(string path)
             => Path.GetFullPath(path);
-
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void FPDF_InitLibrary();
-
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void FPDF_DestroyLibrary();
-
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl, EntryPoint = "FPDF_LoadDocument")]
-        private static extern IntPtr FPDF_LoadDocument(
-            [MarshalAs(UnmanagedType.LPUTF8Str)] string filePath,
-            [MarshalAs(UnmanagedType.LPUTF8Str)] string? password);
-
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void FPDF_CloseDocument(IntPtr document);
-
-        /// <summary>FPDF_DOCUMENT FPDF_LoadCustomDocument(FPDF_FILEACCESS* pFileAccess, FPDF_BYTESTRING password)</summary>
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr FPDF_LoadCustomDocument(IntPtr fileAccess,
-            [MarshalAs(UnmanagedType.LPUTF8Str)] string? password);
-
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int FPDF_GetPageCount(IntPtr document);
-
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int FPDF_GetPageSizeByIndex(IntPtr document, int pageIndex, out double width, out double height);
-
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr FPDF_LoadPage(IntPtr document, int pageIndex);
-
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void FPDF_ClosePage(IntPtr page);
-
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern double FPDF_GetPageWidth(IntPtr page);
-
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern double FPDF_GetPageHeight(IntPtr page);
-
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr FPDFBitmap_Create(int width, int height, int alpha);
-
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void FPDFBitmap_Destroy(IntPtr bitmap);
-
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int FPDFBitmap_FillRect(IntPtr bitmap, int left, int top, int width, int height, uint color);
-
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr FPDFBitmap_GetBuffer(IntPtr bitmap);
-
-        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int FPDFBitmap_GetStride(IntPtr bitmap);
 
     }
 }

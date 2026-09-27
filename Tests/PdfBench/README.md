@@ -65,6 +65,20 @@ Thời gian mỗi trang được tách thành chờ đọc file, parse CPU và v
 - **RAM:** như sau khi đọc nền xong, chỉ còn CPU.
 - **net:** bộ đệm chưa có gì, mỗi worker tự đọc file riêng.
 
+## Kiểm tra app gọi PDFium qua `PdfiumInstance` (bước 2)
+
+```powershell
+dotnet run -c Release -- apicheck "P:\...\file.pdf" 40     # 40 trang đầu
+```
+
+Lệnh này vẽ từng trang theo 2 đường: `[DllImport]` kiểu cũ, và `PdfiumInstance` của app (link từ
+`Services/`). Cả hai vẽ progressive với cờ của app. Nó kiểm tra:
+- ảnh phải trùng từng bit, cỡ trang phải bằng nhau;
+- thời gian của 2 đường;
+- mở được file có tên tiếng Việt (đường dẫn truyền cho PDFium dạng UTF-8).
+
+Kết quả cuối phải là `ALL PASS`.
+
 ## Tạo file tổng hợp khi không có file thật
 
 ```powershell

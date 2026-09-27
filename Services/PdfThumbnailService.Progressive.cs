@@ -54,10 +54,10 @@ public static partial class PdfThumbnailService
     public static long InteractionDeferrals => Interlocked.Read(ref _interactionDeferrals);
 
     /// <summary>Trước khi parse trang (không chia lát được) — lệnh ưu tiên thấp chờ hết tương tác rồi mới vào gate.</summary>
-    private static async Task<PdfiumGateLease> EnterGateAfterInteractionAsync(PdfRenderPriority priority, CancellationToken token)
+    private static async Task<PdfiumGateLease> EnterGateAfterInteractionAsync(PdfiumInstance pdfium, PdfRenderPriority priority, CancellationToken token)
     {
         await WaitForInteractionIdleAsync(priority, token).ConfigureAwait(false);
-        return await EnterPdfiumGateAsync(priority, token).ConfigureAwait(false);
+        return await EnterPdfiumGateAsync(pdfium, priority, token).ConfigureAwait(false);
     }
     private static HashSet<(string Path, int Index)> _hotPages = new();
 
@@ -90,11 +90,14 @@ public static partial class PdfThumbnailService
     public static double MaxNativeRenderSliceMilliseconds =>
         Interlocked.Read(ref _maxSliceTicks) * 1000d / Stopwatch.Frequency;
 
-    // Only access the dictionary/refcounts while holding the global native gate.
+    // Only access the dictionary/refcounts while holding the native gate. (Hiện chỉ có 1 bản PDFium; khi có
+    // nhiều bản, mỗi bản cần bộ đệm page handle riêng dưới gate của nó.)
     // A page has one progressive render context, so its operation gate stays held
-    // across pauses while other pages may use the global gate between slices.
+    // across pauses while other pages may use the native gate between slices.
     private sealed class NativePage
     {
+        /// <summary>Bản PDFium đã mở page handle này.</summary>
+        public required PdfiumInstance Pdfium { get; init; }
         public required IntPtr Document { get; init; }
         /// <summary>Đường dẫn chuẩn hoá (chữ hoa) — để so với tập trang nóng.</summary>
         public required string PathKey { get; init; }
@@ -109,16 +112,16 @@ public static partial class PdfThumbnailService
     private static async Task<NativePage> AcquirePageAsync(PdfDocumentLease document, int index,
         PdfRenderPriority priority, CancellationToken token)
     {
-        using var native = await EnterGateAfterInteractionAsync(priority, token).ConfigureAwait(false);
+        using var native = await EnterGateAfterInteractionAsync(document.Pdfium, priority, token).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
         var key = (document.Document, index);
         if (!_nativePages.TryGetValue(key, out var page))
         {
             long loadStart = Stopwatch.GetTimestamp();
-            var handle = FPDF_LoadPage(document.Document, index);
+            var handle = document.Pdfium.LoadPage(document.Document, index);
             RenderDiagnostics.PageOpen.Record(loadStart);
             if (handle == IntPtr.Zero) throw new InvalidOperationException("PDFium could not open the page.");
-            page = new NativePage { Document = document.Document, Index = index, Handle = handle,
+            page = new NativePage { Pdfium = document.Pdfium, Document = document.Document, Index = index, Handle = handle,
                 PathKey = NormalizePath(document.SourcePath).ToUpperInvariant() };
             _nativePages.Add(key, page);
             Interlocked.Increment(ref _pageLoads);
@@ -133,7 +136,7 @@ public static partial class PdfThumbnailService
 
     private static async Task ReleasePageAsync(NativePage page)
     {
-        using var native = await EnterPdfiumGateAsync().ConfigureAwait(false);
+        using var native = await EnterPdfiumGateAsync(page.Pdfium).ConfigureAwait(false);
         page.Users--;
         page.LastUse = ++_pageUseSequence;
         TrimNativePages();
@@ -146,7 +149,7 @@ public static partial class PdfThumbnailService
         {
             if (IsHot(page)) continue; // #3: trang đang hiện / sắp hiện — giữ bản đã parse
             if (page.KeepWarm && _nativePages.Count - hotCount <= NativePageCacheCapacity) continue;
-            FPDF_ClosePage(page.Handle);
+            page.Pdfium.ClosePage(page.Handle);
             _nativePages.Remove((page.Document, page.Index));
         }
         Volatile.Write(ref _nativePageCount, _nativePages.Count);
@@ -157,7 +160,7 @@ public static partial class PdfThumbnailService
         foreach (var page in _nativePages.Values.Where(p => p.Document == document).ToArray())
         {
             Debug.Assert(page.Users == 0);
-            FPDF_ClosePage(page.Handle);
+            page.Pdfium.ClosePage(page.Handle);
             _nativePages.Remove((page.Document, page.Index));
         }
         Volatile.Write(ref _nativePageCount, _nativePages.Count);
@@ -170,7 +173,7 @@ public static partial class PdfThumbnailService
         {
             try
             {
-                using var native = await EnterPdfiumGateAsync().ConfigureAwait(false);
+                using var native = await EnterPdfiumGateAsync(PdfiumInstance.Primary).ConfigureAwait(false);
                 foreach (var page in _nativePages.Values) page.KeepWarm = false;
                 TrimNativePages();
             }
@@ -193,9 +196,9 @@ public static partial class PdfThumbnailService
             RenderDiagnostics.PageQueue.Record(queueStart);
             locked = true;
             int width, height;
-            using (var native = await EnterPdfiumGateAsync(priority, token).ConfigureAwait(false))
+            using (var native = await EnterPdfiumGateAsync(page.Pdfium, priority, token).ConfigureAwait(false))
             {
-                double pageWidth = FPDF_GetPageWidth(page.Handle), pageHeight = FPDF_GetPageHeight(page.Handle);
+                double pageWidth = page.Pdfium.GetPageWidth(page.Handle), pageHeight = page.Pdfium.GetPageHeight(page.Handle);
                 if (pageWidth <= 0 || pageHeight <= 0 || !double.IsFinite(requestedWidth)) return null;
                 double w = Math.Clamp(requestedWidth, 1, MaxRenderPixels);
                 double h = w * pageHeight / pageWidth;
@@ -250,23 +253,24 @@ public static partial class PdfThumbnailService
         long bufferStart = Stopwatch.GetTimestamp();
         await _renderBufferSlots.WaitAsync(priority, token).ConfigureAwait(false);
         RenderDiagnostics.BufferQueue.Record(bufferStart);
+        var pdfium = page.Pdfium;
         IntPtr bitmap = IntPtr.Zero, pixels = IntPtr.Zero;
         bool started = false;
         int stride = 0;
         try
         {
             int status;
-            using (var native = await EnterPdfiumGateAsync(priority, token).ConfigureAwait(false))
+            using (var native = await EnterPdfiumGateAsync(pdfium, priority, token).ConfigureAwait(false))
             {
                 token.ThrowIfCancellationRequested();
-                bitmap = FPDFBitmap_Create(width, height, 1);
+                bitmap = pdfium.BitmapCreate(width, height, 1);
                 if (bitmap == IntPtr.Zero) return null;
-                if (FPDFBitmap_FillRect(bitmap, 0, 0, width, height, 0xFFFFFFFF) == 0) return null;
-                pixels = FPDFBitmap_GetBuffer(bitmap);
-                stride = FPDFBitmap_GetStride(bitmap);
+                if (!pdfium.BitmapFillRect(bitmap, 0, 0, width, height, 0xFFFFFFFF)) return null;
+                pixels = pdfium.BitmapGetBuffer(bitmap);
+                stride = pdfium.BitmapGetStride(bitmap);
                 pause.BeginSlice();
                 started = true;
-                status = FPDF_RenderPageBitmap_Start(bitmap, page.Handle, -x, -y, fullWidth, fullHeight, 0,
+                status = pdfium.RenderPageBitmapStart(bitmap, page.Handle, -x, -y, fullWidth, fullHeight, 0,
                     FpdfAnnot | FpdfLcdText | FpdfNoNativeText | FpdfRenderLimitedImageCache, pause.Pointer);
                 pause.RecordSlice();
             }
@@ -274,13 +278,13 @@ public static partial class PdfThumbnailService
             {
                 Interlocked.Increment(ref _progressiveYields);
                 token.ThrowIfCancellationRequested();
-                // The global gate is released, allowing other pages to run. A continuation
+                // The native gate is released, allowing other pages to run. A continuation
                 // remains at its original priority; cancellation is checked before re-entry.
                 await Task.Yield();
-                using var native = await EnterPdfiumGateAsync(priority, token).ConfigureAwait(false);
+                using var native = await EnterPdfiumGateAsync(pdfium, priority, token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
                 pause.BeginSlice();
-                status = FPDF_RenderPage_Continue(page.Handle, pause.Pointer);
+                status = pdfium.RenderPageContinue(page.Handle, pause.Pointer);
                 pause.RecordSlice();
             }
             token.ThrowIfCancellationRequested();
@@ -303,9 +307,9 @@ public static partial class PdfThumbnailService
         {
             try
             {
-                using var native = await EnterPdfiumGateAsync(PdfRenderPriority.Visible).ConfigureAwait(false);
-                if (started) FPDF_RenderPage_Close(page.Handle);
-                if (bitmap != IntPtr.Zero) FPDFBitmap_Destroy(bitmap);
+                using var native = await EnterPdfiumGateAsync(pdfium, PdfRenderPriority.Visible).ConfigureAwait(false);
+                if (started) pdfium.RenderPageClose(page.Handle);
+                if (bitmap != IntPtr.Zero) pdfium.BitmapDestroy(bitmap);
             }
             finally { _renderBufferSlots.Release(); }
         }
@@ -355,12 +359,4 @@ public static partial class PdfThumbnailService
             GC.KeepAlive(_callback);
         }
     }
-
-    [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-    private static extern int FPDF_RenderPageBitmap_Start(IntPtr bitmap, IntPtr page,
-        int x, int y, int width, int height, int rotation, int flags, IntPtr pause);
-    [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-    private static extern int FPDF_RenderPage_Continue(IntPtr page, IntPtr pause);
-    [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void FPDF_RenderPage_Close(IntPtr page);
 }

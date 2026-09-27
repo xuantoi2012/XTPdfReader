@@ -424,7 +424,7 @@ internal static class Program
         Console.WriteLine(JsonSerializer.Serialize(measurement));
         if (!baseline)
         {
-            var gate = (PdfRenderGate)typeof(PdfThumbnailService).GetField("_pdfiumGate", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+            var gate = PdfiumInstance.Primary.Gate;
             await gate.WaitAsync(PdfRenderPriority.Visible);
             using var cts = new CancellationTokenSource();
             var pending = PdfThumbnailService.RenderPageTilesBatchAsync(path, 0, 1024, 1449, rects, cts.Token);

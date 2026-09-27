@@ -1,0 +1,139 @@
+using System;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+
+namespace XTPdfMergeApp.Services;
+
+/// <summary>
+/// 1 bản thư viện PDFium đã nạp: bảng hàm (con trỏ hàm lấy bằng NativeLibrary) + gate riêng. PDFium giữ trạng
+/// thái toàn cục (bộ đệm font, bộ giải mã ảnh…) nên trong 1 bản mọi lệnh phải tuần tự qua <see cref="Gate"/>.
+/// Nhiều bản sao file DLL (tên khác nhau) là nhiều module riêng, chạy song song được — xem
+/// Tests/PdfBench/BAO-CAO-DA-LUONG-2026-09-27.md. Hiện app chỉ dùng <see cref="Primary"/>.
+///
+/// Document, page, bitmap do bản nào tạo thì chỉ được đưa lại cho ĐÚNG bản đó.
+/// </summary>
+internal sealed unsafe class PdfiumInstance
+{
+    private readonly delegate* unmanaged[Cdecl]<void> _initLibrary;
+    private readonly delegate* unmanaged[Cdecl]<void> _destroyLibrary;
+    private readonly delegate* unmanaged[Cdecl]<byte*, byte*, IntPtr> _loadDocument;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, byte*, IntPtr> _loadCustomDocument;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, void> _closeDocument;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, int> _getPageCount;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, int, double*, double*, int> _getPageSizeByIndex;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr> _loadPage;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, void> _closePage;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, double> _getPageWidth;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, double> _getPageHeight;
+    private readonly delegate* unmanaged[Cdecl]<int, int, int, IntPtr> _bitmapCreate;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, void> _bitmapDestroy;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, int, int, int, int, uint, int> _bitmapFillRect;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr> _bitmapGetBuffer;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, int> _bitmapGetStride;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, int, int, int, int, int, IntPtr, int> _renderPageBitmapStart;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int> _renderPageContinue;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, void> _renderPageClose;
+
+    private readonly Lazy<bool> _initialized;
+
+    private PdfiumInstance(int index, IntPtr library)
+    {
+        Index = index;
+        IntPtr F(string name) => NativeLibrary.GetExport(library, name);
+        _initLibrary = (delegate* unmanaged[Cdecl]<void>)F("FPDF_InitLibrary");
+        _destroyLibrary = (delegate* unmanaged[Cdecl]<void>)F("FPDF_DestroyLibrary");
+        _loadDocument = (delegate* unmanaged[Cdecl]<byte*, byte*, IntPtr>)F("FPDF_LoadDocument");
+        _loadCustomDocument = (delegate* unmanaged[Cdecl]<IntPtr, byte*, IntPtr>)F("FPDF_LoadCustomDocument");
+        _closeDocument = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("FPDF_CloseDocument");
+        _getPageCount = (delegate* unmanaged[Cdecl]<IntPtr, int>)F("FPDF_GetPageCount");
+        _getPageSizeByIndex = (delegate* unmanaged[Cdecl]<IntPtr, int, double*, double*, int>)F("FPDF_GetPageSizeByIndex");
+        _loadPage = (delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr>)F("FPDF_LoadPage");
+        _closePage = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("FPDF_ClosePage");
+        _getPageWidth = (delegate* unmanaged[Cdecl]<IntPtr, double>)F("FPDF_GetPageWidth");
+        _getPageHeight = (delegate* unmanaged[Cdecl]<IntPtr, double>)F("FPDF_GetPageHeight");
+        _bitmapCreate = (delegate* unmanaged[Cdecl]<int, int, int, IntPtr>)F("FPDFBitmap_Create");
+        _bitmapDestroy = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("FPDFBitmap_Destroy");
+        _bitmapFillRect = (delegate* unmanaged[Cdecl]<IntPtr, int, int, int, int, uint, int>)F("FPDFBitmap_FillRect");
+        _bitmapGetBuffer = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr>)F("FPDFBitmap_GetBuffer");
+        _bitmapGetStride = (delegate* unmanaged[Cdecl]<IntPtr, int>)F("FPDFBitmap_GetStride");
+        _renderPageBitmapStart = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, int, int, int, int, int, IntPtr, int>)F("FPDF_RenderPageBitmap_Start");
+        _renderPageContinue = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int>)F("FPDF_RenderPage_Continue");
+        _renderPageClose = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("FPDF_RenderPage_Close");
+
+        _initialized = new Lazy<bool>(() =>
+        {
+            _initLibrary();
+            AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+            {
+                try { _destroyLibrary(); }
+                catch { }
+            };
+            return true;
+        }, LazyThreadSafetyMode.ExecutionAndPublication);
+    }
+
+    private static readonly Lazy<PdfiumInstance> _primary = new(() =>
+        // Cùng cách tìm file như [DllImport("pdfium")] trước đây (deps.json → runtimes/<rid>/native/pdfium.dll).
+        new PdfiumInstance(0, NativeLibrary.Load("pdfium", typeof(PdfiumInstance).Assembly, null)),
+        LazyThreadSafetyMode.ExecutionAndPublication);
+
+    /// <summary>Bản chính — pdfium.dll gốc.</summary>
+    public static PdfiumInstance Primary => _primary.Value;
+
+    /// <summary>0 = bản chính.</summary>
+    public int Index { get; }
+
+    /// <summary>Mọi lệnh gọi vào bản PDFium này phải giữ gate (thứ tự ưu tiên Visible/Thumbnail/Background).</summary>
+    public PdfRenderGate Gate { get; } = new();
+
+    /// <summary>FPDF_InitLibrary đúng 1 lần (FPDF_DestroyLibrary khi tiến trình thoát).</summary>
+    public void EnsureInitialized() => _ = _initialized.Value;
+
+    public IntPtr LoadDocument(string filePath)
+    {
+        byte[] path = Utf8(filePath);
+        fixed (byte* p = path) return _loadDocument(p, null);
+    }
+
+    /// <summary>fileAccess = FPDF_FILEACCESS* (xem LayeredDocumentSource).</summary>
+    public IntPtr LoadCustomDocument(IntPtr fileAccess) => _loadCustomDocument(fileAccess, null);
+    public void CloseDocument(IntPtr document) => _closeDocument(document);
+    public int GetPageCount(IntPtr document) => _getPageCount(document);
+
+    public bool GetPageSizeByIndex(IntPtr document, int pageIndex, out double width, out double height)
+    {
+        double w, h;
+        int ok = _getPageSizeByIndex(document, pageIndex, &w, &h);
+        width = w;
+        height = h;
+        return ok != 0;
+    }
+
+    public IntPtr LoadPage(IntPtr document, int pageIndex) => _loadPage(document, pageIndex);
+    public void ClosePage(IntPtr page) => _closePage(page);
+    public double GetPageWidth(IntPtr page) => _getPageWidth(page);
+    public double GetPageHeight(IntPtr page) => _getPageHeight(page);
+
+    public IntPtr BitmapCreate(int width, int height, int alpha) => _bitmapCreate(width, height, alpha);
+    public void BitmapDestroy(IntPtr bitmap) => _bitmapDestroy(bitmap);
+    public bool BitmapFillRect(IntPtr bitmap, int left, int top, int width, int height, uint color)
+        => _bitmapFillRect(bitmap, left, top, width, height, color) != 0;
+    public IntPtr BitmapGetBuffer(IntPtr bitmap) => _bitmapGetBuffer(bitmap);
+    public int BitmapGetStride(IntPtr bitmap) => _bitmapGetStride(bitmap);
+
+    /// <summary>FPDF_RenderPageBitmap_Start — pause = IFSDK_PAUSE*. Trả trạng thái progressive (1 = còn tiếp, 2 = xong).</summary>
+    public int RenderPageBitmapStart(IntPtr bitmap, IntPtr page, int x, int y, int width, int height, int rotation, int flags, IntPtr pause)
+        => _renderPageBitmapStart(bitmap, page, x, y, width, height, rotation, flags, pause);
+    public int RenderPageContinue(IntPtr page, IntPtr pause) => _renderPageContinue(page, pause);
+    public void RenderPageClose(IntPtr page) => _renderPageClose(page);
+
+    private static byte[] Utf8(string value)
+    {
+        // Như [MarshalAs(UnmanagedType.LPUTF8Str)]: UTF-8, kết thúc bằng byte 0.
+        var bytes = new byte[Encoding.UTF8.GetByteCount(value) + 1];
+        Encoding.UTF8.GetBytes(value, 0, value.Length, bytes, 0);
+        return bytes;
+    }
+}

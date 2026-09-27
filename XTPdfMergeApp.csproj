@@ -7,6 +7,8 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
+    <!-- PdfiumInstance gọi PDFium qua con trỏ hàm (nhiều bản sao thư viện, xem Services/PdfiumInstance.cs). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>XTPdfMergeApp</AssemblyName>
     <RootNamespace>XTPdfMergeApp</RootNamespace>
