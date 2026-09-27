@@ -4,7 +4,7 @@
         xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
         xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
         xmlns:conv="clr-namespace:XTPdfMergeApp.Converters"
-        Title="XT PDF Merge" Width="1180" Height="760"
+        Title="XT PDF — Ghép nhiều file" Width="1180" Height="760"
         MinWidth="760" MinHeight="520" TitleBarMode="Full"
         WindowStartupLocation="CenterScreen"
         TitleIcon="{DynamicResource Mat.FilePdfBox}" TitleIconBrush="{DynamicResource DangerBrush}"
@@ -896,9 +896,9 @@
                                  ToolTip="Debug tải PDF" Click="DiagnosticsButton_Click"/>
                     <xt:XTButton Style="{StaticResource XTSecondaryButton}" Icon="{DynamicResource Mat.Cog}"
                                  ToolTip="Cài đặt" Margin="5,0,0,0" Click="SettingsButton_Click"/>
-                    <xt:XTToggleButton x:Name="ViewerToggleButton" Style="{StaticResource ViewerToggleButtonStyle}"
-                       UncheckedText="Tắt" CheckedText="Viewer" Margin="5,0,0,0"
-                       ToolTip="Hiện Viewer" Click="ViewerToggleButton_Click"/>
+                    <xt:XTButton Style="{StaticResource XTSecondaryButton}" Icon="{DynamicResource Mat.FilePdfBox}"
+                                 Text="Cửa sổ đọc" Padding="9,6" Margin="5,0,0,0"
+                                 ToolTip="Đưa cửa sổ đọc lên trước (hiện trang đang chọn)" Click="ShowReaderWindow_Click"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal">
                     <xt:XTButton Style="{StaticResource XTPrimaryButton}" Icon="{DynamicResource Mat.Plus}"
@@ -939,8 +939,6 @@
         <Grid x:Name="MainContentGrid" Grid.Row="1" Background="#E5E9EE">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition x:Name="ReaderSplitterColumn" Width="0"/>
-                <ColumnDefinition x:Name="ReaderColumn" Width="0" MinWidth="0"/>
             </Grid.ColumnDefinitions>
 
             <AdornerDecorator Grid.Column="0">
@@ -1046,13 +1044,6 @@
             </Grid>
             </AdornerDecorator>
 
-            <GridSplitter x:Name="ReaderSplitter" Grid.Column="1" Width="6"
-                          ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
-                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                          Background="{DynamicResource BorderBrush}" Opacity="0.7"
-                          Visibility="Collapsed"/>
-            <ContentControl x:Name="ReaderHost" Grid.Column="2" Visibility="Collapsed"
-                            HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
 
         </Grid>
 

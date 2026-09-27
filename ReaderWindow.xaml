@@ -4,6 +4,7 @@
         xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
         xmlns:conv="clr-namespace:XTPdfMergeApp.Converters"
         xmlns:local="clr-namespace:XTPdfMergeApp"
+        xmlns:ctl="clr-namespace:XTPdfMergeApp.Controls"
         FontFamily="Segoe UI" FontSize="13"
         UseLayoutRounding="True" SnapsToDevicePixels="True"
         Focusable="True"
@@ -129,6 +130,7 @@
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
@@ -147,10 +149,17 @@
                         <DockPanel>
                             <TextBlock DockPanel.Dock="Bottom" Text="Công cụ" Style="{StaticResource PdfRibbonGroupLabel}"/>
                             <StackPanel Orientation="Horizontal">
+                                <xt:XTButton Style="{StaticResource PdfRibbonLargeButton}"
+                                             Icon="{StaticResource PdfUi.Open}" Text="Mở"
+                                             ToolTip="Mở file PDF (hoặc kéo-thả file vào cửa sổ)" Click="ReaderOpenFiles_Click"/>
                                 <xt:XTButton x:Name="ReaderHandToolButton" Style="{StaticResource PdfRibbonLargeButton}"
                                              Icon="{StaticResource PdfUi.Hand}" Text="Hand" Tag="Active"
                                              ToolTip="Kéo để cuộn trang (Esc để quay về công cụ này)" Click="ReaderHandTool_Click"/>
                                 <StackPanel VerticalAlignment="Top">
+                                    <xt:XTButton Style="{StaticResource PdfRibbonSmallButton}" Icon="{StaticResource PdfUi.Undo}"
+                                                 Text="Hoàn tác" ToolTip="Hoàn tác (Ctrl+Z)" Click="ReaderUndo_Click"/>
+                                    <xt:XTButton Style="{StaticResource PdfRibbonSmallButton}" Icon="{StaticResource PdfUi.Redo}"
+                                                 Text="Làm lại" ToolTip="Làm lại (Ctrl+Y)" Click="ReaderRedo_Click"/>
                                     <xt:XTButton Style="{StaticResource PdfRibbonSmallButton}" Icon="{StaticResource PdfUi.OpenExternal}"
                                                  Text="Mở bằng app khác" ToolTip="Mở file bằng ứng dụng PDF mặc định"
                                                  Click="ReaderOpenExternal_Click"/>
@@ -231,14 +240,74 @@
                                                  Text="Trích xuất" ToolTip="Xuất trang đang xem (hoặc các trang đang chọn) ra file PDF mới"
                                                  Click="ReaderExtractPages_Click"/>
                                 </StackPanel>
+                                <xt:XTButton Style="{StaticResource PdfRibbonLargeButton}"
+                                             Icon="{StaticResource PdfUi.Merge}" Text="Ghép nhiều file…"
+                                             ToolTip="Mở cửa sổ ghép nhiều file (kéo-thả trang giữa các file, ghép/tách, lưu từng nhóm) — có sẵn các file đang mở"
+                                             Click="ReaderShowMergeWindow_Click"/>
                             </StackPanel>
                         </DockPanel>
                     </StackPanel>
                 </ScrollViewer>
             </Border>
 
+            <!-- Tab các file đang mở (như Foxit). Bấm tab = chuyển file, × = đóng file. -->
+            <ListBox x:Name="ReaderDocumentTabs" Grid.Row="1" BorderThickness="0,0,0,1" Padding="4,3,4,0"
+                     BorderBrush="{DynamicResource CadChromeBorder}" Background="{DynamicResource CadToolbarBackground}"
+                     ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                     SelectionChanged="ReaderDocumentTabs_SelectionChanged">
+                <ListBox.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal"/>
+                    </ItemsPanelTemplate>
+                </ListBox.ItemsPanel>
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Border x:Name="TabBorder" Margin="0,0,2,0" Padding="10,4,4,4" CornerRadius="3,3,0,0"
+                                            BorderThickness="1,1,1,0" BorderBrush="Transparent" Background="Transparent">
+                                        <ContentPresenter/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource CadChromeHoverBackground}"/>
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource CadPanelBackground}"/>
+                                            <Setter TargetName="TabBorder" Property="BorderBrush" Value="{DynamicResource CadChromeBorder}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal" MaxWidth="260" ToolTip="{Binding SourcePath}">
+                            <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" MaxWidth="220"
+                                       VerticalAlignment="Center" Foreground="{DynamicResource CadChromeText}"/>
+                            <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{StaticResource PdfUi.Close}"
+                                         Width="20" Height="20" MinWidth="20" IconSize="10" Margin="6,0,0,0"
+                                         ToolTip="Đóng file" Click="ReaderCloseDocument_Click"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="ReaderSidePanelColumn" Width="230" MinWidth="120" MaxWidth="480"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <ctl:ReaderSidePanel x:Name="ReaderSidePanel" Grid.Column="0"/>
+                <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                              ResizeBehavior="PreviousAndNext" Background="{DynamicResource CadChromeBorder}"/>
+
             <!-- Vùng xem trang + lớp tương tác (ReaderInteractionLayer) phủ trên cả 2 chế độ xem. -->
-            <Grid x:Name="ReaderContentHost" Grid.Row="1" ClipToBounds="True"
+            <Grid x:Name="ReaderContentHost" Grid.Column="2" ClipToBounds="True"
                   PreviewMouseLeftButtonDown="ReaderContentHost_PreviewMouseLeftButtonDown"
                   PreviewMouseMove="ReaderContentHost_PreviewMouseMove"
                   PreviewMouseLeftButtonUp="ReaderContentHost_PreviewMouseLeftButtonUp"
@@ -367,9 +436,10 @@
                              LostKeyboardFocus="ReaderAnnotationEditor_LostKeyboardFocus"/>
                 </Canvas>
             </Grid>
+            </Grid>
 
             <!-- Thanh trạng thái kiểu Foxit: tên trang · điều hướng trang (giữa) · zoom (phải) -->
-            <Grid Grid.Row="2" Background="{DynamicResource CadToolbarBackground}" Height="30"
+            <Grid Grid.Row="3" Background="{DynamicResource CadToolbarBackground}" Height="30"
                   TextElement.Foreground="{DynamicResource CadChromeText}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>

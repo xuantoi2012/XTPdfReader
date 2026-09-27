@@ -53,16 +53,12 @@ namespace XTPdfMergeApp
                 _qualityRestoreTimer.Stop();
                 ReaderBitmapScalingMode = BitmapScalingMode.HighQuality;
             };
-            Visibility = Visibility.Collapsed;
             _groups = groups;
             ReaderContentHost.LostMouseCapture += (_, _) => CancelHighlightDrag();
-            // Group đang xem bị xoá khỏi workspace (đóng cả window PDF, không phải chỉ xoá vài
-            // trang — trường hợp đó qua NotifyPagesChanged) → tự ẩn Viewer, không cần MainWindow
-            // forward việc này qua API riêng.
-            _groups.CollectionChanged += (_, _) =>
-            {
-                if (_readerGroup != null && !_groups.Contains(_readerGroup)) HideReader();
-            };
+            // File đang xem bị đóng khỏi workspace (đóng hẳn, không phải chỉ xoá vài trang — trường hợp
+            // đó qua NotifyPagesChanged) → chuyển sang file khác đang mở, hết file thì màn trống.
+            _groups.CollectionChanged += (_, _) => OnGroupsChanged();
+            InitializeShellParts();
         }
 
         internal void ShutdownReader()
@@ -92,6 +88,14 @@ namespace XTPdfMergeApp
         private void ReaderWindow_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             if (Keyboard.FocusedElement is TextBox or ComboBox) return;
+
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && (e.Key == Key.Z || e.Key == Key.Y))
+            {
+                if (e.Key == Key.Y || (Keyboard.Modifiers & ModifierKeys.Shift) != 0) EditHost?.Redo();
+                else EditHost?.Undo();
+                e.Handled = true;
+                return;
+            }
 
             switch (e.Key)
             {
@@ -159,8 +163,8 @@ namespace XTPdfMergeApp
         // Foxit/Chrome PDF dùng bước nhỏ hơn nhiều (~8-10%/nấc) để zoom mượt hơn.
         private const double ReaderZoomStep = 1.08;
         private static readonly object _readerCacheLock = new();
-        private static readonly BitmapMemoryCache<(string Path, int Page, int Width)> _readerCache = new(ReaderCacheBudgetBytes);
-        private static readonly Dictionary<(string Path, int Page, int Width), Task<BitmapSource?>> _readerLoads = new();
+        private static readonly BitmapMemoryCache<(string Path, int Page, int Width, string Layers)> _readerCache = new(ReaderCacheBudgetBytes);
+        private static readonly Dictionary<(string Path, int Page, int Width, string Layers), Task<BitmapSource?>> _readerLoads = new();
         private DocumentGroup? _readerGroup;
         private PageRow? _readerPage;
         private double _readerZoom = 1.0;
@@ -185,7 +189,11 @@ namespace XTPdfMergeApp
         private const int ReaderTileOverscan = 0;
 
         private const double ReaderTileStartWidthPx = 3200;
-        private readonly record struct ReaderTileKey(string Path, int Page, int FullWidth, int FullHeight, int X, int Y, int Width, int Height);
+        /// <summary>Layers = "phiên bản trạng thái layer" của file lúc yêu cầu tile (PdfLayerStateStore).</summary>
+        private readonly record struct ReaderTileKey(string Path, int Page, int FullWidth, int FullHeight, int X, int Y, int Width, int Height, string Layers);
+
+        private static bool IsCurrentLayerState(PageRow row, string layers)
+            => string.Equals(PdfLayerStateStore.GetToken(row.SourcePath), layers, StringComparison.Ordinal);
         private readonly record struct ReaderContinuousTileTarget(
             PageRow Row, Canvas ActiveCanvas, Canvas InactiveCanvas, int FullWidth, int FullHeight, double TileScale);
         // Chốt lại danh sách target của lượt UpdateReaderContinuousTilesAsync GẦN NHẤT — để
@@ -369,7 +377,8 @@ namespace XTPdfMergeApp
         private Task<BitmapSource?> GetReaderLoadTask((string Path, int Page) source, bool prefetch = false,
             CancellationToken cancellationToken = default)
         {
-            var key = (source.Path, source.Page, Width: DesiredReaderWidth());
+            // Key kèm "phiên bản trạng thái layer" của file — xem PdfLayerStateStore / MainWindow.ThumbnailKey.
+            var key = RenderCacheKeys.ReaderPage(source.Path, source.Page, DesiredReaderWidth());
             var token = cancellationToken.CanBeCanceled ? cancellationToken : _readerPageCts.Token;
             lock (_readerCacheLock)
             {
@@ -415,13 +424,13 @@ namespace XTPdfMergeApp
         }
 
         private static async Task<BitmapSource?> RenderAndCacheReaderAsync(
-            (string Path, int Page, int Width) key, CancellationToken token, bool prefetch, Task<BitmapSource?> owner)
+            (string Path, int Page, int Width, string Layers) key, CancellationToken token, bool prefetch, Task<BitmapSource?> owner)
         {
             BitmapSource? bmp = null;
             try
             {
                 bmp = await PdfThumbnailService.RenderPageAsync(key.Path, key.Page - 1, key.Width, token,
-                    prefetch ? PdfRenderPriority.Background : PdfRenderPriority.Visible).ConfigureAwait(false);
+                    prefetch ? PdfRenderPriority.Background : PdfRenderPriority.Visible, key.Layers).ConfigureAwait(false);
                 return token.IsCancellationRequested ? null : bmp;
             }
             finally
@@ -452,8 +461,7 @@ namespace XTPdfMergeApp
             _qualityRestoreTimer.Stop();
             _tilePresentation.Clear();
             ReaderBitmapScalingMode = BitmapScalingMode.HighQuality;
-            MergeAppSettingsStore.SetViewerVisible(false);
-            Visibility = Visibility.Collapsed;
+            // Cửa sổ đọc là cửa sổ chính: không ẩn control nữa, chỉ về màn trống.
             _readerPageCts.Cancel();
             _readerPageCts.Dispose();
             _readerPageCts = new();
@@ -465,8 +473,7 @@ namespace XTPdfMergeApp
             PdfThumbnailService.ReleaseCachedPages();
             ReaderImage.Source = null;
             ClearReaderTiles();
-            ReaderEmptyText.Text = "Chọn một trang để xem";
-            ReaderEmptyText.Visibility = Visibility.Visible;
+            ShowEmptyReaderState();
             ReaderContinuousList.ItemsSource = null;
             _readerRealtimeRenderCts?.Cancel();
             _readerGroup = null;
@@ -578,9 +585,11 @@ namespace XTPdfMergeApp
             }
 
             var key = (row.SourcePath, row.PageNumber);
+            string layers = PdfLayerStateStore.GetToken(row.SourcePath);
             var bmp = await GetReaderLoadTask(key);
             if (bmp == null && requestId == Volatile.Read(ref _readerRequestId)) bmp = await GetReaderLoadTask(key);
             if (requestId != Volatile.Read(ref _readerRequestId) || !ReferenceEquals(_readerPage, row)) return;
+            if (!IsCurrentLayerState(row, layers)) return; // user vừa bật/tắt layer — OnLayerStateChanged tự vẽ lại
 
             if (bmp == null)
             {
@@ -608,6 +617,7 @@ namespace XTPdfMergeApp
             ReaderTitleText.Text = $"{Path.GetFileName(row.SourcePath)} - trang nguồn {row.PageNumber}";
             ReaderPageBox.Text = position >= 0 ? (position + 1).ToString() : row.Index.ToString();
             ReaderPageTotalText.Text = $"/ {group.Pages.Count}";
+            OnReaderCurrentPageChanged(group, row);
         }
 
         private void QueueReaderAdjacentPrefetch(DocumentGroup group, PageRow row)
@@ -868,10 +878,12 @@ namespace XTPdfMergeApp
             if (!ReferenceEquals(_readerGroup, group) || !ReferenceEquals(_readerPage, row)) return;
 
             BitmapSource? bmp;
-            try { bmp = await Task.Run(() => PdfThumbnailService.RenderPageAsync(row.SourcePath, row.PageNumber - 1, widthPx, token), token).ConfigureAwait(true); }
+            string layers = PdfLayerStateStore.GetToken(row.SourcePath);
+            try { bmp = await Task.Run(() => PdfThumbnailService.RenderPageAsync(row.SourcePath, row.PageNumber - 1, widthPx, token,
+                layerToken: layers), token).ConfigureAwait(true); }
             catch (OperationCanceledException) { return; }
 
-            if (token.IsCancellationRequested || bmp == null) return;
+            if (token.IsCancellationRequested || bmp == null || !IsCurrentLayerState(row, layers)) return;
             if (!ReferenceEquals(_readerGroup, group) || !ReferenceEquals(_readerPage, row)) return;
 
             // Image dùng Stretch=Fill trên khung Width/Height cố định (ReaderRenderWidthPx) nên đổi
@@ -1024,7 +1036,8 @@ namespace XTPdfMergeApp
                     int w = Math.Min(ReaderTileSizePx, fullWidth - x);
                     int h = Math.Min(ReaderTileSizePx, fullHeight - y);
                     if (w <= 0 || h <= 0) continue;
-                    needed.Add(new ReaderTileKey(_readerPage.SourcePath, _readerPage.PageNumber, fullWidth, fullHeight, x, y, w, h));
+                    needed.Add(new ReaderTileKey(_readerPage.SourcePath, _readerPage.PageNumber, fullWidth, fullHeight, x, y, w, h,
+                        RenderCacheKeys.TileLayers(_readerPage.SourcePath)));
                 }
             }
 
@@ -1249,7 +1262,8 @@ namespace XTPdfMergeApp
                         int h = Math.Min(ReaderTileSizePx, target.FullHeight - y);
                         if (w <= 0 || h <= 0) continue;
 
-                        var key = new ReaderTileKey(target.Row.SourcePath, target.Row.PageNumber, target.FullWidth, target.FullHeight, x, y, w, h);
+                        var key = new ReaderTileKey(target.Row.SourcePath, target.Row.PageNumber, target.FullWidth, target.FullHeight, x, y, w, h,
+                            RenderCacheKeys.TileLayers(target.Row.SourcePath));
                         needed.Add(key);
                         visibleTiles.Add(key);
                     }
@@ -1397,7 +1411,7 @@ namespace XTPdfMergeApp
                     token.ThrowIfCancellationRequested();
                     var key = keys[i];
                     var bmp = await PdfThumbnailService.RenderPageTileAsync(key.Path, key.Page - 1,
-                        key.FullWidth, key.FullHeight, new Int32Rect(key.X, key.Y, key.Width, key.Height), token);
+                        key.FullWidth, key.FullHeight, new Int32Rect(key.X, key.Y, key.Width, key.Height), token, key.Layers);
                     if (token.IsCancellationRequested) break;
                     if (bmp != null)
                     {
@@ -1456,7 +1470,7 @@ namespace XTPdfMergeApp
             {
                 if (item.DataContext is not PageRow row) continue;
                 if (!string.Equals(row.SourcePath, key.Path, StringComparison.OrdinalIgnoreCase) ||
-                    row.PageNumber != key.Page)
+                    row.PageNumber != key.Page || !IsCurrentLayerState(row, key.Layers))
                 {
                     continue;
                 }
@@ -1697,6 +1711,7 @@ namespace XTPdfMergeApp
 
             var key = (row.SourcePath, row.PageNumber);
             var token = _readerPageCts.Token;
+            string layers = PdfLayerStateStore.GetToken(row.SourcePath);
             BitmapSource? bmp;
             try { bmp = await GetReaderLoadTask(key).ConfigureAwait(true); }
             finally { row.ReaderBitmapLoadQueued = false; }
@@ -1707,7 +1722,7 @@ namespace XTPdfMergeApp
                 return;
             }
 
-            if (!token.IsCancellationRequested && bmp != null && row.ReaderBitmap == null)
+            if (!token.IsCancellationRequested && bmp != null && row.ReaderBitmap == null && IsCurrentLayerState(row, layers))
             {
                 row.ReaderBitmap = bmp;
                 ScheduleReaderTileRefresh();
@@ -1857,6 +1872,9 @@ namespace XTPdfMergeApp
         private IReadOnlyList<PageRow> GetEditTargetPages()
         {
             if (_readerGroup == null || _readerPage == null) return Array.Empty<PageRow>();
+            // Ưu tiên vùng chọn ở panel thumbnail bên trái (cùng cửa sổ), rồi tới Organizer của cửa sổ ghép.
+            var panel = ReaderSidePanel.SelectedPages;
+            if (panel.Count > 1 && panel.Contains(_readerPage)) return panel;
             var selected = EditHost?.GetSelectedPages(_readerGroup) ?? Array.Empty<PageRow>();
             return selected.Contains(_readerPage) ? selected : new[] { _readerPage };
         }
@@ -1926,8 +1944,9 @@ namespace XTPdfMergeApp
         /// tải"), sau đó làm mới tile nét cao.</summary>
         private async Task RefreshReaderBitmapInPlaceAsync(PageRow row)
         {
+            string layers = PdfLayerStateStore.GetToken(row.SourcePath);
             var bmp = await GetReaderLoadTask((row.SourcePath, row.PageNumber));
-            if (bmp == null) return;
+            if (bmp == null || !IsCurrentLayerState(row, layers)) return;
             row.ReaderBitmap = bmp;
             if (!_readerContinuousMode && ReferenceEquals(_readerPage, row))
             {

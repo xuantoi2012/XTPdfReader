@@ -1,0 +1,112 @@
+<UserControl x:Class="XTPdfMergeApp.Controls.ReaderSidePanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
+             xmlns:svc="clr-namespace:XTPdfMergeApp.Services"
+             xmlns:local="clr-namespace:XTPdfMergeApp.Controls"
+             FontFamily="Segoe UI" FontSize="12">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/XTPdfMergeApp;component/Resources/ReaderResources.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Nút đổi tab dọc bên trái (kiểu dải icon Pages/Bookmarks/Layers của Foxit). -->
+            <Style x:Key="SideTabButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource PdfViewerIconButton}">
+                <Setter Property="Width" Value="32"/>
+                <Setter Property="Height" Value="32"/>
+                <Setter Property="Margin" Value="2,2,2,0"/>
+                <Setter Property="IconSize" Value="18"/>
+                <Style.Triggers>
+                    <Trigger Property="Tag" Value="Active">
+                        <Setter Property="Background" Value="{DynamicResource CadSelectionBackground}"/>
+                        <Setter Property="BorderBrush" Value="{DynamicResource CadSelectionBlue}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+
+            <HierarchicalDataTemplate DataType="{x:Type svc:PdfBookmarkNode}" ItemsSource="{Binding Children}">
+                <TextBlock Text="{Binding Title}" Padding="2,1" ToolTip="{Binding Title}"
+                           MouseLeftButtonUp="Bookmark_MouseLeftButtonUp"/>
+            </HierarchicalDataTemplate>
+
+            <HierarchicalDataTemplate DataType="{x:Type local:LayerItem}" ItemsSource="{Binding Children}">
+                <StackPanel Orientation="Horizontal" ToolTip="{Binding ToolTipText}" ToolTipService.ShowOnDisabled="True">
+                    <CheckBox IsChecked="{Binding IsVisible, Mode=OneWay}" IsEnabled="{Binding CanToggle}"
+                              Visibility="{Binding CheckBoxVisibility}" VerticalAlignment="Center" Margin="0,0,4,0"
+                              ToolTip="{Binding ToolTipText}" ToolTipService.ShowOnDisabled="True"
+                              Click="LayerCheckBox_Click"/>
+                    <TextBlock Text="{Binding Title}" VerticalAlignment="Center" FontWeight="{Binding TitleWeight}"/>
+                </StackPanel>
+            </HierarchicalDataTemplate>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid Background="{DynamicResource CadPanelBackground}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Background="{DynamicResource CadToolbarBackground}"
+                BorderBrush="{DynamicResource CadChromeBorder}" BorderThickness="0,0,1,0">
+            <StackPanel>
+                <xt:XTButton x:Name="ThumbnailTabButton" Style="{StaticResource SideTabButton}" Tag="Active"
+                             Icon="{StaticResource PdfUi.PagesPanel}" ToolTip="Trang (thumbnail)" Click="ThumbnailTab_Click"/>
+                <xt:XTButton x:Name="BookmarkTabButton" Style="{StaticResource SideTabButton}"
+                             Icon="{StaticResource PdfUi.BookmarkPanel}" ToolTip="Bookmark" Click="BookmarkTab_Click"/>
+                <xt:XTButton x:Name="LayerTabButton" Style="{StaticResource SideTabButton}"
+                             Icon="{StaticResource PdfUi.LayerPanel}" ToolTip="Layer" Click="LayerTab_Click"/>
+            </StackPanel>
+        </Border>
+
+        <DockPanel Grid.Column="1">
+            <Border DockPanel.Dock="Top" Padding="8,5" BorderBrush="{DynamicResource CadBorder}" BorderThickness="0,0,0,1">
+                <StackPanel>
+                    <TextBlock x:Name="PanelTitleText" Text="Trang" FontWeight="SemiBold" Foreground="{DynamicResource CadTextPrimary}"/>
+                    <TextBlock x:Name="PanelSourceText" Foreground="{DynamicResource CadTextSecondary}" FontSize="11"
+                               TextTrimming="CharacterEllipsis" Visibility="Collapsed"/>
+                </StackPanel>
+            </Border>
+
+            <Grid>
+                <!-- Thumbnail trang của file đang xem (thay dải thumbnail ngang cũ). Chọn nhiều trang bằng
+                     Ctrl/Shift để xoay/xuất/xoá cùng lúc từ ribbon. -->
+                <ListBox x:Name="ThumbnailList" BorderThickness="0" Background="Transparent"
+                         SelectionMode="Extended" HorizontalContentAlignment="Center"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                         VirtualizingPanel.ScrollUnit="Pixel"
+                         SelectionChanged="ThumbnailList_SelectionChanged">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <VirtualizingStackPanel Orientation="Vertical"/>
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,6,0,2">
+                                <Border Background="White" BorderBrush="#33000000" BorderThickness="1"
+                                        HorizontalAlignment="Center" MinWidth="60" MinHeight="60">
+                                    <Image Source="{Binding Thumbnail}" MaxWidth="132" MaxHeight="170" Stretch="Uniform"
+                                           Loaded="ThumbnailImage_Loaded" DataContextChanged="ThumbnailImage_DataContextChanged"/>
+                                </Border>
+                                <TextBlock Text="{Binding Index}" HorizontalAlignment="Center" Margin="0,3,0,0"
+                                           Foreground="{DynamicResource CadTextSecondary}"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <TreeView x:Name="BookmarkTree" BorderThickness="0" Background="Transparent" Visibility="Collapsed"
+                          VirtualizingPanel.IsVirtualizing="True"/>
+
+                <TreeView x:Name="LayerTree" BorderThickness="0" Background="Transparent" Visibility="Collapsed"
+                          VirtualizingPanel.IsVirtualizing="True"/>
+
+                <TextBlock x:Name="PanelEmptyText" Visibility="Collapsed" Margin="12" TextWrapping="Wrap"
+                           Foreground="{DynamicResource CadTextSecondary}"/>
+            </Grid>
+        </DockPanel>
+    </Grid>
+</UserControl>

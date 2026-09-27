@@ -124,14 +124,21 @@ namespace XTPdfMergeApp.Services
             /// file (Windows mới cho ghi đè file nguồn).</summary>
             public Task NativeClosed => _nativeClosed.Task;
 
-            public PdfDocumentLease(string sourcePath, IntPtr document, int pageCount)
+            public PdfDocumentLease(string sourcePath, IntPtr document, int pageCount,
+                string layerToken = "", IDisposable? nativeSource = null)
             {
+                LayerToken = layerToken;
+                _nativeSource = nativeSource;
                 SourcePath = sourcePath;
                 Document = document;
                 PageCount = pageCount;
             }
 
             public string SourcePath { get; }
+            /// <summary>Trạng thái layer mà document PDFium này được mở theo (xem PdfLayerStateStore).</summary>
+            public string LayerToken { get; }
+            /// <summary>Nguồn đọc của FPDF_LoadCustomDocument — chỉ được huỷ SAU FPDF_CloseDocument.</summary>
+            private readonly IDisposable? _nativeSource;
             public IntPtr Document { get; }
             public int PageCount { get; }
 
@@ -203,6 +210,7 @@ namespace XTPdfMergeApp.Services
                 }
                 finally
                 {
+                    _nativeSource?.Dispose();
                     _nativeClosed.TrySetResult();
                 }
             }
@@ -329,6 +337,13 @@ namespace XTPdfMergeApp.Services
             return suspension;
         }
 
+        /// <summary>Đóng lease hiện tại của file (vd vừa đổi trạng thái layer) — lần vẽ kế tiếp tự mở lại theo
+        /// trạng thái mới. Dùng lại đúng cơ chế SuspendDocumentAsync/RequestDispose.</summary>
+        public static async Task RetireDocumentAsync(string pdfPath)
+        {
+            using (await SuspendDocumentAsync(pdfPath, TimeSpan.FromSeconds(3)).ConfigureAwait(false)) { }
+        }
+
         private sealed class DocumentSuspension(string normalizedPath) : IDisposable
         {
             private int _disposed;
@@ -348,8 +363,10 @@ namespace XTPdfMergeApp.Services
         }
 
         /// <summary>pageIndex is zero-based.</summary>
+        /// <param name="layerToken">Trạng thái layer mà kết quả sẽ được cache theo (PdfLayerStateStore.GetToken);
+        /// lệch trạng thái hiện tại → trả null. null = không kiểm tra.</param>
         public static async Task<BitmapSource?> RenderPageAsync(string pdfPath, int pageIndex, double maxWidth = 96, CancellationToken cancellationToken = default,
-            PdfRenderPriority priority = PdfRenderPriority.Visible)
+            PdfRenderPriority priority = PdfRenderPriority.Visible, string? layerToken = null)
         {
             if (_shuttingDown) return null;
             Interlocked.Increment(ref _inFlightPublicCalls);
@@ -360,7 +377,7 @@ namespace XTPdfMergeApp.Services
                 // vậy, đừng để lọt xuống AcquireDocumentAsync/PDFium nữa.
                 if (_shuttingDown) return null;
 
-                using var usage = await AcquireDocumentAsync(pdfPath, cancellationToken).ConfigureAwait(false);
+                using var usage = await AcquireDocumentAsync(pdfPath, cancellationToken, layerToken).ConfigureAwait(false);
                 if (usage == null) return null;
 
                 var lease = usage.Lease;
@@ -427,10 +444,10 @@ namespace XTPdfMergeApp.Services
         /// <summary>Render một vùng tile của trang ở kích thước full-page đã zoom.</summary>
         public static async Task<BitmapSource?> RenderPageTileAsync(
             string pdfPath, int pageIndex, int fullWidth, int fullHeight, Int32Rect tileRect,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default, string? layerToken = null)
         {
             var results = await RenderPageTilesBatchAsync(pdfPath, pageIndex, fullWidth, fullHeight,
-                new[] { tileRect }, cancellationToken).ConfigureAwait(false);
+                new[] { tileRect }, cancellationToken, layerToken).ConfigureAwait(false);
             return results[0];
         }
 
@@ -446,15 +463,35 @@ namespace XTPdfMergeApp.Services
             return lazy.Value;
         }
 
-        private static async Task<PdfDocumentLease.DocumentUsage?> AcquireDocumentAsync(string pdfPath, CancellationToken cancellationToken = default)
+        /// <param name="expectedLayerToken">Trạng thái layer mà caller định dùng làm key cache kết quả. Khác
+        /// trạng thái hiện tại (user vừa bật/tắt layer) → trả null thay vì vẽ nhầm trạng thái rồi cache sai key.
+        /// null = không quan tâm layer (đếm trang, tỉ lệ trang).</param>
+        private static async Task<PdfDocumentLease.DocumentUsage?> AcquireDocumentAsync(string pdfPath,
+            CancellationToken cancellationToken = default, string? expectedLayerToken = null)
         {
             string normalized = NormalizePath(pdfPath);
-            while (true)
+            for (int attempt = 0; ; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (_suspendedDocuments.ContainsKey(normalized)) return null;
-                var lease = await GetDocumentLeaseAsync(normalized).WaitAsync(cancellationToken).ConfigureAwait(false);
+                var leaseTask = GetDocumentLeaseAsync(normalized);
+                var lease = await leaseTask.WaitAsync(cancellationToken).ConfigureAwait(false);
                 if (lease == null) return null;
+
+                string currentLayers = PdfLayerStateStore.GetToken(normalized);
+                if (!string.Equals(lease.LayerToken, currentLayers, StringComparison.Ordinal))
+                {
+                    // Lease mở theo trạng thái layer cũ (retire chưa kịp tới) — bỏ nó, mở lại theo trạng thái mới.
+                    if (_documentCache.TryGetValue(normalized, out var lazy) && lazy.IsValueCreated &&
+                        ReferenceEquals(lazy.Value, leaseTask))
+                        _documentCache.TryRemove(new KeyValuePair<string, Lazy<Task<PdfDocumentLease?>>>(normalized, lazy));
+                    lease.RequestDispose();
+                    if (attempt < 2) continue;
+                    return null;
+                }
+                if (expectedLayerToken != null && !string.Equals(expectedLayerToken, currentLayers, StringComparison.Ordinal))
+                    return null;
+
                 if (lease.TryAcquire(out var usage)) return usage;
 
                 // Closing the document invalidates this request. A subsequent explicit open
@@ -463,19 +500,44 @@ namespace XTPdfMergeApp.Services
             }
         }
 
+        /// <summary>Mở document PDFium cho 1 file. File đang có layer bị user bật/tắt khác mặc định
+        /// (PdfLayerStateStore) → mở bằng FPDF_LoadCustomDocument trên "file gốc + phần nối thêm đổi /D/ON,
+        /// /D/OFF" (LayeredDocumentSource) — PDFium tự vẽ đúng trạng thái layer, hàm vẽ không phải đổi gì.</summary>
         private static PdfDocumentLease? LoadDocumentLease(string pdfPath)
         {
             IntPtr document = IntPtr.Zero;
+            LayeredDocumentSource? layeredSource = null;
             try
             {
                 EnsurePdfiumInitialized();
 
+                var hiddenLayers = PdfLayerStateStore.GetHiddenOverride(pdfPath, out string layerToken);
+                if (hiddenLayers != null)
+                {
+                    // iText chạy NGOÀI gate PDFium (đọc /OCProperties có thể mất chút thời gian với file lớn).
+                    try
+                    {
+                        byte[] tail = PdfLayerService.BuildVisibilityTail(pdfPath, hiddenLayers, out long originalLength);
+                        layeredSource = new LayeredDocumentSource(pdfPath, originalLength, tail);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Không dựng được bản đổi layer (file mã hoá, > 4 GB trên Windows…) → mở bình thường,
+                        // vẫn gắn token để không bị coi là lease cũ và mở lại liên tục.
+                        Debug.WriteLine("[PdfLayer] Fallback to default layer state: " + ex.Message);
+                        layeredSource = null;
+                    }
+                }
+
                 using var native = EnterPdfiumGate();
                 long openStart = Stopwatch.GetTimestamp();
-                document = FPDF_LoadDocument(pdfPath, null);
+                document = layeredSource != null
+                    ? FPDF_LoadCustomDocument(layeredSource.FileAccessPointer, null)
+                    : FPDF_LoadDocument(pdfPath, null);
                 RenderDiagnostics.DocumentOpen.Record(openStart);
                 if (document == IntPtr.Zero)
                 {
+                    layeredSource?.Dispose();
                     _documentCache.TryRemove(pdfPath, out _);
                     return null;
                 }
@@ -485,11 +547,12 @@ namespace XTPdfMergeApp.Services
                 {
                     FPDF_CloseDocument(document);
                     document = IntPtr.Zero;
+                    layeredSource?.Dispose();
                     _documentCache.TryRemove(pdfPath, out _);
                     return null;
                 }
 
-                return new PdfDocumentLease(pdfPath, document, pageCount);
+                return new PdfDocumentLease(pdfPath, document, pageCount, layerToken, layeredSource);
             }
             catch
             {
@@ -498,6 +561,7 @@ namespace XTPdfMergeApp.Services
                     using var native = EnterPdfiumGate();
                     FPDF_CloseDocument(document);
                 }
+                layeredSource?.Dispose();
                 _documentCache.TryRemove(pdfPath, out _);
                 return null;
             }
@@ -510,7 +574,7 @@ namespace XTPdfMergeApp.Services
             int pageIndex,
             int fullWidth,
             int fullHeight,
-            IReadOnlyList<Int32Rect> tileRects, CancellationToken cancellationToken = default)
+            IReadOnlyList<Int32Rect> tileRects, CancellationToken cancellationToken = default, string? layerToken = null)
         {
             var results = new List<BitmapSource?>(tileRects.Count);
             for (int i = 0; i < tileRects.Count; i++) results.Add(null);
@@ -522,7 +586,7 @@ namespace XTPdfMergeApp.Services
                 if (_shuttingDown) return results;
                 if (fullWidth <= 0 || fullHeight <= 0) return results;
 
-                using var usage = await AcquireDocumentAsync(pdfPath, cancellationToken).ConfigureAwait(false);
+                using var usage = await AcquireDocumentAsync(pdfPath, cancellationToken, layerToken).ConfigureAwait(false);
                 if (usage == null) return results;
 
                 var lease = usage.Lease;
@@ -610,6 +674,11 @@ namespace XTPdfMergeApp.Services
 
         [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
         private static extern void FPDF_CloseDocument(IntPtr document);
+
+        /// <summary>FPDF_DOCUMENT FPDF_LoadCustomDocument(FPDF_FILEACCESS* pFileAccess, FPDF_BYTESTRING password)</summary>
+        [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr FPDF_LoadCustomDocument(IntPtr fileAccess,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string? password);
 
         [DllImport("pdfium", CallingConvention = CallingConvention.Cdecl)]
         private static extern int FPDF_GetPageCount(IntPtr document);

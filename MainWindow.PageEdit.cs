@@ -70,6 +70,102 @@ namespace XTPdfMergeApp
                 geometryChanged: false);
         }
 
+        // ── Layer (OCG): bật/tắt theo Cách 2 trong báo cáo điều tra ─────────
+
+        /// <summary>Đổi tập layer đang tắt của 1 file: lưu trạng thái (PdfLayerStateStore) → đóng lease PDFium
+        /// hiện tại của file (lần vẽ sau PdfThumbnailService.LoadDocumentLease tự mở lại bằng
+        /// FPDF_LoadCustomDocument theo trạng thái mới) → cho thumbnail và Viewer lấy ảnh theo key mới.
+        /// Không xoá cache: ảnh của các trạng thái đã từng vẽ vẫn còn, bật/tắt qua lại trúng cache ngay.</summary>
+        async Task IReaderPageEditHost.SetLayerHiddenAsync(string path, IReadOnlySet<string> hidden, IReadOnlySet<string> defaultHidden)
+        {
+            if (!PdfLayerStateStore.SetHidden(path, hidden, defaultHidden)) return;
+            await _sourceEditGate.WaitAsync();
+            try { await PdfThumbnailService.RetireDocumentAsync(path); }
+            finally { _sourceEditGate.Release(); }
+            RefreshRendersAfterLayerChange(path);
+        }
+
+        private void RefreshRendersAfterLayerChange(string path)
+        {
+            var rows = _groups.SelectMany(g => g.Pages)
+                .Where(p => string.Equals(p.SourcePath, path, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var hadThumbnail = new List<PageRow>();
+            foreach (var row in rows)
+            {
+                // Không để ảnh trạng thái cũ hiện lẫn: bỏ trước, nạp lại ngay theo key mới (trúng cache nếu
+                // trạng thái này đã từng vẽ).
+                if (row.Thumbnail != null) hadThumbnail.Add(row);
+                row.Thumbnail = null;
+                row.ThumbnailLoadQueued = false;
+            }
+
+            ReaderWindow.Instance?.OnLayerStateChanged(path);
+            foreach (var row in hadThumbnail) _ = LoadThumbnailFor(row);
+            _ = Dispatcher.InvokeAsync(QueueVisibleThumbnailScans, System.Windows.Threading.DispatcherPriority.ContextIdle);
+        }
+
+        // ── Lệnh cửa sổ đọc gọi sang (mở/đóng file, undo, cửa sổ ghép) ─────────
+
+        async Task IReaderPageEditHost.OpenFilesAsync()
+        {
+            using var dlg = new System.Windows.Forms.OpenFileDialog
+            {
+                Title = "Mở file PDF",
+                Filter = "PDF (*.pdf)|*.pdf",
+                Multiselect = true
+            };
+            if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+            await OpenFilesInReaderAsync(dlg.FileNames);
+        }
+
+        /// <summary>Mở file (hoặc chuyển sang file nếu đã mở) và hiện ngay trong cửa sổ đọc.</summary>
+        internal async Task OpenFilesInReaderAsync(IEnumerable<string> paths)
+        {
+            DocumentGroup? last = null;
+            foreach (string path in paths)
+            {
+                string full;
+                try { full = Path.GetFullPath(path); }
+                catch { continue; }
+                last = _groups.FirstOrDefault(g => string.Equals(g.SourcePath, full, StringComparison.OrdinalIgnoreCase))
+                       ?? await AddFileAsGroup(full) ?? last;
+            }
+            if (last != null && last.Pages.Count > 0)
+                await EnsureReaderWindow().ShowPageAsync(last, last.Pages[0], preserveZoomMode: true);
+        }
+
+        void IReaderPageEditHost.CloseDocument(DocumentGroup group)
+        {
+            if (!_groups.Contains(group)) return;
+            _workspace.Execute(new RemoveDocumentCommand(_workspace, group));
+            ReaderWindow.Instance?.NotifyGroupRemoved(group);
+            ReleaseUnusedPdfDocuments();
+            UpdateStatusBar();
+        }
+
+        void IReaderPageEditHost.Undo()
+        {
+            if (!_workspace.History.CanUndo) return;
+            _workspace.History.Undo();
+            RefreshWorkspaceAfterHistoryChange();
+        }
+
+        void IReaderPageEditHost.Redo()
+        {
+            if (!_workspace.History.CanRedo) return;
+            _workspace.History.Redo();
+            RefreshWorkspaceAfterHistoryChange();
+        }
+
+        void IReaderPageEditHost.ShowMergeWindow()
+        {
+            if (!IsVisible) Show();
+            if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+            Activate();
+            _ = Dispatcher.InvokeAsync(QueueVisibleThumbnailScans, System.Windows.Threading.DispatcherPriority.ContextIdle);
+        }
+
         // ── Xoá trang khỏi window (workspace, có Undo; Lưu mới ghi ra file) ──
 
         void IReaderPageEditHost.DeletePages(DocumentGroup group, IReadOnlyList<PageRow> pages)
@@ -256,6 +352,13 @@ namespace XTPdfMergeApp
         Task InsertPagesFromFileAsync(DocumentGroup target, int insertIndex);
         Task ExtractPagesAsync(DocumentGroup group, IReadOnlyList<PageRow> pages);
         void DeletePages(DocumentGroup group, IReadOnlyList<PageRow> pages);
+        /// <summary>Đặt tập layer đang tắt của file và vẽ lại thumbnail/Viewer theo trạng thái đó.</summary>
+        Task SetLayerHiddenAsync(string path, IReadOnlySet<string> hidden, IReadOnlySet<string> defaultHidden);
+        Task OpenFilesAsync();
+        void CloseDocument(DocumentGroup group);
+        void Undo();
+        void Redo();
+        void ShowMergeWindow();
         /// <summary>Ghi các thay đổi annotation vào file nguồn và đưa vào Undo/Redo.</summary>
         Task ApplyAnnotationChangesAsync(string path, IReadOnlyList<QuickAnnotationChange> changes, string description);
     }

@@ -1,0 +1,15 @@
+<xt:XTCadWindow x:Class="XTPdfMergeApp.ReaderShellWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
+        Title="XT PDF Reader" Width="1280" Height="820"
+        MinWidth="760" MinHeight="520" TitleBarMode="Full"
+        WindowStartupLocation="CenterScreen"
+        TitleIcon="{DynamicResource Mat.FilePdfBox}" TitleIconBrush="{DynamicResource DangerBrush}"
+        FontFamily="Segoe UI" FontSize="13"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        AllowDrop="True" DragOver="Shell_DragOver" Drop="Shell_Drop">
+    <!-- Cửa sổ CHÍNH của app: ribbon + tab file + panel trái + vùng đọc (toàn bộ nằm trong ReaderWindow).
+         Cửa sổ ghép nhiều file (MainWindow) mở riêng bằng nút "Ghép nhiều file…" trên ribbon. -->
+    <ContentControl x:Name="ReaderHost" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+</xt:XTCadWindow>

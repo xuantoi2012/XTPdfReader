@@ -28,7 +28,10 @@ namespace XTPdfMergeApp
         private const string SingleInstanceMutexName = "XTPdfMergeApp_SingleInstance";
         private const string PipeName = "XTPdfMergeApp_IncomingPdfPipe";
 
+        /// <summary>Cửa sổ ghép nhiều file — chủ workspace, chạy ẩn tới khi user mở từ ribbon.</summary>
         private MainWindow? _mainWindow;
+        /// <summary>Cửa sổ đọc — cửa sổ chính của app.</summary>
+        private ReaderShellWindow? _readerShell;
         private Mutex? _singleInstanceMutex;
 
         protected override void OnStartup(StartupEventArgs e)
@@ -63,9 +66,10 @@ namespace XTPdfMergeApp
             StartIncomingPdfPipeServer();
 
             _mainWindow = new MainWindow();
-            MainWindow = _mainWindow;
-            _mainWindow.Show();
-            if (incomingPaths.Length > 0) _mainWindow.AddIncomingFiles(incomingPaths);
+            _readerShell = new ReaderShellWindow(_mainWindow);
+            MainWindow = _readerShell;
+            _readerShell.Show();
+            if (incomingPaths.Length > 0) _ = _mainWindow.OpenFilesInReaderAsync(incomingPaths);
         }
 
         private static void LogUnhandledException(string kind, Exception? ex)
@@ -127,8 +131,8 @@ namespace XTPdfMergeApp
                         if (paths.Count > 0)
                             Dispatcher.Invoke(() =>
                             {
-                                _mainWindow?.AddIncomingFiles(paths);
-                                _mainWindow?.Activate(); // đưa lên trước cho user thấy, KHÔNG đổi WindowState/kích thước hiện có
+                                if (_mainWindow != null) _ = _mainWindow.OpenFilesInReaderAsync(paths);
+                                _readerShell?.Activate(); // đưa lên trước cho user thấy, KHÔNG đổi WindowState/kích thước hiện có
                             });
                     }
                     catch { await Task.Delay(500); }
