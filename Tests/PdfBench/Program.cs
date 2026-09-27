@@ -37,6 +37,8 @@ static class Bench
         }
         if (args.Length >= 2 && args[0] == "bench") return Run(args[1], args.Skip(2).ToArray());
         if (args.Length >= 2 && args[0] == "readtest") { WindowBench.ReadTest(args[1]); return 0; }
+        if (args.Length >= 2 && args[0] == "scroll") { ScrollBench.Run(args[1], args.Skip(2).ToArray()); return 0; }
+        if (args.Length >= 2 && args[0] == "scroll-worker") return ScrollBench.Worker(args.Skip(1).ToArray());
         if (args.Length >= 2 && args[0] == "window") { WindowBench.Window(args[1], args.Skip(2).ToArray()); return 0; }
         Console.WriteLine("dotnet run -c Release -- bench <file.pdf> [--screen 1920x1080] [--dpi 1.0]");
         Console.WriteLine("dotnet run -c Release -- make <out.pdf> [pages=200] [segmentsPerPage=60000]");

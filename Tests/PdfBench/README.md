@@ -43,6 +43,25 @@ dotnet run -c Release -- window "P:\...\file.pdf" --block 256 --bgkb 256
 dotnet run -c Release -- window file.pdf --netsim 6 21 --block 256 --bgkb 256 --pages 20
 ```
 
+## Đo cuộn liên tục: 1 tiến trình so với N tiến trình
+
+```powershell
+dotnet run -c Release -- scroll "P:\...\file.pdf"                  # 3 trang/màn, 5 màn
+dotnet run -c Release -- scroll "P:\...\file.pdf" --visible 2      # 2 trang/màn
+# --width PX: độ rộng ảnh nét (mặc định: N trang vừa khung nhìn cao --viewport 880 px, lượng tử 256 px)
+# --ram-only / --net-only; --netsim ms MBps (giả lập, chỉ để thử khi không có ổ mạng)
+```
+
+Mỗi màn có N trang mới. Mỗi trang được parse, vẽ ảnh xem trước 340 px, rồi vẽ ảnh nét. Công cụ so 2
+cách:
+- **1 tiến trình:** như app hiện tại.
+- **N tiến trình worker thật:** mỗi worker có PDFium riêng và được khởi động sẵn. Worker nhận lệnh qua
+  pipe và trả bitmap qua memory-mapped file.
+
+Thời gian mỗi trang được tách thành chờ đọc file, parse CPU và vẽ CPU. Có 2 chế độ:
+- **RAM:** như sau khi đọc nền xong, chỉ còn CPU.
+- **net:** bộ đệm chưa có gì, mỗi worker tự đọc file riêng.
+
 ## Tạo file tổng hợp khi không có file thật
 
 ```powershell

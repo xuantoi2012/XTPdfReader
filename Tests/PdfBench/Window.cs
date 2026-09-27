@@ -186,10 +186,10 @@ static unsafe class WindowBench
                           (bgDone ? " (xong cả file)" : $" (chưa xong khi đo xong, {clock.Elapsed.TotalSeconds:F1} s)"));
     }
 
-    sealed class Counter { public long Reads, Bytes; }
+    internal sealed class Counter { public long Reads, Bytes, Ticks; public double Ms => Interlocked.Read(ref Ticks) * 1000.0 / Stopwatch.Frequency; }
 
     /// <summary>Giả lập 1 đường truyền dùng chung: mỗi lần nhảy vị trí tốn latency ms, băng thông mbps chung.</summary>
-    sealed class SimLink(double latency, double mbps)
+    internal sealed class SimLink(double latency, double mbps)
     {
         readonly object _link = new();
         long _lastEnd = -1;
@@ -204,7 +204,7 @@ static unsafe class WindowBench
     }
 
     /// <summary>Nguồn đọc cho PdfBlockCache của app: không qua cache Windows, có giả lập mạng.</summary>
-    sealed class RawBlockFile : IBlockFile
+    internal sealed class RawBlockFile : IBlockFile
     {
         readonly SafeFileHandle _h; readonly long _len; readonly SimLink _link; readonly Counter _counter;
         readonly byte* _scratch; const int ScratchSize = 1024 * 1024;
@@ -219,9 +219,11 @@ static unsafe class WindowBench
         {
             int n = (int)Math.Min(destination.Length, _len - offset);
             if (n <= 0) return 0;
+            long t0 = Stopwatch.GetTimestamp();
             Interlocked.Increment(ref _counter.Reads); Interlocked.Add(ref _counter.Bytes, n);
             _link.Charge(offset, n);
             fixed (byte* dst = destination) lock (this) ReadAligned(_h, _len, offset, n, dst, _scratch, ScratchSize);
+            Interlocked.Add(ref _counter.Ticks, Stopwatch.GetTimestamp() - t0);
             return n;
         }
 
