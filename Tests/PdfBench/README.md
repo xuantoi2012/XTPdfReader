@@ -29,11 +29,25 @@ Các tuỳ chọn thêm:
 - Mục **"0. Kiểu đọc I/O"** đếm số lần đọc, số lần nhảy vị trí và số KB PDFium đọc khi mở file và
   parse 20 trang đầu. Qua SMB, mỗi lần nhảy vị trí là 1 vòng hỏi-đáp.
 
+## Đo khoảng thời gian đọc nền (#0)
+
+```powershell
+# Tốc độ đọc tuần tự của ổ: khối 1/4/16 MB × 1/2/4 luồng song song (Windows: bỏ qua cache hệ điều hành)
+dotnet run -c Release -- readtest "P:\...\file.pdf"
+# Độ trễ mỗi trang mới trong lúc đang đọc nền:
+#   A = kiểu cũ (không đọc nền), B = app hiện tại (đọc nền tranh băng thông),
+#   C = đề xuất: cache khối --block KB, lệnh đọc của trang được ưu tiên hơn đọc nền (--bgkb KB mỗi lần)
+dotnet run -c Release -- window "P:\...\file.pdf" --block 256 --bgkb 256
+dotnet run -c Release -- window file.pdf --netsim 6 21 --block 256 --bgkb 256 --pages 20
+```
+
 ## Tạo file tổng hợp khi không có file thật
 
 ```powershell
 dotnet run -c Release -- make synthetic.pdf 220 60000        # ~159 MB, 220 trang A1, có ảnh raster
 dotnet run -c Release -- make synthetic.pdf 220 60000 noimage
+# Mỗi trang 16 block ghi xen kẽ khắp file → ~50 lần đọc nhỏ/trang, giống kiểu đọc đo trên file thật:
+dotnet run -c Release -- make scatter.pdf 280 60000 scatter
 ```
 
 File tổng hợp gồm 8 layer (OCG) và khoảng 60.000 đoạn thẳng mỗi trang. Khung tên và ký hiệu là block

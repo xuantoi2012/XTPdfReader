@@ -107,6 +107,58 @@ static class Synthetic
         Console.WriteLine($"Đã tạo {path}: {pages} trang, {new FileInfo(path).Length / 1048576.0:F1} MB, {sw.Elapsed.TotalSeconds:F0} s");
     }
 
+    /// <summary>Biến thể mô phỏng KIỂU ĐỌC của file thật (PdfBench mục 0 trên ổ P: đo được ~51 lần đọc/trang, khối
+    /// ~14 KB, nhảy vị trí nhiều): mỗi trang vẽ bằng <paramref name="formsPerPage"/> Form XObject nhỏ riêng, và các
+    /// form được ghi XEN KẼ giữa các trang (form k của mọi trang, rồi form k+1…) nên nằm rải rác khắp file.</summary>
+    public static void MakeScattered(string path, int pages, int segmentsPerPage, int formsPerPage = 16)
+    {
+        var sw = Stopwatch.StartNew();
+        var rnd = new Random(4242);
+        var inv = CultureInfo.InvariantCulture;
+        using var doc = new PdfDocument(new PdfWriter(path));
+        const float W = 2384, H = 1684;
+        var layers = new PdfLayer[6];
+        for (int i = 0; i < layers.Length; i++) layers[i] = new PdfLayer("L" + i, doc);
+        var forms = new PdfFormXObject[pages, formsPerPage];
+        int segs = Math.Max(1, segmentsPerPage / formsPerPage);
+        for (int k = 0; k < formsPerPage; k++)
+            for (int p = 0; p < pages; p++)
+            {
+                var f = new PdfFormXObject(new Rectangle(0, 0, W, H));
+                var sb = new StringBuilder("0.25 w 0 0 0 RG\n");
+                double cx0 = 100 + rnd.NextDouble() * (W - 400), cy0 = 100 + rnd.NextDouble() * (H - 400);
+                for (int i = 0; i < segs; i++)
+                {
+                    double x = cx0 + rnd.NextDouble() * 300, y = cy0 + rnd.NextDouble() * 300;
+                    sb.Append(inv, $"{x:F2} {y:F2} m {x + (rnd.NextDouble() - 0.5) * 20:F2} {y + (rnd.NextDouble() - 0.5) * 20:F2} l\n");
+                    if (i % 64 == 63) sb.Append("S\n");
+                }
+                sb.Append("S\n");
+                f.GetPdfObject().SetData(Encoding.ASCII.GetBytes(sb.ToString()));
+                f.GetPdfObject().SetCompressionLevel(CompressionConstants.DEFAULT_COMPRESSION);
+                f.MakeIndirect(doc);
+                f.Flush();
+                forms[p, k] = f;
+            }
+        for (int p = 0; p < pages; p++)
+        {
+            var page = doc.AddNewPage(new PageSize(W, H));
+            var res = page.GetResources();
+            var sb = new StringBuilder();
+            for (int k = 0; k < formsPerPage; k++)
+            {
+                var layer = res.AddProperties(layers[k % layers.Length].GetPdfObject());
+                var name = res.AddForm(forms[p, k]);
+                sb.Append("/OC /").Append(layer.GetValue()).Append(" BDC /").Append(name.GetValue()).Append(" Do EMC\n");
+            }
+            var content = new PdfStream(Encoding.ASCII.GetBytes(sb.ToString()));
+            page.GetPdfObject().Put(PdfName.Contents, content.MakeIndirect(doc));
+            page.Flush();
+        }
+        doc.Close();
+        Console.WriteLine($"Đã tạo {path}: {pages} trang × {formsPerPage} form rải rác, {new FileInfo(path).Length / 1048576.0:F1} MB, {sw.Elapsed.TotalSeconds:F0} s");
+    }
+
     static string Lines(Random rnd, int count, double w, double h, IFormatProvider inv)
     {
         var sb = new StringBuilder("0.3 w 0 G\n");

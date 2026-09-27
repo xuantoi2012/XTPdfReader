@@ -30,11 +30,14 @@ static class Bench
         {
             int pages = args.Length > 2 ? int.Parse(args[2]) : 200;
             int segments = args.Length > 3 ? int.Parse(args[3]) : 60000;
+            if (args.Length > 4 && args[4] == "scatter") { Synthetic.MakeScattered(args[1], pages, segments); return 0; }
             bool image = args.Length <= 4 || args[4] != "noimage";
             Synthetic.Make(args[1], pages, segments, image);
             return 0;
         }
         if (args.Length >= 2 && args[0] == "bench") return Run(args[1], args.Skip(2).ToArray());
+        if (args.Length >= 2 && args[0] == "readtest") { WindowBench.ReadTest(args[1]); return 0; }
+        if (args.Length >= 2 && args[0] == "window") { WindowBench.Window(args[1], args.Skip(2).ToArray()); return 0; }
         Console.WriteLine("dotnet run -c Release -- bench <file.pdf> [--screen 1920x1080] [--dpi 1.0]");
         Console.WriteLine("dotnet run -c Release -- make <out.pdf> [pages=200] [segmentsPerPage=60000]");
         return 1;
