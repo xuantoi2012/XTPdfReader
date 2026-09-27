@@ -585,6 +585,8 @@ namespace XTPdfMergeApp
                 ReaderEmptyText.Text = "Đang tải trang...";
                 ReaderEmptyText.Visibility = Visibility.Visible;
                 ReaderImage.Source = null;
+                // #1: xin ảnh thấp (340 px, ưu tiên Visible) TRƯỚC ảnh nét — hiện ngay khi có, ảnh nét thay sau.
+                _ = ShowLowResPreviewAsync(row, requestId);
             }
 
             var key = (row.SourcePath, row.PageNumber);
@@ -612,6 +614,20 @@ namespace XTPdfMergeApp
             ReaderEmptyText.Visibility = Visibility.Collapsed;
             ApplyReaderZoomMode(resetScroll: true);
             QueueReaderAdjacentPrefetch(group, row);
+        }
+
+        /// <summary>Tối ưu #1: hiện ảnh thấp trong lúc ảnh nét của trang đang vẽ. Bỏ qua nếu ảnh nét đã tới trước
+        /// hoặc user đã chuyển trang.</summary>
+        private async Task ShowLowResPreviewAsync(PageRow row, long requestId)
+        {
+            var preview = await ThumbnailCache.LoadPreviewAsync(row);
+            if (preview == null || requestId != Volatile.Read(ref _readerRequestId) || !ReferenceEquals(_readerPage, row)) return;
+            if (ReaderImage.Source != null) return; // ảnh nét đã hiện
+            ReaderImage.Source = preview;
+            _readerBitmapNativeWidthPx = preview.PixelWidth;
+            _readerPageAspect = preview.PixelWidth > 0 ? preview.PixelHeight / (double)preview.PixelWidth : 1.0;
+            ReaderEmptyText.Visibility = Visibility.Collapsed;
+            ApplyReaderZoomMode(resetScroll: true);
         }
 
         private void UpdateReaderChrome(DocumentGroup group, PageRow row)
@@ -1157,6 +1173,8 @@ namespace XTPdfMergeApp
                 if (pageBitmap == null && requestedFullWidth <= 2304)
                 {
                     itemsNoBitmap++;
+                    // #1: chưa có ảnh nào → ảnh thấp trước (ưu tiên Visible, hiện qua ReaderDisplayBitmap), rồi ảnh nét.
+                    if (row.Thumbnail == null) _ = ThumbnailCache.LoadPreviewAsync(row);
                     // Render only the destination page at its screen resolution.
                     _ = LoadReaderBitmapFor(row);
                     ClearTileCanvas(canvasA);

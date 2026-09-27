@@ -141,14 +141,21 @@ static class Bench
             Row($"{w} px", t);
         }
 
-        // 2d. Zoom 200%: vẽ vùng xem thành 1 ảnh vs chia tile 640px
-        Section("2d. Zoom 200%: cả vùng xem 1 lần vs tile 640px");
+        // 2d. Zoom sâu: cả vùng xem 1 lần vs tile 640 / 960 / 1280 px (cùng vùng xem)
+        Section("2d. Zoom sâu — cỡ tile: tile đầu tiên / tổng để phủ đủ vùng xem");
+        foreach (double zoom in new[] { 2.0, 4.0 })
         {
-            int fullW = (int)(ReaderBaseWidth * 2 * dpi), fullH = (int)(fullW * pageAspect);
-            var tiles = VisibleTiles(fullW, fullH, viewW, viewH);
-            int x0 = tiles.Min(t => t.X), y0 = tiles.Min(t => t.Y), x1 = tiles.Max(t => t.X + t.W), y1 = tiles.Max(t => t.Y + t.H);
-            Row($"1 vùng {x1 - x0}x{y1 - y0}px", RenderRegion(first.Page, fullW, fullH, (x0, y0, x1 - x0, y1 - y0)).Total);
-            Row($"{tiles.Count} tile 640px (cùng vùng)", tiles.Sum(t => RenderRegion(first.Page, fullW, fullH, t).Total));
+            int fullW = (int)(ReaderBaseWidth * zoom * dpi), fullH = (int)(fullW * pageAspect);
+            int x0 = Math.Max(0, (fullW - viewW) / 2), y0 = Math.Max(0, (fullH - viewH) / 2);
+            var one = RenderRegion(first.Page, fullW, fullH, (x0, y0, Math.Min(viewW, fullW), Math.Min(viewH, fullH))).Total;
+            Console.Write($"   {zoom * 100,4:F0}%  1 vùng {viewW}x{viewH}: {one,5:F0} ms");
+            foreach (int size in new[] { 640, 960, 1280 })
+            {
+                var tiles = VisibleTiles(fullW, fullH, viewW, viewH, size);
+                var t = tiles.Select(r => RenderRegion(first.Page, fullW, fullH, r).Total).ToList();
+                Console.Write($" | tile {size}: {tiles.Count} tile, đầu {t[0],3:F0} / tổng {t.Sum(),4:F0} ms");
+            }
+            Console.WriteLine();
         }
 
         // 3. CUỘN LIÊN TỤC: trang kế tiếp chưa parse (lạnh) vs đã parse (page cache của app chỉ giữ 4 trang rảnh)
@@ -169,6 +176,35 @@ static class Bench
         var thumbs = handles.Skip(1).Select(h => RenderRegion(h, ThumbWidth, (int)(ThumbWidth * pageAspect), (0, 0, ThumbWidth, (int)(ThumbWidth * pageAspect))).Total).ToList();
         Stat($"Thumbnail {ThumbWidth}px trang đã parse", thumbs);
         foreach (var h in handles) Native.FPDF_ClosePage(h);
+
+        // 5. Mô phỏng chiến lược của app TRƯỚC → SAU từng bước tối ưu (trang lạnh chưa parse, sau vùng đã đo ở mục 3)
+        Section("5. Chiến lược app trước → sau tối ưu (đo trên các trang CHƯA parse)");
+        {
+            int from = Math.Min(pageCount - 1, scrollPages), to = Math.Min(pageCount, from + 10);
+            var parse = new List<double>(); var prev = new List<double>(); var full = new List<double>(); var reuse = new List<double>(); var maxThumbSlice = 0.0;
+            for (int p = from; p < to; p++)
+            {
+                var sw5 = Stopwatch.StartNew();
+                IntPtr pg = Native.FPDF_LoadPage(doc, p);
+                parse.Add(Ms(sw5));
+                int th = (int)(ThumbWidth * pageAspect), fh = (int)(readerWidth * pageAspect);
+                var pr = RenderRegion(pg, ThumbWidth, th, (0, 0, ThumbWidth, th)); prev.Add(pr.Total); maxThumbSlice = Math.Max(maxThumbSlice, pr.MaxSlice);
+                full.Add(RenderRegion(pg, readerWidth, fh, (0, 0, readerWidth, fh)).Total);
+                reuse.Add(RenderRegion(pg, readerWidth, fh, (0, 0, readerWidth, fh)).Total);
+                Native.FPDF_ClosePage(pg);
+            }
+            if (parse.Count > 0)
+            {
+                double P = parse.Average(), T = prev.Average(), F = full.Average(), R = reuse.Average();
+                Console.WriteLine($"   (TB {parse.Count} trang: parse {P:F0} · ảnh thấp {ThumbWidth}px {T:F0} · ảnh nét {readerWidth}px {F:F0} · vẽ lại khi còn page handle {R:F0} ms)");
+                Console.WriteLine($"   #1 Ảnh thấp trước:  trang hiện sau  {P + F,5:F0} → {P + T,5:F0} ms   (ảnh nét xong sau {P + T + F:F0} ms)");
+                Console.WriteLine($"   #2 Tải trước khi cuộn: trang kế tiếp đã sẵn khi lọt vào màn hình nếu khoảng cách giữa 2 trang ≥ {P + F:F0} ms");
+                Console.WriteLine($"                        (≈ cuộn đều tối đa {1000 / (P + F):F1} trang/giây không thấy trang trắng; trước đây luôn chờ {P + F:F0} ms/trang)");
+                Console.WriteLine($"   #3 Giữ page handle theo vùng xem: vẽ lại trang vừa rời khỏi cache {P + F,5:F0} → {R,5:F0} ms (bỏ parse lại)");
+                Console.WriteLine($"   #4 Zoom sâu: xem mục 2d (1 vùng so với tile 640 px)");
+                Console.WriteLine($"   #5 Tạm dừng thumbnail khi zoom/pan: bớt chờ gate tối đa 1 lát thumbnail = {maxThumbSlice:F0} ms (+ parse {parse.Max():F0} ms nếu đang parse)");
+            }
+        }
 
         // 4. Đoán tốc độ cuộn: 1 màn hình fit-width chứa bao nhiêu trang, cần bao lâu
         Section("4. Suy ra");
@@ -256,15 +292,15 @@ static class Bench
 
     static int Quantize(double width) => (int)Math.Clamp(Math.Ceiling(width / 256) * 256, 512, 2304);
 
-    static List<(int X, int Y, int W, int H)> VisibleTiles(int fullW, int fullH, int viewW, int viewH)
+    static List<(int X, int Y, int W, int H)> VisibleTiles(int fullW, int fullH, int viewW, int viewH, int tileSize = TileSize)
     {
         // Vùng xem đặt ở tâm trang; tile xếp từ tâm ra như ReaderWindow.
         int x0 = Math.Max(0, (fullW - viewW) / 2), y0 = Math.Max(0, (fullH - viewH) / 2);
         int x1 = Math.Min(fullW, x0 + viewW), y1 = Math.Min(fullH, y0 + viewH);
         var tiles = new List<(int, int, int, int)>();
-        for (int y = y0 / TileSize * TileSize; y < y1; y += TileSize)
-            for (int x = x0 / TileSize * TileSize; x < x1; x += TileSize)
-                tiles.Add((x, y, Math.Min(TileSize, fullW - x), Math.Min(TileSize, fullH - y)));
+        for (int y = y0 / tileSize * tileSize; y < y1; y += tileSize)
+            for (int x = x0 / tileSize * tileSize; x < x1; x += tileSize)
+                tiles.Add((x, y, Math.Min(tileSize, fullW - x), Math.Min(tileSize, fullH - y)));
         double cx = (x0 + x1) / 2.0, cy = (y0 + y1) / 2.0;
         return tiles.OrderBy(t => Math.Pow(t.Item1 + t.Item3 / 2.0 - cx, 2) + Math.Pow(t.Item2 + t.Item4 / 2.0 - cy, 2)).ToList();
     }

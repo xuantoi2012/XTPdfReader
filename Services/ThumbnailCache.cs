@@ -74,6 +74,34 @@ namespace XTPdfMergeApp.Services
             await SetRowThumbnailAsync(row, bmp, key.Layers);
         }
 
+        /// <summary>
+        /// Tối ưu #1 "ảnh thấp trước, ảnh nét sau": ảnh 340 px của trang, vẽ ở mức ưu tiên Visible (không xếp
+        /// sau hàng đợi thumbnail nền) — Viewer hiện tạm ngay (~parse + 65 ms trên bản vẽ CAD dày) trong lúc ảnh
+        /// nét (~190 ms) đang vẽ. Dùng chung cache thumbnail nên panel trang cũng được lợi.
+        /// </summary>
+        internal static async Task<BitmapSource?> LoadPreviewAsync(PageRow row)
+        {
+            var key = ThumbnailKey(row);
+            BitmapSource? bmp;
+            if (TryGetCachedThumbnail(key, out var cached) && cached != null) bmp = cached;
+            else
+            {
+                Task<BitmapSource?> task;
+                lock (_thumbnailLock)
+                {
+                    if (!_thumbnailLoads.TryGetValue(key, out task!))
+                    {
+                        task = RenderAndCacheThumbnailAsync(key, PdfRenderPriority.Visible, throttle: false);
+                        _thumbnailLoads[key] = task;
+                    }
+                }
+                try { bmp = await task.ConfigureAwait(true); }
+                catch { return null; }
+            }
+            if (bmp != null) await SetRowThumbnailAsync(row, bmp, key.Layers);
+            return bmp;
+        }
+
         internal static bool TryReserveThumbnailLoad(PageRow row)
         {
             if (row.Thumbnail != null || row.ThumbnailLoadQueued) return false;
@@ -242,22 +270,24 @@ namespace XTPdfMergeApp.Services
             }
         }
 
-        internal static async Task<BitmapSource?> RenderAndCacheThumbnailAsync((string Path, int Page, string Layers) key)
+        internal static async Task<BitmapSource?> RenderAndCacheThumbnailAsync((string Path, int Page, string Layers) key,
+            PdfRenderPriority priority = PdfRenderPriority.Thumbnail, bool throttle = true)
         {
             long generation = Interlocked.Read(ref _thumbnailGeneration);
             BitmapSource? bmp = null;
-            await _thumbnailRenderGate.WaitAsync().ConfigureAwait(false);
+            // Ảnh tạm cho Viewer (throttle=false) không xếp hàng sau giới hạn 4 thumbnail đồng thời.
+            if (throttle) await _thumbnailRenderGate.WaitAsync().ConfigureAwait(false);
             Interlocked.Increment(ref _activeThumbnailRenderCount);
             try
             {
                 bmp = await Task.Run(() => PdfThumbnailService.RenderPageAsync(key.Path, key.Page - 1, RenderThumbnailWidthPx,
-                    priority: PdfRenderPriority.Thumbnail, layerToken: key.Layers)).ConfigureAwait(false);
+                    priority: priority, layerToken: key.Layers)).ConfigureAwait(false);
                 return bmp;
             }
             finally
             {
                 Interlocked.Decrement(ref _activeThumbnailRenderCount);
-                _thumbnailRenderGate.Release();
+                if (throttle) _thumbnailRenderGate.Release();
                 lock (_thumbnailLock)
                 {
                     if (bmp != null && generation == Interlocked.Read(ref _thumbnailGeneration)) CacheThumbnailLocked(key, bmp);
