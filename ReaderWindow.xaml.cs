@@ -15,6 +15,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using XTPdfMergeApp.Services;
+using XTStyle.Controls;
 using static XTPdfMergeApp.Services.VisualTreeHelpers;
 using PageRow = XTPdfMergeApp.Domain.PagePlacement;
 using DocumentGroup = XTPdfMergeApp.Domain.WorkspaceDocument;
@@ -23,25 +24,27 @@ namespace XTPdfMergeApp
 {
     /// <summary>Docked PDF viewer control. Giữ tên ReaderWindow để tránh đổi lan rộng,
     /// nhưng không còn là top-level Window riêng.</summary>
-    public partial class ReaderWindow : UserControl
+    /// <summary>
+    /// Cửa sổ chính của app = cửa sổ đọc. Là entry point thật: App.OnStartup tạo nó làm
+    /// Application.MainWindow. Nó SỞ HỮU <see cref="DocumentSession"/> (file đang mở, undo/redo, sửa trang)
+    /// và là nơi duy nhất tạo cửa sổ ghép phụ <see cref="MergeWorkspaceWindow"/>.
+    /// </summary>
+    public partial class ReaderWindow : XTCadWindow
     {
-        /// <summary>Instance DUY NHẤT đang dùng, null nếu chưa từng mở Viewer lần nào trong phiên
-        /// làm việc này. KHÔNG tự tạo mới nếu Instance đã có — double-click trang khác chỉ đổi
-        /// nội dung đang xem qua ShowPageAsync, không tạo control mới (đúng quyết định "1 Viewer
-        /// dock dùng chung" thay vì multi-instance).</summary>
+        /// <summary>Cửa sổ đọc đang chạy (app chỉ có 1).</summary>
         public static ReaderWindow? Instance { get; private set; }
+
+        /// <summary>Phiên làm việc của app — cửa sổ ghép mượn qua constructor khi được mở.</summary>
+        internal DocumentSession Session { get; }
 
         private readonly ObservableCollection<DocumentGroup> _groups;
 
-        internal static ReaderWindow GetOrCreate(ObservableCollection<DocumentGroup> groups)
+        public ReaderWindow()
         {
-            if (Instance != null) return Instance;
-            Instance = new ReaderWindow(groups);
-            return Instance;
-        }
-
-        private ReaderWindow(ObservableCollection<DocumentGroup> groups)
-        {
+            Instance = this;
+            Session = new DocumentSession(Dispatcher);
+            EditHost = Session;
+            var groups = Session.Documents;
             InitializeComponent();
             _viewportRenderScheduler = new ViewportRenderScheduler(Dispatcher, () =>
                 RunReaderTileRefreshAsync(Volatile.Read(ref _readerTileRequestId), _readerTileRefreshCts.Token));
@@ -1772,7 +1775,7 @@ namespace XTPdfMergeApp
         /// phân giải đang có, giữ RAM tỉ lệ với những gì MẮT THẬT SỰ NHÌN THẤY chứ không phải với
         /// số trang trong tài liệu.</summary>
         private bool ReaderContinuousNeedsFullBitmap()
-            => ReaderRenderWidthPx * ReaderContinuousZoom * ReaderDpiScale > MainWindow.RenderThumbnailWidthPx * ReaderRealtimeRerenderFactor;
+            => ReaderRenderWidthPx * ReaderContinuousZoom * ReaderDpiScale > ThumbnailCache.RenderThumbnailWidthPx * ReaderRealtimeRerenderFactor;
 
         /// <summary>Lăn chuột THƯỜNG = cuộn dọc mượt qua các trang (đúng yêu cầu chế độ cuộn
         /// liên tục — khác hẳn chế độ 1-trang, ở đó lăn chuột thường ĐÃ LÀ zoom vì không cần

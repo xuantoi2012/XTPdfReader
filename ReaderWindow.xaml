@@ -1,16 +1,33 @@
-<UserControl x:Class="XTPdfMergeApp.ReaderWindow"
+<!-- Cửa sổ CHÍNH của app (App.OnStartup tạo và đặt làm Application.MainWindow): ribbon + tab file +
+     panel trái + vùng đọc. Sở hữu DocumentSession (các file đang mở, undo/redo) và mở cửa sổ ghép phụ
+     MergeWorkspaceWindow khi bấm "Ghép nhiều file…". -->
+<xt:XTCadWindow x:Class="XTPdfMergeApp.ReaderWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
         xmlns:conv="clr-namespace:XTPdfMergeApp.Converters"
         xmlns:local="clr-namespace:XTPdfMergeApp"
         xmlns:ctl="clr-namespace:XTPdfMergeApp.Controls"
+        Title="XT PDF Reader" Width="1280" Height="820"
+        MinWidth="760" MinHeight="520" TitleBarMode="Full"
+        WindowStartupLocation="CenterScreen"
+        TitleIcon="{DynamicResource Mat.FilePdfBox}" TitleIconBrush="{DynamicResource DangerBrush}"
         FontFamily="Segoe UI" FontSize="13"
         UseLayoutRounding="True" SnapsToDevicePixels="True"
         Focusable="True"
+        AllowDrop="True" DragOver="ReaderWindow_DragOver" Drop="ReaderWindow_Drop"
         PreviewKeyDown="ReaderWindow_PreviewKeyDown">
 
-    <UserControl.Resources>
+    <xt:XTCadWindow.TitleBarRightContent>
+        <xt:XTToggleButton x:Name="ThemeToggleButton"
+                           UncheckedText="Light" CheckedText="Dark"
+                           VerticalAlignment="Center" Margin="0,0,8,0"
+                           ToolTip="Đổi giao diện Light/Dark"
+                           Checked="ThemeToggleButton_Changed"
+                           Unchecked="ThemeToggleButton_Changed"/>
+    </xt:XTCadWindow.TitleBarRightContent>
+
+    <xt:XTCadWindow.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/XTPdfMergeApp;component/Resources/ReaderResources.xaml"/>
@@ -119,7 +136,7 @@
                 </Border>
             </DataTemplate>
         </ResourceDictionary>
-    </UserControl.Resources>
+    </xt:XTCadWindow.Resources>
 
     <!-- Toàn bộ nội dung dưới đây chuyển nguyên trạng từ MainWindow.xaml (Border "ReaderPanel",
          trước đó là panel nhúng cột 2 của MainContentGrid) — giữ NGUYÊN mọi x:Name/wiring sự
@@ -470,4 +487,4 @@
             </Grid>
         </Grid>
     </Border>
-</UserControl>
+</xt:XTCadWindow>

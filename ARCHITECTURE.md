@@ -6,17 +6,21 @@
 - `SourcePage` identifies a page in an immutable source PDF.
 - `PagePlacement` represents one occurrence of a source page in an output document.
 - `WorkspaceDocument` owns only an ordered collection of placements.
-- `MainWindow` owns visual concerns: selection controls, viewport, drag adorners and viewer chrome.
+- `ReaderWindow` / `MergeWorkspaceWindow` own visual concerns: selection controls, viewport, drag adorners and viewer chrome.
 
-## Windows
+## Windows and ownership
 
-- `ReaderShellWindow` is the application's main window. It hosts `ReaderWindow`: a single-row ribbon,
-  open-file tabs, the left panel (`Controls/ReaderSidePanel`: page thumbnails, bookmarks, layers) and
-  the page view.
-- `MainWindow` is the "merge multiple files" window. It still owns the `PdfWorkspace`, undo history and
-  the thumbnail cache, so it is created at startup but stays hidden until the ribbon button opens it.
-  Closing it only hides it; it closes for real when the reader window closes. Both windows show the
-  same open documents because they share one workspace.
+- `ReaderWindow` (an `XTCadWindow`) is the entry point: `App.OnStartup` creates it as
+  `Application.MainWindow`. It contains a single-row ribbon, the open-file tabs, the left panel
+  (`Controls/ReaderSidePanel`: page thumbnails, bookmarks, layers) and the page view.
+- `ReaderWindow` owns the `DocumentSession`. The session holds the open documents (`PdfWorkspace` and
+  undo history), opens files, and implements every page, annotation and layer edit the ribbon invokes
+  (`IReaderPageEditHost`).
+- `MergeWorkspaceWindow` is the secondary "merge multiple files" window, which drags pages between
+  files, merges and splits them, and saves each group. Only `ReaderWindow.OpenMergeWindow()` creates it,
+  passing in the session. Closing it really closes it: it unsubscribes from the session and nothing
+  else is affected.
+- The thumbnail cache and render queue live in `Services/ThumbnailCache`, shared by both windows.
 
 ## Layers (optional content)
 
@@ -59,7 +63,7 @@ page-count/render operation releases its lease.
 
 ## Next milestones
 
-1. Move thumbnail/preview cache ownership out of `MainWindow`.
+1. ~~Move thumbnail/preview cache ownership out of `MainWindow`.~~ (`Services/ThumbnailCache`)
 2. Add bounded LRU eviction without violating native document leases.
 3. Capture selection and viewport state with undo transactions.
 4. Add versioned `.xtmerge` workspace persistence and source-file fingerprint validation.

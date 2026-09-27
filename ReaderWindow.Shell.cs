@@ -22,6 +22,8 @@ namespace XTPdfMergeApp
 
         private void InitializeShellParts()
         {
+            ThemeToggleButton.IsChecked = ThemeService.IsDark;
+            Closing += ReaderWindow_Closing;
             ReaderDocumentTabs.ItemsSource = _groups;
             ReaderSidePanel.PageActivated += row =>
             {
@@ -110,7 +112,69 @@ namespace XTPdfMergeApp
 
         private void ReaderUndo_Click(object sender, RoutedEventArgs e) => EditHost?.Undo();
         private void ReaderRedo_Click(object sender, RoutedEventArgs e) => EditHost?.Redo();
-        private void ReaderShowMergeWindow_Click(object sender, RoutedEventArgs e) => EditHost?.ShowMergeWindow();
+        private void ReaderShowMergeWindow_Click(object sender, RoutedEventArgs e) => OpenMergeWindow();
+
+        // ── Cửa sổ ghép (phụ) — chỉ tạo ở đây, đóng là huỷ thật ─────────────
+
+        private MergeWorkspaceWindow? _mergeWindow;
+
+        /// <summary>Mở (hoặc đưa lên trước) cửa sổ ghép nhiều file. Cửa sổ ghép mượn <see cref="Session"/>
+        /// nên có sẵn mọi file đang mở ở đây; đóng nó không ảnh hưởng gì tới phiên làm việc.</summary>
+        internal void OpenMergeWindow()
+        {
+            if (_mergeWindow == null)
+            {
+                _mergeWindow = new MergeWorkspaceWindow(Session);
+                _mergeWindow.Closed += (_, _) => _mergeWindow = null;
+                _mergeWindow.Show();
+            }
+            if (_mergeWindow.WindowState == WindowState.Minimized) _mergeWindow.WindowState = WindowState.Normal;
+            _mergeWindow.Activate();
+        }
+
+        /// <summary>Đưa cửa sổ đọc lên trước (vd double-click 1 trang trong cửa sổ ghép).</summary>
+        internal void BringToFront()
+        {
+            if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+            Activate();
+        }
+
+        private void ReaderWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+        {
+            _mergeWindow?.Close();
+            ShutdownReader();
+        }
+
+        // ── Theme ─────────────────────────────────────────────────────
+
+        private void ThemeToggleButton_Changed(object sender, RoutedEventArgs e)
+        {
+            bool dark = ThemeToggleButton.IsChecked == true;
+            if (dark == ThemeService.IsDark) return;
+            ThemeService.Apply(dark);
+            MergeAppSettingsStore.SetTheme(dark ? "Dark" : "Light");
+        }
+
+        // ── Kéo-thả file PDF vào cửa sổ để mở ────────────────────────────
+
+        private void ReaderWindow_DragOver(object sender, DragEventArgs e)
+        {
+            e.Effects = GetDroppedPdfs(e).Length > 0 ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        private async void ReaderWindow_Drop(object sender, DragEventArgs e)
+        {
+            var files = GetDroppedPdfs(e);
+            if (files.Length == 0) return;
+            e.Handled = true;
+            await Session.OpenFilesInReaderAsync(files);
+        }
+
+        private static string[] GetDroppedPdfs(DragEventArgs e)
+            => e.Data.GetDataPresent(DataFormats.FileDrop) && e.Data.GetData(DataFormats.FileDrop) is string[] paths
+                ? paths.Where(p => string.Equals(System.IO.Path.GetExtension(p), ".pdf", StringComparison.OrdinalIgnoreCase)).ToArray()
+                : Array.Empty<string>();
 
         // ── Bookmark ──────────────────────────────────────────────────
 

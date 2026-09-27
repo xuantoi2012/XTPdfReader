@@ -19,6 +19,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using WpfToolkit.Controls;
 using XTPdfMergeApp.Services;
+using static XTPdfMergeApp.Services.ThumbnailCache;
 using static XTPdfMergeApp.Services.VisualTreeHelpers;
 using XTPdfMergeApp.Workspace;
 using XTStyle.Controls;
@@ -46,7 +47,7 @@ namespace XTPdfMergeApp
     /// App.xaml.cs). Khi pdfFactory đẩy 1 file mới vào lúc cửa sổ đang mở sẵn
     /// (qua named pipe), CHỈ thêm file, không đụng WindowState/kích thước.
     /// </summary>
-    public partial class MainWindow : XTCadWindow
+    public partial class MergeWorkspaceWindow : XTCadWindow
     {
         /// <summary>Payload kéo-thả 1 cụm trang — giữ luôn tham chiếu hàng NGUỒN để Drop biết rút khỏi đâu (khác hàng đích thì là "chuyển file", cùng hàng thì là "sắp xếp lại").</summary>
         private sealed class PageDragPayload
@@ -55,7 +56,9 @@ namespace XTPdfMergeApp
             public required List<PageRow> Pages { get; init; }
         }
 
-        private readonly PdfWorkspace _workspace = new();
+        /// <summary>Phiên làm việc do cửa sổ đọc (ReaderWindow) sở hữu — cửa sổ ghép chỉ mượn.</summary>
+        private readonly DocumentSession _session;
+        private PdfWorkspace _workspace => _session.Workspace;
         private ObservableCollection<DocumentGroup> _groups => _workspace.Documents;
 
         private Point _pageDragStart;
@@ -114,7 +117,6 @@ namespace XTPdfMergeApp
         private const double PageScrollHorizontalMaxThumb = 190;
         private const double PageScrollVerticalMaxThumb = 150;
 
-        private readonly HashSet<string> _loadingSourcePaths = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<ListBox> _thumbnailViewportScanQueued = new();
         private readonly HashSet<ListBox> _nearbyPrefetchScanQueued = new();
         private readonly Dictionary<ListBox, int> _nearbyPrefetchDirections = new();
@@ -122,9 +124,6 @@ namespace XTPdfMergeApp
         {
             Interval = TimeSpan.FromMilliseconds(500)
         };
-        private int _activeFileLoadCount;
-        private int _activeWarmThumbnailGroups;
-        private long _warmThumbnailCompleted;
         private long _prefetchThumbnailCompleted;
 
         // ── Cỡ xem trước thumbnail — 4 mức, đổi qua ThumbnailSizeCombo ───────
@@ -132,7 +131,7 @@ namespace XTPdfMergeApp
         // MergeFileTemplate tự cập nhật ngay khi đổi, qua RelativeSource AncestorType=Window.
 
         public static readonly DependencyProperty ThumbnailWidthProperty = DependencyProperty.Register(
-            nameof(ThumbnailWidth), typeof(double), typeof(MainWindow), new PropertyMetadata(120.0));
+            nameof(ThumbnailWidth), typeof(double), typeof(MergeWorkspaceWindow), new PropertyMetadata(120.0));
         public double ThumbnailWidth
         {
             get => (double)GetValue(ThumbnailWidthProperty);
@@ -140,7 +139,7 @@ namespace XTPdfMergeApp
         }
 
         public static readonly DependencyProperty ThumbnailHeightProperty = DependencyProperty.Register(
-            nameof(ThumbnailHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(90.0));
+            nameof(ThumbnailHeight), typeof(double), typeof(MergeWorkspaceWindow), new PropertyMetadata(90.0));
         public double ThumbnailHeight
         {
             get => (double)GetValue(ThumbnailHeightProperty);
@@ -148,7 +147,7 @@ namespace XTPdfMergeApp
         }
 
         public static readonly DependencyProperty RowCardWidthProperty = DependencyProperty.Register(
-            nameof(RowCardWidth), typeof(double), typeof(MainWindow), new PropertyMetadata(600.0));
+            nameof(RowCardWidth), typeof(double), typeof(MergeWorkspaceWindow), new PropertyMetadata(600.0));
         public double RowCardWidth
         {
             get => (double)GetValue(RowCardWidthProperty);
@@ -156,7 +155,7 @@ namespace XTPdfMergeApp
         }
 
         public static readonly DependencyProperty AdaptiveDocumentWidthProperty = DependencyProperty.Register(
-            nameof(AdaptiveDocumentWidth), typeof(double), typeof(MainWindow), new PropertyMetadata(320.0));
+            nameof(AdaptiveDocumentWidth), typeof(double), typeof(MergeWorkspaceWindow), new PropertyMetadata(320.0));
         public double AdaptiveDocumentWidth
         {
             get => (double)GetValue(AdaptiveDocumentWidthProperty);
@@ -165,7 +164,7 @@ namespace XTPdfMergeApp
 
         /// <summary>Chiều cao khả dụng cho phần cuộn trang của 1 CỘT (chế độ Column) — cập nhật động theo ActualHeight của GroupsScrollViewer (xem constructor) thay vì số cố định, để cột dùng HẾT chiều cao cửa sổ đang có thay vì bị cắt cụt giữa chừng khi cửa sổ cao hơn 1 giá trị hardcode.</summary>
         public static readonly DependencyProperty ColumnMaxContentHeightProperty = DependencyProperty.Register(
-            nameof(ColumnMaxContentHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(480.0));
+            nameof(ColumnMaxContentHeight), typeof(double), typeof(MergeWorkspaceWindow), new PropertyMetadata(480.0));
         public double ColumnMaxContentHeight
         {
             get => (double)GetValue(ColumnMaxContentHeightProperty);
@@ -173,7 +172,7 @@ namespace XTPdfMergeApp
         }
 
         public static readonly DependencyProperty SavingProgressPercentProperty = DependencyProperty.Register(
-            nameof(SavingProgressPercent), typeof(double), typeof(MainWindow), new PropertyMetadata(0.0));
+            nameof(SavingProgressPercent), typeof(double), typeof(MergeWorkspaceWindow), new PropertyMetadata(0.0));
         public double SavingProgressPercent
         {
             get => (double)GetValue(SavingProgressPercentProperty);
@@ -181,7 +180,7 @@ namespace XTPdfMergeApp
         }
 
         public static readonly DependencyProperty SavingStatusTextProperty = DependencyProperty.Register(
-            nameof(SavingStatusText), typeof(string), typeof(MainWindow), new PropertyMetadata("Đang lưu…"));
+            nameof(SavingStatusText), typeof(string), typeof(MergeWorkspaceWindow), new PropertyMetadata("Đang lưu…"));
         public string SavingStatusText
         {
             get => (string)GetValue(SavingStatusTextProperty);
@@ -189,7 +188,7 @@ namespace XTPdfMergeApp
         }
 
         public static readonly DependencyProperty SplitThumbnailItemWidthProperty = DependencyProperty.Register(
-            nameof(SplitThumbnailItemWidth), typeof(double), typeof(MainWindow), new PropertyMetadata(176.0));
+            nameof(SplitThumbnailItemWidth), typeof(double), typeof(MergeWorkspaceWindow), new PropertyMetadata(176.0));
         public double SplitThumbnailItemWidth
         {
             get => (double)GetValue(SplitThumbnailItemWidthProperty);
@@ -197,7 +196,7 @@ namespace XTPdfMergeApp
         }
 
         public static readonly DependencyProperty SplitThumbnailItemHeightProperty = DependencyProperty.Register(
-            nameof(SplitThumbnailItemHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(136.0));
+            nameof(SplitThumbnailItemHeight), typeof(double), typeof(MergeWorkspaceWindow), new PropertyMetadata(136.0));
         public double SplitThumbnailItemHeight
         {
             get => (double)GetValue(SplitThumbnailItemHeightProperty);
@@ -205,7 +204,7 @@ namespace XTPdfMergeApp
         }
 
         public static readonly DependencyProperty SplitPaneContentWidthProperty = DependencyProperty.Register(
-            nameof(SplitPaneContentWidth), typeof(double), typeof(MainWindow), new PropertyMetadata(400.0));
+            nameof(SplitPaneContentWidth), typeof(double), typeof(MergeWorkspaceWindow), new PropertyMetadata(400.0));
         public double SplitPaneContentWidth
         {
             get => (double)GetValue(SplitPaneContentWidthProperty);
@@ -247,7 +246,7 @@ namespace XTPdfMergeApp
         /// DocumentGroupTemplateColumn), buộc TextTrimming của tiêu đề phải kích hoạt
         /// thay vì Auto-size theo nội dung tự nhiên.</summary>
         public static readonly DependencyProperty CardMaxWidthProperty = DependencyProperty.Register(
-            nameof(CardMaxWidth), typeof(double), typeof(MainWindow), new PropertyMetadata(144.0));
+            nameof(CardMaxWidth), typeof(double), typeof(MergeWorkspaceWindow), new PropertyMetadata(144.0));
         public double CardMaxWidth
         {
             get => (double)GetValue(CardMaxWidthProperty);
@@ -255,7 +254,7 @@ namespace XTPdfMergeApp
         }
 
         public static readonly DependencyProperty ColumnPageListWidthProperty = DependencyProperty.Register(
-            nameof(ColumnPageListWidth), typeof(double), typeof(MainWindow), new PropertyMetadata(184.0));
+            nameof(ColumnPageListWidth), typeof(double), typeof(MergeWorkspaceWindow), new PropertyMetadata(184.0));
         public double ColumnPageListWidth
         {
             get => (double)GetValue(ColumnPageListWidthProperty);
@@ -287,8 +286,10 @@ namespace XTPdfMergeApp
             ColumnPageListWidth = ThumbnailWidth + 24;
         }
 
-        public MainWindow()
+        /// <summary>Chỉ ReaderWindow tạo cửa sổ này (nút "Ghép nhiều file…"), truyền phiên làm việc của nó vào.</summary>
+        internal MergeWorkspaceWindow(DocumentSession session)
         {
+            _session = session;
             InitializeComponent();
             EmptyHint.Effect = _emptyHintShadow;
             // Safety net: 1 phiên kéo-thả file từ ngoài (Explorer) có thể kết thúc mà KHÔNG bắn
@@ -297,32 +298,29 @@ namespace XTPdfMergeApp
             // trên cửa sổ này, nên hễ thấy nó xảy ra trong khi highlight đang bật là dọn ngay.
             PreviewMouseMove += (_, _) => { if (_dropHighlightActive) SetDropHighlight(false); };
             Deactivated += (_, _) => { if (_dropHighlightActive) SetDropHighlight(false); };
-            Closing += (_, e) =>
-            {
-                if (_closingForShutdown) return;
-                e.Cancel = true;
-                Hide();
-            };
             _diagnosticsTimer.Tick += (_, _) => RefreshDiagnosticsOverlay();
-            _workspace.History.StateChanged += (_, _) => RefreshUndoRedoUi();
+
+            // Mọi đăng ký vào session/workspace (sống lâu hơn cửa sổ này) phải gỡ khi đóng — xem Closed.
+            _workspace.History.StateChanged += History_StateChanged;
+            _session.ThumbnailScanRequested += Session_ThumbnailScanRequested;
+            _session.StatusChanged += UpdateStatusBar;
+            _session.HistoryApplied += Session_HistoryApplied;
+            _session.OrganizerSelection = OrganizerSelectionFor;
+            Closed += (_, _) =>
+            {
+                _diagnosticsTimer.Stop();
+                _workspace.History.StateChanged -= History_StateChanged;
+                _session.ThumbnailScanRequested -= Session_ThumbnailScanRequested;
+                _session.StatusChanged -= UpdateStatusBar;
+                _session.HistoryApplied -= Session_HistoryApplied;
+                if (_session.OrganizerSelection == OrganizerSelectionFor) _session.OrganizerSelection = null;
+                _groups.CollectionChanged -= Groups_CollectionChanged;
+                GroupsList.ItemsSource = null;
+            };
 
             GroupsList.ItemsSource = _groups;
-            _groups.CollectionChanged += (_, _) =>
-            {
-                bool empty = _groups.Count == 0;
-                EmptyHint.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
-                if (!_splitViewMode && _focusedGroup == null)
-                    GroupsScrollViewer.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
-                if (_splitViewMode &&
-                    ((_splitLeftGroup != null && !_groups.Contains(_splitLeftGroup)) ||
-                     (_splitRightGroup != null && !_groups.Contains(_splitRightGroup))))
-                    ResetLayoutButton_Click(this, new RoutedEventArgs());
-                if (_focusedGroup != null && !_groups.Contains(_focusedGroup))
-                    ExitGroupFocusMode(restorePreviousView: true);
-                if (_statusSelectedGroup != null && !_groups.Contains(_statusSelectedGroup))
-                    SetStatusSelection(null, null, 0);
-                UpdateStatusBar();
-            };
+            _groups.CollectionChanged += Groups_CollectionChanged;
+            Groups_CollectionChanged(null, null);
 
             // Trừ ~60px cho phần tiêu đề/đệm của mỗi card (Grid.Row=0 header +
             // margin) — phần còn lại là chiều cao THẬT sự cột có thể dùng để
@@ -360,17 +358,11 @@ namespace XTPdfMergeApp
                 LogWindowResizeDebug($"GroupsScrollViewer.SizeChanged fired -> NewSize=({e.NewSize.Width:F0},{e.NewSize.Height:F0})");
 
             CleanupAfterMergeCheck.IsChecked = MergeAppSettingsStore.GetCleanupAfterMerge();
-            bool darkTheme = string.Equals(MergeAppSettingsStore.GetTheme(), "Dark", StringComparison.OrdinalIgnoreCase);
-            ThemeToggleButton.IsChecked = darkTheme;
-            ApplyTheme(darkTheme);
+            // Theme áp lúc khởi động app (App.OnStartup); ở đây chỉ phản ánh trạng thái lên nút.
+            ThemeToggleButton.IsChecked = ThemeService.IsDark;
 
-            // Nếu user đã bật trước đó, tự kiểm tra registry pdfFactory có
-            // còn khớp không (có thể bị lệch nếu cài lại/update pdfFactory)
-            // và tự sửa lại ÂM THẦM — không cần hỏi/thông báo gì, chỉ cập
-            // nhật dòng trạng thái nhỏ dưới checkbox.
-            bool wantPdfFactoryEnabled = MergeAppSettingsStore.GetPdfFactoryViewEnabled();
-            UsePdfFactoryViewCheck.IsChecked = wantPdfFactoryEnabled;
-            if (wantPdfFactoryEnabled) ReconcilePdfFactoryRegistry();
+            // Đối soát registry pdfFactory chạy lúc khởi động app (App.OnStartup); ở đây chỉ hiện trạng thái.
+            UsePdfFactoryViewCheck.IsChecked = MergeAppSettingsStore.GetPdfFactoryViewEnabled();
             RefreshPdfFactoryStatus();
             UpdateStatusBar();
             RefreshUndoRedoUi();
@@ -380,57 +372,44 @@ namespace XTPdfMergeApp
                 : GroupLayoutMode.Row);
         }
 
-        /// <summary>Danh sách file đang mở (dùng chung với cửa sổ đọc).</summary>
-        internal ObservableCollection<DocumentGroup> Documents => _groups;
 
-        private bool _closingForShutdown;
-
-        /// <summary>Cửa sổ ghép chỉ ẩn khi user đóng; đóng thật khi cửa sổ đọc chính đóng (thoát app).</summary>
-        internal void CloseForShutdown()
+        private void Groups_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs? e)
         {
-            _closingForShutdown = true;
-            Close();
+
+            bool empty = _groups.Count == 0;
+            EmptyHint.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+            if (!_splitViewMode && _focusedGroup == null)
+                GroupsScrollViewer.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
+            if (_splitViewMode &&
+                ((_splitLeftGroup != null && !_groups.Contains(_splitLeftGroup)) ||
+                 (_splitRightGroup != null && !_groups.Contains(_splitRightGroup))))
+                ResetLayoutButton_Click(this, new RoutedEventArgs());
+            if (_focusedGroup != null && !_groups.Contains(_focusedGroup))
+                ExitGroupFocusMode(restorePreviousView: true);
+            if (_statusSelectedGroup != null && !_groups.Contains(_statusSelectedGroup))
+                SetStatusSelection(null, null, 0);
+            UpdateStatusBar();
+        
         }
+
+        private void History_StateChanged(object? sender, EventArgs e) => RefreshUndoRedoUi();
+        private void Session_ThumbnailScanRequested() => _ = Dispatcher.InvokeAsync(QueueVisibleThumbnailScans, DispatcherPriority.ContextIdle);
+        private void Session_HistoryApplied() => SetStatusSelection(null, null, 0);
+
+        private IEnumerable<PageRow> OrganizerSelectionFor(DocumentGroup group)
+            => FindPageListBoxFor(group)?.SelectedItems.Cast<PageRow>() ?? Enumerable.Empty<PageRow>();
 
         private void ThemeToggleButton_Changed(object sender, RoutedEventArgs e)
         {
             if (ThemeToggleButton == null) return;
             bool darkTheme = ThemeToggleButton.IsChecked == true;
-            ApplyTheme(darkTheme);
+            if (darkTheme == ThemeService.IsDark) return;
+            ThemeService.Apply(darkTheme);
             MergeAppSettingsStore.SetTheme(darkTheme ? "Dark" : "Light");
         }
 
-        private static void ApplyTheme(bool darkTheme)
-        {
-            var dictionaries = Application.Current.Resources.MergedDictionaries;
-            for (int i = dictionaries.Count - 1; i >= 0; i--)
-            {
-                string source = dictionaries[i].Source?.OriginalString ?? string.Empty;
-                if (source.EndsWith("Light.xaml", StringComparison.OrdinalIgnoreCase) ||
-                    source.EndsWith("Dark.xaml", StringComparison.OrdinalIgnoreCase))
-                    dictionaries.RemoveAt(i);
-            }
-
-            dictionaries.Add(new ResourceDictionary
-            {
-                Source = new Uri(darkTheme
-                    ? "pack://application:,,,/XTStyle;component/Themes/Dark.xaml"
-                    : "pack://application:,,,/XTStyle;component/Themes/Light.xaml",
-                    UriKind.Absolute)
-            });
-        }
-
-        private void UndoButton_Click(object sender, RoutedEventArgs e)
-        {
-            _workspace.History.Undo();
-            RefreshWorkspaceAfterHistoryChange();
-        }
-
-        private void RedoButton_Click(object sender, RoutedEventArgs e)
-        {
-            _workspace.History.Redo();
-            RefreshWorkspaceAfterHistoryChange();
-        }
+        private void UndoButton_Click(object sender, RoutedEventArgs e) => _session.Undo();
+        private void RedoButton_Click(object sender, RoutedEventArgs e) => _session.Redo();
 
         private void RefreshUndoRedoUi()
         {
@@ -441,16 +420,10 @@ namespace XTPdfMergeApp
             RedoButton.ToolTip = _workspace.History.RedoDescription is { } redo ? $"Làm lại: {redo}" : "Không có thao tác để làm lại";
         }
 
-        private void RefreshWorkspaceAfterHistoryChange()
-        {
-            SetStatusSelection(null, null, 0);
-            ReleaseUnusedPdfDocuments();
-            _ = Dispatcher.InvokeAsync(QueueVisibleThumbnailScans, DispatcherPriority.ContextIdle);
-            UpdateStatusBar();
-        }
+        private void RefreshWorkspaceAfterHistoryChange() => _session.AfterHistoryChange();
 
         /// <summary>Kiểm tra registry "ViewPdf" của pdfFactory có đang trỏ đúng về app này chưa — nếu lệch (bị pdfFactory/cài lại ghi đè) thì tự set lại, không hỏi/không thông báo.</summary>
-        private void ReconcilePdfFactoryRegistry()
+        internal static void ReconcilePdfFactoryRegistry()
         {
             string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "";
             if (string.IsNullOrEmpty(exePath)) return;
@@ -458,9 +431,6 @@ namespace XTPdfMergeApp
                 PdfFactoryIntegrationService.Enable(exePath);
         }
 
-        /// <summary>Gọi từ App.xaml.cs khi pdfFactory chạy app này qua registry "ViewPdf" (user vừa bấm "View PDF file" trong khay Jobs) — thêm luôn file đó vào danh sách. KHÔNG đụng WindowState/kích thước cửa sổ.</summary>
-        public void AddIncomingFile(string path) => AddIncomingFiles(new[] { path });
-        public void AddIncomingFiles(IEnumerable<string> paths) => _ = AddFilesAsGroups(paths);
 
         // ════════════════════════════════════════════════════════════════════
         // Cài đặt — overlay modal (giống mẫu overlay của XTLicenseAdmin)
@@ -496,17 +466,17 @@ namespace XTPdfMergeApp
             var cacheStats = GetThumbnailCacheStats();
             var readerStats = ReaderWindow.GetReaderCacheStats();
             int totalPages = _groups.Sum(g => g.Pages.Count);
-            int loading = LoadingFileCount;
-            int activeFileLoads = Volatile.Read(ref _activeFileLoadCount);
+            int loading = _session.LoadingFileCount;
+            int activeFileLoads = _session.ActiveFileLoadCount;
             int activeRenderJobs = Volatile.Read(ref _activeThumbnailRenderCount);
             int activeNativePdfium = PdfThumbnailService.ActiveNativeCalls;
             int waitingNativePdfium = PdfThumbnailService.WaitingNativeCalls;
-            int activeWarmGroups = Volatile.Read(ref _activeWarmThumbnailGroups);
+            int activeWarmGroups = _session.ActiveWarmThumbnailGroups;
             int foregroundRequests = Volatile.Read(ref _foregroundThumbnailRequests);
             int activeForegroundLoads = Volatile.Read(ref _activeForegroundThumbnailLoads);
             int backgroundWaiting = Volatile.Read(ref _backgroundPrefetchWaitingCount);
             int activeNearbyPrefetches = Volatile.Read(ref _activeNearbyPrefetches);
-            long warmDone = Interlocked.Read(ref _warmThumbnailCompleted);
+            long warmDone = _session.WarmThumbnailCompleted;
             long nearbyDone = Interlocked.Read(ref _nearbyPrefetchCompleted);
 
             ThreadPool.GetAvailableThreads(out int availableWorkers, out int availableIo);
@@ -607,17 +577,8 @@ namespace XTPdfMergeApp
             // nội dung khi user đã chủ động bật cửa sổ Viewer.
             if (group == null || page == null) return;
             var reader = ReaderWindow.Instance;
-            if (reader == null || ReaderShellWindow.Instance?.IsVisible != true) return;
+            if (reader == null || !reader.IsVisible) return;
             reader.NotifySelectionChanged(group, page);
-        }
-
-        private int LoadingFileCount
-        {
-            get
-            {
-                lock (_loadingSourcePaths)
-                    return _loadingSourcePaths.Count;
-            }
         }
 
         private void UpdateStatusBar()
@@ -628,7 +589,7 @@ namespace XTPdfMergeApp
                 return;
             }
 
-            int loading = LoadingFileCount;
+            int loading = _session.LoadingFileCount;
             int? splitTotalPages = _splitViewMode && _splitLeftGroup != null && _splitRightGroup != null
                 ? _splitLeftGroup.Pages.Count + _splitRightGroup.Pages.Count
                 : null;
@@ -655,383 +616,12 @@ namespace XTPdfMergeApp
             };
             if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
 
-            _ = AddFilesAsGroups(dlg.FileNames.ToArray());
+            _ = _session.AddFilesAsGroups(dlg.FileNames.ToArray());
         }
 
-        /// <summary>Thêm 1 FILE = 1 WINDOW MỚI (cuối danh sách) — tách sẵn từng trang. Nếu file đó ĐÃ có window riêng rồi thì bỏ qua (không tạo trùng).</summary>
-        private Task AddFilesAsGroups(IEnumerable<string> paths)
-        {
-            var tasks = paths
-                .Where(p => !string.IsNullOrWhiteSpace(p))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Select(AddFileAsGroup)
-                .ToArray();
-
-            return Task.WhenAll(tasks);
-        }
-
-        /// <returns>Group vừa mở xong (đã có trang), hoặc null nếu file đã có window riêng / đang mở
-        /// dở / không đọc được.</returns>
-        private async Task<DocumentGroup?> AddFileAsGroup(string fullPath)
-        {
-            if (string.IsNullOrWhiteSpace(fullPath)) return null;
-
-            try { fullPath = Path.GetFullPath(fullPath); }
-            catch { return null; }
-
-            if (Dispatcher.CheckAccess())
-            {
-                if (HasGroupForSource(fullPath)) return null;
-            }
-            else if (await Dispatcher.InvokeAsync(() => HasGroupForSource(fullPath)))
-            {
-                return null;
-            }
-
-            if (!TryReserveLoadingSource(fullPath)) return null;
-
-            // Card hiện NGAY ở trạng thái "đang mở" trước khi biết số trang — user không phải
-            // chờ round-trip đếm trang mới thấy có gì đó xuất hiện, dù việc đếm/tải vẫn cần
-            // thời gian như cũ (chỉ khác lúc NÀO user thấy phản hồi, không phải làm nhanh hơn).
-            DocumentGroup? placeholder = await Dispatcher.InvokeAsync(() => AddOpeningPlaceholder(fullPath));
-            UpdateStatusBar();
-            if (placeholder == null)
-            {
-                ReleaseLoadingSource(fullPath);
-                return null;
-            }
-
-            try
-            {
-                Interlocked.Increment(ref _activeFileLoadCount);
-                int pageCount;
-                try
-                {
-                    pageCount = await Task.Run(() => PdfThumbnailService.GetPageCountAsync(fullPath)).ConfigureAwait(false);
-                }
-                finally
-                {
-                    Interlocked.Decrement(ref _activeFileLoadCount);
-                }
-
-                await Dispatcher.InvokeAsync(() => FinishOpeningGroup(placeholder, fullPath, pageCount));
-                return await Dispatcher.InvokeAsync(() =>
-                    _groups.Contains(placeholder) && placeholder.Pages.Count > 0 ? placeholder : null);
-            }
-            finally
-            {
-                ReleaseLoadingSource(fullPath);
-                UpdateStatusBar();
-            }
-        }
-
-        private bool HasGroupForSource(string fullPath)
-            => _groups.Any(g => string.Equals(g.SourcePath, fullPath, StringComparison.OrdinalIgnoreCase));
-
-        private bool TryReserveLoadingSource(string fullPath)
-        {
-            lock (_loadingSourcePaths)
-            {
-                if (_loadingSourcePaths.Contains(fullPath)) return false;
-                _loadingSourcePaths.Add(fullPath);
-                return true;
-            }
-        }
-
-        private void ReleaseLoadingSource(string fullPath)
-        {
-            lock (_loadingSourcePaths)
-                _loadingSourcePaths.Remove(fullPath);
-        }
-
-        private DocumentGroup? AddOpeningPlaceholder(string fullPath)
-        {
-            if (HasGroupForSource(fullPath)) return null;
-            var group = new DocumentGroup { SourcePath = fullPath };
-            group.SetOpening(true);
-            _groups.Add(group);
-            return group;
-        }
-
-        /// <summary>Đổ trang thật vào đúng placeholder đã hiện sẵn từ <see cref="AddOpeningPlaceholder"/>
-        /// (xem AddFileAsGroup) — không tạo group mới ở đây, tránh có 2 card cho cùng 1 file.</summary>
-        private void FinishOpeningGroup(DocumentGroup group, string fullPath, int pageCount)
-        {
-            // User có thể đã tự đóng card "đang mở" (nút X) trước khi đếm trang xong.
-            if (!_groups.Contains(group)) return;
-
-            if (pageCount <= 0)
-            {
-                group.SetOpening(false);
-                group.SetLoadError("Không mở được file (file hỏng hoặc không đọc được số trang)");
-                return;
-            }
-
-            group.Pages.AddRange(Enumerable.Range(1, pageCount).Select(p => _workspace.CreatePlacement(fullPath, p)));
-            group.SetOpening(false);
-
-            _ = Dispatcher.InvokeAsync(QueueVisibleThumbnailScans, DispatcherPriority.ContextIdle);
-            if (group.Pages.Count > 0 && ReaderWindow.Instance?.HasAnyPageShown != true)
-            {
-                var reader = EnsureReaderWindow();
-                SetReaderDockVisible(true);
-                _ = reader.ShowPageAsync(group, group.Pages[0], preserveZoomMode: false);
-            }
-            _ = WarmInitialThumbnailsAsync(group);
-
-            // Không render hết ngay ở đây. Thumbnail được đưa qua queue theo viewport thật
-            // của từng ListBox PDF; prefetch nền chỉ cache ảnh và tự nhường cho vùng đang thấy.
-        }
-
-        /// <summary>Cache theo (đường dẫn, số trang) — chuyển 1 trang qua lại giữa các
-        /// window (copy) hay cuộn qua lại (virtualization tái dùng container) đều
-        /// khỏi phải render lại PDF từ đầu, chỉ lấy lại ảnh đã có trong bộ nhớ.</summary>
-        private static readonly object _thumbnailLock = new();
-        private static long _thumbnailGeneration;
-        internal const long ThumbnailCacheBudgetBytes = 48L * 1024 * 1024;
-        private static readonly BitmapMemoryCache<(string Path, int Page, string Layers)> _thumbnailCache = new(ThumbnailCacheBudgetBytes);
-        private static readonly Dictionary<(string Path, int Page, string Layers), Task<BitmapSource?>> _thumbnailLoads = new();
-        private const int ThumbnailRenderConcurrency = 4;
-        private const int ForegroundThumbnailConcurrency = 8;
-        private const int MaxForegroundThumbnailPending = 24;
-        private const int BackgroundThumbnailPrefetchConcurrency = 4;
-        private const int PrefetchConcurrencyPerGroup = 2;
-        private const int NearbyPrefetchConcurrency = 3;
-        private const int MaxBackgroundThumbnailInflight = 24;
-        private const int MaxForegroundRequestsBeforeBackground = 6;
-        private const int MaxForegroundRequestsBeforeNearbyPrefetch = 12;
-        private const int NearbyPrefetchPageCount = 28;
-        private const int InitialWarmThumbnailCount = 4;
-        private static readonly SemaphoreSlim _thumbnailRenderGate = new(ThumbnailRenderConcurrency);
-        private static readonly SemaphoreSlim _foregroundThumbnailGate = new(ForegroundThumbnailConcurrency);
-        private static readonly SemaphoreSlim _thumbnailPrefetchGate = new(BackgroundThumbnailPrefetchConcurrency);
-        private static int _activeThumbnailRenderCount;
-        private static int _foregroundThumbnailRequests;
-        private static int _activeForegroundThumbnailLoads;
-        private static int _backgroundPrefetchWaitingCount;
         private int _activeNearbyPrefetches;
 
         private long _nearbyPrefetchCompleted;
-
-        internal static async Task LoadThumbnailFor(PageRow row)
-        {
-            if (!TryReserveThumbnailLoad(row)) return;
-
-            var key = ThumbnailKey(row);
-            if (TryGetCachedThumbnail(key, out var cached) && cached != null)
-            {
-                await SetRowThumbnailAsync(row, cached, key.Layers);
-                return;
-            }
-
-            BitmapSource? bmp;
-            try { bmp = await AwaitThumbnailLoadAsync(key, foreground: true); }
-            catch
-            {
-                await ClearThumbnailQueuedAsync(row);
-                return;
-            }
-
-            if (bmp == null)
-            {
-                await ClearThumbnailQueuedAsync(row);
-                return;
-            }
-
-            await SetRowThumbnailAsync(row, bmp, key.Layers);
-        }
-
-        private static bool TryReserveThumbnailLoad(PageRow row)
-        {
-            if (row.Thumbnail != null || row.ThumbnailLoadQueued) return false;
-            row.ThumbnailLoadQueued = true;
-            return true;
-        }
-
-        /// <summary>Key cache thumbnail: kèm "phiên bản trạng thái layer" của file (PdfLayerStateStore) — bật/tắt
-        /// layer đổi key nên không bao giờ lấy nhầm ảnh của trạng thái khác, và quay lại trạng thái cũ thì
-        /// trúng lại ảnh đã vẽ.</summary>
-        internal static (string Path, int Page, string Layers) ThumbnailKey(PageRow row)
-            => RenderCacheKeys.Thumbnail(row.SourcePath, row.PageNumber);
-
-        /// <summary>Gán thumbnail cho row nếu row chưa có — và CHỈ khi ảnh vẫn đúng trạng thái layer hiện tại
-        /// (ảnh đang tải dở lúc user bật/tắt layer thì bỏ, không gán ảnh cũ lên).</summary>
-        private static async Task SetRowThumbnailAsync(PageRow row, BitmapSource bmp, string layers)
-        {
-            void Apply()
-            {
-                if (row.Thumbnail == null && string.Equals(PdfLayerStateStore.GetToken(row.SourcePath), layers, StringComparison.Ordinal))
-                    row.Thumbnail = bmp;
-                row.ThumbnailLoadQueued = false;
-            }
-
-            var dispatcher = Application.Current?.Dispatcher;
-            if (dispatcher == null || dispatcher.CheckAccess())
-            {
-                Apply();
-                return;
-            }
-
-            try
-            {
-                await dispatcher.InvokeAsync(Apply, DispatcherPriority.Background).Task.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                // App đang đóng, Dispatcher shutdown giữa chừng khi lệnh này còn đang chờ tới lượt
-                // — không còn ý nghĩa gì để gán thumbnail nữa, bỏ qua thay vì lộ ra thành
-                // TaskCanceledException chưa bắt (crash lúc debug khi tắt app giữa lúc đang prefetch).
-            }
-        }
-
-        private static Task ClearThumbnailQueuedAsync(PageRow row)
-        {
-            var dispatcher = Application.Current?.Dispatcher;
-            if (dispatcher == null || dispatcher.CheckAccess())
-            {
-                row.ThumbnailLoadQueued = false;
-                return Task.CompletedTask;
-            }
-
-            return dispatcher.InvokeAsync(() => row.ThumbnailLoadQueued = false, DispatcherPriority.Background).Task;
-        }
-
-        private static bool TryGetCachedThumbnail((string Path, int Page, string Layers) key, out BitmapSource? cached)
-        {
-            lock (_thumbnailLock)
-            {
-                if (_thumbnailCache.TryGetValue(key, out cached))
-                {
-                    return true;
-                }
-
-                return false;
-            }
-        }
-
-        private static (int Cache, int Inflight, long Bytes) GetThumbnailCacheStats()
-        {
-            lock (_thumbnailLock)
-                return (_thumbnailCache.Count, _thumbnailLoads.Count, _thumbnailCache.Bytes);
-        }
-
-        private static int GetThumbnailInflightCount()
-        {
-            lock (_thumbnailLock)
-                return _thumbnailLoads.Count;
-        }
-
-        private static bool IsThumbnailCachedOrLoading((string Path, int Page, string Layers) key)
-        {
-            lock (_thumbnailLock)
-                return _thumbnailCache.ContainsKey(key) || _thumbnailLoads.ContainsKey(key);
-        }
-
-        private static void CacheThumbnailLocked((string Path, int Page, string Layers) key, BitmapSource bmp)
-            => _thumbnailCache.Set(key, bmp);
-
-        private static Task<BitmapSource?> GetThumbnailLoadTask((string Path, int Page, string Layers) key)
-        {
-            lock (_thumbnailLock)
-            {
-                if (_thumbnailCache.TryGetValue(key, out var cached))
-                {
-                    return Task.FromResult<BitmapSource?>(cached);
-                }
-
-                if (!_thumbnailLoads.TryGetValue(key, out var task))
-                {
-                    task = RenderAndCacheThumbnailAsync(key);
-                    _thumbnailLoads[key] = task;
-                }
-
-                return task;
-            }
-        }
-
-        private static async Task<BitmapSource?> AwaitThumbnailLoadAsync((string Path, int Page, string Layers) key, bool foreground)
-        {
-            if (foreground)
-                Interlocked.Increment(ref _foregroundThumbnailRequests);
-
-            try
-            {
-                if (foreground)
-                {
-                    await _foregroundThumbnailGate.WaitAsync().ConfigureAwait(false);
-                    Interlocked.Increment(ref _activeForegroundThumbnailLoads);
-                }
-
-                return await GetThumbnailLoadTask(key).ConfigureAwait(false);
-            }
-            finally
-            {
-                if (foreground)
-                {
-                    Interlocked.Decrement(ref _activeForegroundThumbnailLoads);
-                    _foregroundThumbnailGate.Release();
-                    Interlocked.Decrement(ref _foregroundThumbnailRequests);
-                }
-            }
-        }
-
-        private static async Task WaitForBackgroundPrefetchTurnAsync(bool nearViewport, CancellationToken cancellationToken)
-        {
-            bool countedAsWaiting = false;
-            int delayMs = 25;
-            try
-            {
-                while (true)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    int foregroundLimit = nearViewport
-                        ? MaxForegroundRequestsBeforeNearbyPrefetch
-                        : MaxForegroundRequestsBeforeBackground;
-                    bool foregroundBusy = Volatile.Read(ref _foregroundThumbnailRequests) > foregroundLimit;
-                    bool queueHasRoom = GetThumbnailInflightCount() < MaxBackgroundThumbnailInflight;
-                    if (!foregroundBusy && queueHasRoom) return;
-
-                    if (!countedAsWaiting)
-                    {
-                        Interlocked.Increment(ref _backgroundPrefetchWaitingCount);
-                        countedAsWaiting = true;
-                    }
-
-                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
-                    delayMs = Math.Min(160, delayMs + 15);
-                }
-            }
-            finally
-            {
-                if (countedAsWaiting)
-                    Interlocked.Decrement(ref _backgroundPrefetchWaitingCount);
-            }
-        }
-
-        private static async Task<BitmapSource?> RenderAndCacheThumbnailAsync((string Path, int Page, string Layers) key)
-        {
-            long generation = Interlocked.Read(ref _thumbnailGeneration);
-            BitmapSource? bmp = null;
-            await _thumbnailRenderGate.WaitAsync().ConfigureAwait(false);
-            Interlocked.Increment(ref _activeThumbnailRenderCount);
-            try
-            {
-                bmp = await Task.Run(() => PdfThumbnailService.RenderPageAsync(key.Path, key.Page - 1, RenderThumbnailWidthPx,
-                    priority: PdfRenderPriority.Thumbnail, layerToken: key.Layers)).ConfigureAwait(false);
-                return bmp;
-            }
-            finally
-            {
-                Interlocked.Decrement(ref _activeThumbnailRenderCount);
-                _thumbnailRenderGate.Release();
-                lock (_thumbnailLock)
-                {
-                    if (bmp != null && generation == Interlocked.Read(ref _thumbnailGeneration)) CacheThumbnailLocked(key, bmp);
-                    _thumbnailLoads.Remove(key);
-                }
-            }
-        }
 
         private async Task PrefetchRowsAsync(IReadOnlyList<PageRow> rows, bool nearViewport)
         {
@@ -1081,40 +671,6 @@ namespace XTPdfMergeApp
             {
                 if (nearViewport)
                     Interlocked.Decrement(ref _activeNearbyPrefetches);
-            }
-        }
-
-        private async Task WarmInitialThumbnailsAsync(DocumentGroup group)
-        {
-            Interlocked.Increment(ref _activeWarmThumbnailGroups);
-            try
-            {
-                List<PageRow> pages = await Dispatcher.InvokeAsync(() =>
-                    _groups.Contains(group) ? group.Pages.Take(InitialWarmThumbnailCount).ToList() : new List<PageRow>());
-
-                foreach (var row in pages)
-                {
-                    var key = ThumbnailKey(row);
-                    BitmapSource? bmp;
-
-                    try { bmp = await AwaitThumbnailLoadAsync(key, foreground: true).ConfigureAwait(false); }
-                    catch { continue; }
-
-                    if (bmp == null) continue;
-                    await Dispatcher.InvokeAsync(() =>
-                    {
-                        if (_groups.Contains(group) && group.Pages.Contains(row) && row.Thumbnail == null &&
-                            string.Equals(PdfLayerStateStore.GetToken(row.SourcePath), key.Layers, StringComparison.Ordinal))
-                        {
-                            row.Thumbnail = bmp;
-                            Interlocked.Increment(ref _warmThumbnailCompleted);
-                        }
-                    }, DispatcherPriority.Send);
-                }
-            }
-            finally
-            {
-                Interlocked.Decrement(ref _activeWarmThumbnailGroups);
             }
         }
 
@@ -1607,15 +1163,13 @@ namespace XTPdfMergeApp
             }
         }
 
-        /// <summary>Ảnh render gốc LUÔN ở độ phân giải này — phải LỚN HƠN cỡ hiển thị to nhất (400px, "Rất lớn") + chừa dư cho màn hình DPI cao, nếu không ảnh bị phóng to từ nguồn nhỏ → mờ (đúng lỗi đã gặp). Đổi cỡ xem trước chỉ resize khung hiển thị, không render lại.</summary>
-        internal const double RenderThumbnailWidthPx = 340;
 
         private void RemoveGroup_Click(object sender, RoutedEventArgs e)
         {
             if ((sender as FrameworkElement)?.DataContext is not DocumentGroup group) return;
             _workspace.Execute(new RemoveDocumentCommand(_workspace, group));
             ReaderWindow.Instance?.NotifyGroupRemoved(group);
-            ReleaseUnusedPdfDocuments();
+            _session.ReleaseUnusedPdfDocuments();
         }
 
         private void RemoveSelectedPages_Click(object sender, RoutedEventArgs e)
@@ -1629,17 +1183,7 @@ namespace XTPdfMergeApp
             _workspace.Execute(new RemovePagesCommand(_workspace, group, selected));
             if (!_groups.Contains(group)) ReaderWindow.Instance?.NotifyGroupRemoved(group);
             else ReaderWindow.Instance?.NotifyPagesChanged(group);
-            ReleaseUnusedPdfDocuments();
-        }
-
-        private void ReleaseUnusedPdfDocuments()
-        {
-            var active = new HashSet<string>(_groups.SelectMany(g => g.Pages.Select(p => p.SourcePath)), StringComparer.OrdinalIgnoreCase);
-            Interlocked.Increment(ref _thumbnailGeneration);
-            lock (_thumbnailLock) _thumbnailCache.RemoveWhere(key => !active.Contains(key.Path));
-            ReaderWindow.ReleaseUnusedSources(active);
-            PdfLayerStateStore.ForgetAllExcept(active);
-            PdfThumbnailService.ReleaseUnusedDocuments(active);
+            _session.ReleaseUnusedPdfDocuments();
         }
 
         /// <summary>Lưu riêng các trang đang có trong CHÍNH window này ra 1 file PDF — không còn khái niệm "1 output ghép chung", mỗi window tự quyết định lưu ở đâu. KHÔNG đóng window sau khi lưu — user có thể chỉnh tiếp rồi lưu lại (VD lưu đè, hoặc lưu ra tên khác).</summary>
@@ -1792,7 +1336,7 @@ namespace XTPdfMergeApp
             GroupsList.SelectedItems.Clear();
             GroupsList.SelectedItem = target;
             ReaderWindow.Instance?.NotifyPagesChanged(target);
-            ReleaseUnusedPdfDocuments();
+            _session.ReleaseUnusedPdfDocuments();
             UpdateStatusBar();
         }
 
@@ -2522,15 +2066,14 @@ namespace XTPdfMergeApp
             QueueVisibleThumbnailScans();
         }
 
-        /// <summary>ReaderWindow dùng chung — nằm trong cửa sổ đọc chính (ReaderShellWindow), không còn dock
-        /// trong cửa sổ này.</summary>
-        private ReaderWindow EnsureReaderWindow()
-            => ReaderShellWindow.Instance?.Reader ?? ReaderWindow.GetOrCreate(_groups);
+        /// <summary>Cửa sổ đọc chính (chủ của cửa sổ này và của phiên làm việc).</summary>
+        private static ReaderWindow EnsureReaderWindow()
+            => ReaderWindow.Instance ?? throw new InvalidOperationException("Cửa sổ đọc chưa được tạo.");
 
         /// <summary>Trước đây bật/tắt khung Viewer dock bên phải; giờ = đưa cửa sổ đọc lên trước.</summary>
-        private void SetReaderDockVisible(bool visible)
+        private static void SetReaderDockVisible(bool visible)
         {
-            if (visible) ReaderShellWindow.Instance?.BringToFront();
+            if (visible) ReaderWindow.Instance?.BringToFront();
         }
 
         private void ShowReaderWindow_Click(object sender, RoutedEventArgs e)
@@ -2883,7 +2426,7 @@ namespace XTPdfMergeApp
 
             if (e.Data.GetDataPresent(DataFormats.FileDrop) && e.Data.GetData(DataFormats.FileDrop) is string[] fromExplorer)
                 foreach (var p in fromExplorer.Where(p => string.Equals(Path.GetExtension(p), ".pdf", StringComparison.OrdinalIgnoreCase)))
-                    _ = AddFileAsGroup(p);
+                    _ = _session.AddFileAsGroup(p);
 
             e.Handled = true;
         }

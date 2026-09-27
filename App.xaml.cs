@@ -28,18 +28,16 @@ namespace XTPdfMergeApp
         private const string SingleInstanceMutexName = "XTPdfMergeApp_SingleInstance";
         private const string PipeName = "XTPdfMergeApp_IncomingPdfPipe";
 
-        /// <summary>Cửa sổ ghép nhiều file — chủ workspace, chạy ẩn tới khi user mở từ ribbon.</summary>
-        private MainWindow? _mainWindow;
-        /// <summary>Cửa sổ đọc — cửa sổ chính của app.</summary>
-        private ReaderShellWindow? _readerShell;
+        /// <summary>Cửa sổ đọc — entry point và Application.MainWindow. Cửa sổ ghép nhiều file do chính nó
+        /// tạo khi cần (ReaderWindow.OpenMergeWindow), App không biết tới.</summary>
+        private ReaderWindow? _reader;
         private Mutex? _singleInstanceMutex;
 
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
 
-            // Reader hiện được dock trong MainWindow, nên vòng đời app chỉ cần phụ thuộc đúng
-            // cửa sổ chính. Giữ explicit để single-instance/pdfFactory path forwarding ổn định.
+            // Cửa sổ đọc (ReaderWindow) là cửa sổ chính: đóng nó = thoát app (nó tự đóng cửa sổ ghép phụ).
             ShutdownMode = ShutdownMode.OnMainWindowClose;
 
             // Lưới an toàn để debug: exception ném ra từ 1 Task "fire-and-forget" (không ai await)
@@ -65,11 +63,14 @@ namespace XTPdfMergeApp
 
             StartIncomingPdfPipeServer();
 
-            _mainWindow = new MainWindow();
-            _readerShell = new ReaderShellWindow(_mainWindow);
-            MainWindow = _readerShell;
-            _readerShell.Show();
-            if (incomingPaths.Length > 0) _ = _mainWindow.OpenFilesInReaderAsync(incomingPaths);
+            ThemeService.ApplySaved();
+            // Đối soát registry "View PDF" của pdfFactory (nếu user đã bật) — âm thầm, không hỏi.
+            if (MergeAppSettingsStore.GetPdfFactoryViewEnabled()) MergeWorkspaceWindow.ReconcilePdfFactoryRegistry();
+
+            _reader = new ReaderWindow();
+            MainWindow = _reader;
+            _reader.Show();
+            if (incomingPaths.Length > 0) _ = _reader.Session.OpenFilesInReaderAsync(incomingPaths);
         }
 
         private static void LogUnhandledException(string kind, Exception? ex)
@@ -131,8 +132,8 @@ namespace XTPdfMergeApp
                         if (paths.Count > 0)
                             Dispatcher.Invoke(() =>
                             {
-                                if (_mainWindow != null) _ = _mainWindow.OpenFilesInReaderAsync(paths);
-                                _readerShell?.Activate(); // đưa lên trước cho user thấy, KHÔNG đổi WindowState/kích thước hiện có
+                                if (_reader != null) _ = _reader.Session.OpenFilesInReaderAsync(paths);
+                                _reader?.Activate(); // đưa lên trước cho user thấy, KHÔNG đổi WindowState/kích thước hiện có
                             });
                     }
                     catch { await Task.Delay(500); }

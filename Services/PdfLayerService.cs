@@ -11,7 +11,12 @@ namespace XTPdfMergeApp.Services
 {
     /// <summary>1 nút trong cây Layer theo /OCProperties/D/Order. <see cref="OcgId"/> null = nhãn nhóm
     /// (chuỗi đứng đầu 1 mảng con trong /Order), không bật/tắt được.</summary>
-    public sealed record PdfLayerNode(string Title, string? OcgId, bool IsLocked, IReadOnlyList<PdfLayerNode> Children);
+    public sealed record PdfLayerNode(string Title, string? OcgId, bool IsLocked, IReadOnlyList<PdfLayerNode> Children)
+    {
+        /// <summary>Layer do /D/AS (usage application, sự kiện View) của file điều khiển — PDFium áp /AS đè lên
+        /// /D/ON-/D/OFF nên không bật/tắt được khi xem (đã đo thật, xem báo cáo).</summary>
+        public bool IsUsageControlled { get; init; }
+    }
 
     /// <summary>Layer của 1 file: cây hiển thị + tên + tập tắt mặc định (/D/BaseState + /D/ON + /D/OFF).
     /// OCG định danh bằng "số_object thế_hệ" của tham chiếu gián tiếp — tên layer có thể trùng nhau.</summary>
@@ -19,7 +24,8 @@ namespace XTPdfMergeApp.Services
         IReadOnlyList<PdfLayerNode> Roots,
         IReadOnlyDictionary<string, string> Names,
         IReadOnlySet<string> DefaultHidden,
-        IReadOnlySet<string> Locked)
+        IReadOnlySet<string> Locked,
+        IReadOnlySet<string>? UsageControlled = null)
     {
         public static readonly PdfLayerInfo Empty = new(Array.Empty<PdfLayerNode>(),
             new Dictionary<string, string>(), new HashSet<string>(), new HashSet<string>());
@@ -34,6 +40,10 @@ namespace XTPdfMergeApp.Services
         private static readonly PdfName Locked = new("Locked");
         private static readonly PdfName BaseState = new("BaseState");
         private static readonly PdfName AS = new("AS");
+        private static readonly PdfName Event = new("Event");
+        private static readonly PdfName View = new("View");
+        private static readonly PdfName ViewState = new("ViewState");
+        private static readonly PdfName Usage = new("Usage");
 
         public static string IdOf(PdfObject ocg)
         {
@@ -69,13 +79,37 @@ namespace XTPdfMergeApp.Services
             foreach (string id in IdsIn(config?.GetAsArray(PdfName.OFF))) if (names.ContainsKey(id)) hidden.Add(id);
             var locked = new HashSet<string>(IdsIn(config?.GetAsArray(Locked)).Where(names.ContainsKey));
 
+            // /D/AS: OCG thuộc 1 mục có /Event /View → trạng thái khi xem lấy từ /Usage/View/ViewState của OCG.
+            var usageControlled = new HashSet<string>();
+            var autoStates = config?.GetAsArray(AS);
+            for (int i = 0; autoStates != null && i < autoStates.Size(); i++)
+            {
+                if (autoStates.GetAsDictionary(i) is not { } entry || !View.Equals(entry.GetAsName(Event))) continue;
+                for (int k = 0; entry.GetAsArray(PdfName.OCGs) is { } list && k < list.Size(); k++)
+                {
+                    if (list.GetAsDictionary(k) is not { } ocg || IdOf(ocg) is not { Length: > 0 } id || !names.ContainsKey(id)) continue;
+                    var viewState = ocg.GetAsDictionary(Usage)?.GetAsDictionary(View)?.GetAsName(ViewState);
+                    if (viewState == null) continue; // OCG không khai báo usage View → /AS không tác động
+                    usageControlled.Add(id);
+                    if (PdfName.OFF.Equals(viewState)) hidden.Add(id); else hidden.Remove(id);
+                }
+            }
+
             var order = config?.GetAsArray(PdfName.Order);
             IReadOnlyList<PdfLayerNode> roots = order != null
                 ? BuildOrder(order, names, locked, new HashSet<PdfArray>())
                 // Không có /Order: liệt kê phẳng theo /OCGs (Acrobat cũng làm vậy).
                 : names.Select(n => new PdfLayerNode(n.Value, n.Key, locked.Contains(n.Key), Array.Empty<PdfLayerNode>())).ToList();
-            return new PdfLayerInfo(roots, names, hidden, locked);
+            if (usageControlled.Count > 0) roots = MarkUsageControlled(roots, usageControlled);
+            return new PdfLayerInfo(roots, names, hidden, locked, usageControlled);
         }
+
+        private static IReadOnlyList<PdfLayerNode> MarkUsageControlled(IReadOnlyList<PdfLayerNode> nodes, IReadOnlySet<string> ids)
+            => nodes.Select(n => n with
+            {
+                IsUsageControlled = n.OcgId != null && ids.Contains(n.OcgId),
+                Children = MarkUsageControlled(n.Children, ids)
+            }).ToList();
 
         private static IEnumerable<string> IdsIn(PdfArray? array)
         {
@@ -153,12 +187,11 @@ namespace XTPdfMergeApp.Services
                         if (ocgs.GetAsDictionary(i) is not { } ocg) continue;
                         (hidden.Contains(IdOf(ocg)) ? off : on).Add(entry);
                     }
-                    config.Put(BaseState, PdfName.ON);
+                    // CHỈ đổi /ON và /OFF (liệt kê đủ mọi OCG nên /BaseState không còn tác dụng, giữ nguyên).
+                    // /AS (usage application) và /Order giữ nguyên byte-for-byte theo file gốc — quyết định
+                    // của chủ dự án: tôn trọng cơ chế tự bật/tắt theo usage mà file đã khai báo.
                     config.Put(PdfName.ON, on);
                     config.Put(PdfName.OFF, off);
-                    // /AS (tự đổi trạng thái theo "View"/"Zoom"…) có thể đè lên ON/OFF — bỏ đi để lựa chọn
-                    // của người dùng là quyết định cuối cùng.
-                    config.Remove(AS);
                     config.SetModified();
                     ocProperties.SetModified();
                 }

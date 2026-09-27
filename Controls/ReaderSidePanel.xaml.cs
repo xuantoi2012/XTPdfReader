@@ -83,7 +83,7 @@ namespace XTPdfMergeApp.Controls
         internal void RequestVisibleThumbnails()
         {
             foreach (var item in Services.VisualTreeHelpers.FindVisualChildren<ListBoxItem>(ThumbnailList))
-                if (item.DataContext is PageRow row && row.Thumbnail == null) _ = MainWindow.LoadThumbnailFor(row);
+                if (item.DataContext is PageRow row && row.Thumbnail == null) _ = ThumbnailCache.LoadThumbnailFor(row);
         }
 
         // ── Đổi tab ───────────────────────────────────────────────────
@@ -162,12 +162,12 @@ namespace XTPdfMergeApp.Controls
 
         private void ThumbnailImage_Loaded(object sender, RoutedEventArgs e)
         {
-            if ((sender as FrameworkElement)?.DataContext is PageRow { Thumbnail: null } row) _ = MainWindow.LoadThumbnailFor(row);
+            if ((sender as FrameworkElement)?.DataContext is PageRow { Thumbnail: null } row) _ = ThumbnailCache.LoadThumbnailFor(row);
         }
 
         private void ThumbnailImage_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
-            if (e.NewValue is PageRow { Thumbnail: null } row && ((FrameworkElement)sender).IsLoaded) _ = MainWindow.LoadThumbnailFor(row);
+            if (e.NewValue is PageRow { Thumbnail: null } row && ((FrameworkElement)sender).IsLoaded) _ = ThumbnailCache.LoadThumbnailFor(row);
         }
 
         private void ThumbnailList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -203,12 +203,14 @@ namespace XTPdfMergeApp.Controls
     public sealed class LayerItem : INotifyPropertyChanged
     {
         public const string LockedToolTip = "Lớp bị khoá, không đổi hiển thị được";
+        public const string UsageToolTip = "Lớp do /AS (usage) của file tự điều khiển khi xem — không đổi hiển thị được";
 
         public LayerItem(PdfLayerNode node, IReadOnlySet<string> hidden)
         {
             Title = node.Title;
             OcgId = node.OcgId;
             IsLocked = node.IsLocked;
+            IsUsageControlled = node.IsUsageControlled;
             _isVisible = node.OcgId != null && !hidden.Contains(node.OcgId);
             Children = node.Children.Select(c => new LayerItem(c, hidden)).ToList();
         }
@@ -216,11 +218,12 @@ namespace XTPdfMergeApp.Controls
         public string Title { get; }
         public string? OcgId { get; }
         public bool IsLocked { get; }
+        public bool IsUsageControlled { get; }
         public IReadOnlyList<LayerItem> Children { get; }
-        public bool CanToggle => OcgId != null && !IsLocked;
+        public bool CanToggle => OcgId != null && !IsLocked && !IsUsageControlled;
         public Visibility CheckBoxVisibility => OcgId != null ? Visibility.Visible : Visibility.Collapsed;
         public FontWeight TitleWeight => OcgId == null ? FontWeights.SemiBold : FontWeights.Normal;
-        public string? ToolTipText => IsLocked ? LockedToolTip : null;
+        public string? ToolTipText => IsLocked ? LockedToolTip : IsUsageControlled ? UsageToolTip : null;
 
         private bool _isVisible;
         public bool IsVisible
