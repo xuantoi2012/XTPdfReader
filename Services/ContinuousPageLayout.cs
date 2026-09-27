@@ -14,7 +14,7 @@ namespace XTPdfMergeApp.Services;
 /// </summary>
 internal sealed class ContinuousPageLayout
 {
-    /// <summary>Khoảng cách giữa 2 trang và lề trên/dưới ở zoom 1 (như ContinuousPageMarginConverter trước đây).</summary>
+    /// <summary>Khoảng cách giữa 2 trang và lề trên/dưới ở zoom 1.</summary>
     public const double BaseGap = 14;
     public const double MinGap = 4;
     /// <summary>Lề trái/phải/trên/dưới của cả dải trang (DIP, không đổi theo zoom).</summary>

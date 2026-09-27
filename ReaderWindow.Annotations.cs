@@ -15,9 +15,10 @@ namespace XTPdfMergeApp
     /// <summary>
     /// Lớp tương tác CHUNG của 3 công cụ chú thích (Typewriter, Ghi chú, Highlight):
     /// 1. Bắt click/kéo trên trang đang hiển thị ở CẢ 2 chế độ xem (1 trang: ReaderImage; cuộn liên
-    ///    tục: ContinuousPageImage của từng item) — <see cref="TryHitPage"/>.
-    /// 2. Quy đổi vị trí màn hình → toạ độ TRANG HIỂN THỊ chuẩn hoá (u, v) bằng TranslatePoint vào
-    ///    chính Image (tự tính cả zoom/xoay khung nhìn/cuộn). Đổi tiếp sang toạ độ PDF (point, theo
+    ///    tục: vùng vẽ ContinuousPdfView, tự biết trang nào nằm ở đâu) — <see cref="TryHitPage"/>.
+    /// 2. Quy đổi vị trí màn hình → toạ độ TRANG HIỂN THỊ chuẩn hoá (u, v): 1 trang thì TranslatePoint vào
+    ///    chính ReaderImage (tự tính cả zoom/xoay khung nhìn/cuộn), cuộn liên tục thì theo khung trang của
+    ///    ContinuousPdfView. Đổi tiếp sang toạ độ PDF (point, theo
     ///    CropBox + /Rotate thật của trang) ở <see cref="PdfPageGeometry"/> lúc ghi file.
     /// 3. Mọi thao tác kết thúc bằng 1 callback chung <see cref="CommitAnnotationChange"/> → host ghi
     ///    annotation bằng iText + đưa vào Undo/Redo → trang render lại ngay.
@@ -29,7 +30,7 @@ namespace XTPdfMergeApp
         private ReaderTool _readerTool = ReaderTool.Hand;
 
         /// <summary>1 điểm trên 1 trang đang hiển thị: (U, V) chuẩn hoá 0..1, gốc trên-trái của trang.</summary>
-        private readonly record struct PageHit(PageRow Row, Image Image, double U, double V);
+        private readonly record struct PageHit(PageRow Row, double U, double V);
 
         private sealed record PageAnnotations(PdfPageGeometry Geometry, IReadOnlyList<QuickAnnotationSpec> Annotations);
 
@@ -87,41 +88,73 @@ namespace XTPdfMergeApp
         private bool TryHitPage(Point pointInHost, out PageHit hit)
         {
             hit = default;
+            if (_readerContinuousMode)
+            {
+                if (!ReaderContinuousView.IsVisible) return false;
+                Point p = ReaderContentHost.TranslatePoint(pointInHost, ReaderContinuousView.Surface);
+                if (!ReaderContinuousView.TryHitPage(p, out var row, out double u, out double v) || row == null) return false;
+                hit = new PageHit(row, u, v);
+                return true;
+            }
+
             var result = VisualTreeHelper.HitTest(ReaderContentHost, pointInHost);
             for (DependencyObject? node = result?.VisualHit; node != null && !ReferenceEquals(node, ReaderContentHost);
                  node = VisualTreeHelper.GetParent(node))
             {
                 if (node is not Image image) continue;
-                PageRow? row = ReferenceEquals(image, ReaderImage) ? _readerPage
-                    : image.Name == "ContinuousPageImage" ? image.DataContext as PageRow : null;
-                return row != null && TryGetPagePoint(row, image, pointInHost, clamp: false, out hit);
+                return ReferenceEquals(image, ReaderImage) && _readerPage != null &&
+                       TryGetPagePoint(_readerPage, pointInHost, clamp: false, out hit);
             }
             return false;
         }
 
-        private bool TryGetPagePoint(PageRow row, Image image, Point pointInHost, bool clamp, out PageHit hit)
+        private bool TryGetPagePoint(PageRow row, Point pointInHost, bool clamp, out PageHit hit)
         {
             hit = default;
-            if (image.ActualWidth <= 0 || image.ActualHeight <= 0 || !image.IsVisible) return false;
-            Point local = ReaderContentHost.TranslatePoint(pointInHost, image);
-            double u = local.X / image.ActualWidth, v = local.Y / image.ActualHeight;
+            if (!TryHostToPage(row, pointInHost, out double u, out double v)) return false;
             if (clamp) { u = Math.Clamp(u, 0, 1); v = Math.Clamp(v, 0, 1); }
             else if (u is < 0 or > 1 || v is < 0 or > 1) return false;
-            hit = new PageHit(row, image, u, v);
+            hit = new PageHit(row, u, v);
             return true;
         }
 
-        /// <summary>Điểm (u, v) trên trang → toạ độ trong ReaderInteractionLayer.</summary>
-        private Point PageToLayer(Image image, double u, double v)
-            => image.TranslatePoint(new Point(u * image.ActualWidth, v * image.ActualHeight), ReaderInteractionLayer);
-
-        /// <summary>Image đang hiển thị trang này (null nếu trang đã cuộn khỏi vùng được hiện thực hoá).</summary>
-        private Image? FindPageImage(PageRow row)
+        /// <summary>Điểm trong ReaderContentHost → (u, v) trên trang (chưa kẹp 0..1). False nếu trang không đang hiển thị.</summary>
+        private bool TryHostToPage(PageRow row, Point pointInHost, out double u, out double v)
         {
-            if (!_readerContinuousMode)
-                return ReferenceEquals(row, _readerPage) && ReaderImage.Source != null ? ReaderImage : null;
-            if (ReaderContinuousList.ItemContainerGenerator.ContainerFromItem(row) is not DependencyObject container) return null;
-            return FindVisualChildren<Image>(container).FirstOrDefault(i => i.Name == "ContinuousPageImage");
+            u = v = 0;
+            if (_readerContinuousMode)
+            {
+                if (!ReaderContinuousView.IsVisible || !ReaderContinuousView.TryGetPageRect(row, out Rect rect) ||
+                    rect.Width <= 0 || rect.Height <= 0) return false;
+                Point p = ReaderContentHost.TranslatePoint(pointInHost, ReaderContinuousView.Surface);
+                u = (p.X - rect.X) / rect.Width;
+                v = (p.Y - rect.Y) / rect.Height;
+                return true;
+            }
+            var image = ReaderImage;
+            if (!ReferenceEquals(row, _readerPage) || image.Source == null ||
+                image.ActualWidth <= 0 || image.ActualHeight <= 0 || !image.IsVisible) return false;
+            Point local = ReaderContentHost.TranslatePoint(pointInHost, image);
+            u = local.X / image.ActualWidth;
+            v = local.Y / image.ActualHeight;
+            return true;
+        }
+
+        /// <summary>Điểm (u, v) trên trang → toạ độ trong ReaderInteractionLayer. False nếu trang không đang hiển thị.</summary>
+        private bool TryPageToLayer(PageRow row, double u, double v, out Point point)
+        {
+            point = default;
+            if (_readerContinuousMode)
+            {
+                if (!ReaderContinuousView.IsVisible || !ReaderContinuousView.TryGetPageRect(row, out Rect rect)) return false;
+                point = ReaderContinuousView.Surface.TranslatePoint(
+                    new Point(rect.X + u * rect.Width, rect.Y + v * rect.Height), ReaderInteractionLayer);
+                return true;
+            }
+            var image = ReaderImage;
+            if (!ReferenceEquals(row, _readerPage) || image.Source == null || !image.IsVisible) return false;
+            point = image.TranslatePoint(new Point(u * image.ActualWidth, v * image.ActualHeight), ReaderInteractionLayer);
+            return true;
         }
 
         // ── Cache annotation theo trang (hit-test ghi chú đã có, cỡ trang thật) ─────
@@ -273,15 +306,15 @@ namespace XTPdfMergeApp
 
         // ── Highlight: kéo 1 hình chữ nhật ──────────────────────────────
 
-        private sealed record HighlightDrag(PageRow Row, Image Image, double StartU, double StartV);
+        private sealed record HighlightDrag(PageRow Row, double StartU, double StartV);
         private HighlightDrag? _highlightDrag;
 
         private void BeginHighlightDrag(PageHit hit)
         {
-            _highlightDrag = new HighlightDrag(hit.Row, hit.Image, hit.U, hit.V);
+            if (!TryPageToLayer(hit.Row, hit.U, hit.V, out Point start)) return;
+            _highlightDrag = new HighlightDrag(hit.Row, hit.U, hit.V);
             ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;
             ReaderContentHost.CaptureMouse();
-            Point start = PageToLayer(hit.Image, hit.U, hit.V);
             Canvas.SetLeft(ReaderHighlightRubberBand, start.X);
             Canvas.SetTop(ReaderHighlightRubberBand, start.Y);
             ReaderHighlightRubberBand.Width = ReaderHighlightRubberBand.Height = 0;
@@ -290,9 +323,9 @@ namespace XTPdfMergeApp
 
         private void UpdateHighlightDrag(HighlightDrag drag, Point pointInHost)
         {
-            if (!TryGetPagePoint(drag.Row, drag.Image, pointInHost, clamp: true, out var current)) return;
-            Point a = PageToLayer(drag.Image, drag.StartU, drag.StartV);
-            Point b = PageToLayer(drag.Image, current.U, current.V);
+            if (!TryGetPagePoint(drag.Row, pointInHost, clamp: true, out var current)) return;
+            if (!TryPageToLayer(drag.Row, drag.StartU, drag.StartV, out Point a) ||
+                !TryPageToLayer(drag.Row, current.U, current.V, out Point b)) return;
             Canvas.SetLeft(ReaderHighlightRubberBand, Math.Min(a.X, b.X));
             Canvas.SetTop(ReaderHighlightRubberBand, Math.Min(a.Y, b.Y));
             ReaderHighlightRubberBand.Width = Math.Abs(a.X - b.X);
@@ -301,7 +334,7 @@ namespace XTPdfMergeApp
 
         private void FinishHighlightDrag(HighlightDrag drag, Point pointInHost)
         {
-            bool haveEnd = TryGetPagePoint(drag.Row, drag.Image, pointInHost, clamp: true, out var end);
+            bool haveEnd = TryGetPagePoint(drag.Row, pointInHost, clamp: true, out var end);
             bool bigEnough = ReaderHighlightRubberBand.Width >= 4 && ReaderHighlightRubberBand.Height >= 4;
             CancelHighlightDrag();
             if (!haveEnd || !bigEnough) return;
@@ -384,10 +417,10 @@ namespace XTPdfMergeApp
         /// <summary>Đặt lại ô nhập theo vị trí/zoom hiện tại của trang (gọi mỗi lần layout đổi: cuộn, zoom).</summary>
         private void PositionAnnotationEditor()
         {
-            if (_annotationEditor is not { } state || FindPageImage(state.Row) is not { } image) return;
+            if (_annotationEditor is not { } state ||
+                !TryPageToLayer(state.Row, state.U, state.V, out Point anchor) ||
+                !TryPageToLayer(state.Row, state.U + 1.0 / Math.Max(1, state.Geometry.DisplayWidth), state.V, out Point right)) return;
 
-            Point anchor = PageToLayer(image, state.U, state.V);
-            Point right = PageToLayer(image, state.U + 1.0 / Math.Max(1, state.Geometry.DisplayWidth), state.V);
             double pixelsPerPoint = Math.Max(0.1, (right - anchor).Length);
 
             double left, top;

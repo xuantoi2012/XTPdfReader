@@ -448,11 +448,7 @@ namespace XTPdfMergeApp.Services
 
         /// <summary>Chỉ lấy tỉ lệ khung hình THẬT của trang (height/width) — KHÔNG rasterize bitmap
         /// (không FPDFBitmap_Create/FillRect/RenderPageBitmap), rẻ hơn nhiều so với RenderPageAsync.
-        /// Dùng để sửa placeholder height (xem ContinuousPagePlaceholderHeightConverter) cho ĐÚNG tỉ lệ
-        /// trang thật NGAY khi trang được hiện thực hoá trong continuous reader, thay vì đợi bitmap
-        /// (thumbnail/reader) tải xong — CAD workflow có nhiều khổ giấy khác A4 (A0/A1/A3 ngang...), tỉ
-        /// lệ giả định 1.4142 sai khá xa với nhiều trang, gây nhảy chiều cao đột ngột không liên quan gì
-        /// tới zoom khi bitmap thật load xong giữa lúc đang cuộn/zoom nhanh.</summary>
+        /// Chế độ Cuộn liên tục đọc khổ giấy mọi trang một lượt qua <see cref="GetPageSizesAsync"/>.</summary>
         public static async Task<double?> GetPageAspectRatioAsync(string pdfPath, int pageIndex, CancellationToken cancellationToken = default)
         {
             if (_shuttingDown) return null;

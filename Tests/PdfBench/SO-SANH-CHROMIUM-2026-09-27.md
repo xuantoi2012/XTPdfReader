@@ -72,3 +72,35 @@ Nguồn đối chiếu là mã Chromium (nhánh `main`, bản sao trên GitHub `
 
 - **Zoom bằng Ctrl+lăn chuột:** Chromium nhảy theo các mức zoom cố định của trình duyệt (25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500%). App zoom liên tục theo từng nấc (bước `ReaderZoomStep`), mượt hơn khi xem bản vẽ.
 - **Khe giữa trang:** Chromium dùng khe cố định 4 px (tài liệu) cộng bóng đổ. App dùng khe 14 × zoom (tối thiểu 4) và viền 1 px, không bóng đổ, vì bóng đổ bắt WPF vẽ lại bằng phần mềm mỗi nấc zoom.
+
+## Cập nhật: chuyển sang cách của Foxit (1 vùng vẽ)
+
+Các mục trên vẫn dùng ListBox + panel ảo hoá + phần tử, ảnh và 2 canvas tile cho từng trang. Nhiều lớp phải khớp nhau ở mỗi nấc zoom/cuộn. Lỗi thấy được: bấm End rồi zoom thì màn hình đen, không còn trang nào.
+
+**Bây giờ:** `Controls/ContinuousPdfView` là **một** vùng vẽ duy nhất.
+
+Cách hoạt động:
+
+- **Vị trí trang:** mọi trang tính bằng `ContinuousViewport`, thuần số học trên `ContinuousPageLayout`.
+- **Cuộn/zoom:** chỉ đổi offset/zoom rồi vẽ lại khung hình kế tiếp.
+- **Mỗi khung hình**, mỗi trang đang hiện được vẽ bằng ảnh tốt nhất đang có, co giãn vào đúng khung trang:
+  - ảnh nhỏ 340 px;
+  - ảnh trang ≤ 2304 px;
+  - vùng nét khi zoom sâu, đặt theo phân số của trang nên đúng vị trí ở mọi zoom.
+
+  Trang đã có ảnh không bao giờ trống. Ảnh nét mới tới thì thay vào.
+- **Khi nào xin vẽ PDFium:**
+  - xin sau khi khung nhìn đứng yên một nhịp;
+  - cuộn nhanh (> 4 màn hình/giây) thì chờ dừng 100 ms;
+  - đang zoom thì chờ zoom dừng 150 ms;
+  - trang rời khu vực ±4 trang quanh khung nhìn thì huỷ.
+- **Pan khi zoom sâu:** vùng đang vẽ dở vẫn còn trên màn hình thì vẽ nốt, xong mới xin vùng kế.
+- **Chất lượng co giãn:** luôn HighQuality (GPU). Không còn đổi Low/High quality lúc thao tác.
+
+Kiểm thử logic khung nhìn (`ContinuousViewport`, chạy được ngoài Windows):
+
+- 200 trang A1/A3 trộn.
+- End, rồi zoom vào/ra 100 nấc: trang cuối luôn nằm trong khung nhìn.
+- Zoom 6 nấc quanh con trỏ: điểm dưới con trỏ đứng yên, sai số < 1e-6.
+- Đọc xong khổ giấy thật: trang ở đỉnh khung nhìn đứng yên.
+- Kẹp offset, và vùng vẽ nét phủ đúng phần đang nhìn.

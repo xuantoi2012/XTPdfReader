@@ -54,7 +54,7 @@ namespace XTPdfMergeApp
                 _syncingDocumentTabs = false;
             }
             ScheduleNearbyThumbnailWarmup();
-            if (_continuousScrollFast)
+            if (ReaderContinuousView.IsFastScrolling)
             {
                 // Đang cuộn nhanh: panel trái không chạy theo từng trang lướt qua (mỗi lần chạy theo lại xin thumbnail
                 // cho cả chục trang không ai xem) — đồng bộ 1 lần khi cuộn dừng (SyncSidePanelAfterScroll).
@@ -86,7 +86,7 @@ namespace XTPdfMergeApp
                 _thumbnailWarmupTimer.Tick += (_, _) =>
                 {
                     _thumbnailWarmupTimer!.Stop();
-                    if (_continuousScrollFast) { _thumbnailWarmupTimer.Start(); return; }
+                    if (ReaderContinuousView.IsFastScrolling) { _thumbnailWarmupTimer.Start(); return; }
                     _ = WarmNearbyThumbnailsAsync();
                 };
             }
@@ -343,18 +343,9 @@ namespace XTPdfMergeApp
 
             ReaderSidePanel.RequestVisibleThumbnails();
             var refreshInPlace = new HashSet<PageRow>();
-            if (_readerGroup != null && _readerPage != null)
-            {
-                if (_readerContinuousMode)
-                {
-                    foreach (var item in FindVisualChildren<ListBoxItem>(ReaderContinuousList))
-                        if (item.DataContext is PageRow row && Matches(row) && row.ReaderBitmap != null) refreshInPlace.Add(row);
-                }
-                else if (Matches(_readerPage) && _readerPage.ReaderBitmap != null)
-                {
-                    refreshInPlace.Add(_readerPage);
-                }
-            }
+            if (_readerGroup != null && _readerPage != null && !_readerContinuousMode &&
+                Matches(_readerPage) && _readerPage.ReaderBitmap != null)
+                refreshInPlace.Add(_readerPage);
 
             foreach (var row in _groups.SelectMany(g => g.Pages).Where(Matches))
             {
@@ -364,6 +355,12 @@ namespace XTPdfMergeApp
             }
 
             if (_readerGroup == null || _readerPage == null) return;
+            if (_readerContinuousMode)
+            {
+                // Vùng vẽ giữ ảnh cũ trên màn hình tới khi ảnh theo trạng thái layer mới xong.
+                ReaderContinuousView.InvalidatePages(Matches, dropImages: false);
+                return;
+            }
             ClearReaderTiles();
             foreach (var row in refreshInPlace) _ = RefreshReaderBitmapInPlaceAsync(row);
             if (!_readerContinuousMode && Matches(_readerPage) && refreshInPlace.Count == 0)
