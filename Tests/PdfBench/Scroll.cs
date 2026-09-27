@@ -73,16 +73,12 @@ static unsafe class ScrollBench
             return mem;
         }
 
-        /// <param name="dedup">Thử nghiệm: luồng cần khối đang được luồng khác đọc thì chờ, không đọc lại.</param>
-        public static PdfBlockCache NewCache(string path, double netLatency, double netMBps, bool dedup = false)
+        public static PdfBlockCache NewCache(string path, double netLatency, double netMBps)
         {
             long len = new FileInfo(path).Length;
             var link = new WindowBench.SimLink(netLatency, netMBps);
             return new PdfBlockCache(len, DateTime.MinValue, () => { }, _ =>
-            {
-                IBlockFile file = new CountingBlockFile(new WindowBench.RawBlockFile(path, len, link, new WindowBench.Counter()));
-                return new ThreadTimedBlockFile(dedup ? new InFlightDedupBlockFile(file) : file);
-            }); // không đọc nền
+                new ThreadTimedBlockFile(new CountingBlockFile(new WindowBench.RawBlockFile(path, len, link, new WindowBench.Counter())))); // không đọc nền
         }
 
         static (double Ms, long Bytes) IoSnapshot => (ThreadTimedBlockFile.Ticks * 1000.0 / Stopwatch.Frequency, ThreadTimedBlockFile.Bytes);
@@ -292,7 +288,7 @@ static unsafe class ScrollBench
             int[] parallelPages = mode == "ram" ? serialPages : NextPages();
             int[] copiesPages = mode == "ram" ? serialPages : NextPages();
             var serialHash = new System.Collections.Concurrent.ConcurrentDictionary<int, ulong>();
-            Console.WriteLine($"\n══ {(mode == "ram" ? "RAM: cả file đã nằm trong RAM (chỉ CPU) — như app sau khi PdfBlockCache nạp nền xong" : "net: đọc theo khối 256 KB qua PdfBlockCache của app, chưa có gì trong bộ đệm — như vài giây đầu sau khi mở. N tiến trình: mỗi worker tự đọc riêng; N bản/1 TT: 1 bộ đệm chung" + (opts.Contains("--no-dedup") ? "" : ", khối đang đọc dở thì chờ, không đọc trùng (thử nghiệm)"))} ══");
+            Console.WriteLine($"\n══ {(mode == "ram" ? "RAM: cả file đã nằm trong RAM (chỉ CPU) — như app sau khi PdfBlockCache nạp nền xong" : "net: đọc theo khối 256 KB qua PdfBlockCache của app, chưa có gì trong bộ đệm — như vài giây đầu sau khi mở. N tiến trình: mỗi worker tự đọc riêng; N bản/1 TT: 1 bộ đệm chung")} ══");
 
             // 1 tiến trình: như app — PDFium tuần tự, ưu tiên ảnh xem trước của cả màn rồi mới tới ảnh nét.
             var serialAll = new List<double>(); var serialPreview = new List<double>(); var serialTimes = new List<PageTimes>();
@@ -349,7 +345,7 @@ static unsafe class ScrollBench
                 byte[]? sharedMem = mode == "ram" ? Engine.LoadAll(path) : null;
                 long memBefore = PrivateBytes();
                 var apis = Enumerable.Range(1, visible).Select(PdfiumApi.LoadCopy).ToArray();
-                PdfBlockCache? sharedCache = mode == "ram" ? null : Engine.NewCache(path, lat, mbps, dedup: !opts.Contains("--no-dedup"));
+                PdfBlockCache? sharedCache = mode == "ram" ? null : Engine.NewCache(path, lat, mbps);
                 var engines = new Engine[visible];
                 Parallel.For(0, visible, i => { engines[i] = new Engine(apis[i], sharedMem, sharedCache); engines[i].Render(0, 256, null); });
                 Console.WriteLine($"   Nạp {visible} bản PDFium + mở file (1 lần khi mở app): {loadSw.Elapsed.TotalMilliseconds:F0} ms");
@@ -385,6 +381,8 @@ static unsafe class ScrollBench
             Breakdown($"{visible} tiến trình", parTimes);
             Breakdown($"{visible} bản/1 TT", cpTimes);
             Console.WriteLine("   * lần vẽ đầu của trang gồm cả phần PDFium parse muộn (block/Form XObject, giải mã ảnh).");
+            if (mode == "net")
+                Console.WriteLine($"   {visible} bản/1 TT: thời gian chờ khối mà luồng KHÁC đang đọc (không đọc trùng) được tính vào \"parse CPU\", không vào \"chờ đọc file\".");
             Console.WriteLine($"   Chép bitmap từ worker về app: TB {receiveCopy.Average() / visible:F1} ms/trang (đã tính trong thời gian {visible} tiến trình)");
             Console.WriteLine($"\n   Thời gian hiện đủ {visible} trang mới của 1 màn:");
             Stat("1 tiến trình — đủ ảnh xem trước", serialPreview);

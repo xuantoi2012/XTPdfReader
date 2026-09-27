@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -123,52 +121,6 @@ sealed class CountingBlockFile(IBlockFile inner) : IBlockFile
         int n = inner.Read(offset, destination);
         ThreadTimedBlockFile.Bytes += Math.Max(0, n);
         return n;
-    }
-
-    public void Dispose() => inner.Dispose();
-}
-
-/// <summary>
-/// Thử nghiệm (chưa có trong app): khối đang được luồng khác đọc thì CHỜ luồng đó thay vì đọc lại. PdfBlockCache
-/// luôn đọc theo offset căn khối nên khoá theo offset là đủ.
-/// </summary>
-sealed class InFlightDedupBlockFile(IBlockFile inner) : IBlockFile
-{
-    readonly Dictionary<(long, int), Task<byte[]?>> _inFlight = new();
-
-    public int Read(long offset, Span<byte> destination)
-    {
-        var key = (offset, destination.Length);
-        TaskCompletionSource<byte[]?>? mine = null;
-        Task<byte[]?> task;
-        lock (_inFlight)
-        {
-            if (!_inFlight.TryGetValue(key, out task!))
-            {
-                mine = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
-                _inFlight[key] = task = mine.Task;
-            }
-        }
-        if (mine != null)
-        {
-            byte[]? data = null;
-            try
-            {
-                var buf = new byte[destination.Length];
-                int got = 0;
-                while (got < buf.Length) { int n = inner.Read(offset + got, buf.AsSpan(got)); if (n <= 0) break; got += n; }
-                if (got > 0) data = got == buf.Length ? buf : buf[..got];
-            }
-            finally
-            {
-                lock (_inFlight) _inFlight.Remove(key);
-                mine.SetResult(data);
-            }
-        }
-        var result = task.GetAwaiter().GetResult();
-        if (result == null) return 0;
-        result.CopyTo(destination);
-        return result.Length;
     }
 
     public void Dispose() => inner.Dispose();

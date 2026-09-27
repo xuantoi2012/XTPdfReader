@@ -58,8 +58,8 @@ cách:
 - **N tiến trình worker thật:** mỗi worker có PDFium riêng và được khởi động sẵn. Worker nhận lệnh qua
   pipe và trả bitmap qua memory-mapped file.
 - **N bản PDFium trong 1 tiến trình:** N bản sao `pdfium.dll` khác tên, mỗi bản 1 luồng, dùng chung 1
-  `PdfBlockCache`. Kịch bản này cũng kiểm tra ảnh vẽ song song giống hệt từng bit ảnh do 1 bản vẽ. Mặc định
-  bật việc không đọc trùng khối đang đọc dở (thử nghiệm); `--no-dedup` để tắt.
+  `PdfBlockCache` (khối đang được luồng khác đọc thì chờ, không đọc trùng). Kịch bản này cũng kiểm tra ảnh vẽ
+  song song giống hệt từng bit ảnh do 1 bản vẽ.
 
 Thời gian mỗi trang được tách thành chờ đọc file, parse CPU và vẽ CPU. Có 2 chế độ:
 - **RAM:** như sau khi đọc nền xong, chỉ còn CPU.

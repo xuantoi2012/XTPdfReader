@@ -115,7 +115,8 @@ namespace XTPdfMergeApp.Services
     /// <summary>
     /// Bộ đệm cả file chia khối <see cref="BlockSize"/>. Khối chưa có → đọc ngay khối đó (lệnh của trang đang
     /// xem); luồng nền lấp dần các khối còn thiếu theo thứ tự, mỗi lần 1 khối, và đứng chờ khi có lệnh đọc của
-    /// trang đang chờ. Khối đã có thì không bao giờ đổi → đọc ra không cần khoá.
+    /// trang đang chờ. Khối đã có thì không bao giờ đổi → đọc ra không cần khoá. Mỗi khối chỉ được đọc qua mạng
+    /// 1 lần: khối đang được luồng khác đọc (luồng nền, hoặc bản PDFium/iText khác) thì chờ luồng đó.
     ///
     /// An toàn đa luồng: PDFium (dưới gate toàn cục) và iText (PdfLayerService, ngoài gate) có thể đọc cùng lúc.
     /// </summary>
@@ -127,7 +128,10 @@ namespace XTPdfMergeApp.Services
 
         private readonly Func<bool, IBlockFile> _open;
         private readonly byte[] _data;
-        private readonly int[] _present;          // 1 = khối đã nạp (ghi bằng Volatile.Write SAU khi chép dữ liệu)
+        // Trạng thái từng khối: Missing → Loading (đúng 1 luồng đang đọc) → Present (ghi bằng Volatile.Write SAU khi
+        // chép dữ liệu, không bao giờ đổi nữa). Luồng cần khối đang Loading thì chờ luồng kia, không đọc trùng.
+        private const int Missing = 0, Present = 1, Loading = 2;
+        private readonly int[] _present;
         private int _presentCount;
         private readonly object _lock = new();
         private int _foregroundWaiting;
@@ -199,22 +203,32 @@ namespace XTPdfMergeApp.Services
             if (count == 0) return true;
             int first = (int)(position / BlockSize), last = (int)((position + count - 1) / BlockSize);
             for (int block = first; block <= last; block++)
-                if (Volatile.Read(ref _present[block]) == 0 && !ReadBlockNow(block)) return false;
+                if (Volatile.Read(ref _present[block]) != Present && !ReadBlockNow(block)) return false;
             return true;
         }
 
-        /// <summary>Lệnh của trang đang xem: đọc ngay khối còn thiếu, luồng nền đứng chờ tới khi xong.</summary>
+        /// <summary>Lệnh của trang đang xem: đọc ngay khối còn thiếu (hoặc chờ luồng đang đọc nó), luồng nền
+        /// đứng chờ tới khi xong.</summary>
         private bool ReadBlockNow(int block)
         {
             Interlocked.Increment(ref _foregroundWaiting);
             long start = Stopwatch.GetTimestamp();
-            byte[] scratch = ArrayPool<byte>.Shared.Rent(BlockSize);
+            byte[]? scratch = null;
             try
             {
-                if (!ReadFromFile(_file, block, scratch)) return false;
-                Commit(block, scratch);
-                RenderDiagnostics.FileBlockRead.Record(start);
-                return true;
+                if (!TryClaim(block, wait: true)) return Volatile.Read(ref _present[block]) == Present;
+                scratch = ArrayPool<byte>.Shared.Rent(BlockSize);
+                bool ok = false;
+                try
+                {
+                    ok = ReadFromFile(_file, block, scratch);
+                }
+                finally
+                {
+                    Finish(block, ok ? scratch : null); // lỗi đọc: trả khối về Missing, luồng đang chờ tự thử đọc lại
+                }
+                if (ok) RenderDiagnostics.FileBlockRead.Record(start);
+                return ok;
             }
             catch
             {
@@ -222,9 +236,31 @@ namespace XTPdfMergeApp.Services
             }
             finally
             {
-                ArrayPool<byte>.Shared.Return(scratch);
+                if (scratch != null) ArrayPool<byte>.Shared.Return(scratch);
                 if (Interlocked.Decrement(ref _foregroundWaiting) == 0)
                     lock (_lock) Monitor.PulseAll(_lock);
+            }
+        }
+
+        /// <summary>Nhận quyền đọc khối (Missing → Loading). true = luồng này phải đọc rồi gọi <see cref="Finish"/>.
+        /// false = khối đã có (sau khi chờ luồng khác đọc xong nếu <paramref name="wait"/>), hoặc — khi không chờ —
+        /// đang có luồng khác đọc.</summary>
+        private bool TryClaim(int block, bool wait)
+        {
+            lock (_lock)
+            {
+                while (true)
+                {
+                    int state = _present[block];
+                    if (state == Present) return false;
+                    if (state == Missing)
+                    {
+                        _present[block] = Loading;
+                        return true;
+                    }
+                    if (!wait) return false;
+                    Monitor.Wait(_lock); // Finish của luồng đang đọc sẽ PulseAll
+                }
             }
         }
 
@@ -241,16 +277,25 @@ namespace XTPdfMergeApp.Services
             return true;
         }
 
-        private void Commit(int block, byte[] scratch)
+        /// <summary>Kết thúc lượt đọc đã <see cref="TryClaim"/>: có dữ liệu → Present, lỗi (null) → Missing.</summary>
+        private void Finish(int block, byte[]? scratch)
         {
             long offset = (long)block * BlockSize;
             int size = (int)Math.Min(BlockSize, Length - offset);
             lock (_lock)
             {
-                if (_present[block] != 0) return; // luồng khác vừa nạp — dữ liệu giống nhau, giữ bản đã có
-                Buffer.BlockCopy(scratch, 0, _data, (int)offset, size);
-                Volatile.Write(ref _present[block], 1);
-                _presentCount++;
+                if (scratch != null)
+                {
+                    // Luồng này đang giữ Loading nên không ai khác ghi vùng này; người đọc chỉ đọc sau khi thấy Present.
+                    Buffer.BlockCopy(scratch, 0, _data, (int)offset, size);
+                    Volatile.Write(ref _present[block], Present);
+                    _presentCount++;
+                }
+                else
+                {
+                    _present[block] = Missing;
+                }
+                Monitor.PulseAll(_lock);
             }
         }
 
@@ -267,7 +312,7 @@ namespace XTPdfMergeApp.Services
                 using var handle = _open(true);
                 for (int block = 0; block < _present.Length; block++)
                 {
-                    if (Volatile.Read(ref _present[block]) != 0) continue; // trang đang xem đã nạp khối này
+                    if (Volatile.Read(ref _present[block]) != Missing) continue; // trang đang xem đã nạp / đang đọc khối này
                     lock (_lock)
                     {
                         // Nhường trang đang xem: không chiếm đường truyền khi nó đang chờ khối.
@@ -275,9 +320,17 @@ namespace XTPdfMergeApp.Services
                             Monitor.Wait(_lock, 50);
                     }
                     if (token.IsCancellationRequested) return;
-                    if (Volatile.Read(ref _present[block]) != 0) continue;
-                    if (!ReadFromFile(handle, block, scratch)) return;
-                    Commit(block, scratch);
+                    if (!TryClaim(block, wait: false)) continue;
+                    bool ok = false;
+                    try
+                    {
+                        ok = ReadFromFile(handle, block, scratch);
+                    }
+                    finally
+                    {
+                        Finish(block, ok ? scratch : null);
+                    }
+                    if (!ok) return;
                 }
                 RenderDiagnostics.FileBufferRead.Record(start);
             }
