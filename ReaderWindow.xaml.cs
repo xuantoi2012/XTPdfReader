@@ -29,7 +29,7 @@ namespace XTPdfMergeApp
     /// Application.MainWindow. Nó SỞ HỮU <see cref="DocumentSession"/> (file đang mở, undo/redo, sửa trang)
     /// và là nơi duy nhất tạo cửa sổ ghép phụ <see cref="MergeWorkspaceWindow"/>.
     /// </summary>
-    public partial class ReaderWindow : XTCadWindow
+    public partial class ReaderWindow : XTWindow
     {
         /// <summary>Cửa sổ đọc đang chạy (app chỉ có 1).</summary>
         public static ReaderWindow? Instance { get; private set; }

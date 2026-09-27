@@ -10,7 +10,7 @@
 
 ## Windows and ownership
 
-- `ReaderWindow` (an `XTCadWindow`) is the entry point: `App.OnStartup` creates it as
+- `ReaderWindow` (an `XTWindow`) is the entry point: `App.OnStartup` creates it as
   `Application.MainWindow`. It contains a single-row ribbon, the open-file tabs, the left panel
   (`Controls/ReaderSidePanel`: page thumbnails, bookmarks, layers) and the page view.
 - `ReaderWindow` owns the `DocumentSession`. The session holds the open documents (`PdfWorkspace` and

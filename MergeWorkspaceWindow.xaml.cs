@@ -47,7 +47,7 @@ namespace XTPdfMergeApp
     /// App.xaml.cs). Khi pdfFactory đẩy 1 file mới vào lúc cửa sổ đang mở sẵn
     /// (qua named pipe), CHỈ thêm file, không đụng WindowState/kích thước.
     /// </summary>
-    public partial class MergeWorkspaceWindow : XTCadWindow
+    public partial class MergeWorkspaceWindow : XTWindow
     {
         /// <summary>Payload kéo-thả 1 cụm trang — giữ luôn tham chiếu hàng NGUỒN để Drop biết rút khỏi đâu (khác hàng đích thì là "chuyển file", cùng hàng thì là "sắp xếp lại").</summary>
         private sealed class PageDragPayload

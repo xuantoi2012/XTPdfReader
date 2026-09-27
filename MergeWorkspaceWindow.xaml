@@ -1,4 +1,4 @@
-<xt:XTCadWindow x:Class="XTPdfMergeApp.MergeWorkspaceWindow"
+<xt:XTWindow x:Class="XTPdfMergeApp.MergeWorkspaceWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
@@ -12,16 +12,16 @@
         UseLayoutRounding="True" SnapsToDevicePixels="True"
         PreviewKeyDown="MainWindow_PreviewKeyDown">
 
-    <xt:XTCadWindow.TitleBarRightContent>
+    <xt:XTWindow.TitleBarRightContent>
         <xt:XTToggleButton x:Name="ThemeToggleButton"
                            UncheckedText="Light" CheckedText="Dark"
                            VerticalAlignment="Center" Margin="0,0,8,0"
                            ToolTip="Đổi giao diện Light/Dark"
                            Checked="ThemeToggleButton_Changed"
                            Unchecked="ThemeToggleButton_Changed"/>
-    </xt:XTCadWindow.TitleBarRightContent>
+    </xt:XTWindow.TitleBarRightContent>
 
-    <xt:XTCadWindow.Resources>
+    <xt:XTWindow.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <!-- PdfCardIconButton (dùng chung ở header card/group) + PdfViewerIconButton +
@@ -879,7 +879,7 @@
                 <UniformGrid Columns="2"/>
             </ItemsPanelTemplate>
         </ResourceDictionary>
-    </xt:XTCadWindow.Resources>
+    </xt:XTWindow.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
@@ -1209,4 +1209,4 @@
         </Grid>
 
     </Grid>
-</xt:XTCadWindow>
+</xt:XTWindow>
