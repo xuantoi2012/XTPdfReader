@@ -198,8 +198,13 @@ static class Bench
                 double P = parse.Average(), T = prev.Average(), F = full.Average(), R = reuse.Average();
                 Console.WriteLine($"   (TB {parse.Count} trang: parse {P:F0} · ảnh thấp {ThumbWidth}px {T:F0} · ảnh nét {readerWidth}px {F:F0} · vẽ lại khi còn page handle {R:F0} ms)");
                 Console.WriteLine($"   #1 Ảnh thấp trước:  trang hiện sau  {P + F,5:F0} → {P + T,5:F0} ms   (ảnh nét xong sau {P + T + F:F0} ms)");
-                Console.WriteLine($"   #2 Tải trước khi cuộn: trang kế tiếp đã sẵn khi lọt vào màn hình nếu khoảng cách giữa 2 trang ≥ {P + F:F0} ms");
-                Console.WriteLine($"                        (≈ cuộn đều tối đa {1000 / (P + F):F1} trang/giây không thấy trang trắng; trước đây luôn chờ {P + F:F0} ms/trang)");
+                foreach (double every in new[] { 400.0, 250.0 })
+                {
+                    var (blankBefore, sharpBefore) = SimulateScroll(P, T, F, every, prefetchAhead: 0);
+                    var (blankAfter, sharpAfter) = SimulateScroll(P, T, F, every, prefetchAhead: 2);
+                    Console.WriteLine($"   #2 Cuộn đều 1 trang/{every:F0} ms (mô phỏng từ chi phí đo được, 20 trang): trang trống TB {blankBefore,4:F0} → {blankAfter,4:F0} ms," +
+                                      $" chờ ảnh nét TB {sharpBefore,4:F0} → {sharpAfter,4:F0} ms");
+                }
                 Console.WriteLine($"   #3 Giữ page handle theo vùng xem: vẽ lại trang vừa rời khỏi cache {P + F,5:F0} → {R,5:F0} ms (bỏ parse lại)");
                 Console.WriteLine($"   #4 Zoom sâu: xem mục 2d (1 vùng so với tile 640 px)");
                 Console.WriteLine($"   #5 Tạm dừng thumbnail khi zoom/pan: bớt chờ gate tối đa 1 lát thumbnail = {maxThumbSlice:F0} ms (+ parse {parse.Max():F0} ms nếu đang parse)");
@@ -288,6 +293,34 @@ static class Bench
         Console.WriteLine($"   Parse {n} trang đầu:  {calls - openCalls,7} lần đọc, {seeks - openSeeks,6} lần nhảy vị trí, {(bytes - openBytes) / 1024.0,9:F0} KB" +
                           $"  (TB {(calls - openCalls) / Math.Max(1.0, n):F0} lần đọc/trang, khối TB {(bytes - openBytes) / Math.Max(1.0, calls - openCalls) / 1024:F1} KB)");
         Console.WriteLine("   → Qua ổ mạng, mỗi lần nhảy vị trí là 1 vòng hỏi-đáp SMB nếu Windows chưa cache đoạn đó.");
+    }
+
+    /// <summary>Mô hình 1 luồng PDFium (gate toàn cục): trang k lọt vào màn hình ở thời điểm k*every. Không tải
+    /// trước: trang chỉ bắt đầu (parse → ảnh thấp → ảnh nét) khi đã hiện. Tải trước N trang: luồng vẽ luôn làm
+    /// sẵn (parse → ảnh nét) các trang tới k+N khi trang k đang hiện. Trả (TB thời gian trang trống, TB chờ ảnh nét).</summary>
+    static (double Blank, double Sharp) SimulateScroll(double parse, double preview, double full, double every, int prefetchAhead, int pages = 20)
+    {
+        double free = 0, blank = 0, sharp = 0;
+        var sharpDone = new double[pages];
+        var anyDone = new double[pages];
+        int next = 0; // trang kế tiếp luồng vẽ sẽ làm
+        for (int k = 0; k < pages; k++)
+        {
+            double visibleAt = k * every;
+            // Làm các trang đã được phép làm trước thời điểm trang k hiện (tải trước) — theo thứ tự trang.
+            while (next < pages && next <= k + prefetchAhead && (next <= k || free < visibleAt))
+            {
+                double releaseAt = next <= prefetchAhead ? 0 : (next - prefetchAhead) * every; // trang được phép bắt đầu khi trang (next-N) hiện
+                double start = Math.Max(free, prefetchAhead == 0 ? next * every : releaseAt);
+                if (prefetchAhead == 0) { anyDone[next] = start + parse + preview; sharpDone[next] = anyDone[next] + full; }
+                else { sharpDone[next] = start + parse + full; anyDone[next] = sharpDone[next]; }
+                free = sharpDone[next];
+                next++;
+            }
+            blank += Math.Max(0, anyDone[k] - visibleAt);
+            sharp += Math.Max(0, sharpDone[k] - visibleAt);
+        }
+        return (blank / pages, sharp / pages);
     }
 
     static int Quantize(double width) => (int)Math.Clamp(Math.Ceiling(width / 256) * 256, 512, 2304);

@@ -66,6 +66,7 @@ namespace XTPdfMergeApp
 
         internal void ShutdownReader()
         {
+            _continuousPrefetchCts.Cancel();
             _readerTileRefreshCts.Cancel();
             _readerPageCts.Cancel();
             _readerPrefetchCts.Cancel();
@@ -458,6 +459,8 @@ namespace XTPdfMergeApp
         /// <summary>Ẩn docked Viewer và dọn state đang xem.</summary>
         public void HideReader()
         {
+            _continuousPrefetchCts.Cancel();
+            _continuousPrefetchWindow = (-1, -1, 0, 0);
             CommitAnnotationEditor(cancel: true);
             CancelHighlightDrag();
             Interlocked.Increment(ref _readerRequestId);
@@ -1817,6 +1820,61 @@ namespace XTPdfMergeApp
         /// <summary>Cập nhật "đang xem trang mấy" theo trang đang nằm GẦN ĐỈNH viewport nhất
         /// trong lúc cuộn — cùng kỹ thuật viewport-check đã dùng cho danh sách thumbnail
         /// (IsElementInViewport/FindVisualChildren).</summary>
+        // ── Tối ưu #2: tải trước theo hướng cuộn (chế độ cuộn liên tục) ──────────────────────
+        // Trước đây chỉ trang ĐÃ lọt vào viewport mới bắt đầu vẽ (parse + ảnh nét ~220–260 ms/trang trên bản vẽ
+        // CAD) → cuộn đều vẫn thấy trang trống. Giờ: 2 trang kế tiếp theo hướng cuộn được vẽ sẵn ảnh nét vào
+        // _readerCache (ưu tiên nền, không chen trước trang đang hiện), thêm thumbnail cho 4 trang kế nữa.
+        private const int ContinuousPrefetchSharpPages = 2;
+        private const int ContinuousPrefetchPreviewPages = 4;
+        private int _continuousScrollDirection = 1;
+        private CancellationTokenSource _continuousPrefetchCts = new();
+        private (int First, int Last, int Direction, int Width) _continuousPrefetchWindow = (-1, -1, 0, 0);
+
+        private void QueueContinuousScrollPrefetch(HashSet<PageRow> visibleRows)
+        {
+            if (_readerGroup == null || visibleRows.Count == 0) return;
+            var pages = _readerGroup.Pages;
+            int first = int.MaxValue, last = -1;
+            foreach (var row in visibleRows)
+            {
+                int i = pages.IndexOf(row);
+                if (i < 0) continue;
+                first = Math.Min(first, i);
+                last = Math.Max(last, i);
+            }
+            if (last < 0) return;
+
+            int dir = _continuousScrollDirection >= 0 ? 1 : -1;
+            bool needSharp = ReaderContinuousNeedsFullBitmap();
+            int width = needSharp ? DesiredReaderWidth() : 0;
+            var window = (first, last, dir, width);
+            if (window == _continuousPrefetchWindow) return; // ScrollChanged bắn liên tục — chỉ đặt lại khi vùng đổi
+            var previous = _continuousPrefetchWindow;
+            _continuousPrefetchWindow = window;
+
+            // Chỉ huỷ việc tải trước cũ khi đổi hướng cuộn / đổi độ phân giải / nhảy xa — cuộn đều sang trang kế
+            // thì trang đang tải trước CHÍNH LÀ trang sắp hiện, huỷ là phí.
+            bool jumped = Math.Abs(first - previous.First) > ContinuousPrefetchPreviewPages;
+            if (previous.Direction != dir || previous.Width != width || jumped)
+            {
+                _continuousPrefetchCts.Cancel();
+                _continuousPrefetchCts.Dispose();
+                _continuousPrefetchCts = new();
+            }
+            var token = _continuousPrefetchCts.Token;
+
+            int edge = dir > 0 ? last : first;
+            for (int step = 1; step <= ContinuousPrefetchPreviewPages; step++)
+            {
+                int i = edge + dir * step;
+                if (i < 0 || i >= pages.Count) break;
+                var row = pages[i];
+                if (row.Thumbnail == null) _ = ThumbnailCache.LoadThumbnailFor(row);
+                if (needSharp && step <= ContinuousPrefetchSharpPages && row.ReaderBitmap == null)
+                    _ = GetReaderLoadTask((row.SourcePath, row.PageNumber), prefetch: true, token);
+            }
+        }
+
         private void ReaderContinuousList_ScrollChanged(object sender, ScrollChangedEventArgs e)
         {
             if (_readerGroup == null || !_readerContinuousMode) return;
@@ -1878,6 +1936,9 @@ namespace XTPdfMergeApp
             {
                 LogContinuousZoomDebug($"ScrollChanged -> best=NULL (không tìm thấy item nào trong viewport) offset=({sv.HorizontalOffset:F0},{sv.VerticalOffset:F0})");
             }
+
+            if (e.VerticalChange != 0) _continuousScrollDirection = Math.Sign(e.VerticalChange);
+            QueueContinuousScrollPrefetch(visibleRows);
 
             ScheduleReaderTileRefresh();
         }
