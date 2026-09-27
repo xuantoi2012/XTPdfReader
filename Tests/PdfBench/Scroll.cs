@@ -117,13 +117,43 @@ static unsafe class ScrollBench
 
     // ── Tiến trình worker ───────────────────────────────────────────────────
 
-    /// <summary>scroll-worker &lt;file&gt; &lt;ram|net&gt; &lt;latency&gt; &lt;MBps&gt; &lt;mmf&gt; &lt;mmfBytes&gt;
+    /// <summary>
+    /// Vùng nhớ chia sẻ cho bitmap giữa app và worker. Windows: bộ nhớ chia sẻ có tên (CreateNew/OpenExisting),
+    /// không có file trên đĩa nên không có tranh chấp FileShare giữa 2 tiến trình. Linux/macOS (.NET không hỗ
+    /// trợ map có tên): file tạm, CẢ HAI bên mở với FileShare.ReadWrite rồi map từ FileStream đó.
+    /// </summary>
+    static class SharedBitmap
+    {
+        public static MemoryMappedFile Create(string name, long bytes)
+        {
+            if (OperatingSystem.IsWindows()) return MemoryMappedFile.CreateNew(name, bytes);
+            var fs = new FileStream(TempPath(name), FileMode.Create, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+            return MemoryMappedFile.CreateFromFile(fs, null, bytes, MemoryMappedFileAccess.ReadWrite, HandleInheritability.None, leaveOpen: false);
+        }
+
+        public static MemoryMappedFile Open(string name, long bytes)
+        {
+            if (OperatingSystem.IsWindows()) return MemoryMappedFile.OpenExisting(name);
+            var fs = new FileStream(TempPath(name), FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+            return MemoryMappedFile.CreateFromFile(fs, null, bytes, MemoryMappedFileAccess.ReadWrite, HandleInheritability.None, leaveOpen: false);
+        }
+
+        public static void Delete(string name)
+        {
+            if (OperatingSystem.IsWindows()) return; // map có tên tự mất khi handle cuối cùng đóng
+            try { File.Delete(TempPath(name)); } catch { }
+        }
+
+        static string TempPath(string name) => Path.Combine(Path.GetTempPath(), name + ".bmp");
+    }
+
+    /// <summary>scroll-worker &lt;file&gt; &lt;ram|net&gt; &lt;latency&gt; &lt;MBps&gt; &lt;tên vùng nhớ&gt; &lt;số byte&gt;
     /// — stdin: "page i width" | "quit"; stdout: "ready" rồi mỗi trang 1 dòng kết quả.</summary>
     public static int Worker(string[] a)
     {
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         using var engine = new Engine(a[0], a[1] == "ram", double.Parse(a[2], CultureInfo.InvariantCulture), double.Parse(a[3], CultureInfo.InvariantCulture));
-        using var mmf = MemoryMappedFile.CreateFromFile(a[4], FileMode.OpenOrCreate, null, long.Parse(a[5]));
+        using var mmf = SharedBitmap.Open(a[4], long.Parse(a[5]));
         using var view = mmf.CreateViewAccessor();
         engine.Render(0, 256, null); // khởi động: nạp font/bảng dùng chung như 1 worker đã chạy sẵn trong pool
         Console.Out.WriteLine("ready " + engine.PageCount);
@@ -142,19 +172,19 @@ static unsafe class ScrollBench
     sealed class WorkerProcess : IDisposable
     {
         readonly Process _p;
-        readonly string _mmfPath;
+        readonly string _mapName;
         public MemoryMappedFile Mmf { get; }
 
         public WorkerProcess(string file, string mode, double lat, double mbps, long mmfBytes)
         {
-            _mmfPath = Path.Combine(Path.GetTempPath(), $"pdfbench-{Environment.ProcessId}-{Guid.NewGuid():N}.bmp");
-            Mmf = MemoryMappedFile.CreateFromFile(_mmfPath, FileMode.Create, null, mmfBytes);
+            _mapName = $"pdfbench-{Environment.ProcessId}-{Guid.NewGuid():N}";
+            Mmf = SharedBitmap.Create(_mapName, mmfBytes);
             string self = Environment.ProcessPath!;
             var psi = new ProcessStartInfo(self) { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false };
             if (Path.GetFileNameWithoutExtension(self).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
                 psi.ArgumentList.Add(typeof(ScrollBench).Assembly.Location);
             foreach (var arg in new[] { "scroll-worker", file, mode, lat.ToString(CultureInfo.InvariantCulture),
-                         mbps.ToString(CultureInfo.InvariantCulture), _mmfPath, mmfBytes.ToString() })
+                         mbps.ToString(CultureInfo.InvariantCulture), _mapName, mmfBytes.ToString() })
                 psi.ArgumentList.Add(arg);
             _p = Process.Start(psi)!;
         }
@@ -179,7 +209,7 @@ static unsafe class ScrollBench
             try { _p.StandardInput.WriteLine("quit"); _p.StandardInput.Flush(); _p.WaitForExit(5000); } catch { }
             if (!_p.HasExited) _p.Kill();
             Mmf.Dispose();
-            try { File.Delete(_mmfPath); } catch { }
+            SharedBitmap.Delete(_mapName);
         }
     }
 
