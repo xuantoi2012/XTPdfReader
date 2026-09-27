@@ -1,7 +1,7 @@
 <xt:XTCadWindow x:Class="XTPdfMergeApp.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:xt="clr-namespace:XTCADStyle.Controls;assembly=XTCADStyle"
+        xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
         xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
         xmlns:conv="clr-namespace:XTPdfMergeApp.Converters"
         Title="XT PDF Merge" Width="1180" Height="760"

@@ -21,7 +21,7 @@ using WpfToolkit.Controls;
 using XTPdfMergeApp.Services;
 using static XTPdfMergeApp.Services.VisualTreeHelpers;
 using XTPdfMergeApp.Workspace;
-using XTCADStyle.Controls;
+using XTStyle.Controls;
 using PageRow = XTPdfMergeApp.Domain.PagePlacement;
 using DocumentGroup = XTPdfMergeApp.Domain.WorkspaceDocument;
 
@@ -404,8 +404,8 @@ namespace XTPdfMergeApp
             dictionaries.Add(new ResourceDictionary
             {
                 Source = new Uri(darkTheme
-                    ? "pack://application:,,,/XTCADStyle;component/Themes/CadDark.xaml"
-                    : "pack://application:,,,/XTCADStyle;component/Themes/CadLight.xaml",
+                    ? "pack://application:,,,/XTStyle;component/Themes/CadDark.xaml"
+                    : "pack://application:,,,/XTStyle;component/Themes/CadLight.xaml",
                     UriKind.Absolute)
             });
         }
