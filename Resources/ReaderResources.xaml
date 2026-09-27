@@ -75,17 +75,17 @@
         <Setter Property="Margin" Value="1,0"/>
         <Setter Property="VerticalAlignment" Value="Top"/>
         <Setter Property="IconSize" Value="26"/>
-        <Setter Property="Foreground" Value="{DynamicResource CadChromeText}"/>
-        <Setter Property="IconBrush" Value="{DynamicResource CadChromeText}"/>
+        <Setter Property="Foreground" Value="{DynamicResource XTChromeText}"/>
+        <Setter Property="IconBrush" Value="{DynamicResource XTChromeText}"/>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="{DynamicResource CadChromeHoverBackground}"/>
-                <Setter Property="Foreground" Value="{DynamicResource CadButtonHoverText}"/>
-                <Setter Property="IconBrush" Value="{DynamicResource CadButtonHoverText}"/>
+                <Setter Property="Background" Value="{DynamicResource XTChromeHoverBackground}"/>
+                <Setter Property="Foreground" Value="{DynamicResource XTButtonHoverText}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource XTButtonHoverText}"/>
             </Trigger>
             <Trigger Property="Tag" Value="Active">
-                <Setter Property="Background" Value="{DynamicResource CadSelectionBackground}"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource CadSelectionBlue}"/>
+                <Setter Property="Background" Value="{DynamicResource XTSelectionBackground}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource XTSelectionBlue}"/>
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -100,13 +100,13 @@
         <Setter Property="IconSize" Value="16"/>
         <Setter Property="IconMargin" Value="0,0,5,0"/>
         <Setter Property="FontSize" Value="12"/>
-        <Setter Property="Foreground" Value="{DynamicResource CadChromeText}"/>
-        <Setter Property="IconBrush" Value="{DynamicResource CadChromeText}"/>
+        <Setter Property="Foreground" Value="{DynamicResource XTChromeText}"/>
+        <Setter Property="IconBrush" Value="{DynamicResource XTChromeText}"/>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="{DynamicResource CadChromeHoverBackground}"/>
-                <Setter Property="Foreground" Value="{DynamicResource CadButtonHoverText}"/>
-                <Setter Property="IconBrush" Value="{DynamicResource CadButtonHoverText}"/>
+                <Setter Property="Background" Value="{DynamicResource XTChromeHoverBackground}"/>
+                <Setter Property="Foreground" Value="{DynamicResource XTButtonHoverText}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource XTButtonHoverText}"/>
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -115,13 +115,13 @@
         <Setter Property="FontSize" Value="11"/>
         <Setter Property="HorizontalAlignment" Value="Center"/>
         <Setter Property="Margin" Value="0,1,0,2"/>
-        <Setter Property="Foreground" Value="{DynamicResource CadTextSecondary}"/>
+        <Setter Property="Foreground" Value="{DynamicResource XTTextSecondary}"/>
     </Style>
 
     <Style x:Key="PdfRibbonGroupSeparator" TargetType="Border">
         <Setter Property="Width" Value="1"/>
         <Setter Property="Margin" Value="4,4,4,4"/>
-        <Setter Property="Background" Value="{DynamicResource CadChromeBorder}"/>
+        <Setter Property="Background" Value="{DynamicResource XTChromeBorder}"/>
     </Style>
 
     <Style x:Key="PdfCardIconButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
@@ -135,16 +135,16 @@
         <Setter Property="BorderBrush" Value="Transparent"/>
     </Style>
     <Style x:Key="PdfViewerIconButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource PdfCardIconButton}">
-        <Setter Property="Foreground" Value="{DynamicResource CadChromeText}"/>
+        <Setter Property="Foreground" Value="{DynamicResource XTChromeText}"/>
         <!-- IconBrush (không phải Foreground) là thứ thật sự tô màu icon Path — style cha
              (XTToolButton) mặc định IconBrush=PrimaryBrush (xanh), Foreground=White ở
              trên không ăn vào icon nên trên nền tối ReaderPanel icon vẫn xanh, khó nhìn. -->
-        <Setter Property="IconBrush" Value="{DynamicResource CadChromeText}"/>
+        <Setter Property="IconBrush" Value="{DynamicResource XTChromeText}"/>
         <Setter Property="Opacity" Value="0.92"/>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Foreground" Value="{DynamicResource CadButtonHoverText}"/>
-                <Setter Property="IconBrush" Value="{DynamicResource CadButtonHoverText}"/>
+                <Setter Property="Foreground" Value="{DynamicResource XTButtonHoverText}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource XTButtonHoverText}"/>
                 <Setter Property="Opacity" Value="1"/>
             </Trigger>
         </Style.Triggers>
