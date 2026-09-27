@@ -477,6 +477,11 @@
                                  Height="26" Width="26" ToolTip="Trang sau" Click="ReaderNextPage_Click"/>
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0">
+                    <!-- Tiến độ nạp file vào RAM (đọc nền) — hết khi nạp xong: từ đó mọi trang, kể cả nhảy tới cuối file, không
+                         còn chờ ổ mạng. Không chặn thao tác (khác vòng xoay lúc mở của Foxit). -->
+                    <TextBlock x:Name="ReaderLoadProgressText" Visibility="Collapsed" VerticalAlignment="Center" Margin="0,0,12,0"
+                               Foreground="{DynamicResource XTTextSecondary}"
+                               ToolTip="Đang đọc cả file từ ổ đĩa/ổ mạng vào RAM. Trang đang xem luôn được đọc trước."/>
                     <xt:XTButton Style="{StaticResource PdfViewerIconButton}" Icon="{StaticResource PdfUi.Minus}"
                                  Height="26" Width="26" ToolTip="Thu nhỏ" Click="ReaderZoomOut_Click"/>
                     <TextBlock x:Name="ReaderZoomText" Width="46" TextAlignment="Center"

@@ -78,8 +78,11 @@ namespace XTPdfMergeApp.Services
         /// Tối ưu #1 "ảnh thấp trước, ảnh nét sau": ảnh 340 px của trang, vẽ ở mức ưu tiên Visible (không xếp
         /// sau hàng đợi thumbnail nền) — Viewer hiện tạm ngay (~parse + 65 ms trên bản vẽ CAD dày) trong lúc ảnh
         /// nét (~190 ms) đang vẽ. Dùng chung cache thumbnail nên panel trang cũng được lợi.
+        /// <paramref name="cancellationToken"/>: trang đã rời màn hình trước khi kịp vẽ → bỏ (không chiếm PDFium của
+        /// trang đang hiện). Lượt vẽ bị bỏ không vào cache; ai đang chờ chung lượt đó nhận null và tự xin lại khi cần.
         /// </summary>
-        internal static async Task<BitmapSource?> LoadPreviewAsync(PageRow row)
+        internal static async Task<BitmapSource?> LoadPreviewAsync(PageRow row, CancellationToken cancellationToken = default,
+            PdfRenderPriority priority = PdfRenderPriority.Visible)
         {
             var key = ThumbnailKey(row);
             BitmapSource? bmp;
@@ -91,11 +94,11 @@ namespace XTPdfMergeApp.Services
                 {
                     if (!_thumbnailLoads.TryGetValue(key, out task!))
                     {
-                        task = RenderAndCacheThumbnailAsync(key, PdfRenderPriority.Visible, throttle: false);
+                        task = RenderAndCacheThumbnailAsync(key, priority, throttle: false, cancellationToken);
                         _thumbnailLoads[key] = task;
                     }
                 }
-                try { bmp = await task.ConfigureAwait(true); }
+                try { bmp = await task.WaitAsync(cancellationToken).ConfigureAwait(true); }
                 catch { return null; }
             }
             if (bmp != null) await SetRowThumbnailAsync(row, bmp, key.Layers);
@@ -271,7 +274,7 @@ namespace XTPdfMergeApp.Services
         }
 
         internal static async Task<BitmapSource?> RenderAndCacheThumbnailAsync((string Path, int Page, string Layers) key,
-            PdfRenderPriority priority = PdfRenderPriority.Thumbnail, bool throttle = true)
+            PdfRenderPriority priority = PdfRenderPriority.Thumbnail, bool throttle = true, CancellationToken cancellationToken = default)
         {
             long generation = Interlocked.Read(ref _thumbnailGeneration);
             BitmapSource? bmp = null;
@@ -281,7 +284,7 @@ namespace XTPdfMergeApp.Services
             try
             {
                 bmp = await Task.Run(() => PdfThumbnailService.RenderPageAsync(key.Path, key.Page - 1, RenderThumbnailWidthPx,
-                    priority: priority, layerToken: key.Layers)).ConfigureAwait(false);
+                    cancellationToken, priority: priority, layerToken: key.Layers)).ConfigureAwait(false);
                 return bmp;
             }
             finally

@@ -89,7 +89,8 @@
                                 <Border Background="White" BorderBrush="#33000000" BorderThickness="1"
                                         HorizontalAlignment="Center" MinWidth="60" MinHeight="60">
                                     <Image Source="{Binding Thumbnail}" MaxWidth="132" MaxHeight="170" Stretch="Uniform"
-                                           Loaded="ThumbnailImage_Loaded" DataContextChanged="ThumbnailImage_DataContextChanged"/>
+                                           Loaded="ThumbnailImage_Loaded" Unloaded="ThumbnailImage_Unloaded"
+                                           DataContextChanged="ThumbnailImage_DataContextChanged"/>
                                 </Border>
                                 <TextBlock Text="{Binding Index}" HorizontalAlignment="Center" Margin="0,3,0,0"
                                            Foreground="{DynamicResource XTTextSecondary}"/>

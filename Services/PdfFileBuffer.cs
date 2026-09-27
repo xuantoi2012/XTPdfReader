@@ -97,6 +97,10 @@ namespace XTPdfMergeApp.Services
             return null;
         }
 
+        /// <summary>Phần file đã nạp vào RAM (0..1), null = file không có bộ đệm (chưa mở / quá lớn / hết ngân sách).</summary>
+        public static double? GetLoadedFraction(string normalizedPath)
+            => _entries.TryGetValue(normalizedPath, out var entry) ? entry.LoadedFraction : null;
+
         /// <summary>File đang có bộ đệm khối (mọi bản PDFium đọc chung, file chỉ qua mạng 1 lần).</summary>
         public static bool IsBuffered(string normalizedPath) => _entries.ContainsKey(normalizedPath);
 
@@ -138,6 +142,11 @@ namespace XTPdfMergeApp.Services
         private int _presentCount;
         private readonly object _lock = new();
         private int _foregroundWaiting;
+        /// <summary>Khối ngay sau khối mà trang vừa phải đọc gấp (-1 = không có) — luồng nền nhảy tới đó.</summary>
+        private int _followBlock = -1;
+
+        /// <summary>Trang cần khối cách vị trí đọc nền quá mức này (8 × 256 KB = 2 MB) thì luồng nền nhảy theo.</summary>
+        private const int FollowDistanceBlocks = 8;
         private readonly IBlockFile _file;          // cho lệnh đọc của trang (đọc theo vị trí, không seek chung)
         private readonly CancellationTokenSource _stop = new();
         private readonly Action _onFreed;
@@ -215,6 +224,9 @@ namespace XTPdfMergeApp.Services
         private bool ReadBlockNow(int block)
         {
             Interlocked.Increment(ref _foregroundWaiting);
+            // Người dùng vừa tới vùng chưa đọc (vd bấm End ngay sau khi mở) → luồng nền đọc tiếp từ ĐÂY thay vì tiếp tục
+            // tuần tự ở đầu file: các trang quanh đó có mặt trong RAM sớm hơn, phần còn lại lấp sau.
+            Volatile.Write(ref _followBlock, block + 1);
             long start = Stopwatch.GetTimestamp();
             byte[]? scratch = null;
             try
@@ -305,6 +317,11 @@ namespace XTPdfMergeApp.Services
         internal void StartBackgroundRead()
             => Task.Factory.StartNew(BackgroundRead, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
+        /// <summary>
+        /// Đọc nền mọi khối còn thiếu, nhanh hết mức đường truyền, mỗi lượt 1 khối; đứng chờ khi có trang đang chờ khối.
+        /// Thứ tự: tuần tự từ đầu file, nhưng khi trang vừa phải đọc gấp 1 khối ở xa (người dùng nhảy tới vùng chưa đọc)
+        /// thì nhảy tới ngay sau khối đó, đọc tiếp tới cuối file, rồi quay vòng lấp phần còn thiếu.
+        /// </summary>
         private void BackgroundRead()
         {
             long start = Stopwatch.GetTimestamp();
@@ -313,9 +330,21 @@ namespace XTPdfMergeApp.Services
             try
             {
                 using var handle = _open(true);
-                for (int block = 0; block < _present.Length; block++)
+                int cursor = 0;
+                while (!token.IsCancellationRequested)
                 {
-                    if (Volatile.Read(ref _present[block]) != Missing) continue; // trang đang xem đã nạp / đang đọc khối này
+                    int follow = Interlocked.Exchange(ref _followBlock, -1);
+                    if (follow >= 0 && follow < _present.Length && Math.Abs(follow - cursor) > FollowDistanceBlocks)
+                        cursor = follow;
+
+                    int block = NextMissingBlock(cursor);
+                    if (block < 0)
+                    {
+                        if (IsComplete) break;
+                        // Còn khối đang do trang đọc dở: chờ nó xong (lỗi đọc thì khối về Missing, nền đọc lại).
+                        lock (_lock) Monitor.Wait(_lock, 50);
+                        continue;
+                    }
                     lock (_lock)
                     {
                         // Nhường trang đang xem: không chiếm đường truyền khi nó đang chờ khối.
@@ -323,7 +352,8 @@ namespace XTPdfMergeApp.Services
                             Monitor.Wait(_lock, 50);
                     }
                     if (token.IsCancellationRequested) return;
-                    if (!TryClaim(block, wait: false)) continue;
+                    cursor = block + 1;
+                    if (!TryClaim(block, wait: false)) continue; // trang vừa nhận đọc khối này
                     bool ok = false;
                     try
                     {
@@ -335,13 +365,28 @@ namespace XTPdfMergeApp.Services
                     }
                     if (!ok) return;
                 }
-                RenderDiagnostics.FileBufferRead.Record(start);
+                if (IsComplete) RenderDiagnostics.FileBufferRead.Record(start);
             }
             catch
             {
                 // Lỗi đọc nền (mạng rớt, file bị xoá…): dừng nền, lệnh của trang vẫn tự đọc khối khi cần.
             }
         }
+
+        /// <summary>Khối Missing đầu tiên từ <paramref name="from"/> tới cuối file, rồi vòng lại từ đầu; -1 = không còn.</summary>
+        private int NextMissingBlock(int from)
+        {
+            int n = _present.Length;
+            for (int i = 0; i < n; i++)
+            {
+                int block = (from + i) % n;
+                if (Volatile.Read(ref _present[block]) == Missing) return block;
+            }
+            return -1;
+        }
+
+        /// <summary>Phần trăm file đã có trong RAM (thanh trạng thái / bảng Debug).</summary>
+        public double LoadedFraction => _present.Length == 0 ? 1 : Volatile.Read(ref _presentCount) / (double)_present.Length;
     }
 
     /// <summary>Nguồn đọc theo vị trí của <see cref="PdfBlockCache"/>.</summary>

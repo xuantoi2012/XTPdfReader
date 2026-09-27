@@ -44,6 +44,7 @@ namespace XTPdfMergeApp
         /// <summary>Gọi mỗi khi trang đang xem đổi (UpdateReaderChrome) — đồng bộ tab file + panel trái.</summary>
         private void OnReaderCurrentPageChanged(DocumentGroup group, PageRow row)
         {
+            EnsureLoadProgressTimer();
             _lastPageByGroup[group] = row;
             if (!ReferenceEquals(ReaderDocumentTabs.SelectedItem, group))
             {
@@ -52,7 +53,57 @@ namespace XTPdfMergeApp
                 ReaderDocumentTabs.ScrollIntoView(group);
                 _syncingDocumentTabs = false;
             }
+            if (_continuousScrollFast)
+            {
+                // Đang cuộn nhanh: panel trái không chạy theo từng trang lướt qua (mỗi lần chạy theo lại xin thumbnail
+                // cho cả chục trang không ai xem) — đồng bộ 1 lần khi cuộn dừng (SyncSidePanelAfterScroll).
+                _pendingSidePanelSync = (group, row);
+                return;
+            }
             ReaderSidePanel.SetCurrent(group, row);
+        }
+
+        private (DocumentGroup Group, PageRow Row)? _pendingSidePanelSync;
+
+        private System.Windows.Threading.DispatcherTimer? _loadProgressTimer;
+
+        /// <summary>Thanh trạng thái: "Nạp vào RAM x%" của file đang xem, cập nhật 2 lần/giây, ẩn khi nạp xong.</summary>
+        private void EnsureLoadProgressTimer()
+        {
+            if (_loadProgressTimer != null) return;
+            _loadProgressTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background, Dispatcher)
+            {
+                Interval = TimeSpan.FromMilliseconds(500)
+            };
+            _loadProgressTimer.Tick += (_, _) => UpdateLoadProgress();
+            _loadProgressTimer.Start();
+        }
+
+        private void UpdateLoadProgress()
+        {
+            double? loaded = null;
+            if (_readerPage?.SourcePath is { Length: > 0 } path)
+            {
+                try { loaded = PdfFileBuffer.GetLoadedFraction(System.IO.Path.GetFullPath(path)); }
+                catch { loaded = null; }
+            }
+            if (loaded is { } fraction && fraction < 1)
+            {
+                ReaderLoadProgressText.Text = $"Nạp vào RAM {fraction:P0}";
+                ReaderLoadProgressText.Visibility = Visibility.Visible;
+            }
+            else ReaderLoadProgressText.Visibility = Visibility.Collapsed;
+        }
+
+        /// <summary>Gọi khi cuộn nhanh vừa dừng: đưa panel trái tới trang đang xem, rồi xin thumbnail cho các ô đang hiện
+        /// còn trống (kể cả ô mà lượt vẽ dùng chung với Viewer vừa bị huỷ vì trang rời màn hình).</summary>
+        private void SyncSidePanelAfterScroll()
+        {
+            if (_pendingSidePanelSync is not { } pending) return;
+            _pendingSidePanelSync = null;
+            if (!ReferenceEquals(pending.Group, _readerGroup)) return;
+            ReaderSidePanel.SetCurrent(pending.Group, _readerPage ?? pending.Row);
+            _ = Dispatcher.InvokeAsync(ReaderSidePanel.RequestVisibleThumbnails, System.Windows.Threading.DispatcherPriority.Background);
         }
 
         private void ShowEmptyReaderState()

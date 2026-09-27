@@ -113,6 +113,14 @@ namespace XTPdfMergeApp
                     _ = NavigateReaderAsync(1);
                     e.Handled = true;
                     break;
+                case Key.Home:
+                    _ = NavigateReaderToIndexAsync(0);
+                    e.Handled = true;
+                    break;
+                case Key.End:
+                    if (_readerGroup != null) _ = NavigateReaderToIndexAsync(_readerGroup.Pages.Count - 1);
+                    e.Handled = true;
+                    break;
                 case Key.OemPlus:
                 case Key.Add:
                     ZoomReaderAtPoint(_readerZoom * ReaderZoomStep, ReaderViewportCenter());
@@ -673,8 +681,15 @@ namespace XTPdfMergeApp
             int index = _readerGroup.Pages.IndexOf(_readerPage);
             if (index < 0) return;
 
-            int nextIndex = Math.Clamp(index + delta, 0, _readerGroup.Pages.Count - 1);
-            if (nextIndex == index) return;
+            await NavigateReaderToIndexAsync(index + delta);
+        }
+
+        /// <summary>Tới trang thứ <paramref name="index"/> (0-based, tự kẹp) — Home/End, PageUp/PageDown.</summary>
+        private async Task NavigateReaderToIndexAsync(int index)
+        {
+            if (_readerGroup == null || _readerPage == null || _readerGroup.Pages.Count == 0) return;
+            int nextIndex = Math.Clamp(index, 0, _readerGroup.Pages.Count - 1);
+            if (ReferenceEquals(_readerGroup.Pages[nextIndex], _readerPage)) return;
 
             var target = _readerGroup.Pages[nextIndex];
             if (_readerContinuousMode)
@@ -1210,8 +1225,15 @@ namespace XTPdfMergeApp
                 if (pageBitmap == null && requestedFullWidth <= 2304)
                 {
                     itemsNoBitmap++;
+                    if (_continuousScrollFast)
+                    {
+                        // Đang cuộn nhanh: trang này sắp lướt qua — xin khi cuộn dừng (ContinuousScrollSettled).
+                        ClearTileCanvas(canvasA);
+                        ClearTileCanvas(canvasB);
+                        continue;
+                    }
                     // #1: chưa có ảnh nào → ảnh thấp trước (ưu tiên Visible, hiện qua ReaderDisplayBitmap), rồi ảnh nét.
-                    if (row.Thumbnail == null) _ = ThumbnailCache.LoadPreviewAsync(row);
+                    RequestContinuousPreview(row);
                     // Render only the destination page at its screen resolution.
                     _ = LoadReaderBitmapFor(row);
                     ClearTileCanvas(canvasA);
@@ -1898,7 +1920,8 @@ namespace XTPdfMergeApp
                 int i = edge + dir * step;
                 if (i < 0 || i >= pages.Count) break;
                 var row = pages[i];
-                if (row.Thumbnail == null) _ = ThumbnailCache.LoadThumbnailFor(row);
+                // Huỷ được (token): đổi hướng / nhảy xa thì ảnh tải trước cũ không còn cần.
+                if (row.Thumbnail == null) _ = ThumbnailCache.LoadPreviewAsync(row, token, PdfRenderPriority.Thumbnail);
                 if (needSharp && step <= ContinuousPrefetchSharpPages && row.ReaderBitmap == null)
                     _ = GetReaderLoadTask((row.SourcePath, row.PageNumber), prefetch: true, token);
             }
@@ -1967,9 +1990,98 @@ namespace XTPdfMergeApp
             }
 
             if (e.VerticalChange != 0) _continuousScrollDirection = Math.Sign(e.VerticalChange);
+            _lastVisibleContinuousRows = visibleRows;
+            CancelContinuousPreviewsExcept(visibleRows);
+            if (NoteContinuousScroll(e.VerticalChange, sv.ViewportHeight))
+            {
+                // Đang kéo/cuộn nhanh: trang đang lướt qua sẽ rời màn hình trước khi kịp vẽ — không xin gì cho chúng,
+                // đợi cuộn dừng (ContinuousScrollSettled) rồi mới xin cho đúng các trang đang hiện.
+                ScheduleReaderTileRefresh();
+                return;
+            }
             QueueContinuousScrollPrefetch(visibleRows);
 
             ScheduleReaderTileRefresh();
+        }
+
+        // ── Cuộn nhanh (kéo thanh cuộn, Home/End, lăn chuột liên tục): chỉ vẽ trang đích ─────────────────
+        // Trước đây mỗi trang lướt qua màn hình đều xin ảnh xem trước (ưu tiên Visible, không huỷ được) + thumbnail
+        // tải trước + panel trái chạy theo xin thumbnail — kéo từ đầu xuống cuối file xếp hàng hàng chục trang, trang
+        // cuối phải chờ sau tất cả. Giờ: tốc độ cuộn > ContinuousFastScrollViewportsPerSecond màn hình/giây thì không
+        // xin gì; cuộn dừng ContinuousScrollSettleMilliseconds thì xin cho các trang đang hiện.
+        private const double ContinuousFastScrollViewportsPerSecond = 4;
+        private const int ContinuousScrollSettleMilliseconds = 100;
+        private long _lastContinuousScrollTimestamp;
+        private bool _continuousScrollFast;
+        private DispatcherTimer? _continuousScrollSettleTimer;
+        private HashSet<PageRow> _lastVisibleContinuousRows = new();
+        private readonly Dictionary<PageRow, CancellationTokenSource> _continuousPreviewRequests = new();
+
+        /// <returns>true = đang cuộn nhanh (đã hẹn giờ xin ảnh khi cuộn dừng).</returns>
+        private bool NoteContinuousScroll(double verticalChange, double viewportHeight)
+        {
+            if (verticalChange == 0 || viewportHeight <= 0) return _continuousScrollFast;
+            long now = Stopwatch.GetTimestamp();
+            double seconds = Math.Max(0.001, (now - _lastContinuousScrollTimestamp) / (double)Stopwatch.Frequency);
+            _lastContinuousScrollTimestamp = now;
+            double viewportsPerSecond = Math.Abs(verticalChange) / viewportHeight / seconds;
+            bool fast = viewportsPerSecond > ContinuousFastScrollViewportsPerSecond;
+            if (!fast && !_continuousScrollFast) return false;
+
+            _continuousScrollFast = true;
+            if (_continuousScrollSettleTimer == null)
+            {
+                _continuousScrollSettleTimer = new DispatcherTimer(DispatcherPriority.Input, Dispatcher)
+                {
+                    Interval = TimeSpan.FromMilliseconds(ContinuousScrollSettleMilliseconds)
+                };
+                _continuousScrollSettleTimer.Tick += (_, _) => ContinuousScrollSettled();
+            }
+            _continuousScrollSettleTimer.Stop();
+            _continuousScrollSettleTimer.Start();
+            return true;
+        }
+
+        private void ContinuousScrollSettled()
+        {
+            _continuousScrollSettleTimer?.Stop();
+            if (!_continuousScrollFast) return;
+            _continuousScrollFast = false;
+            SyncSidePanelAfterScroll();
+            if (!_readerContinuousMode || _readerGroup == null) return;
+            QueueContinuousScrollPrefetch(_lastVisibleContinuousRows);
+            ScheduleReaderTileRefresh();
+        }
+
+        /// <summary>Ảnh xem trước (ưu tiên Visible) cho 1 trang đang hiện; tự huỷ khi trang rời màn hình.</summary>
+        private void RequestContinuousPreview(PageRow row)
+        {
+            if (row.Thumbnail != null || _continuousPreviewRequests.ContainsKey(row)) return;
+            var cts = new CancellationTokenSource();
+            _continuousPreviewRequests[row] = cts;
+            _ = LoadContinuousPreviewAsync(row, cts);
+        }
+
+        private async Task LoadContinuousPreviewAsync(PageRow row, CancellationTokenSource cts)
+        {
+            try { await ThumbnailCache.LoadPreviewAsync(row, cts.Token); }
+            finally
+            {
+                if (_continuousPreviewRequests.TryGetValue(row, out var current) && ReferenceEquals(current, cts))
+                    _continuousPreviewRequests.Remove(row);
+                cts.Dispose();
+            }
+        }
+
+        private void CancelContinuousPreviewsExcept(HashSet<PageRow> visibleRows)
+        {
+            if (_continuousPreviewRequests.Count == 0) return;
+            foreach (var (row, cts) in _continuousPreviewRequests.ToArray())
+            {
+                if (visibleRows.Contains(row)) continue;
+                _continuousPreviewRequests.Remove(row);
+                cts.Cancel();
+            }
         }
 
         // ── Công cụ sửa nhanh kiểu Foxit (xoay trang lưu file, chèn, xuất) ──────────────

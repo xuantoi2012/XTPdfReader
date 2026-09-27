@@ -83,7 +83,7 @@ namespace XTPdfMergeApp.Controls
         internal void RequestVisibleThumbnails()
         {
             foreach (var item in Services.VisualTreeHelpers.FindVisualChildren<ListBoxItem>(ThumbnailList))
-                if (item.DataContext is PageRow row && row.Thumbnail == null) _ = ThumbnailCache.LoadThumbnailFor(row);
+                if (item.DataContext is PageRow row && row.Thumbnail == null) RequestThumbnail(row);
         }
 
         // ── Đổi tab ───────────────────────────────────────────────────
@@ -160,14 +160,49 @@ namespace XTPdfMergeApp.Controls
 
         // ── Thumbnail ─────────────────────────────────────────────────
 
+        // Mỗi ô đang hiện xin 1 thumbnail; ô bị cuộn khỏi panel (container bị tái dùng / unload) thì huỷ lượt chưa vẽ
+        // xong — kéo thanh cuộn panel qua hàng trăm trang không còn để lại hàng trăm lượt vẽ trang không ai xem.
+        private readonly Dictionary<PageRow, System.Threading.CancellationTokenSource> _thumbnailRequests = new();
+
+        private void RequestThumbnail(PageRow row)
+        {
+            if (row.Thumbnail != null || _thumbnailRequests.ContainsKey(row)) return;
+            var cts = new System.Threading.CancellationTokenSource();
+            _thumbnailRequests[row] = cts;
+            _ = LoadThumbnailAsync(row, cts);
+        }
+
+        private async Task LoadThumbnailAsync(PageRow row, System.Threading.CancellationTokenSource cts)
+        {
+            try { await ThumbnailCache.LoadPreviewAsync(row, cts.Token, PdfRenderPriority.Thumbnail); }
+            finally
+            {
+                if (_thumbnailRequests.TryGetValue(row, out var current) && ReferenceEquals(current, cts))
+                    _thumbnailRequests.Remove(row);
+                cts.Dispose();
+            }
+        }
+
+        private void CancelThumbnail(PageRow row)
+        {
+            if (!_thumbnailRequests.Remove(row, out var cts)) return;
+            cts.Cancel();
+        }
+
         private void ThumbnailImage_Loaded(object sender, RoutedEventArgs e)
         {
-            if ((sender as FrameworkElement)?.DataContext is PageRow { Thumbnail: null } row) _ = ThumbnailCache.LoadThumbnailFor(row);
+            if ((sender as FrameworkElement)?.DataContext is PageRow { Thumbnail: null } row) RequestThumbnail(row);
+        }
+
+        private void ThumbnailImage_Unloaded(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is PageRow row) CancelThumbnail(row);
         }
 
         private void ThumbnailImage_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
-            if (e.NewValue is PageRow { Thumbnail: null } row && ((FrameworkElement)sender).IsLoaded) _ = ThumbnailCache.LoadThumbnailFor(row);
+            if (e.OldValue is PageRow old) CancelThumbnail(old);
+            if (e.NewValue is PageRow { Thumbnail: null } row && ((FrameworkElement)sender).IsLoaded) RequestThumbnail(row);
         }
 
         private void ThumbnailList_SelectionChanged(object sender, SelectionChangedEventArgs e)
