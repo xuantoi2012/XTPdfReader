@@ -217,6 +217,20 @@ static class Bench
             }
         }
 
+        // 6. Tranh chấp gate PDFium khi zoom trong lúc thumbnail đang tải (mục #5)
+        Section("6. Zoom khi thumbnail đang tải nền: thời gian vùng zoom phải CHỜ gate (2 luồng, 1 khoá như gate của app)");
+        {
+            int fullW = (int)(ReaderBaseWidth * 2 * dpi), fullH = (int)(fullW * pageAspect);
+            var region = (Math.Max(0, (fullW - viewW) / 2), Math.Max(0, (fullH - viewH) / 2), Math.Min(viewW, fullW), Math.Min(viewH, fullH));
+            IntPtr zoomPage = Native.FPDF_LoadPage(doc, 0); // trang 1 đã đóng ở mục 3 — mở lại
+            foreach (bool pausePolicy in new[] { false, true })
+            {
+                var waits = GateContention(doc, pageCount, zoomPage, fullW, fullH, region, pausePolicy);
+                Console.WriteLine($"   {(pausePolicy ? "SAU  #5 (thumbnail chờ khi đang zoom)" : "TRƯỚC #5                            ")}: chờ TB {waits.Average(),4:F0} ms, max {waits.Max(),4:F0} ms (n={waits.Count})");
+            }
+            Native.FPDF_ClosePage(zoomPage);
+        }
+
         // 4. Đoán tốc độ cuộn: 1 màn hình fit-width chứa bao nhiêu trang, cần bao lâu
         Section("4. Suy ra");
         double perPage = coldParse.Count > 0 ? coldParse.Average() + coldRender.Average() : 0;
@@ -327,6 +341,69 @@ static class Bench
             sharp += Math.Max(0, sharpDone[k] - visibleAt);
         }
         return (blank / pages, sharp / pages);
+    }
+
+    /// <summary>Luồng nền: vẽ thumbnail các trang 30.. (parse + vẽ progressive, giữ khoá từng lát, như gate app).
+    /// Luồng chính: 12 lần, ở thời điểm ngẫu nhiên, xin vẽ vùng zoom — được ưu tiên ở ranh giới lát (như
+    /// PdfRenderGate ưu tiên Visible). pausePolicy: đang "tương tác" thì luồng nền không BẮT ĐẦU trang mới
+    /// (parse không chia lát) — đúng chính sách #5. Trả thời gian chờ trước khi vùng zoom vào được gate.</summary>
+    static List<double> GateContention(IntPtr doc, int pageCount, IntPtr zoomPage, int fullW, int fullH, (int, int, int, int) region, bool pausePolicy)
+    {
+        var gate = new object();
+        int visibleWaiting = 0;
+        long interactionUntil = 0;
+        bool stop = false;
+        var worker = new Thread(() =>
+        {
+            int p = Math.Min(30, pageCount - 1);
+            while (!Volatile.Read(ref stop))
+            {
+                if (pausePolicy && Stopwatch.GetTimestamp() < Volatile.Read(ref interactionUntil)) { Thread.Sleep(2); continue; }
+                IntPtr pg, bmp; int th;
+                while (Volatile.Read(ref visibleWaiting) > 0) Thread.Yield();
+                lock (gate)
+                {
+                    pg = Native.FPDF_LoadPage(doc, p);
+                    th = (int)(ThumbWidth * Native.FPDF_GetPageHeight(pg) / Native.FPDF_GetPageWidth(pg));
+                    bmp = Native.FPDFBitmap_Create(ThumbWidth, th, 1);
+                    Native.FPDFBitmap_FillRect(bmp, 0, 0, ThumbWidth, th, 0xFFFFFFFF);
+                }
+                using var pause = new Pause();
+                int status;
+                while (Volatile.Read(ref visibleWaiting) > 0) Thread.Yield();
+                lock (gate) { pause.Begin(); status = Native.FPDF_RenderPageBitmap_Start(bmp, pg, 0, 0, ThumbWidth, th, 0, AppFlags, pause.Pointer); }
+                while (status == 1)
+                {
+                    while (Volatile.Read(ref visibleWaiting) > 0) Thread.Yield(); // ưu tiên Visible ở ranh giới lát
+                    lock (gate) { pause.Begin(); status = Native.FPDF_RenderPage_Continue(pg, pause.Pointer); }
+                }
+                lock (gate) { Native.FPDF_RenderPage_Close(pg); Native.FPDF_ClosePage(pg); Native.FPDFBitmap_Destroy(bmp); }
+                p = p + 1 < pageCount ? p + 1 : Math.Min(30, pageCount - 1);
+            }
+        }, 16 * 1024 * 1024) { IsBackground = true };
+        worker.Start();
+        var rnd = new Random(7);
+        var waits = new List<double>();
+        for (int i = 0; i < 12; i++)
+        {
+            Thread.Sleep(80 + rnd.Next(120));
+            if (pausePolicy) Volatile.Write(ref interactionUntil, Stopwatch.GetTimestamp() + Stopwatch.Frequency / 4);
+            var sw = Stopwatch.StartNew();
+            Interlocked.Increment(ref visibleWaiting);
+            lock (gate)
+            {
+                waits.Add(Ms(sw));
+                Interlocked.Decrement(ref visibleWaiting);
+                var r = region;
+                IntPtr bmp = Native.FPDFBitmap_Create(r.Item3, r.Item4, 1);
+                Native.FPDFBitmap_FillRect(bmp, 0, 0, r.Item3, r.Item4, 0xFFFFFFFF);
+                Native.FPDF_RenderPageBitmap(bmp, zoomPage, -r.Item1, -r.Item2, fullW, fullH, 0, AppFlags);
+                Native.FPDFBitmap_Destroy(bmp);
+            }
+        }
+        Volatile.Write(ref stop, true);
+        worker.Join();
+        return waits;
     }
 
     static int Quantize(double width) => (int)Math.Clamp(Math.Ceiling(width / 256) * 256, 512, 2304);

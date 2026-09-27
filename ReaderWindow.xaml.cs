@@ -151,6 +151,7 @@ namespace XTPdfMergeApp
 
         private void MarkReaderInteraction()
         {
+            PdfThumbnailService.NoteInteraction(); // #5: thumbnail/tải trước nhường gate PDFium cho vùng đang zoom/pan
             ReaderBitmapScalingMode = BitmapScalingMode.LowQuality;
             _qualityRestoreTimer.Stop();
             _qualityRestoreTimer.Start();

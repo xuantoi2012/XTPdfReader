@@ -510,7 +510,7 @@ namespace XTPdfMergeApp
                 $"Thumbnail cache: {cacheStats.Cache} ảnh, {cacheStats.Bytes / 1048576d:0.0}/48 MB\n" +
                 $"PDF docs/pages cache: {PdfThumbnailService.CachedDocumentCount}/{PdfThumbnailService.CachedNativePageCount}\n" +
                 $"Page hits/loads: {PdfThumbnailService.NativePageCacheHits}/{PdfThumbnailService.NativePageLoads}\n" +
-                $"Progressive yields: {PdfThumbnailService.ProgressiveYields}, max slice: {PdfThumbnailService.MaxNativeRenderSliceMilliseconds:0.0} ms\n" +
+                $"Progressive yields: {PdfThumbnailService.ProgressiveYields}, max slice: {PdfThumbnailService.MaxNativeRenderSliceMilliseconds:0.0} ms, nhường khi zoom/pan: {PdfThumbnailService.InteractionDeferrals}\n" +
                 $"Tile UI queue: {ReaderWindow.Instance?.PendingTilePresentations ?? 0}, max batch: {ReaderWindow.Instance?.MaxTilePresentationMilliseconds ?? 0:0.0} ms\n" +
                 RenderDiagnostics.Summary + "\n" +
                 $"Reader cache: {readerStats.Cache} ảnh, {readerStats.Bytes / 1048576d:0.0}/160 MB (in-flight {readerStats.Inflight})\n" +

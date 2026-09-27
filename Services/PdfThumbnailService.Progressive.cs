@@ -25,6 +25,40 @@ public static partial class PdfThumbnailService
     /// Giới hạn <see cref="MaxHotPages"/> để RAM native không phình với bản vẽ CAD nặng.
     /// </summary>
     internal const int MaxHotPages = 12;
+
+    // ── Tối ưu #5: tạm dừng việc ưu tiên thấp khi người dùng đang zoom/pan ──────────────────────
+    // Gate PDFium là 1 luồng; 1 lát progressive thực tế dài tới ~20–70 ms và parse trang không chia lát được.
+    // Thumbnail/tải trước (Thumbnail/Background) đang giữ gate → vùng zoom mới phải chờ. Trong lúc tương tác
+    // (và 250 ms sau lần cuối), các lệnh ưu tiên thấp đứng chờ NGOÀI gate — cả trước khi bắt đầu lẫn giữa các lát.
+    internal const int InteractionHoldMilliseconds = 250;
+    private static long _interactionUntil;
+
+    /// <summary>Viewer gọi mỗi nhịp zoom/pan (không gọi khi chỉ cuộn — tải trước lúc cuộn là có chủ đích).</summary>
+    public static void NoteInteraction()
+        => Volatile.Write(ref _interactionUntil, Stopwatch.GetTimestamp() + Stopwatch.Frequency * InteractionHoldMilliseconds / 1000);
+
+    private static async Task WaitForInteractionIdleAsync(PdfRenderPriority priority, CancellationToken token)
+    {
+        if (priority == PdfRenderPriority.Visible) return;
+        while (true)
+        {
+            long remaining = Volatile.Read(ref _interactionUntil) - Stopwatch.GetTimestamp();
+            if (remaining <= 0) return;
+            Interlocked.Increment(ref _interactionDeferrals);
+            await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(1, remaining * 1000.0 / Stopwatch.Frequency)), token).ConfigureAwait(false);
+        }
+    }
+
+    private static long _interactionDeferrals;
+    /// <summary>Số lần lệnh ưu tiên thấp phải nhường vì đang zoom/pan (bảng Debug).</summary>
+    public static long InteractionDeferrals => Interlocked.Read(ref _interactionDeferrals);
+
+    /// <summary>Trước khi parse trang (không chia lát được) — lệnh ưu tiên thấp chờ hết tương tác rồi mới vào gate.</summary>
+    private static async Task<PdfiumGateLease> EnterGateAfterInteractionAsync(PdfRenderPriority priority, CancellationToken token)
+    {
+        await WaitForInteractionIdleAsync(priority, token).ConfigureAwait(false);
+        return await EnterPdfiumGateAsync(priority, token).ConfigureAwait(false);
+    }
     private static HashSet<(string Path, int Index)> _hotPages = new();
 
     /// <summary>Viewer khai báo các trang cần giữ đã-parse (số trang 1-based của file nguồn).</summary>
@@ -75,7 +109,7 @@ public static partial class PdfThumbnailService
     private static async Task<NativePage> AcquirePageAsync(PdfDocumentLease document, int index,
         PdfRenderPriority priority, CancellationToken token)
     {
-        using var native = await EnterPdfiumGateAsync(priority, token).ConfigureAwait(false);
+        using var native = await EnterGateAfterInteractionAsync(priority, token).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
         var key = (document.Document, index);
         if (!_nativePages.TryGetValue(key, out var page))
@@ -152,6 +186,9 @@ public static partial class PdfThumbnailService
         try
         {
             long queueStart = Stopwatch.GetTimestamp();
+            // #5: chờ hết tương tác TRƯỚC khi lấy khoá trang — đã giữ khoá thì không dừng giữa chừng, nếu không vùng
+            // zoom của CHÍNH trang này sẽ phải chờ theo.
+            await WaitForInteractionIdleAsync(priority, token).ConfigureAwait(false);
             await page.OperationGate.WaitAsync(priority, token).ConfigureAwait(false);
             RenderDiagnostics.PageQueue.Record(queueStart);
             locked = true;
