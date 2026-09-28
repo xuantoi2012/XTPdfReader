@@ -18,7 +18,7 @@ internal sealed class RotateSourcePagesCommand : IWorkspaceCommand
     {
         _deltaDegrees = deltaDegrees;
         _applyRotation = applyRotation;
-        Description = $"Xoay {pageCount} trang {(deltaDegrees > 0 ? "phải" : "trái")} (lưu file)";
+        Description = $"Rotate {pageCount} page{(pageCount == 1 ? "" : "s")} {(deltaDegrees > 0 ? "right" : "left")} (saved to file)";
     }
 
     public string Description { get; }

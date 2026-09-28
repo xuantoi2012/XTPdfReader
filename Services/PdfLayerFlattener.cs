@@ -57,7 +57,7 @@ namespace XTPdfMergeApp.Services
             var result = new HashSet<PdfDictionary>();
             var ocgs = doc.GetCatalog().GetPdfObject().GetAsDictionary(PdfName.OCProperties)?.GetAsArray(PdfName.OCGs);
             for (int i = 0; ocgs != null && i < ocgs.Size(); i++)
-                if (ocgs.GetAsDictionary(i) is { } ocg && hiddenNames.Contains(ocg.GetAsString(PdfName.Name)?.ToUnicodeString() ?? "(không tên)"))
+                if (ocgs.GetAsDictionary(i) is { } ocg && hiddenNames.Contains(ocg.GetAsString(PdfName.Name)?.ToUnicodeString() ?? "(unnamed)"))
                     result.Add(ocg);
             return result;
         }

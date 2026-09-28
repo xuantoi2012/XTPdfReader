@@ -28,6 +28,7 @@ namespace XTPdfMergeApp.Controls
         /// <summary>Mở hộp thoại chọn file (tham số = thư mục bắt đầu, null = mặc định).</summary>
         internal event Action<string?>? OpenDialogRequested;
         internal event Action<string>? OpenPathRequested;
+        internal event Action? OpenFolderRequested;
         internal event Action<WorkspaceEntry>? RestoreRequested;
         /// <summary>Các file đang mở (thứ tự tab) và file đang xem — để lưu workspace.</summary>
         internal Func<(IReadOnlyList<string> Files, string? Active)>? CurrentFiles { get; set; }
@@ -77,6 +78,7 @@ namespace XTPdfMergeApp.Controls
             => bytes >= 1L << 30 ? (bytes / (double)(1L << 30)).ToString("0.0") + " GB" : Math.Max(1, bytes >> 20) + " MB";
 
         private void OpenFile_Click(object sender, RoutedEventArgs e) => OpenDialogRequested?.Invoke(null);
+        private void OpenFolder_Click(object sender, RoutedEventArgs e) => OpenFolderRequested?.Invoke();
 
         private void Location_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {

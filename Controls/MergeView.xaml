@@ -11,18 +11,54 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="Bd" Height="28" MinWidth="34" Padding="10,0" CornerRadius="5" Background="Transparent" SnapsToDevicePixels="True">
-                            <TextBlock x:Name="Tx" Text="{TemplateBinding Content}" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>
+                        <Border x:Name="Bd" Height="34" Width="40" CornerRadius="6" Background="Transparent" SnapsToDevicePixels="True">
+                            <Viewbox Width="22" Height="22">
+                                <Canvas Width="24" Height="24">
+                                    <Path x:Name="Ic" Data="{TemplateBinding Content}" Stroke="{DynamicResource Ui.Muted}" Style="{StaticResource UiLineIconPath}"/>
+                                </Canvas>
+                            </Viewbox>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/>
-                                <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+                                <Setter TargetName="Ic" Property="Stroke" Value="{DynamicResource Ui.Text}"/>
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource XTPrimaryButtonBackground}"/>
-                                <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.OnAccent}"/>
-                                <Setter TargetName="Tx" Property="FontWeight" Value="SemiBold"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Surface}"/>
+                                <Setter TargetName="Ic" Property="Stroke" Value="{DynamicResource Ui.Accent}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Geometry x:Key="Lay.One">M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z</Geometry>
+        <Geometry x:Key="Lay.Two">M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM12 4v16</Geometry>
+        <Geometry x:Key="Lay.Three">M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM9.3 4v16M14.7 4v16</Geometry>
+        <Geometry x:Key="Lay.Grid">M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM12 4v16M4 12h16</Geometry>
+        <Geometry x:Key="Lay.Free">M4 4h10v9H4zM10 11h10v9H10z</Geometry>
+        <Style x:Key="ChipToggle" TargetType="ToggleButton">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bd" Height="30" Padding="12,0" CornerRadius="15" Background="{DynamicResource Ui.Chip}" BorderThickness="1" BorderBrush="Transparent">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Viewbox x:Name="Chk" Width="14" Height="14" Margin="0,0,7,0" Visibility="Collapsed">
+                                    <Canvas Width="24" Height="24"><Path Data="M5 12.5l4.5 4.5L19 7.5" Stroke="{DynamicResource Ui.Accent}" Style="{StaticResource UiLineIconPath}"/></Canvas>
+                                </Viewbox>
+                                <TextBlock x:Name="Tx" Text="{TemplateBinding Content}" Foreground="{DynamicResource Ui.Muted}"/>
+                            </StackPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                                <Setter TargetName="Chk" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.Accent}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Border}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -38,27 +74,40 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <Border Height="50" Background="{DynamicResource Ui.Surface}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="16,0">
+        <Border Height="64" Background="{DynamicResource Ui.Surface}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="12,0,16,0">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                     <xt:XTButton Style="{StaticResource UiGhostButton}" Icon="{StaticResource Ui.Icon.plus}" Text="Temp window" Margin="0,0,12,0" Click="NewTemp_Click"
                                  ToolTip="Add an empty window to collect pages from several files, then save it as a new file"/>
-                    <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.undo}" Width="30" Height="30" ToolTip="Undo (Ctrl+Z)" Click="Undo_Click"/>
-                    <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.redo}" Width="30" Height="30" ToolTip="Redo (Ctrl+Y)" Click="Redo_Click" Margin="0,0,12,0"/>
                     <xt:XTButton Style="{StaticResource UiPrimaryButton}" Icon="{StaticResource Ui.Icon.merge}" Text="Merge into one file…" Click="MergeAll_Click"
                                  ToolTip="Save all windows, in this order, as a single PDF (same-name layers are merged)"/>
                     <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Done" Margin="8,0,0,0" Click="Done_Click" ToolTip="Back to the reader"/>
                 </StackPanel>
-                <TextBlock Text="Merge" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,20,0" Foreground="{DynamicResource Ui.Text}"/>
-                <Border CornerRadius="7" Background="{DynamicResource Ui.Chip}" Padding="2" VerticalAlignment="Center" HorizontalAlignment="Left">
-                    <StackPanel Orientation="Horizontal">
-                        <RadioButton x:Name="LayoutOne" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="1" Tag="One" ToolTip="One window" Checked="Layout_Checked"/>
-                        <RadioButton x:Name="LayoutTwo" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="1 | 2" Tag="Two" ToolTip="Two side by side" Checked="Layout_Checked"/>
-                        <RadioButton x:Name="LayoutThree" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="3 cols" Tag="Three" ToolTip="Three columns" Checked="Layout_Checked"/>
-                        <RadioButton x:Name="LayoutGrid" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="2×2" Tag="Grid" ToolTip="2 × 2 grid" Checked="Layout_Checked"/>
-                        <RadioButton x:Name="LayoutFree" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="Free" Tag="Free" ToolTip="Move and resize windows freely" Checked="Layout_Checked"/>
-                    </StackPanel>
-                </Border>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.undo}" Text="Undo" ToolTip="Undo (Ctrl+Z)" Click="Undo_Click"/>
+                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.redo}" Text="Redo" ToolTip="Redo (Ctrl+Y)" Click="Redo_Click"/>
+                    <Border Width="1" Height="36" Margin="10,0" Background="{DynamicResource Ui.Border}"/>
+                    <TextBlock Text="Layout" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource Ui.Muted}"/>
+                    <Border CornerRadius="8" Background="{DynamicResource Ui.Chip}" Padding="2" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton x:Name="LayoutOne" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.One}" Tag="One" ToolTip="One window" Checked="Layout_Checked"/>
+                            <RadioButton x:Name="LayoutTwo" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Two}" Tag="Two" ToolTip="Two side by side" Checked="Layout_Checked"/>
+                            <RadioButton x:Name="LayoutThree" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Three}" Tag="Three" ToolTip="Three columns" Checked="Layout_Checked"/>
+                            <RadioButton x:Name="LayoutGrid" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Grid}" Tag="Grid" ToolTip="2 × 2 grid" Checked="Layout_Checked"/>
+                            <RadioButton x:Name="LayoutFree" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Free}" Tag="Free" ToolTip="Move and resize windows freely" Checked="Layout_Checked"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Width="1" Height="36" Margin="14,0,12,0" Background="{DynamicResource Ui.Border}"/>
+                    <Viewbox Width="16" Height="16" Margin="0,0,8,0">
+                        <Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.file}" Stroke="{DynamicResource Ui.Muted}" Style="{StaticResource UiLineIconPath}"/></Canvas>
+                    </Viewbox>
+                    <TextBlock Text="Page size" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource Ui.Muted}"/>
+                    <Slider x:Name="PageSizeSlider" Width="130" Minimum="64" Maximum="180" Value="100" VerticalAlignment="Center" ValueChanged="PageSize_Changed"
+                            ToolTip="Thumbnail size"/>
+                    <Border Width="1" Height="36" Margin="14,0,12,0" Background="{DynamicResource Ui.Border}"/>
+                    <ToggleButton x:Name="MergeLayersToggle" Style="{StaticResource ChipToggle}" Content="Merge same-name layers" Click="MergeLayersToggle_Click"
+                                  ToolTip="When saving the merged file, layers with the same name become one layer"/>
+                </StackPanel>
             </DockPanel>
         </Border>
 
@@ -70,9 +119,14 @@
         </StackPanel>
 
         <!-- Dock: cửa sổ đã thu nhỏ (hoặc vượt số cửa sổ tối đa). Bấm chip = mở lại; thả trang lên chip = nối vào cuối file đó. -->
-        <Border x:Name="DockBar" Grid.Row="2" Height="44" Background="{DynamicResource Ui.Panel}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" Padding="16,0">
+        <Border x:Name="DockBar" Grid.Row="2" Height="48" Background="{DynamicResource Ui.Panel}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" Padding="16,0">
             <DockPanel>
-                <TextBlock Text="Dock" VerticalAlignment="Center" Margin="0,0,12,0" FontSize="11.5" Foreground="{DynamicResource Ui.Muted}"/>
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
+                    <Viewbox Width="16" Height="16" Margin="0,0,7,0"><Canvas Width="24" Height="24"><Path Data="M4 13l2.5-7h11L20 13v6H4zM4 13h5l1 2h4l1-2h5" Stroke="{DynamicResource Ui.Text}" Style="{StaticResource UiLineIconPath}"/></Canvas></Viewbox>
+                    <TextBlock Text="Dock" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
+                </StackPanel>
+                <TextBlock x:Name="DockInfo" DockPanel.Dock="Right" VerticalAlignment="Center" FontSize="11.5" Foreground="{DynamicResource Ui.Muted}"
+                           Text="Drag = move · Ctrl+drag = copy"/>
                 <StackPanel x:Name="DockChips" Orientation="Horizontal" VerticalAlignment="Center"/>
             </DockPanel>
         </Border>

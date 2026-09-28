@@ -38,7 +38,7 @@ internal sealed class WorkspaceDocument : INotifyPropertyChanged
         get
         {
             if (LoadError != null) return $"{FileName}  · {LoadError}";
-            if (IsOpening) return $"{FileName}  · Đang mở…";
+            if (IsOpening) return $"{FileName}  · Opening…";
             return $"{FileName}  ({Pages.Count} trang)";
         }
     }

@@ -16,7 +16,7 @@ internal sealed class ReorderDocumentsCommand : IWorkspaceCommand
         _newIndex = newIndex;
     }
 
-    public string Description => "Sắp xếp file";
+    public string Description => "Reorder files";
     public void Execute()
     {
         _oldIndex = _workspace.Documents.IndexOf(_document);

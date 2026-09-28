@@ -69,7 +69,7 @@ namespace XTPdfMergeApp.Services
                 if (ocgs.GetAsDictionary(i) is not { } ocg) continue;
                 string id = IdOf(ocg);
                 if (id.Length == 0) continue;
-                names[id] = ocg.GetAsString(PdfName.Name)?.ToUnicodeString() ?? "(không tên)";
+                names[id] = ocg.GetAsString(PdfName.Name)?.ToUnicodeString() ?? "(unnamed)";
             }
 
             var config = ocProperties!.GetAsDictionary(PdfName.D);
@@ -235,7 +235,7 @@ namespace XTPdfMergeApp.Services
                         for (int i = 0; i < ocgs.Size(); i++)
                         {
                             if (ocgs.GetAsDictionary(i) is not { } ocg) continue;
-                            string name = ocg.GetAsString(PdfName.Name)?.ToUnicodeString() ?? "(không tên)";
+                            string name = ocg.GetAsString(PdfName.Name)?.ToUnicodeString() ?? "(unnamed)";
                             (hiddenNames.Contains(name) ? off : on).Add(ocgs.Get(i, false));
                         }
                         config.Put(PdfName.ON, on);
@@ -261,7 +261,7 @@ namespace XTPdfMergeApp.Services
             public int Get(long position)
             {
                 if (position < 0 || position >= cache.Length) return -1;
-                if (!cache.CopyTo(position, _one, 0, 1)) throw new IOException("Không đọc được file PDF gốc.");
+                if (!cache.CopyTo(position, _one, 0, 1)) throw new IOException("Could not read the source PDF.");
                 return _one[0];
             }
 
@@ -269,7 +269,7 @@ namespace XTPdfMergeApp.Services
             {
                 if (position < 0 || position >= cache.Length) return -1;
                 int count = (int)Math.Min(len, cache.Length - position);
-                if (!cache.CopyTo(position, bytes, off, count)) throw new IOException("Không đọc được file PDF gốc.");
+                if (!cache.CopyTo(position, bytes, off, count)) throw new IOException("Could not read the source PDF.");
                 return count;
             }
 

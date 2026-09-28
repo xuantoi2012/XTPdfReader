@@ -42,8 +42,8 @@ internal sealed class PagePlacement : INotifyPropertyChanged
 
     public string FileName => Path.GetFileName(SourcePath);
     public string PageLabel => IsImported
-        ? $"Nguồn: {FileName} · Trang {PageNumber}"
-        : $"{FileName} · Trang {PageNumber}";
+        ? $"Source: {FileName} · Page {PageNumber}"
+        : $"{FileName} · Page {PageNumber}";
 
     // Visuals and byte-budgeted caches keep images alive. Placements may remain in undo
     // history indefinitely and must not retain hundreds of megabytes of render output.

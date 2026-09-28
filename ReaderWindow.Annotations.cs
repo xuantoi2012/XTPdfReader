@@ -477,13 +477,13 @@ namespace XTPdfMergeApp
 
             QuickAnnotationChange change;
             string description;
-            string label = state.Kind == QuickAnnotationKind.Comment ? "ghi chú" : "typewriter";
+            string label = state.Kind == QuickAnnotationKind.Comment ? "note" : "typewriter";
             if (state.Existing is not { } existing)
             {
                 if (text.Length == 0) return;
                 change = new QuickAnnotationChange(null, new QuickAnnotationSpec(NewAnnotationName(), state.Kind,
                     state.Row.PageNumber, state.U, state.V, state.U, state.V, text));
-                description = "Thêm " + label;
+                description = "Add " + label;
             }
             else if (text == existing.Text)
             {
@@ -492,14 +492,14 @@ namespace XTPdfMergeApp
             else if (text.Length == 0)
             {
                 change = new QuickAnnotationChange(existing, null);
-                description = "Xoá " + label;
+                description = "Delete " + label;
             }
             else
             {
                 // Annotation do app khác tạo (không có /NM) nhận tên mới khi được ghi lại.
                 string name = existing.Name.StartsWith('#') ? NewAnnotationName() : existing.Name;
                 change = new QuickAnnotationChange(existing, existing with { Name = name, Text = text });
-                description = "Sửa " + label;
+                description = "Edit " + label;
             }
             CommitAnnotationChange(state.Row, change, description);
         }

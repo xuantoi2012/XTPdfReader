@@ -26,7 +26,7 @@ namespace XTPdfMergeApp.Services
                 foreach (int pageNumber in pageNumbers)
                 {
                     if (pageNumber < 1 || pageNumber > doc.GetNumberOfPages())
-                        throw new ArgumentOutOfRangeException(nameof(pageNumbers), $"Trang {pageNumber} không tồn tại.");
+                        throw new ArgumentOutOfRangeException(nameof(pageNumbers), $"Page {pageNumber} does not exist.");
                     var page = doc.GetPage(pageNumber);
                     page.SetRotation(NormalizeRotation(page.GetRotation() + deltaDegrees));
                 }

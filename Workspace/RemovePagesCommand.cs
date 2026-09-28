@@ -20,7 +20,7 @@ internal sealed class RemovePagesCommand : IWorkspaceCommand
         _pages = pages.ToList();
     }
 
-    public string Description => "Xóa trang";
+    public string Description => "Delete pages";
     public void Execute()
     {
         _documentIndex = _workspace.Documents.IndexOf(_document);

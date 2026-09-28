@@ -42,18 +42,18 @@
 
             <!-- ══ Toolbar (docs/UI_REDESIGN.md): icon + chữ 11 px, nhóm bằng vạch; nút chính "Merge files" bên phải.
                  Chỉ hiện nút đã có chức năng. Xoay ở đây là xoay KHUNG NHÌN; xoay THẬT nằm ở panel Pages. Tag="Active" = công cụ đang bật. ══ -->
-            <Border Grid.Row="0" Height="60" Background="{DynamicResource Ui.Surface}"
+            <Border x:Name="ReaderToolbarBar" Grid.Row="0" Height="72" Background="{DynamicResource Ui.Surface}"
                     BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1">
                 <DockPanel Margin="12,0">
                     <xt:XTButton x:Name="ReaderMergeButton" DockPanel.Dock="Right" Style="{StaticResource UiPrimaryButton}"
                                  Icon="{StaticResource Ui.Icon.merge}" Text="Merge files" Margin="6,0,0,0"
                                  ToolTip="Open the Merge window: move or copy pages between files, merge, split and save"
                                  Click="ReaderShowMergeWindow_Click"/>
-                    <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.print}" Text="Print"
+                    <xt:XTButton x:Name="ReaderPrintButton" DockPanel.Dock="Right" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.print}" Text="Print"
                                  ToolTip="Print (Ctrl+P)" Click="ReaderPrint_Click"/>
-                    <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.search}" Text="Find"
+                    <xt:XTButton x:Name="ReaderFindButton" DockPanel.Dock="Right" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.search}" Text="Find"
                                  ToolTip="Find in document (Ctrl+F)" Click="ReaderFind_Click"/>
-                    <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Focusable="False">
+                    <ScrollViewer x:Name="ReaderToolsScroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Focusable="False">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <xt:XTButton x:Name="ReaderHandToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hand}" Text="Hand"
                                      ToolTip="Drag to scroll the page (Esc returns to this tool)" Click="ReaderHandTool_Click" Tag="Active"/>
@@ -165,7 +165,7 @@
 
             <Grid Grid.Row="2">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition x:Name="ReaderSidePanelColumn" Width="352" MinWidth="304" MaxWidth="640"/>
+                    <ColumnDefinition x:Name="ReaderSidePanelColumn" Width="364" MinWidth="304" MaxWidth="640"/>
                     <ColumnDefinition Width="4"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
@@ -297,7 +297,7 @@
             <ctl:CommandPalette x:Name="Palette" Grid.RowSpan="4" Visibility="Collapsed"/>
 
             <!-- Thanh trạng thái: đường dẫn · điều hướng trang (giữa) · zoom (phải) -->
-            <Grid Grid.Row="3" Background="{DynamicResource Ui.Panel}" Height="30"
+            <Grid x:Name="ReaderStatusBar" Grid.Row="3" Background="{DynamicResource Ui.Panel}" Height="30"
                   TextElement.Foreground="{DynamicResource Ui.Muted}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>

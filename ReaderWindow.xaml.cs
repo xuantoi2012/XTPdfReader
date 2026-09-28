@@ -77,7 +77,7 @@ namespace XTPdfMergeApp
                 reader.Cache, reader.Bytes, reader.Inflight,
                 _readerTileCache.Count, _readerTileCache.Bytes,
                 continuous.Pages, continuous.Regions, continuous.RegionBytes,
-                _readerContinuousMode ? "Cuộn liên tục" : "1 trang", _readerZoom, current, pageCount);
+                _readerContinuousMode ? "Continuous" : "Single page", _readerZoom, current, pageCount);
         }
 
         internal void ShutdownReader()
@@ -635,7 +635,7 @@ namespace XTPdfMergeApp
             }
             else
             {
-                ReaderEmptyText.Text = "Đang tải trang...";
+                ReaderEmptyText.Text = "Loading page…";
                 ReaderEmptyText.Visibility = Visibility.Visible;
                 ReaderImage.Source = null;
                 // #1: xin ảnh thấp (340 px, ưu tiên Visible) TRƯỚC ảnh nét — hiện ngay khi có, ảnh nét thay sau.
@@ -653,7 +653,7 @@ namespace XTPdfMergeApp
             {
                 if (preview == null)
                 {
-                    ReaderEmptyText.Text = "Không render được trang này";
+                    ReaderEmptyText.Text = "This page could not be rendered";
                     ReaderEmptyText.Visibility = Visibility.Visible;
                 }
                 return;
@@ -686,7 +686,7 @@ namespace XTPdfMergeApp
         private void UpdateReaderChrome(DocumentGroup group, PageRow row)
         {
             int position = group.Pages.IndexOf(row);
-            ReaderTitleText.Text = $"{Path.GetFileName(row.SourcePath)} - trang nguồn {row.PageNumber}";
+            ReaderTitleText.Text = $"{Path.GetFileName(row.SourcePath)} - page {row.PageNumber}";
             ReaderPageBox.Text = position >= 0 ? (position + 1).ToString() : row.Index.ToString();
             ReaderPageTotalText.Text = $"/ {group.Pages.Count}";
             OnReaderCurrentPageChanged(group, row);

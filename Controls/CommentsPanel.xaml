@@ -10,8 +10,8 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="Bd" Height="26" Padding="10,0" CornerRadius="5" Background="Transparent">
-                            <TextBlock x:Name="Tx" Text="{TemplateBinding Content}" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>
+                        <Border x:Name="Bd" Height="28" Padding="10,0" CornerRadius="5" Background="Transparent">
+                            <TextBlock x:Name="Tx" Text="{TemplateBinding Content}" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -91,12 +91,12 @@
                          ToolTip="Save all comments of this document as a spreadsheet (CSV)" Click="Export_Click"/>
         </Border>
         <StackPanel DockPanel.Dock="Top" Margin="12,0,12,10">
-            <Border CornerRadius="7" Background="{DynamicResource Ui.Chip}" Padding="2" HorizontalAlignment="Left">
-                <StackPanel Orientation="Horizontal">
+            <Border CornerRadius="7" Background="{DynamicResource Ui.Chip}" Padding="2">
+                <UniformGrid Rows="1">
                     <RadioButton x:Name="StatusAll" Style="{StaticResource StatusItem}" GroupName="CommentStatus" IsChecked="True" Checked="Filter_Changed"/>
                     <RadioButton x:Name="StatusOpen" Style="{StaticResource StatusItem}" GroupName="CommentStatus" Checked="Filter_Changed"/>
                     <RadioButton x:Name="StatusResolved" Style="{StaticResource StatusItem}" GroupName="CommentStatus" Checked="Filter_Changed"/>
-                </StackPanel>
+                </UniformGrid>
             </Border>
             <Grid Margin="0,10,0,0">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>

@@ -143,3 +143,10 @@ zoom vào ~1,0 s, cuộn 40 nấc ~0,05 s, RAM khi dùng 620–660 MB private WS
 - **Export / Split**: `ExportWindow` (Ctrl+Shift+E), split by size / every N / bookmark / ranges, optional layer-view flatten.
 - **Comments**: panel listing all annotations with resolve toggle (Review state).
 - **Stamps**: toolbar Stamp popup (Standard / Mine, New stamp…, Import image…, name + date, opacity); click places, Shift repeats, right-click on a stamp deletes. Stamps are real PDF stamp annotations with an appearance stream.
+
+## P10 – Strings + review against mockup (28/09)
+
+- All user-visible strings are English (dialogs, status bar, undo descriptions, merge errors). Only debug logs / Diagnostics window stay Vietnamese. Old `MergeWorkspaceWindow` deleted; `PdfFactoryIntegrationService.ReconcileRegistry` replaces its static helper.
+- Review fixes: toolbar icons 26 px (bar 72 px), rail order Pages/Bookmarks/Layers/Comments/Find with Settings pinned at the bottom, panel 300 px (Pages) / 340 px (others), thumbnail selection = dark outline, selection bar with copy/paste hint, "Insert ▾", page menu icons, Comments filter full width.
+- Merge screen: own header (Undo/Redo, layout icons, Page size slider, "Merge same-name layers" chip), window header with grip + count chip + "Go to…", Dock info line. Reader toolbar hidden in Merge and Start; Start has "Open folder…" and no status bar.
+- Still missing vs mockup: Recent thumbnails + "network" tag on Start, "Send to Merge window", drag ghost with "Move N pages · hold Ctrl to copy" hint, tab hover hint, Print "Page setup…".

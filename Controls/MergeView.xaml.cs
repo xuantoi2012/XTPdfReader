@@ -43,7 +43,16 @@ namespace XTPdfMergeApp.Controls
         {
             InitializeComponent();
             UpdateLayoutButtons();
+            MergeLayersToggle.IsChecked = Services.AppSettings.MergeOptionsSaved.MergeLayers;
         }
+
+        private void PageSize_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            foreach (var entry in _entries) entry.Window.ThumbWidth = e.NewValue;
+        }
+
+        private void MergeLayersToggle_Click(object sender, RoutedEventArgs e)
+            => Services.AppSettings.MergeOptionsSaved = Services.AppSettings.MergeOptionsSaved with { MergeLayers = MergeLayersToggle.IsChecked == true };
 
         /// <summary>Máy chủ chỉnh sửa (Move/Delete/Save/Undo…) — do ReaderWindow gắn.</summary>
         internal Func<IReaderPageEditHost?>? HostProvider { get; set; }
@@ -84,7 +93,7 @@ namespace XTPdfMergeApp.Controls
             foreach (var group in _groups)
             {
                 if (_entries.Any(e => ReferenceEquals(e.Window.Group, group))) continue;
-                var window = new MergeMiniWindow(group);
+                var window = new MergeMiniWindow(group) { ThumbWidth = PageSizeSlider.Value };
                 Hook(window);
                 Workspace.Children.Add(window);
                 _entries.Add(new Entry { Window = window, LastActive = ++_tick });
@@ -362,6 +371,8 @@ namespace XTPdfMergeApp.Controls
                 };
                 DockChips.Children.Add(chip);
             }
+            int shown = visible.Count;
+            DockInfo.Text = $"{shown} window{(shown == 1 ? "" : "s")} shown · {docked.Count} minimized · max {Capacity(MergeLayout.Grid)} at once  |  Drag = move · Ctrl+drag = copy";
             if (docked.Count == 0)
             {
                 var hint = new TextBlock { Text = "Minimized windows appear here.", FontSize = 11.5 };

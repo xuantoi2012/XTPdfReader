@@ -10,7 +10,7 @@ internal sealed class RemoveDocumentCommand : IWorkspaceCommand
     private int _index;
     public RemoveDocumentCommand(PdfWorkspace workspace, WorkspaceDocument document)
     { _workspace = workspace; _document = document; }
-    public string Description => "Đóng file";
+    public string Description => "Close file";
     public void Execute()
     {
         _index = _workspace.Documents.IndexOf(_document);

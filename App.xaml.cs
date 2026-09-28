@@ -65,7 +65,7 @@ namespace XTPdfMergeApp
 
             ThemeService.ApplySaved();
             // Đối soát registry "View PDF" của pdfFactory (nếu user đã bật) — âm thầm, không hỏi.
-            if (MergeAppSettingsStore.GetPdfFactoryViewEnabled()) MergeWorkspaceWindow.ReconcilePdfFactoryRegistry();
+            if (MergeAppSettingsStore.GetPdfFactoryViewEnabled()) PdfFactoryIntegrationService.ReconcileRegistry();
 
             AppSettings.ApplyRuntime();
             PdfThumbnailService.StartMemoryPolicy();

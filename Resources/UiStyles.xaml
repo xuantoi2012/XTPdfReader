@@ -37,11 +37,11 @@
         <Setter Property="Template" Value="{StaticResource UiToolbarButtonTemplate}"/>
         <Setter Property="Width" Value="Auto"/>
         <Setter Property="MinWidth" Value="60"/>
-        <Setter Property="Height" Value="48"/>
+        <Setter Property="Height" Value="56"/>
         <Setter Property="Padding" Value="6,0"/>
         <Setter Property="Margin" Value="1,0"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
-        <Setter Property="IconSize" Value="20"/>
+        <Setter Property="IconSize" Value="26"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
         <Setter Property="IconBrush" Value="{DynamicResource Ui.Text}"/>
@@ -100,7 +100,8 @@
     <Style x:Key="UiRailButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiToolbarButton}">
         <Setter Property="Width" Value="56"/>
         <Setter Property="MinWidth" Value="56"/>
-        <Setter Property="Height" Value="54"/>
+        <Setter Property="Height" Value="58"/>
+        <Setter Property="IconSize" Value="22"/>
         <Setter Property="Padding" Value="0"/>
         <Setter Property="Margin" Value="0,1"/>
         <Setter Property="HorizontalAlignment" Value="Center"/>
@@ -129,7 +130,7 @@
         <Setter Property="Height" Value="46"/>
         <Setter Property="HorizontalAlignment" Value="Stretch"/>
         <Setter Property="Padding" Value="2,0"/>
-        <Setter Property="IconSize" Value="19"/>
+        <Setter Property="IconSize" Value="21"/>
     </Style>
 
     <!-- ══ Nút icon nhỏ (thanh trạng thái, đóng tab…) ══ -->
@@ -218,8 +219,8 @@
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/>
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Text}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

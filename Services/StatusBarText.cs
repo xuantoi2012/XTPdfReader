@@ -9,21 +9,21 @@ namespace XTPdfMergeApp.Services
         public static string FileCount(int? splitTotalPages, int groupCount, int loadingCount)
         {
             if (splitTotalPages is { } total)
-                return $"2 file đang chia đôi · {total} trang";
+                return $"2 files side by side · {total} pages";
             return loadingCount > 0
-                ? $"Đã thêm {groupCount} file · đang tải {loadingCount}"
-                : $"Đã thêm {groupCount} file";
+                ? $"{groupCount} file{(groupCount == 1 ? "" : "s")} added · {loadingCount} loading"
+                : $"{groupCount} file{(groupCount == 1 ? "" : "s")} added";
         }
 
         public static string SelectedFile(int multiSelectedCount, string? selectedFileName, int selectedPageCount, int? selectedPageNumber)
         {
-            if (multiSelectedCount > 1) return $"Đã chọn {multiSelectedCount} file";
-            if (selectedFileName == null) return "Chưa chọn file";
+            if (multiSelectedCount > 1) return $"{multiSelectedCount} files selected";
+            if (selectedFileName == null) return "No file selected";
 
             string pagePart = selectedPageCount > 1
-                ? $" · {selectedPageCount} trang đang chọn"
-                : selectedPageNumber is { } pageNumber ? $" · trang {pageNumber}" : "";
-            return $"Đang chọn: {selectedFileName}{pagePart}";
+                ? $" · {selectedPageCount} pages selected"
+                : selectedPageNumber is { } pageNumber ? $" · page {pageNumber}" : "";
+            return $"{selectedFileName}{pagePart}";
         }
     }
 }

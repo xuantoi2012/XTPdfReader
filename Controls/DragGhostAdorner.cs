@@ -40,7 +40,7 @@ internal sealed class DragGhostAdorner : Adorner
         drawingContext.Pop();
 
         var text = new FormattedText(
-            _copy ? $"Sao chép · {_label}" : _label,
+            _copy ? $"Copy · {_label}" : _label,
             System.Globalization.CultureInfo.CurrentUICulture,
             FlowDirection.LeftToRight,
             new Typeface("Segoe UI Semibold"), 11,

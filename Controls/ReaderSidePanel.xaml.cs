@@ -400,6 +400,8 @@ namespace XTPdfMergeApp.Controls
         internal event Action? SettingsRequested;
         /// <summary>Chọn 1 tab khác (Pages/Bookmarks/Layers) — ReaderWindow đóng trang Settings nếu đang mở.</summary>
         internal event Action? RailTabChosen;
+        /// <summary>Tab đổi: true = tab cần panel rộng (Layers/Find/Comments/Bookmarks), false = Pages.</summary>
+        internal event Action<bool>? WideTabChanged;
 
         private void SettingsTab_Click(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
 
@@ -434,6 +436,7 @@ namespace XTPdfMergeApp.Controls
             PanelEmptyText.Visibility = Visibility.Collapsed;
             PanelSourceText.Visibility = tab == Tab.Bookmarks ? Visibility.Visible : Visibility.Collapsed;
             UpdateCount();
+            WideTabChanged?.Invoke(tab != Tab.Thumbnails);
             if (tab == Tab.Comments) _ = RefreshCommentsAsync();
             if (tab == Tab.Layers) _ = RefreshLayersAsync(force: false);
             else if (tab == Tab.Bookmarks) _ = RefreshSourceTabAsync();

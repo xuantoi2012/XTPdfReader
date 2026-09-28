@@ -189,7 +189,7 @@ namespace XTPdfMergeApp
             }
             if (loaded is { } fraction && fraction < 1)
             {
-                ReaderLoadProgressText.Text = $"Nạp vào RAM {fraction:P0}";
+                ReaderLoadProgressText.Text = $"Loading into memory {fraction:P0}";
                 ReaderLoadProgressText.Visibility = Visibility.Visible;
                 _waitingForFullLoad = true;
             }
@@ -215,7 +215,7 @@ namespace XTPdfMergeApp
 
         private void ShowEmptyReaderState()
         {
-            ReaderEmptyText.Text = "Mở file PDF để xem — nút Mở trên ribbon, hoặc kéo-thả file vào cửa sổ.";
+            ReaderEmptyText.Text = "Open a PDF with Ctrl+O, or drag files into the window.";
             ReaderEmptyText.Visibility = Visibility.Visible;
             ReaderTitleText.Text = "";
             ReaderPageBox.Text = "";
@@ -466,7 +466,6 @@ namespace XTPdfMergeApp
 
         // ── Cửa sổ ghép (phụ) — chỉ tạo ở đây, đóng là huỷ thật ─────────────
 
-        private MergeWorkspaceWindow? _mergeWindow;
 
         /// <summary>Mở (hoặc đưa lên trước) cửa sổ ghép nhiều file. Cửa sổ ghép mượn <see cref="Session"/>
         /// nên có sẵn mọi file đang mở ở đây; đóng nó không ảnh hưởng gì tới phiên làm việc.</summary>
@@ -480,6 +479,13 @@ namespace XTPdfMergeApp
             MergeViewHost.OpenFileRequested += () => { if (EditHost != null) _ = EditHost.OpenFilesAsync(); };
             MergeViewHost.MergeAllRequested += () => { if (EditHost != null) _ = EditHost.MergeAllToFileAsync(); };
             ReaderSidePanel.RailTabChosen += () => ShowMerge(false);
+            ReaderSidePanel.WideTabChanged += wide =>
+            {
+                // Mockup: Pages panel 300 px, the list-style panels 340 px (+ 64 px rail). Only grow/shrink when the user has not resized it.
+                double current = ReaderSidePanelColumn.Width.Value;
+                if (wide && Math.Abs(current - 364) < 1) ReaderSidePanelColumn.Width = new GridLength(404);
+                else if (!wide && Math.Abs(current - 404) < 1) ReaderSidePanelColumn.Width = new GridLength(364);
+            };
         }
 
         /// <summary>Hiện/ẩn màn hình Merge (phủ lên panel + vùng xem).</summary>
@@ -494,6 +500,7 @@ namespace XTPdfMergeApp
             }
             MergeViewHost.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             ReaderMergeButton.Text = show ? "Back to reader" : "Merge files";
+            UpdateToolbarVisibility();
         }
 
         /// <summary>Đưa cửa sổ đọc lên trước (vd double-click 1 trang trong cửa sổ ghép).</summary>
@@ -524,7 +531,6 @@ namespace XTPdfMergeApp
                     return;
                 }
             }
-            _mergeWindow?.Close();
             ShutdownReader();
         }
 

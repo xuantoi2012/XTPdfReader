@@ -31,7 +31,7 @@ internal sealed class MovePagesCommand : IWorkspaceCommand
     /// <summary>Các placement vừa được chèn vào đích (sau Execute): chính các trang đã chuyển, hoặc bản sao khi copy.</summary>
     public IReadOnlyList<PagePlacement> InsertedPages => _inserted ?? [];
 
-    public string Description => _copy ? "Sao chép trang" : "Di chuyển trang";
+    public string Description => _copy ? "Copy pages" : "Move pages";
 
     public void Execute()
     {

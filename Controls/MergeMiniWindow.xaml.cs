@@ -20,6 +20,39 @@ namespace XTPdfMergeApp.Controls
     {
         internal DocumentGroup Group { get; }
 
+        public static readonly DependencyProperty ThumbWidthProperty = DependencyProperty.Register(nameof(ThumbWidth), typeof(double), typeof(MergeMiniWindow),
+            new PropertyMetadata(100.0, (d, _) => ((MergeMiniWindow)d).OnThumbWidthChanged()));
+        public static readonly DependencyProperty ThumbHeightProperty = DependencyProperty.Register(nameof(ThumbHeight), typeof(double), typeof(MergeMiniWindow), new PropertyMetadata(74.0));
+        public static readonly DependencyProperty CellSizeProperty = DependencyProperty.Register(nameof(CellSize), typeof(Size), typeof(MergeMiniWindow), new PropertyMetadata(new Size(112, 112)));
+
+        /// <summary>Bề rộng thumbnail (thanh "Page size" của màn hình Merge).</summary>
+        public double ThumbWidth { get => (double)GetValue(ThumbWidthProperty); set => SetValue(ThumbWidthProperty, value); }
+        public double ThumbHeight { get => (double)GetValue(ThumbHeightProperty); private set => SetValue(ThumbHeightProperty, value); }
+        public Size CellSize { get => (Size)GetValue(CellSizeProperty); private set => SetValue(CellSizeProperty, value); }
+
+        private void OnThumbWidthChanged()
+        {
+            double w = ThumbWidth, h = Math.Round(w * 0.74);
+            ThumbHeight = h;
+            CellSize = new Size(w + 12, h + 38);
+        }
+
+        private void GoTo_Focus(object sender, MouseButtonEventArgs e) => GoToBox.Focus();
+
+        private void GoTo_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Enter) return;
+            e.Handled = true;
+            if (int.TryParse(GoToBox.Text.Trim(), out int n) && Group.Pages.Count > 0)
+            {
+                int index = Math.Clamp(n, 1, Group.Pages.Count) - 1;
+                Thumbs.SelectedItem = Group.Pages[index];
+                Thumbs.ScrollIntoView(Group.Pages[index]);
+            }
+            GoToBox.Clear();
+            Thumbs.Focus();
+        }
+
         internal MergeMiniWindow(DocumentGroup group)
         {
             Group = group;

@@ -238,7 +238,7 @@ namespace XTPdfMergeApp
             if (pageCount <= 0)
             {
                 group.SetOpening(false);
-                group.SetLoadError("Không mở được file (file hỏng hoặc không đọc được số trang)");
+                group.SetLoadError("Could not open the file (damaged, or its page count could not be read)");
                 return;
             }
 
@@ -561,7 +561,7 @@ namespace XTPdfMergeApp
                     catch (Exception ex)
                     {
                         InvalidateSourcePageRenders(path, pages, geometryChanged);
-                        MessageBox.Show(OwnerWindow, $"Không ghi được file:\n{path}\n\n{ex.Message}", "Sửa PDF",
+                        MessageBox.Show(OwnerWindow, $"Could not write the file:\n{path}\n\n{ex.Message}", "Edit PDF",
                             MessageBoxButton.OK, MessageBoxImage.Error);
                         return false;
                     }
@@ -831,7 +831,7 @@ namespace XTPdfMergeApp
         {
             using var dlg = new System.Windows.Forms.OpenFileDialog
             {
-                Title = "Chọn file PDF để chèn trang",
+                Title = "Choose a PDF to insert pages from",
                 Filter = "PDF (*.pdf)|*.pdf",
                 Multiselect = false
             };
@@ -861,7 +861,7 @@ namespace XTPdfMergeApp
                 var opened = await AddFileAsGroup(fullPath);
                 if (opened == null)
                 {
-                    MessageBox.Show(OwnerWindow, "Không mở được file:\n" + fullPath, "Chèn trang",
+                    MessageBox.Show(OwnerWindow, "Could not open the file:\n" + fullPath, "Insert pages",
                         MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
@@ -884,7 +884,7 @@ namespace XTPdfMergeApp
             string? initialDir = Path.GetDirectoryName(pages[0].SourcePath);
             using var dlg = new System.Windows.Forms.SaveFileDialog
             {
-                Title = $"Xuất {pages.Count} trang ra file PDF mới",
+                Title = $"Export {pages.Count} page{(pages.Count == 1 ? "" : "s")} to a new PDF",
                 Filter = "PDF (*.pdf)|*.pdf",
                 DefaultExt = "pdf",
                 FileName = FileNamingMath.SuggestExtractFileName(group.FileName, pages.Select(p => group.Pages.IndexOf(p) + 1)),
@@ -895,7 +895,7 @@ namespace XTPdfMergeApp
 
             if (pages.Any(p => string.Equals(Path.GetFullPath(p.SourcePath), Path.GetFullPath(outputPath), StringComparison.OrdinalIgnoreCase)))
             {
-                MessageBox.Show(OwnerWindow, "Không thể xuất đè lên chính file nguồn đang mở.", "Xuất trang",
+                MessageBox.Show(OwnerWindow, "You cannot overwrite the source file that is currently open.", "Export pages",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -908,13 +908,13 @@ namespace XTPdfMergeApp
                 mergeLayersByName: true));
             if (!ok)
             {
-                MessageBox.Show(OwnerWindow, "Xuất trang thất bại:\n" + err, "Xuất trang", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(OwnerWindow, "Export failed:\n" + err, "Export pages", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
 
             var openResult = MessageBox.Show(OwnerWindow,
-                $"Đã xuất {pages.Count} trang ra:\n{outputPath}\n\nMở file ngay?",
-                "Xuất trang", MessageBoxButton.YesNo, MessageBoxImage.Information);
+                $"Exported {pages.Count} page{(pages.Count == 1 ? "" : "s")} to:\n{outputPath}\n\nOpen the file now?",
+                "Export pages", MessageBoxButton.YesNo, MessageBoxImage.Information);
             if (openResult == MessageBoxResult.Yes)
             {
                 try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(outputPath) { UseShellExecute = true }); }

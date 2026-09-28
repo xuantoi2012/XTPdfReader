@@ -89,6 +89,14 @@ namespace XTPdfMergeApp.Services
         }
 
         /// <summary>Tắt — khôi phục đúng giá trị ViewPdfDefault đã backup trước khi bật (hoặc xoá value nếu trước đó chưa từng có, tức pdfFactory chưa in lần nào).</summary>
+        /// <summary>Re-points pdfFactory's "ViewPdf" registry entry at this app if something overwrote it (silent).</summary>
+        internal static void ReconcileRegistry()
+        {
+            string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "";
+            if (string.IsNullOrEmpty(exePath)) return;
+            if (!IsEnabled(exePath)) Enable(exePath);
+        }
+
         public static void Disable()
         {
             foreach (var keyName in FindVersionKeyNames())

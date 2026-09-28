@@ -34,6 +34,7 @@ namespace XTPdfMergeApp
                 ShowStart(false);
                 if (EditHost != null) _ = EditHost.OpenPathsAsync(new[] { path });
             };
+            StartPage.OpenFolderRequested += OpenFolder;
             StartPage.RestoreRequested += entry => _ = RestoreWorkspaceAsync(entry);
             StartPage.CurrentFiles = () => (_groups.Select(g => g.SourcePath).ToList(), _readerGroup?.SourcePath);
             Loaded += (_, _) => { if (_groups.Count == 0) ShowStart(true); };
@@ -53,6 +54,18 @@ namespace XTPdfMergeApp
 
         private bool _autoStart;
 
+        private void OpenFolder()
+        {
+            if (EditHost == null) return;
+            using var dialog = new System.Windows.Forms.FolderBrowserDialog { Description = "Open every PDF in this folder", UseDescriptionForTitle = true };
+            if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+            var files = Directory.GetFiles(dialog.SelectedPath, "*.pdf").OrderBy(f => f, StringComparer.CurrentCultureIgnoreCase).ToList();
+            if (files.Count == 0) { MessageBox.Show(this, "There are no PDF files in that folder.", "Open folder", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+            if (files.Count > 12 && MessageBox.Show(this, $"Open all {files.Count} PDF files in this folder?", "Open folder", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            ShowStart(false);
+            _ = EditHost.OpenPathsAsync(files);
+        }
+
         private void ShowStart(bool show)
         {
             if (show == (StartPage.Visibility == Visibility.Visible)) return;
@@ -64,6 +77,15 @@ namespace XTPdfMergeApp
                 StartPage.Reload();
             }
             StartPage.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            UpdateToolbarVisibility();
+        }
+
+        /// <summary>Start and Merge have their own header (mockups 13 and 6), so the reader toolbar is hidden there.</summary>
+        private void UpdateToolbarVisibility()
+        {
+            bool start = StartPage.Visibility == Visibility.Visible;
+            ReaderToolbarBar.Visibility = start || MergeViewHost.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+            ReaderStatusBar.Visibility = start ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private void StartButton_Click(object sender, RoutedEventArgs e) => ShowStart(StartPage.Visibility != Visibility.Visible);

@@ -23,7 +23,7 @@ namespace XTPdfMergeApp.Services
             errorMessage = "";
 
             if (inputPaths == null || inputPaths.Count == 0)
-            { errorMessage = "Không có file nào để ghép."; return false; }
+            { errorMessage = "There are no files to merge."; return false; }
 
             if (inputPaths.Count == 1)
             {
@@ -156,7 +156,7 @@ namespace XTPdfMergeApp.Services
             errorMessage = "";
 
             if (pages == null || pages.Count == 0)
-            { errorMessage = "Không có trang nào để ghép."; return false; }
+            { errorMessage = "There are no pages to merge."; return false; }
 
             var readers = new Dictionary<string, (PdfReader Reader, PdfDocument Doc)>(StringComparer.OrdinalIgnoreCase);
             bool cancelled = false;
@@ -166,7 +166,7 @@ namespace XTPdfMergeApp.Services
                 foreach (var path in pages.Select(p => p.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase))
                 {
                     if (!File.Exists(path))
-                    { errorMessage = "File nguồn không tồn tại: " + path; return false; }
+                    { errorMessage = "Source file not found: " + path; return false; }
 
                     var reader = new PdfReader(path);
                     readers[path] = (reader, new PdfDocument(reader));
@@ -198,7 +198,7 @@ namespace XTPdfMergeApp.Services
                         var inDoc = readers[path].Doc;
                         if (pageNumber < 1 || pageNumber > inDoc.GetNumberOfPages())
                         {
-                            errorMessage = $"Số trang không hợp lệ: {Path.GetFileName(path)} trang {pageNumber}.";
+                            errorMessage = $"Invalid page: {Path.GetFileName(path)} page {pageNumber}.";
                             return false;
                         }
 

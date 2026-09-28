@@ -25,8 +25,8 @@ internal sealed class MergeDocumentsCommand : IWorkspaceCommand
         _insertIndex = insertIndex;
     }
 
-    public string Description => _insertIndex.HasValue ? "Chèn trang từ file"
-        : !string.IsNullOrWhiteSpace(_newName) ? "Ghép tất cả file" : "Ghép file đã chọn";
+    public string Description => _insertIndex.HasValue ? "Insert pages from file"
+        : !string.IsNullOrWhiteSpace(_newName) ? "Merge all files" : "Merge selected files";
 
     public void Execute()
     {

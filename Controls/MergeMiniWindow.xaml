@@ -5,6 +5,34 @@
              xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
              FontFamily="Segoe UI" FontSize="12">
     <UserControl.Resources>
+        <Style x:Key="GoToBox" TargetType="TextBox">
+            <Setter Property="Height" Value="26"/>
+            <Setter Property="Padding" Value="8,0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="Bd" CornerRadius="5" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}">
+                            <Grid>
+                                <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="Hint" Text="Go to…" Margin="{TemplateBinding Padding}" VerticalAlignment="Center" IsHitTestVisible="False"
+                                           Foreground="{DynamicResource Ui.Muted}"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Text" Value="">
+                                <Setter TargetName="Hint" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <Style x:Key="MiniThumbItem" TargetType="ListBoxItem" BasedOn="{StaticResource UiThumbItem}"/>
     </UserControl.Resources>
@@ -22,6 +50,8 @@
                     MouseLeftButtonDown="Header_MouseLeftButtonDown" MouseMove="Header_MouseMove" MouseLeftButtonUp="Header_MouseLeftButtonUp">
                 <DockPanel Margin="4,0,4,0">
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBox x:Name="GoToBox" Style="{StaticResource GoToBox}" Width="84" Margin="0,0,8,0" ToolTip="Type a page number and press Enter"
+                                 PreviewKeyDown="GoTo_PreviewKeyDown" MouseDown="GoTo_Focus"/>
                         <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.save}" Width="24" Height="24" IconSize="14"
                                      ToolTip="Save this file" Click="Save_Click"/>
                         <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.down2}" Width="24" Height="24" IconSize="14"
@@ -36,7 +66,7 @@
                             MouseLeftButtonDown="FileHandle_MouseLeftButtonDown" MouseMove="FileHandle_MouseMove" MouseLeftButtonUp="FileHandle_MouseLeftButtonUp">
                         <Viewbox Width="16" Height="16">
                             <Canvas Width="24" Height="24">
-                                <Path Data="{StaticResource Ui.Icon.file}" Stroke="{DynamicResource Ui.Accent}" Style="{StaticResource UiLineIconPath}"/>
+                                <Path Data="M9 5h.01M9 12h.01M9 19h.01M15 5h.01M15 12h.01M15 19h.01" Stroke="{DynamicResource Ui.Muted}" StrokeThickness="2.6" Style="{StaticResource UiLineIconPath}"/>
                             </Canvas>
                         </Viewbox>
                     </Border>
@@ -44,8 +74,9 @@
                                Foreground="{DynamicResource Ui.Text}" ToolTip="{Binding SourcePath}"/>
                     <Ellipse Width="7" Height="7" Fill="{DynamicResource Ui.Warn}" Margin="6,0,0,0" VerticalAlignment="Center" ToolTip="Unsaved changes"
                              Visibility="{Binding IsDirty, Converter={StaticResource BoolToVis}}"/>
-                    <TextBlock x:Name="CountText" Margin="8,0,8,0" VerticalAlignment="Center" FontSize="11"
-                               Foreground="{DynamicResource Ui.Muted}"/>
+                    <Border Style="{StaticResource UiCountChip}" Margin="8,0,8,0" VerticalAlignment="Center" HorizontalAlignment="Left">
+                        <TextBlock x:Name="CountText" FontSize="11" Foreground="{DynamicResource Ui.Muted}"/>
+                    </Border>
                 </DockPanel>
             </Border>
 
@@ -60,14 +91,15 @@
                     <ListBox.ItemsPanel>
                         <ItemsPanelTemplate>
                             <vwp:VirtualizingWrapPanel Orientation="Horizontal" SpacingMode="Uniform" StretchItems="False"
-                                                       IsGridLayoutEnabled="True" ItemSize="112,112"/>
+                                                       IsGridLayoutEnabled="True" ItemSize="{Binding CellSize, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
                         </ItemsPanelTemplate>
                     </ListBox.ItemsPanel>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Margin="0,4,0,2" Width="100">
+                            <StackPanel Margin="0,4,0,2" Width="{Binding ThumbWidth, RelativeSource={RelativeSource AncestorType=UserControl}}">
                                 <Border Background="White" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="1" CornerRadius="2"
-                                        Width="100" Height="74" HorizontalAlignment="Center">
+                                        Width="{Binding ThumbWidth, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        Height="{Binding ThumbHeight, RelativeSource={RelativeSource AncestorType=UserControl}}" HorizontalAlignment="Center">
                                     <Image Source="{Binding Thumbnail}" Stretch="Uniform"
                                            Loaded="ThumbImage_Loaded" Unloaded="ThumbImage_Unloaded" DataContextChanged="ThumbImage_DataContextChanged"/>
                                 </Border>

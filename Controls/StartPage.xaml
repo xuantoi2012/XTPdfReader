@@ -102,6 +102,8 @@
             <TextBlock x:Name="TitleText" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
             <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
                 <xt:XTButton Style="{StaticResource UiPrimaryButton}" Icon="{StaticResource Ui.Icon.folder}" Text="Open file…  Ctrl+O" Height="38" Click="OpenFile_Click"/>
+                <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Open folder…" Height="38" Margin="10,0,0,0" Padding="16,0" Click="OpenFolder_Click"
+                             ToolTip="Open every PDF in a folder"/>
             </StackPanel>
             <Border Height="140" Margin="0,18,0,0" CornerRadius="12" BorderThickness="2" BorderBrush="{DynamicResource Ui.Border}">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
