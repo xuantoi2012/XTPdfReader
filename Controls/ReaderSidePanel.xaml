@@ -104,6 +104,9 @@
                 <ListBox x:Name="ThumbnailList" BorderThickness="0" Background="Transparent" Padding="6,6,6,0"
                          SelectionMode="Extended" ItemContainerStyle="{StaticResource UiThumbItemPanel}"
                          PreviewKeyDown="ThumbnailList_PreviewKeyDown" ContextMenuOpening="ThumbnailList_ContextMenuOpening"
+                         AllowDrop="True" PreviewMouseLeftButtonDown="Thumb_PreviewMouseLeftButtonDown"
+                         PreviewMouseMove="Thumb_PreviewMouseMove" PreviewMouseLeftButtonUp="Thumb_PreviewMouseLeftButtonUp"
+                         DragOver="Thumb_DragOver" DragLeave="Thumb_DragLeave" Drop="Thumb_Drop"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                          VirtualizingPanel.ScrollUnit="Pixel"
@@ -151,6 +154,10 @@
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
+
+                <!-- Vạch chèn khi kéo trang (do Thumb_DragOver đặt vị trí). -->
+                <Border x:Name="DropLine" Width="3" CornerRadius="2" Background="{DynamicResource Ui.Accent}" Visibility="Collapsed"
+                        HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False" Panel.ZIndex="5"/>
 
                 <TreeView x:Name="BookmarkTree" BorderThickness="0" Background="Transparent" Visibility="Collapsed"
                           VirtualizingPanel.IsVirtualizing="True"/>

@@ -181,6 +181,12 @@
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
                             <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
                         </Trigger>
+                        <!-- Kéo trang lên tab: tab sáng lên (giữ ~0,5 s thì chuyển sang tab đó, thả lên tab = thêm vào cuối). -->
+                        <Trigger Property="Tag" Value="DropHover">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+                        </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>

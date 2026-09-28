@@ -512,6 +512,29 @@ namespace XTPdfMergeApp
             return command.InsertedPages;
         }
 
+        /// <summary>Chèn 1 trang trắng cùng khổ với <paramref name="reference"/> tại <paramref name="insertIndex"/>.</summary>
+        async Task<IReadOnlyList<PageRow>> IReaderPageEditHost.InsertBlankPageAsync(DocumentGroup target, int insertIndex, PageRow reference)
+        {
+            if (!_groups.Contains(target)) return Array.Empty<PageRow>();
+            double width = reference.PageWidthPoints ?? 0, height = reference.PageHeightPoints ?? 0;
+            string blank = await Task.Run(() =>
+            {
+                if (width <= 0 || height <= 0)
+                {
+                    var size = BlankPageService.ReadPageSize(reference.SourcePath, reference.PageNumber);
+                    (width, height) = size ?? (595.276, 841.89); // A4 nếu không đọc được khổ
+                }
+                return BlankPageService.GetBlankPdf(width, height);
+            });
+            if (!_groups.Contains(target)) return Array.Empty<PageRow>();
+            var command = new InsertPagesCommand(target, new[] { _workspace.CreatePlacement(blank, 1) }, insertIndex, "Insert blank page");
+            _workspace.Execute(command);
+            ReaderWindow.Instance?.NotifyPagesChanged(target);
+            RequestThumbnailScan();
+            NotifyStatusChanged();
+            return command.Inserted;
+        }
+
         // ── Lưu (Save / Save As) ───────────────────────────────────────────
 
         /// <summary>Window có thay đổi chưa lưu (theo thứ tự tab).</summary>
@@ -756,6 +779,7 @@ namespace XTPdfMergeApp
         Task SetLayerHiddenAsync(string path, IReadOnlySet<string> hidden, IReadOnlySet<string> defaultHidden);
         Task OpenFilesAsync();
         void CloseDocument(DocumentGroup group);
+        Task<IReadOnlyList<PageRow>> InsertBlankPageAsync(DocumentGroup target, int insertIndex, PageRow reference);
         /// <summary>Có trang trong clipboard (đã Copy/Cut) để dán.</summary>
         bool HasPageClipboard { get; }
         void CopyPages(DocumentGroup source, IReadOnlyList<PageRow> pages, bool cut);

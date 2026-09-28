@@ -94,7 +94,8 @@
                      BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Panel}"
                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
                      ItemContainerStyle="{StaticResource UiTabItem}"
-                     SelectionChanged="ReaderDocumentTabs_SelectionChanged">
+                     SelectionChanged="ReaderDocumentTabs_SelectionChanged"
+                     AllowDrop="True" PreviewDragOver="ReaderTabs_PreviewDragOver" DragLeave="ReaderTabs_DragLeave" Drop="ReaderTabs_Drop">
                 <ListBox.Template>
                     <ControlTemplate TargetType="ListBox">
                         <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"

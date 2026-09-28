@@ -103,6 +103,146 @@ namespace XTPdfMergeApp.Controls
             e.Handled = true;
         }
 
+        // ── Kéo thả trang: sắp xếp lại, Ctrl = sao chép, thả lên tab khác (xem ReaderWindow) ──────────
+
+        /// <summary>Trang đang bị kéo và window nguồn (đi kèm DataObject).</summary>
+        internal sealed class PageDragData
+        {
+            public required DocumentGroup Source { get; init; }
+            public required List<PageRow> Pages { get; init; }
+        }
+
+        /// <summary>Thả vào panel: (dữ liệu kéo, chỉ số chèn trong window đang hiện, sao chép?).</summary>
+        internal event Action<PageDragData, int, bool>? PagesDropped;
+
+        private Point _dragOrigin;
+        private ListBoxItem? _dragItem;
+        private bool _pendingSingleSelect;
+        private ScrollViewer? _thumbScroll;
+
+        private ListBoxItem? ItemUnder(DependencyObject? source)
+        {
+            while (source != null && source is not ListBoxItem) source = System.Windows.Media.VisualTreeHelper.GetParent(source);
+            return source as ListBoxItem;
+        }
+
+        private void Thumb_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            _dragItem = ItemUnder(e.OriginalSource as DependencyObject);
+            _dragOrigin = e.GetPosition(ThumbnailList);
+            _pendingSingleSelect = false;
+            // Nhấn lên trang đã chọn khi đang chọn nhiều trang: giữ vùng chọn để kéo được cả nhóm; nhả chuột không kéo thì mới chọn riêng trang đó.
+            if (_dragItem is { IsSelected: true } && ThumbnailList.SelectedItems.Count > 1 && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                _pendingSingleSelect = true;
+                e.Handled = true;
+                ThumbnailList.Focus();
+            }
+        }
+
+        private void Thumb_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (_pendingSingleSelect && _dragItem != null)
+            {
+                ThumbnailList.SelectedItems.Clear();
+                _dragItem.IsSelected = true;
+            }
+            _pendingSingleSelect = false;
+            _dragItem = null;
+        }
+
+        private void Thumb_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed || _dragItem == null || _group == null) return;
+            var delta = e.GetPosition(ThumbnailList) - _dragOrigin;
+            if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+
+            var item = _dragItem;
+            _dragItem = null;
+            _pendingSingleSelect = false;
+            if (item.DataContext is PageRow row && !ThumbnailList.SelectedItems.Contains(row))
+            {
+                ThumbnailList.SelectedItems.Clear();
+                item.IsSelected = true;
+            }
+            var pages = SelectedPages;
+            if (pages.Count == 0) return;
+
+            var data = new DataObject(typeof(PageDragData), new PageDragData { Source = _group, Pages = pages.ToList() });
+            try { DragDrop.DoDragDrop(ThumbnailList, data, DragDropEffects.Move | DragDropEffects.Copy); }
+            finally { DropLine.Visibility = Visibility.Collapsed; }
+        }
+
+        /// <summary>Chỉ số chèn (0-based) ứng với vị trí chuột, và vị trí vạch chèn (toạ độ của ThumbnailList).</summary>
+        private int InsertIndexAt(Point point, out Rect line)
+        {
+            line = Rect.Empty;
+            if (_group == null) return 0;
+            ListBoxItem? best = null;
+            Rect bestBounds = Rect.Empty;
+            double bestDistance = double.MaxValue;
+            foreach (var item in Services.VisualTreeHelpers.FindVisualChildren<ListBoxItem>(ThumbnailList))
+            {
+                if (item.DataContext is not PageRow || item.ActualWidth <= 0) continue;
+                var topLeft = item.TranslatePoint(new Point(0, 0), ThumbnailList);
+                var bounds = new Rect(topLeft, new Size(item.ActualWidth, item.ActualHeight));
+                double dx = Math.Max(Math.Max(bounds.Left - point.X, 0), point.X - bounds.Right);
+                double dy = Math.Max(Math.Max(bounds.Top - point.Y, 0), point.Y - bounds.Bottom);
+                double distance = dx * dx + dy * dy;
+                if (distance < bestDistance) { best = item; bestBounds = bounds; bestDistance = distance; }
+            }
+            if (best == null) return 0;
+            int index = _group.Pages.IndexOf((PageRow)best.DataContext);
+            if (index < 0) return _group.Pages.Count;
+            bool before = point.X < bestBounds.Left + bestBounds.Width / 2;
+            double x = before ? bestBounds.Left - 1 : bestBounds.Right - 2;
+            line = new Rect(x, bestBounds.Top + 4, 3, Math.Max(8, bestBounds.Height - 8));
+            return before ? index : index + 1;
+        }
+
+        private void Thumb_DragOver(object sender, DragEventArgs e)
+        {
+            if (_group == null || !e.Data.GetDataPresent(typeof(PageDragData)))
+            {
+                DropLine.Visibility = Visibility.Collapsed;
+                return; // file PDF kéo từ ngoài vào: để cửa sổ chính xử lý (mở file)
+            }
+            e.Effects = (e.KeyStates & DragDropKeyStates.ControlKey) != 0 ? DragDropEffects.Copy : DragDropEffects.Move;
+            var point = e.GetPosition(ThumbnailList);
+            InsertIndexAt(point, out var line);
+            if (line.IsEmpty) DropLine.Visibility = Visibility.Collapsed;
+            else
+            {
+                DropLine.Margin = new Thickness(line.X + ThumbnailList.Margin.Left, line.Y + ThumbnailList.Margin.Top, 0, 0);
+                DropLine.Height = line.Height;
+                DropLine.Visibility = Visibility.Visible;
+            }
+            AutoScrollThumbnails(point);
+            e.Handled = true;
+        }
+
+        private void AutoScrollThumbnails(Point point)
+        {
+            _thumbScroll ??= Services.VisualTreeHelpers.FindVisualChildren<ScrollViewer>(ThumbnailList).FirstOrDefault();
+            if (_thumbScroll == null) return;
+            const double zone = 32, step = 22;
+            if (point.Y < zone) _thumbScroll.ScrollToVerticalOffset(Math.Max(0, _thumbScroll.VerticalOffset - step));
+            else if (point.Y > ThumbnailList.ActualHeight - zone) _thumbScroll.ScrollToVerticalOffset(_thumbScroll.VerticalOffset + step);
+        }
+
+        private void Thumb_DragLeave(object sender, DragEventArgs e) => DropLine.Visibility = Visibility.Collapsed;
+
+        private void Thumb_Drop(object sender, DragEventArgs e)
+        {
+            DropLine.Visibility = Visibility.Collapsed;
+            if (_group == null || e.Data.GetData(typeof(PageDragData)) is not PageDragData data) return;
+            int index = InsertIndexAt(e.GetPosition(ThumbnailList), out _);
+            bool copy = (e.KeyStates & DragDropKeyStates.ControlKey) != 0;
+            e.Handled = true;
+            PagesDropped?.Invoke(data, index, copy);
+        }
+
         /// <summary>Chọn đúng các trang này trong panel (sau Move/Paste) mà không kích hoạt nhảy trang.</summary>
         internal void SelectPages(IReadOnlyList<PageRow> pages)
         {
@@ -121,7 +261,7 @@ namespace XTPdfMergeApp.Controls
 
         // Hàng thao tác trang: panel chỉ báo, ReaderWindow gọi handler sẵn có (chèn/xoá/xoay thật/trích xuất).
         internal event RoutedEventHandler? InsertPagesRequested, DeletePagesRequested, RotateLeftRequested, RotateRightRequested, ExtractPagesRequested;
-        private void InsertPages_Click(object sender, RoutedEventArgs e) => InsertPagesRequested?.Invoke(this, e);
+        private void InsertPages_Click(object sender, RoutedEventArgs e) => InsertPagesRequested?.Invoke(sender, e); // sender = nút Insert (chỗ neo menu)
         private void DeletePages_Click(object sender, RoutedEventArgs e) => DeletePagesRequested?.Invoke(this, e);
         private void RotateLeft_Click(object sender, RoutedEventArgs e) => RotateLeftRequested?.Invoke(this, e);
         private void RotateRight_Click(object sender, RoutedEventArgs e) => RotateRightRequested?.Invoke(this, e);

@@ -31,12 +31,19 @@ namespace XTPdfMergeApp
                 NavigateToRow(_readerGroup, row);
             };
             // Hàng thao tác trang của panel Pages → handler sẵn có (chèn/xoá đổi workspace; xoay thật lưu file).
-            ReaderSidePanel.InsertPagesRequested += ReaderInsertPages_Click;
+            ReaderSidePanel.InsertPagesRequested += ReaderInsertMenu_Click;
             ReaderSidePanel.DeletePagesRequested += ReaderDeletePages_Click;
             ReaderSidePanel.RotateLeftRequested += ReaderPageRotateLeft_Click;
             ReaderSidePanel.RotateRightRequested += ReaderPageRotateRight_Click;
             ReaderSidePanel.ExtractPagesRequested += ReaderExtractPages_Click;
             ReaderSidePanel.PageCommandRequested += OnPageCommand;
+            ReaderSidePanel.PagesDropped += (data, index, copy) =>
+            {
+                if (_readerGroup == null || EditHost == null) return;
+                var target = _readerGroup;
+                var result = EditHost.MovePages(data.Source, target, data.Pages, index, copy);
+                if (result.Count > 0 && ReferenceEquals(_readerGroup, target)) ReaderSidePanel.SelectPages(result);
+            };
             ReaderSidePanel.HasPageClipboard = () => EditHost?.HasPageClipboard == true;
             ReaderSidePanel.BookmarkActivated += NavigateToSourcePage;
             ReaderSidePanel.LayerToggled += OnLayerToggled;
@@ -257,6 +264,116 @@ namespace XTPdfMergeApp
                 if (answer == MessageBoxResult.Yes && !await EditHost.SaveGroupAsync(group, saveAs: false)) return;
             }
             EditHost.CloseDocument(group);
+        }
+
+        // ── Insert ▾: từ file đang mở / từ đĩa / trang trắng (chèn SAU vùng chọn, hoặc sau trang đang xem) ──────
+
+        private void ReaderInsertMenu_Click(object sender, RoutedEventArgs e)
+        {
+            if (_readerGroup == null || _readerPage == null || EditHost == null) return;
+            var group = _readerGroup;
+            var reference = _readerPage;
+            var selected = ReaderSidePanel.SelectedPages.Select(p => group.Pages.IndexOf(p)).Where(i => i >= 0).ToList();
+            int insertIndex = (selected.Count > 0 ? selected.Max() : group.Pages.IndexOf(reference)) + 1;
+
+            void SelectResult(IReadOnlyList<PageRow> result)
+            {
+                if (result.Count > 0 && ReferenceEquals(_readerGroup, group)) ReaderSidePanel.SelectPages(result);
+            }
+
+            var menu = new ContextMenu();
+            var openFiles = new MenuItem { Header = "From an open file" };
+            foreach (var other in _groups.Where(g => !ReferenceEquals(g, group) && g.Pages.Count > 0).ToList())
+            {
+                var source = other;
+                var item = new MenuItem { Header = source.FileName };
+                item.Click += (_, _) => SelectResult(EditHost.MovePages(source, group, source.Pages.ToList(), insertIndex, copy: true));
+                openFiles.Items.Add(item);
+            }
+            openFiles.IsEnabled = openFiles.Items.Count > 0;
+            menu.Items.Add(openFiles);
+
+            var disk = new MenuItem { Header = "From disk…" };
+            disk.Click += async (_, _) => await EditHost.InsertPagesFromFileAsync(group, insertIndex);
+            menu.Items.Add(disk);
+
+            menu.Items.Add(new Separator());
+            var blank = new MenuItem { Header = "Blank page" };
+            blank.Click += async (_, _) => SelectResult(await EditHost.InsertBlankPageAsync(group, insertIndex, reference));
+            menu.Items.Add(blank);
+
+            menu.PlacementTarget = sender as UIElement ?? ReaderSidePanel;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
+        }
+
+        // ── Kéo trang lên tab: giữ ~0,5 s chuyển tab; thả lên tab = thêm vào cuối file đó ─────────
+
+        private System.Windows.Threading.DispatcherTimer? _tabSpringTimer;
+        private DocumentGroup? _tabSpringGroup;
+        private ListBoxItem? _tabDropHover;
+
+        private ListBoxItem? TabItemAt(object? source)
+        {
+            var element = source as DependencyObject;
+            while (element != null && element is not ListBoxItem) element = System.Windows.Media.VisualTreeHelper.GetParent(element);
+            return element as ListBoxItem;
+        }
+
+        private void SetTabDropHover(ListBoxItem? item)
+        {
+            if (ReferenceEquals(_tabDropHover, item)) return;
+            if (_tabDropHover != null) _tabDropHover.Tag = null;
+            _tabDropHover = item;
+            if (item != null) item.Tag = "DropHover";
+        }
+
+        private void StopTabSpring()
+        {
+            _tabSpringTimer?.Stop();
+            _tabSpringGroup = null;
+        }
+
+        private void ReaderTabs_PreviewDragOver(object sender, DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent(typeof(Controls.ReaderSidePanel.PageDragData))) return; // file PDF: cửa sổ chính tự xử lý
+            e.Effects = (e.KeyStates & DragDropKeyStates.ControlKey) != 0 ? DragDropEffects.Copy : DragDropEffects.Move;
+            e.Handled = true;
+            var item = TabItemAt(e.OriginalSource);
+            SetTabDropHover(item);
+            if (item?.DataContext is not DocumentGroup group || ReferenceEquals(group, _readerGroup)) { StopTabSpring(); return; }
+            if (ReferenceEquals(group, _tabSpringGroup)) return;
+            _tabSpringGroup = group;
+            _tabSpringTimer ??= new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            _tabSpringTimer.Tick -= TabSpringTick;
+            _tabSpringTimer.Tick += TabSpringTick;
+            _tabSpringTimer.Stop();
+            _tabSpringTimer.Start();
+        }
+
+        private void TabSpringTick(object? sender, EventArgs e)
+        {
+            var group = _tabSpringGroup;
+            StopTabSpring();
+            if (group != null && _groups.Contains(group)) ReaderDocumentTabs.SelectedItem = group;
+        }
+
+        private void ReaderTabs_DragLeave(object sender, DragEventArgs e)
+        {
+            SetTabDropHover(null);
+            StopTabSpring();
+        }
+
+        private void ReaderTabs_Drop(object sender, DragEventArgs e)
+        {
+            SetTabDropHover(null);
+            StopTabSpring();
+            if (EditHost == null || e.Data.GetData(typeof(Controls.ReaderSidePanel.PageDragData)) is not Controls.ReaderSidePanel.PageDragData data) return;
+            if (TabItemAt(e.OriginalSource)?.DataContext is not DocumentGroup group) return;
+            e.Handled = true;
+            bool copy = (e.KeyStates & DragDropKeyStates.ControlKey) != 0;
+            var result = EditHost.MovePages(data.Source, group, data.Pages, group.Pages.Count, copy);
+            if (result.Count > 0 && ReferenceEquals(_readerGroup, group)) ReaderSidePanel.SelectPages(result);
         }
 
         // ── Lệnh trang từ panel Pages (menu chuột phải, phím tắt) ────────────────

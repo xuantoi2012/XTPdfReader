@@ -165,6 +165,7 @@ namespace XTPdfMergeApp
                 DiagnosticsLog.Snapshot("thoát, sau dọn RAM", DiagnosticsReport.Build());
             }
             PdfThumbnailService.PrepareForShutdown(TimeSpan.FromSeconds(5));
+            BlankPageService.Cleanup();
 
             _singleInstanceMutex?.Dispose();
             base.OnExit(e);
