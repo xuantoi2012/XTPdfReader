@@ -49,7 +49,6 @@ namespace XTPdfMergeApp
         private void OpenFind()
         {
             ShowStart(false);
-            ShowMerge(false);
             var find = ReaderSidePanel.Find;
             FindBar.Visibility = Visibility.Visible;
             _syncingFindBar = true;

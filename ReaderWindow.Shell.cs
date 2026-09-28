@@ -462,7 +462,7 @@ namespace XTPdfMergeApp
 
         private void ReaderUndo_Click(object sender, RoutedEventArgs e) => EditHost?.Undo();
         private void ReaderRedo_Click(object sender, RoutedEventArgs e) => EditHost?.Redo();
-        private void ReaderShowMergeWindow_Click(object sender, RoutedEventArgs e) => ShowMerge(MergeViewHost.Visibility != Visibility.Visible);
+        private void ReaderShowMergeWindow_Click(object sender, RoutedEventArgs e) => ShowMerge(true);
 
         // ── Cửa sổ ghép (phụ) — chỉ tạo ở đây, đóng là huỷ thật ─────────────
 
@@ -471,14 +471,24 @@ namespace XTPdfMergeApp
         /// nên có sẵn mọi file đang mở ở đây; đóng nó không ảnh hưởng gì tới phiên làm việc.</summary>
         internal void OpenMergeWindow() => ShowMerge(true);
 
+        private Controls.MergeWindow? _mergeWindow;
+
+        /// <summary>The Merge window is created on first use (it is a separate window, mockup 6) and only hidden when closed.</summary>
+        private Controls.MergeWindow EnsureMergeWindow()
+        {
+            if (_mergeWindow != null) return _mergeWindow;
+            var window = new Controls.MergeWindow { Owner = this };
+            var view = window.View;
+            view.HostProvider = () => EditHost;
+            view.Bind(_groups);
+            view.DoneRequested += () => window.Hide();
+            view.OpenFileRequested += () => { if (EditHost != null) _ = EditHost.OpenFilesAsync(); };
+            view.MergeAllRequested += () => { if (EditHost != null) _ = EditHost.MergeAllToFileAsync(); };
+            return _mergeWindow = window;
+        }
+
         private void InitializeMerge()
         {
-            MergeViewHost.HostProvider = () => EditHost;
-            MergeViewHost.Bind(_groups);
-            MergeViewHost.DoneRequested += () => ShowMerge(false);
-            MergeViewHost.OpenFileRequested += () => { if (EditHost != null) _ = EditHost.OpenFilesAsync(); };
-            MergeViewHost.MergeAllRequested += () => { if (EditHost != null) _ = EditHost.MergeAllToFileAsync(); };
-            ReaderSidePanel.RailTabChosen += () => ShowMerge(false);
             ReaderSidePanel.WideTabChanged += wide =>
             {
                 // Mockup: Pages panel 300 px, the list-style panels 340 px (+ 64 px rail). Only grow/shrink when the user has not resized it.
@@ -491,16 +501,12 @@ namespace XTPdfMergeApp
         /// <summary>Hiện/ẩn màn hình Merge (phủ lên panel + vùng xem).</summary>
         private void ShowMerge(bool show)
         {
-            if (show == (MergeViewHost.Visibility == Visibility.Visible)) return;
-            if (show)
-            {
-                ShowSettings(false);
-                ShowStart(false);
-                if (_readerGroup != null) MergeViewHost.ShowGroup(_readerGroup);
-            }
-            MergeViewHost.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-            ReaderMergeButton.Text = show ? "Back to reader" : "Merge files";
-            UpdateToolbarVisibility();
+            if (!show) { _mergeWindow?.Hide(); return; }
+            var window = EnsureMergeWindow();
+            if (_readerGroup != null) window.View.ShowGroup(_readerGroup);
+            if (!window.IsVisible) window.Show();
+            if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
+            window.Activate();
         }
 
         /// <summary>Đưa cửa sổ đọc lên trước (vd double-click 1 trang trong cửa sổ ghép).</summary>
@@ -531,6 +537,7 @@ namespace XTPdfMergeApp
                     return;
                 }
             }
+            _mergeWindow?.CloseForReal();
             ShutdownReader();
         }
 

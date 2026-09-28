@@ -80,11 +80,11 @@ namespace XTPdfMergeApp.Controls
         private void Nav_Checked(object sender, RoutedEventArgs e)
         {
             if (!IsLoaded) return;
-            FrameworkElement? target = sender == NavDisplay ? SecDisplay
-                : sender == NavPerformance ? SecPerformance
-                : sender == NavIntegration ? SecIntegration : SecAppearance;
-            double y = target.TranslatePoint(new Point(0, 0), Scroll).Y;
-            Scroll.ScrollToVerticalOffset(Math.Max(0, Scroll.VerticalOffset + y - 12));
+            PageAppearance.Visibility = sender == NavAppearance ? Visibility.Visible : Visibility.Collapsed;
+            PageDisplay.Visibility = sender == NavDisplay ? Visibility.Visible : Visibility.Collapsed;
+            PagePerformance.Visibility = sender == NavPerformance ? Visibility.Visible : Visibility.Collapsed;
+            PageIntegration.Visibility = sender == NavIntegration ? Visibility.Visible : Visibility.Collapsed;
+            Scroll.ScrollToVerticalOffset(0);
         }
 
         // ── Display ───────────────────────────────────────────────────

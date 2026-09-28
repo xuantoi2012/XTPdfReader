@@ -73,7 +73,6 @@ namespace XTPdfMergeApp
             if (show)
             {
                 ShowSettings(false);
-                ShowMerge(false);
                 StartPage.Reload();
             }
             StartPage.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
@@ -84,7 +83,7 @@ namespace XTPdfMergeApp
         private void UpdateToolbarVisibility()
         {
             bool start = StartPage.Visibility == Visibility.Visible;
-            ReaderToolbarBar.Visibility = start || MergeViewHost.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+            ReaderToolbarBar.Visibility = start ? Visibility.Collapsed : Visibility.Visible;
             ReaderStatusBar.Visibility = start ? Visibility.Collapsed : Visibility.Visible;
         }
 

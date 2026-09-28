@@ -65,6 +65,50 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style TargetType="Slider">
+            <Setter Property="Minimum" Value="0"/>
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="Focusable" Value="True"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid Background="Transparent">
+                            <Border Height="4" CornerRadius="2" Background="{DynamicResource Ui.Border}" VerticalAlignment="Center"/>
+                            <Track x:Name="PART_Track" VerticalAlignment="Center">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="Slider.DecreaseLarge" Focusable="False" IsTabStop="False">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton"><Border Height="4" CornerRadius="2" Background="{DynamicResource Ui.Accent}"/></ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="Slider.IncreaseLarge" Focusable="False" IsTabStop="False">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton"><Border Height="22" Background="Transparent"/></ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Focusable="False" Width="16" Height="16">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Ellipse x:Name="Knob" Fill="{DynamicResource Ui.Surface}" Stroke="{DynamicResource Ui.Accent}" StrokeThickness="2"/>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Knob" Property="Fill" Value="{DynamicResource Ui.AccentSoft}"/></Trigger>
+                                                    <Trigger Property="IsDragging" Value="True"><Setter TargetName="Knob" Property="Fill" Value="{DynamicResource Ui.Accent}"/></Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
     <Grid Background="{DynamicResource Ui.Bg}">
@@ -111,7 +155,8 @@
             </DockPanel>
         </Border>
 
-        <Canvas x:Name="Workspace" Grid.Row="1" ClipToBounds="True" Background="Transparent" SizeChanged="Workspace_SizeChanged"/>
+        <Canvas x:Name="Workspace" Grid.Row="1" ClipToBounds="True" Background="Transparent" SizeChanged="Workspace_SizeChanged"
+                AllowDrop="True" DragOver="EmptyArea_DragOver" Drop="Workspace_Drop"/>
         <StackPanel x:Name="EmptyHint" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
             <TextBlock Text="No files open" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
             <TextBlock Text="Open PDF files to arrange and merge their pages here." Margin="0,6,0,14" Foreground="{DynamicResource Ui.Muted}"/>
@@ -119,7 +164,7 @@
         </StackPanel>
 
         <!-- Dock: cửa sổ đã thu nhỏ (hoặc vượt số cửa sổ tối đa). Bấm chip = mở lại; thả trang lên chip = nối vào cuối file đó. -->
-        <Border x:Name="DockBar" Grid.Row="2" Height="48" Background="{DynamicResource Ui.Panel}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" Padding="16,0">
+        <Border x:Name="DockBar" Grid.Row="2" Height="48" AllowDrop="True" DragOver="EmptyArea_DragOver" Drop="Dock_Drop" Background="{DynamicResource Ui.Panel}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" Padding="16,0">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
                     <Viewbox Width="16" Height="16" Margin="0,0,7,0"><Canvas Width="24" Height="24"><Path Data="M4 13l2.5-7h11L20 13v6H4zM4 13h5l1 2h4l1-2h5" Stroke="{DynamicResource Ui.Text}" Style="{StaticResource UiLineIconPath}"/></Canvas></Viewbox>

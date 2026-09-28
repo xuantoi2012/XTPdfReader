@@ -383,6 +383,32 @@ namespace XTPdfMergeApp.Controls
 
         // ── Thanh công cụ ─────────────────────────────────────────────
 
+        // ── Thả trang lên vùng trống / dock = tạo cửa sổ tạm ───────────
+
+        private void EmptyArea_DragOver(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+            e.Effects = e.Data.GetDataPresent(typeof(ReaderSidePanel.PageDragData))
+                ? (e.KeyStates & DragDropKeyStates.ControlKey) != 0 ? DragDropEffects.Copy : DragDropEffects.Move
+                : DragDropEffects.None;
+        }
+
+        private void Workspace_Drop(object sender, DragEventArgs e) => DropIntoNewTemp(e, minimize: false);
+        private void Dock_Drop(object sender, DragEventArgs e) => DropIntoNewTemp(e, minimize: true);
+
+        private void DropIntoNewTemp(DragEventArgs e, bool minimize)
+        {
+            if (Host is not { } host || e.Data.GetData(typeof(ReaderSidePanel.PageDragData)) is not ReaderSidePanel.PageDragData data) return;
+            e.Handled = true;
+            var temp = host.CreateTempWindow();
+            host.MovePages(data.Source, temp, data.Pages, 0, (e.KeyStates & DragDropKeyStates.ControlKey) != 0);
+            var entry = _entries.FirstOrDefault(x => ReferenceEquals(x.Window.Group, temp));
+            if (entry == null) return;
+            entry.Minimized = minimize;
+            entry.LastActive = ++_tick;
+            Relayout();
+        }
+
         private void NewTemp_Click(object sender, RoutedEventArgs e)
         {
             var group = Host?.CreateTempWindow();

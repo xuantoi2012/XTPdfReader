@@ -175,7 +175,7 @@ namespace XTPdfMergeApp.Controls
             FileHandle.ReleaseMouseCapture();
             var data = new DataObject(typeof(ReaderSidePanel.PageDragData),
                 new ReaderSidePanel.PageDragData { Source = Group, Pages = Group.Pages.ToList() });
-            DragDrop.DoDragDrop(FileHandle, data, DragDropEffects.Move | DragDropEffects.Copy);
+            DragGhost.Run(FileHandle, data, Group.Pages.Count > 0 ? Group.Pages[0].Thumbnail : null, Group.Pages.Count);
         }
 
         // ── Thumbnail: chọn, kéo trang ────────────────────────────────
@@ -232,7 +232,7 @@ namespace XTPdfMergeApp.Controls
             var pages = SelectedPages;
             if (pages.Count == 0) return;
             var data = new DataObject(typeof(ReaderSidePanel.PageDragData), new ReaderSidePanel.PageDragData { Source = Group, Pages = pages.ToList() });
-            try { DragDrop.DoDragDrop(Thumbs, data, DragDropEffects.Move | DragDropEffects.Copy); }
+            try { DragGhost.Run(Thumbs, data, pages[0].Thumbnail, pages.Count); }
             finally { DropLine.Visibility = Visibility.Collapsed; }
         }
 

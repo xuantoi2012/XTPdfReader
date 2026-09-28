@@ -188,7 +188,7 @@ namespace XTPdfMergeApp.Controls
             if (pages.Count == 0) return;
 
             var data = new DataObject(typeof(PageDragData), new PageDragData { Source = _group, Pages = pages.ToList() });
-            try { DragDrop.DoDragDrop(ThumbnailList, data, DragDropEffects.Move | DragDropEffects.Copy); }
+            try { DragGhost.Run(ThumbnailList, data, pages[0].Thumbnail, pages.Count); }
             finally { DropLine.Visibility = Visibility.Collapsed; }
         }
 

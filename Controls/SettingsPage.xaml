@@ -116,6 +116,7 @@
             <StackPanel Margin="48,20,48,40" MaxWidth="760" HorizontalAlignment="Left">
                 <TextBlock Text="Settings" FontSize="20" FontWeight="SemiBold" Margin="0,6,0,0" Foreground="{DynamicResource Ui.Text}"/>
 
+                <StackPanel x:Name="PageAppearance">
                 <!-- Appearance -->
                 <TextBlock x:Name="SecAppearance" Text="Appearance" Style="{StaticResource SectionTitle}"/>
                 <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
@@ -144,7 +145,9 @@
                         <StackPanel x:Name="SwatchHost" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="24,0,0,0"/>
                     </Grid>
                 </Border>
+                </StackPanel>
 
+                <StackPanel x:Name="PageDisplay" Visibility="Collapsed">
                 <!-- Display -->
                 <TextBlock x:Name="SecDisplay" Text="Display" Style="{StaticResource SectionTitle}"/>
                 <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
@@ -173,7 +176,9 @@
                         </ComboBox>
                     </Grid>
                 </Border>
+                </StackPanel>
 
+                <StackPanel x:Name="PagePerformance" Visibility="Collapsed">
                 <!-- Performance & memory -->
                 <TextBlock x:Name="SecPerformance" Text="Performance &amp; memory" Style="{StaticResource SectionTitle}"/>
                 <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
@@ -198,7 +203,9 @@
                                      ToolTip="Release the cached copies of files that are not on screen. They are read again when needed."/>
                     </Grid>
                 </Border>
+                </StackPanel>
 
+                <StackPanel x:Name="PageIntegration" Visibility="Collapsed">
                 <!-- Integration -->
                 <TextBlock x:Name="SecIntegration" Text="Integration" Style="{StaticResource SectionTitle}"/>
                 <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
@@ -212,6 +219,7 @@
                                   Checked="PdfFactory_Changed" Unchecked="PdfFactory_Changed"/>
                     </Grid>
                 </Border>
+                </StackPanel>
 
                 <TextBlock x:Name="AboutText" Style="{StaticResource RowHint}" Margin="0,30,0,0"/>
             </StackPanel>

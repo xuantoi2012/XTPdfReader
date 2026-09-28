@@ -14,7 +14,7 @@ internal sealed class SettingsWindow : XTWindow
         Title = "Settings";
         TitleBarMode = TitleBarMode.Dialog;
         Width = 940;
-        Height = 780;
+        Height = 560;
         MinWidth = 720;
         MinHeight = 480;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
