@@ -87,24 +87,11 @@ namespace XTPdfMergeApp
         private bool TryHitPage(Point pointInHost, out PageHit hit)
         {
             hit = default;
-            if (_readerContinuousMode)
-            {
-                if (!ReaderContinuousView.IsVisible) return false;
-                Point p = ReaderContentHost.TranslatePoint(pointInHost, ReaderContinuousView.Surface);
-                if (!ReaderContinuousView.TryHitPage(p, out var row, out double u, out double v) || row == null) return false;
-                hit = new PageHit(row, u, v);
-                return true;
-            }
-
-            var result = VisualTreeHelper.HitTest(ReaderContentHost, pointInHost);
-            for (DependencyObject? node = result?.VisualHit; node != null && !ReferenceEquals(node, ReaderContentHost);
-                 node = VisualTreeHelper.GetParent(node))
-            {
-                if (node is not Image image) continue;
-                return ReferenceEquals(image, ReaderImage) && _readerPage != null &&
-                       TryGetPagePoint(_readerPage, pointInHost, clamp: false, out hit);
-            }
-            return false;
+            if (!ReaderContinuousView.IsVisible) return false;
+            Point p = ReaderContentHost.TranslatePoint(pointInHost, ReaderContinuousView.Surface);
+            if (!ReaderContinuousView.TryHitPage(p, out var row, out double u, out double v) || row == null) return false;
+            hit = new PageHit(row, u, v);
+            return true;
         }
 
         private bool TryGetPagePoint(PageRow row, Point pointInHost, bool clamp, out PageHit hit)
@@ -121,38 +108,17 @@ namespace XTPdfMergeApp
         private bool TryHostToPage(PageRow row, Point pointInHost, out double u, out double v)
         {
             u = v = 0;
-            if (_readerContinuousMode)
-            {
-                if (!ReaderContinuousView.IsVisible || !ReaderContinuousView.TryGetPageRect(row, out Rect rect) ||
-                    rect.Width <= 0 || rect.Height <= 0) return false;
-                Point p = ReaderContentHost.TranslatePoint(pointInHost, ReaderContinuousView.Surface);
-                u = (p.X - rect.X) / rect.Width;
-                v = (p.Y - rect.Y) / rect.Height;
-                return true;
-            }
-            var image = ReaderImage;
-            if (!ReferenceEquals(row, _readerPage) || image.Source == null ||
-                image.ActualWidth <= 0 || image.ActualHeight <= 0 || !image.IsVisible) return false;
-            Point local = ReaderContentHost.TranslatePoint(pointInHost, image);
-            u = local.X / image.ActualWidth;
-            v = local.Y / image.ActualHeight;
-            return true;
+            if (!ReaderContinuousView.IsVisible) return false;
+            Point p = ReaderContentHost.TranslatePoint(pointInHost, ReaderContinuousView.Surface);
+            return ReaderContinuousView.TryViewToPage(row, p, out u, out v);
         }
 
         /// <summary>Điểm (u, v) trên trang → toạ độ trong ReaderInteractionLayer. False nếu trang không đang hiển thị.</summary>
         private bool TryPageToLayer(PageRow row, double u, double v, out Point point)
         {
             point = default;
-            if (_readerContinuousMode)
-            {
-                if (!ReaderContinuousView.IsVisible || !ReaderContinuousView.TryGetPageRect(row, out Rect rect)) return false;
-                point = ReaderContinuousView.Surface.TranslatePoint(
-                    new Point(rect.X + u * rect.Width, rect.Y + v * rect.Height), ReaderInteractionLayer);
-                return true;
-            }
-            var image = ReaderImage;
-            if (!ReferenceEquals(row, _readerPage) || image.Source == null || !image.IsVisible) return false;
-            point = image.TranslatePoint(new Point(u * image.ActualWidth, v * image.ActualHeight), ReaderInteractionLayer);
+            if (!ReaderContinuousView.IsVisible || !ReaderContinuousView.TryPageToView(row, u, v, out Point p)) return false;
+            point = ReaderContinuousView.Surface.TranslatePoint(p, ReaderInteractionLayer);
             return true;
         }
 

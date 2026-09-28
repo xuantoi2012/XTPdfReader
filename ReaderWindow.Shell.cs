@@ -701,30 +701,13 @@ namespace XTPdfMergeApp
             bool Matches(PageRow r) => string.Equals(r.SourcePath, path, StringComparison.OrdinalIgnoreCase);
 
             ReaderSidePanel.RequestVisibleThumbnails();
-            var refreshInPlace = new HashSet<PageRow>();
-            if (_readerGroup != null && _readerPage != null && !_readerContinuousMode &&
-                Matches(_readerPage) && _readerPage.ReaderBitmap != null)
-                refreshInPlace.Add(_readerPage);
-
             foreach (var row in _groups.SelectMany(g => g.Pages).Where(Matches))
             {
-                if (refreshInPlace.Contains(row)) continue;
                 row.ReaderBitmap = null;
                 row.ReaderBitmapLoadQueued = false;
             }
-
-            if (_readerGroup == null || _readerPage == null) return;
-            if (_readerContinuousMode)
-            {
-                // Vùng vẽ giữ ảnh cũ trên màn hình tới khi ảnh theo trạng thái layer mới xong.
-                ReaderContinuousView.InvalidatePages(Matches, dropImages: false);
-                return;
-            }
-            ClearReaderTiles();
-            foreach (var row in refreshInPlace) _ = RefreshReaderBitmapInPlaceAsync(row);
-            if (!_readerContinuousMode && Matches(_readerPage) && refreshInPlace.Count == 0)
-                _ = ShowPageAsync(_readerGroup, _readerPage, preserveZoomMode: true);
-            ScheduleReaderTileRefresh();
+            // Vùng vẽ giữ ảnh cũ trên màn hình tới khi ảnh theo trạng thái layer mới xong.
+            if (_readerGroup != null) ReaderContinuousView.InvalidatePages(Matches, dropImages: false);
         }
     }
 }

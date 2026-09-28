@@ -58,6 +58,11 @@ public sealed class ContinuousPdfView : Grid
     private readonly Dictionary<PageRow, PageState> _states = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<PageRow, int> _indexOf = new(ReferenceEqualityComparer.Instance);
     private IReadOnlyList<PageRow> _pages = Array.Empty<PageRow>();
+    /// <summary>Slot bố cục → chỉ số trang. Cuộn liên tục: mọi trang; 1 trang: chỉ trang đang xem.</summary>
+    private int[] _slots = Array.Empty<int>();
+    private bool _singlePage;
+    private int _single;
+    private int _rotation;
     private INotifyCollectionChanged? _observed;
     private int _currentPage = -1;
 
@@ -111,6 +116,10 @@ public sealed class ContinuousPdfView : Grid
     public double MaxZoom { get; set; } = 4.0;
     public double ZoomStep { get; set; } = 1.08;
 
+    /// <summary>Vẽ thêm lên trang, trong khung nội dung theo hướng của trang (đã xoay khung nhìn, đã cắt theo trang):
+    /// (dc, trang, khung trang, hệ số DPI). Lớp chú thích vẽ ở đây để cuộn/zoom khớp tuyệt đối với ảnh trang.</summary>
+    internal event Action<DrawingContext, PageRow, Rect, double>? PageDrawn;
+
     /// <summary>Vị trí/zoom đổi (mọi khung hình có thay đổi) — lớp chú thích đặt lại ô nhập theo đây.</summary>
     public event Action? ViewChanged;
     /// <summary>Trang "đang xem" đổi do người dùng cuộn/zoom (không bắn khi ReaderWindow tự gọi <see cref="ScrollToPage"/>).</summary>
@@ -143,11 +152,54 @@ public sealed class ContinuousPdfView : Grid
         CancelAll();
         _states.Clear();
         _pages = pages ?? Array.Empty<PageRow>();
+        _single = 0;
         RebuildIndex();
         _vp.SetPages(BaseSizes(), Math.Clamp(zoom, MinZoom, MaxZoom));
         _currentPage = _pages.Count > 0 ? 0 : -1;
         OnViewChanged(ChangeKind.Navigate);
     }
+
+    /// <summary>Bố cục 1 trang (Foxit "Single Page"): chỉ trang đang xem; lăn quá mép dưới/trên = sang trang kế/trước.</summary>
+    public bool SinglePage
+    {
+        get => _singlePage;
+        set
+        {
+            if (_singlePage == value) return;
+            _singlePage = value;
+            _single = Math.Clamp(_currentPage, 0, Math.Max(0, _pages.Count - 1));
+            RebuildIndex();
+            _vp.SetPages(BaseSizes(), _vp.Zoom);
+            if (_pages.Count > 0) _vp.ScrollToPage(SlotOf(_single));
+            OnViewChanged(ChangeKind.Navigate);
+        }
+    }
+
+    /// <summary>Xoay khung nhìn (0/90/180/270, chiều kim đồng hồ) — chỉ để xem: ảnh trang không vẽ lại, chỉ xoay lúc vẽ.</summary>
+    public int ViewRotation
+    {
+        get => _rotation;
+        set
+        {
+            value = ((value % 360) + 360) % 360 / 90 * 90;
+            if (_rotation == value) return;
+            int page = _currentPage;
+            _rotation = value;
+            _vp.SetPages(BaseSizes(), _vp.Zoom);
+            if (page >= 0 && page < _pages.Count) _vp.ScrollToPage(SlotOf(page));
+            OnViewChanged(ChangeKind.Navigate);
+        }
+    }
+
+    /// <summary>Kích thước (DIP, zoom 1) trang <paramref name="index"/> như đang hiện (đã tính xoay khung nhìn).</summary>
+    internal (double Width, double Height) DisplayBaseSize(int index)
+    {
+        if (index < 0 || index >= _pages.Count) return (0, 0);
+        var row = _pages[index];
+        return _rotation % 180 == 0 ? (row.LayoutWidth, row.LayoutHeight) : (row.LayoutHeight, row.LayoutWidth);
+    }
+
+    public double ViewportHeight => _vp.ViewportHeight;
 
     /// <summary>Khổ giấy của một số trang vừa biết/đổi — dựng lại bố cục, trang ở đỉnh khung nhìn đứng yên.</summary>
     public void RefreshPageSizes()
@@ -171,12 +223,24 @@ public sealed class ContinuousPdfView : Grid
     public Point ViewportCenter => new(_vp.ViewportWidth / 2, _vp.ViewportHeight / 2);
 
     /// <summary>Đỉnh trang <paramref name="index"/> lên đỉnh khung nhìn (Home/End, ô số trang, bấm thumbnail).</summary>
-    public void ScrollToPage(int index)
+    public void ScrollToPage(int index) => ScrollToPage(index, bottom: false);
+
+    /// <param name="bottom">Chế độ 1 trang, lùi trang bằng lăn chuột: hiện phần cuối trang (như Foxit).</param>
+    private void ScrollToPage(int index, bool bottom)
     {
         if (index < 0 || index >= _pages.Count) return;
-        _vp.ScrollToPage(index);
+        if (_singlePage && index != _single)
+        {
+            _single = index;
+            RebuildIndex();
+            _vp.SetPages(BaseSizes(), _vp.Zoom);
+        }
+        _vp.ScrollToPage(SlotOf(index));
+        if (bottom) _vp.SetOffset(_vp.OffsetX, _vp.MaxOffsetY);
+        bool changed = _currentPage != index;
         _currentPage = index; // người dùng chọn trang này — không đổi sang trang "hiện nhiều hơn" bên cạnh
         OnViewChanged(ChangeKind.Navigate);
+        if (changed && _singlePage) CurrentPageChanged?.Invoke(index);
     }
 
     /// <summary>Cuộn thêm (DIP) — phím mũi tên.</summary>
@@ -189,27 +253,68 @@ public sealed class ContinuousPdfView : Grid
     internal IEnumerable<PageRow> VisiblePages()
     {
         var (first, last) = _vp.VisibleRange();
-        for (int i = first; i >= 0 && i <= last && i < _pages.Count; i++) yield return _pages[i];
+        for (int s = first; s >= 0 && s <= last && s < _slots.Length; s++) yield return _pages[_slots[s]];
     }
 
-    /// <summary>Trang dưới điểm (toạ độ trong <see cref="Surface"/>) + vị trí chuẩn hoá (u, v) trong trang.</summary>
+    /// <summary>Trang dưới điểm (toạ độ trong <see cref="Surface"/>) + vị trí chuẩn hoá (u, v) trên trang (hướng của trang, không xoay khung nhìn).</summary>
     internal bool TryHitPage(Point viewPoint, out PageRow? row, out double u, out double v)
     {
         row = null;
-        if (!_vp.HitTest(viewPoint.X, viewPoint.Y, out int index, out u, out v) || index >= _pages.Count) return false;
-        row = _pages[index];
+        if (!_vp.HitTest(viewPoint.X, viewPoint.Y, out int slot, out double du, out double dv) || slot >= _slots.Length)
+        {
+            u = v = 0;
+            return false;
+        }
+        row = _pages[_slots[slot]];
+        (u, v) = Unrotate(du, dv);
         return true;
     }
 
-    /// <summary>Khung nội dung trang (không viền) trong toạ độ <see cref="Surface"/>.</summary>
+    /// <summary>Khung nội dung trang như đang hiện (không viền, đã xoay khung nhìn) trong toạ độ <see cref="Surface"/>.</summary>
     internal bool TryGetPageRect(PageRow row, out Rect rect)
     {
         rect = Rect.Empty;
-        if (!_indexOf.TryGetValue(row, out int index) || index >= _vp.Count) return false;
-        var (x, y, w, h) = _vp.PageContentRect(index);
+        if (!_indexOf.TryGetValue(row, out int index) || SlotOf(index) is not (>= 0 and var slot) || slot >= _vp.Count) return false;
+        var (x, y, w, h) = _vp.PageContentRect(slot);
         rect = new Rect(x, y, w, h);
         return true;
     }
+
+    /// <summary>(u, v) trên trang → điểm trong <see cref="Surface"/>. False nếu trang không nằm trong bố cục.</summary>
+    internal bool TryPageToView(PageRow row, double u, double v, out Point point)
+    {
+        point = default;
+        if (!TryGetPageRect(row, out Rect rect)) return false;
+        var (du, dv) = Rotate(u, v);
+        point = new Point(rect.X + du * rect.Width, rect.Y + dv * rect.Height);
+        return true;
+    }
+
+    /// <summary>Điểm trong <see cref="Surface"/> → (u, v) trên trang (chưa kẹp 0..1).</summary>
+    internal bool TryViewToPage(PageRow row, Point viewPoint, out double u, out double v)
+    {
+        u = v = 0;
+        if (!TryGetPageRect(row, out Rect rect) || rect.Width <= 0 || rect.Height <= 0) return false;
+        (u, v) = Unrotate((viewPoint.X - rect.X) / rect.Width, (viewPoint.Y - rect.Y) / rect.Height);
+        return true;
+    }
+
+    /// <summary>Hướng trang → hướng đang hiện (xoay khung nhìn theo chiều kim đồng hồ).</summary>
+    private (double U, double V) Rotate(double u, double v) => _rotation switch
+    {
+        90 => (1 - v, u),
+        180 => (1 - u, 1 - v),
+        270 => (v, 1 - u),
+        _ => (u, v)
+    };
+
+    private (double U, double V) Unrotate(double du, double dv) => _rotation switch
+    {
+        90 => (dv, 1 - du),
+        180 => (1 - du, 1 - dv),
+        270 => (1 - dv, du),
+        _ => (du, dv)
+    };
 
     /// <summary>Trang vừa đổi nội dung (chú thích, layer): vẽ lại. <paramref name="dropImages"/> = true khi hình học đổi
     /// (xoay trang) — ảnh cũ sai tỉ lệ, bỏ ngay; false: ảnh cũ vẫn hiện tới khi ảnh mới xong.</summary>
@@ -285,7 +390,8 @@ public sealed class ContinuousPdfView : Grid
 
         if (kind != ChangeKind.Navigate)
         {
-            int current = _vp.CurrentPage();
+            int slot = _vp.CurrentPage();
+            int current = slot >= 0 && slot < _slots.Length ? _slots[slot] : -1;
             if (current != _currentPage && current >= 0)
             {
                 _currentPage = current;
@@ -348,14 +454,30 @@ public sealed class ContinuousPdfView : Grid
 
     private void RebuildIndex()
     {
+        PageRow? singleRow = _singlePage && _single >= 0 && _single < _pages.Count ? _pages[_single] : null;
         _indexOf.Clear();
         for (int i = 0; i < _pages.Count; i++) _indexOf[_pages[i]] = i;
+        if (_singlePage)
+        {
+            // Trang đang xem còn trong danh sách (thêm/bớt/chuyển trang khác) thì giữ nó.
+            if (singleRow != null && _indexOf.TryGetValue(singleRow, out int kept)) _single = kept;
+            _single = Math.Clamp(_single, 0, Math.Max(0, _pages.Count - 1));
+            _slots = _pages.Count > 0 ? new[] { _single } : Array.Empty<int>();
+        }
+        else
+        {
+            _slots = new int[_pages.Count];
+            for (int i = 0; i < _slots.Length; i++) _slots[i] = i;
+        }
     }
+
+    /// <summary>Slot bố cục của trang, −1 nếu trang không nằm trong bố cục (chế độ 1 trang).</summary>
+    private int SlotOf(int pageIndex) => _singlePage ? (pageIndex == _single && _slots.Length > 0 ? 0 : -1) : pageIndex;
 
     private (double Width, double Height)[] BaseSizes()
     {
-        var sizes = new (double, double)[_pages.Count];
-        for (int i = 0; i < sizes.Length; i++) sizes[i] = (_pages[i].LayoutWidth, _pages[i].LayoutHeight);
+        var sizes = new (double, double)[_slots.Length];
+        for (int s = 0; s < sizes.Length; s++) sizes[s] = DisplayBaseSize(_slots[s]);
         return sizes;
     }
 
@@ -379,6 +501,8 @@ public sealed class ContinuousPdfView : Grid
             double perNotch = lines < 0 ? _vp.ViewportHeight : lines * (100.0 / 3);
             double delta = -e.Delta / 120.0 * perNotch;
             if ((modifiers & ModifierKeys.Shift) != 0) ScrollBy(delta, 0);
+            else if (_singlePage && delta > 0 && _vp.OffsetY >= _vp.MaxOffsetY - 0.5 && _single < _pages.Count - 1) ScrollToPage(_single + 1, bottom: false);
+            else if (_singlePage && delta < 0 && _vp.OffsetY <= 0.5 && _single > 0) ScrollToPage(_single - 1, bottom: true);
             else ScrollBy(0, delta);
         }
         e.Handled = true;
@@ -430,15 +554,26 @@ public sealed class ContinuousPdfView : Grid
         if (first < 0) return;
         double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
 
-        for (int i = first; i <= last && i < _pages.Count; i++)
+        for (int s = first; s <= last && s < _slots.Length; s++)
         {
-            var row = _pages[i];
-            var (x, y, w, h) = _vp.PageRect(i);
+            var row = _pages[_slots[s]];
+            var (x, y, w, h) = _vp.PageRect(s);
             // Bám pixel thiết bị: viền 1 px sắc, ảnh không nhoè nửa pixel.
             var outer = Snap(new Rect(x, y, w, h), dpi);
             dc.DrawRectangle(Brushes.White, null, outer);
             double b = ContinuousPageLayout.BorderThickness;
-            var content = new Rect(outer.X + b, outer.Y + b, Math.Max(0, outer.Width - 2 * b), Math.Max(0, outer.Height - 2 * b));
+            var shown = new Rect(outer.X + b, outer.Y + b, Math.Max(0, outer.Width - 2 * b), Math.Max(0, outer.Height - 2 * b));
+
+            // Xoay khung nhìn: vẽ trang theo hướng của nó trong khung "content" rồi xoay quanh tâm khung đang hiện.
+            var content = shown;
+            bool rotated = _rotation != 0;
+            if (rotated)
+            {
+                if (_rotation % 180 != 0)
+                    content = new Rect(shown.X + (shown.Width - shown.Height) / 2, shown.Y + (shown.Height - shown.Width) / 2, shown.Height, shown.Width);
+                dc.PushClip(new RectangleGeometry(shown));
+                dc.PushTransform(new RotateTransform(_rotation, shown.X + shown.Width / 2, shown.Y + shown.Height / 2));
+            }
 
             _states.TryGetValue(row, out var state);
             if (BestBitmap(row, state) is { } bitmap) dc.DrawImage(bitmap, content);
@@ -456,6 +591,8 @@ public sealed class ContinuousPdfView : Grid
                 }
                 dc.Pop();
             }
+            PageDrawn?.Invoke(dc, row, content, dpi);
+            if (rotated) { dc.Pop(); dc.Pop(); }
             dc.DrawRectangle(null, BorderPen, new Rect(outer.X + 0.5 / dpi, outer.Y + 0.5 / dpi,
                 Math.Max(0, outer.Width - 1 / dpi), Math.Max(0, outer.Height - 1 / dpi)));
         }
@@ -512,8 +649,9 @@ public sealed class ContinuousPdfView : Grid
         double sinceZoom = (now - _lastZoomTimestamp) * 1000.0 / Stopwatch.Frequency;
         bool zoomSettling = sinceZoom < ZoomSettleMilliseconds;
 
-        var (first, last) = _vp.VisibleRange();
-        if (first < 0) return;
+        var (firstSlot, lastSlot) = _vp.VisibleRange();
+        if (firstSlot < 0 || lastSlot >= _slots.Length) return;
+        int first = _slots[firstSlot], last = _slots[lastSlot];
         int keepFirst = Math.Max(0, first - KeepPages), keepLast = Math.Min(_pages.Count - 1, last + KeepPages);
 
         // Trang đã rời khu vực quanh khung nhìn: huỷ việc vẽ, trả ảnh (ảnh trang còn trong cache chung của ReaderWindow).
@@ -551,7 +689,7 @@ public sealed class ContinuousPdfView : Grid
 
             if (needed > MaxPageBitmapWidth * 1.03)
             {
-                if (!zoomSettling) RequestRegion(i, row, state, needed);
+                if (!zoomSettling) RequestRegion(SlotOf(i), row, state, needed);
             }
             else if (state.Regions.Count > 0 || state.RegionCts != null)
             {
@@ -674,9 +812,13 @@ public sealed class ContinuousPdfView : Grid
         if (IsOnScreen(row)) _surface.InvalidateVisual();
     }
 
-    private void RequestRegion(int index, PageRow row, PageState state, double neededPx)
+    private void RequestRegion(int slot, PageRow row, PageState state, double neededPx)
     {
-        if (!_vp.VisibleFraction(index, out double fx0, out double fy0, out double fx1, out double fy1)) return;
+        if (!_vp.VisibleFraction(slot, out double dx0, out double dy0, out double dx1, out double dy1)) return;
+        // Phần đang hiện → phân số trên trang theo hướng của trang (vùng vẽ PDFium không xoay).
+        var (ua, va) = Unrotate(dx0, dy0);
+        var (ub, vb) = Unrotate(dx1, dy1);
+        double fx0 = Math.Min(ua, ub), fx1 = Math.Max(ua, ub), fy0 = Math.Min(va, vb), fy1 = Math.Max(va, vb);
         int fullWidth = (int)Math.Min(MaxRegionFullWidth,
             Math.Ceiling(Math.Min(neededPx, MaxRegionFullWidth) / RegionResolutionQuantum) * RegionResolutionQuantum);
         double aspect = row.LayoutHeight / Math.Max(1, row.LayoutWidth);
@@ -736,10 +878,13 @@ public sealed class ContinuousPdfView : Grid
 
     private bool IsOnScreen(PageRow row)
     {
-        if (!_indexOf.TryGetValue(row, out int index)) return false;
+        if (!_indexOf.TryGetValue(row, out int index) || SlotOf(index) is not (>= 0 and var slot)) return false;
         var (first, last) = _vp.VisibleRange();
-        return index >= first && index <= last;
+        return slot >= first && slot <= last;
     }
+
+    /// <summary>Vẽ lại (chú thích, kết quả tìm… vẽ trong <see cref="PageDrawn"/> đổi).</summary>
+    public void Redraw() => _surface.InvalidateVisual();
 
     // ── Trạng thái từng trang ──────────────────────────────────────────────
 

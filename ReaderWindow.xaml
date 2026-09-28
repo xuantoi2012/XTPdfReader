@@ -213,75 +213,13 @@
                   PreviewMouseRightButtonUp="ReaderContent_AnnotationContextMenu"
                   MouseLeave="ReaderContentHost_MouseLeave"
                   LayoutUpdated="ReaderContentHost_LayoutUpdated">
-            <ScrollViewer x:Name="ReaderScrollViewer"
-                          HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
-                          Background="{DynamicResource PdfViewerBackgroundBrush}" Padding="16"
-                          PreviewMouseWheel="ReaderScrollViewer_PreviewMouseWheel"
-                          ScrollChanged="ReaderScrollViewer_ScrollChanged"
-                          SizeChanged="ReaderScrollViewer_SizeChanged">
-                <Grid>
-                    <TextBlock x:Name="ReaderEmptyText" Text="Select a page to view"
-                               Foreground="{DynamicResource Ui.Muted}" FontSize="14"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    <!-- ReaderContentCanvas = "sizer" cấp kích thước cuộn CHÍNH XÁC cho
-                         ScrollViewer (Width/Height set thẳng bằng code theo công thức, KHÔNG
-                         dựa vào WPF tự đo qua LayoutTransform nữa) — Image/tile bên trong định vị
-                         bằng Canvas.Left/Top tính sẵn + RenderTransform (Scale/Rotate) chỉ tác
-                         động lúc VẼ, không kéo theo 1 lượt đo layout nào khi đổi zoom. Xem
-                         ApplyReaderLayout/ZoomReaderAtPoint (ReaderWindow.xaml.cs) — đây là cách
-                         các trình xem PDF/ảnh hiện đại (Chrome PDF viewer, Acrobat) giữ zoom mượt
-                         và neo đúng điểm con trỏ: KHÔNG đo lại vị trí sau khi zoom, tính trước
-                         bằng công thức rồi áp 1 lần duy nhất. -->
-                    <Canvas x:Name="ReaderContentCanvas">
-                        <Image x:Name="ReaderImage" Stretch="Fill"
-                               RenderTransformOrigin="0.5,0.5"
-                               RenderOptions.BitmapScalingMode="{Binding RelativeSource={RelativeSource AncestorType=local:ReaderWindow}, Path=ReaderBitmapScalingMode}" Cursor="Hand"
-                               MouseLeftButtonDown="ReaderImage_MouseLeftButtonDown"
-                               MouseDown="ReaderImage_MouseDown"
-                               MouseUp="ReaderImage_MouseUp"
-                               MouseMove="ReaderImage_MouseMove"
-                               MouseLeftButtonUp="ReaderImage_MouseLeftButtonUp"
-                               LostMouseCapture="ReaderImage_LostMouseCapture">
-                            <Image.RenderTransform>
-                                <TransformGroup>
-                                    <ScaleTransform x:Name="ReaderScaleTransform" ScaleX="1" ScaleY="1"/>
-                                    <RotateTransform x:Name="ReaderRotateTransform" Angle="0"/>
-                                </TransformGroup>
-                            </Image.RenderTransform>
-                        </Image>
-                        <!-- Two independent coordinate spaces: old imagery remains visible
-                             underneath each new tile until refinement is complete. -->
-                        <Canvas x:Name="ReaderTileCanvas" Width="0" Height="0"
-                                RenderTransformOrigin="0.5,0.5"
-                                ClipToBounds="True" IsHitTestVisible="False"
-                                Visibility="Collapsed">
-                            <Canvas.RenderTransform>
-                                <TransformGroup>
-                                    <ScaleTransform x:Name="ReaderTileScaleTransform" ScaleX="1" ScaleY="1"/>
-                                    <RotateTransform x:Name="ReaderTileRotateTransform" Angle="0"/>
-                                </TransformGroup>
-                            </Canvas.RenderTransform>
-                        </Canvas>
-                        <Canvas x:Name="ReaderTileCanvasB" Width="0" Height="0"
-                                RenderTransformOrigin="0.5,0.5"
-                                ClipToBounds="True" IsHitTestVisible="False"
-                                Visibility="Collapsed">
-                            <Canvas.RenderTransform>
-                                <TransformGroup>
-                                    <ScaleTransform x:Name="ReaderTileScaleTransformB" ScaleX="1" ScaleY="1"/>
-                                    <RotateTransform x:Name="ReaderTileRotateTransformB" Angle="0"/>
-                                </TransformGroup>
-                            </Canvas.RenderTransform>
-                        </Canvas>
-                    </Canvas>
-                </Grid>
-            </ScrollViewer>
+            <TextBlock x:Name="ReaderEmptyText" Text="Select a page to view" Foreground="{DynamicResource Ui.Muted}" FontSize="14"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
 
             <!-- Chế độ Cuộn liên tục kiểu Foxit: MỘT vùng vẽ tự vẽ mọi trang đang hiện (Controls/ContinuousPdfView) —
                  không ListBox/phần tử cho từng trang. Cuộn/zoom chỉ đổi vài con số rồi vẽ lại ngay bằng ảnh đang có. -->
             <ctl:ContinuousPdfView x:Name="ReaderContinuousView"
-                                   Background="{DynamicResource PdfViewerBackgroundBrush}"
-                                   Visibility="Collapsed"/>
+                                   Background="{DynamicResource PdfViewerBackgroundBrush}"/>
 
                 <!-- Lớp tương tác chung của Typewriter/Ghi chú/Highlight: không Background nên không
                      chặn chuột; chỉ ô nhập chữ, khung kéo highlight, popup xem ghi chú nằm ở đây. -->

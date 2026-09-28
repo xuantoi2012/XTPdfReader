@@ -47,16 +47,6 @@ namespace XTPdfMergeApp
             EditHost = Session;
             var groups = Session.Documents;
             InitializeComponent();
-            _viewportRenderScheduler = new ViewportRenderScheduler(Dispatcher, () =>
-                RunReaderTileRefreshAsync(Volatile.Read(ref _readerTileRequestId), _readerTileRefreshCts.Token));
-            _tilePresentation = new FramePresentationQueue(ex => LogContinuousTileDebug($"Tile presentation failed: {ex.Message}"));
-            _qualityRestoreTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
-                { Interval = TimeSpan.FromMilliseconds(150) };
-            _qualityRestoreTimer.Tick += (_, _) =>
-            {
-                _qualityRestoreTimer.Stop();
-                ReaderBitmapScalingMode = BitmapScalingMode.HighQuality;
-            };
             _groups = groups;
             ReaderContentHost.LostMouseCapture += (_, _) => CancelHighlightDrag();
             // File đang xem bị đóng khỏi workspace (đóng hẳn, không phải chỉ xoá vài trang — trường hợp
@@ -75,7 +65,7 @@ namespace XTPdfMergeApp
             int current = _readerGroup != null && _readerPage != null ? _readerGroup.Pages.IndexOf(_readerPage) : -1;
             return new DiagnosticsReport.ViewerStats(
                 reader.Cache, reader.Bytes, reader.Inflight,
-                _readerTileCache.Count, _readerTileCache.Bytes,
+                0, 0,
                 continuous.Pages, continuous.Regions, continuous.RegionBytes,
                 _readerContinuousMode ? "Continuous" : "Single page", _readerZoom, current, pageCount);
         }
@@ -83,13 +73,8 @@ namespace XTPdfMergeApp
         internal void ShutdownReader()
         {
             ReaderContinuousView.CancelAll();
-            _readerTileRefreshCts.Cancel();
             _readerPageCts.Cancel();
             _readerPrefetchCts.Cancel();
-            _readerRealtimeRenderCts?.Cancel();
-            _viewportRenderScheduler.Dispose();
-            _qualityRestoreTimer.Stop();
-            _tilePresentation.Dispose();
         }
 
         /// <summary>True nếu Viewer đã từng hiện ít nhất 1 trang — dùng thay cho check
@@ -208,7 +193,6 @@ namespace XTPdfMergeApp
                     break;
                 case Key.Up:
                 case Key.Down:
-                    if (!_readerContinuousMode) break;
                     ReaderContinuousView.ScrollBy(0, (e.Key == Key.Up ? -1 : 1) * 100.0 / 3 * Math.Max(1, SystemParameters.WheelScrollLines));
                     e.Handled = true;
                     break;
@@ -234,27 +218,6 @@ namespace XTPdfMergeApp
             }
         }
 
-        private readonly FramePresentationQueue _tilePresentation;
-        private readonly DispatcherTimer _qualityRestoreTimer;
-        public static readonly DependencyProperty ReaderBitmapScalingModeProperty = DependencyProperty.Register(
-            nameof(ReaderBitmapScalingMode), typeof(BitmapScalingMode), typeof(ReaderWindow),
-            new PropertyMetadata(BitmapScalingMode.HighQuality));
-        public BitmapScalingMode ReaderBitmapScalingMode
-        {
-            get => (BitmapScalingMode)GetValue(ReaderBitmapScalingModeProperty);
-            private set => SetValue(ReaderBitmapScalingModeProperty, value);
-        }
-        public int PendingTilePresentations => _tilePresentation.PendingCount;
-        public double MaxTilePresentationMilliseconds => _tilePresentation.MaxBatchMilliseconds;
-
-        private void MarkReaderInteraction()
-        {
-            PdfThumbnailService.NoteInteraction(); // #5: thumbnail/tải trước nhường gate PDFium cho vùng đang zoom/pan
-            ReaderBitmapScalingMode = BitmapScalingMode.LowQuality;
-            _qualityRestoreTimer.Stop();
-            _qualityRestoreTimer.Start();
-        }
-
         private enum ReaderZoomMode { Manual, FitWidth, FitPage }
 
         private const double ReaderRenderWidthPx = 2200;
@@ -275,129 +238,17 @@ namespace XTPdfMergeApp
         private long _readerRequestId;
         private CancellationTokenSource _readerPrefetchCts = new();
 
-        /// <summary>Độ phân giải PX GỐC của bitmap ĐANG hiển thị trong ReaderImage — có thể
-        /// là bản render cơ sở (ReaderRenderWidthPx) hoặc bản đã "nâng cấp" nét hơn khi zoom
-        /// sâu (xem ScheduleReaderRealtimeRerender). Image dùng Stretch=Fill trên khung
-        /// Width/Height cố định nên đổi bitmap không cần bù transform gì — chỉ đổi ĐỘ NÉT; giá
-        /// trị này chỉ còn dùng để so ngưỡng cần render lại/tile hay chưa.</summary>
-        private double _readerBitmapNativeWidthPx = ReaderRenderWidthPx;
-
-        /// <summary>Tỉ lệ Cao/Rộng THẬT của trang (bất biến theo độ phân giải render) — dùng để
-        /// tính Fit width/page theo kích thước BASELINE (ReaderRenderWidthPx) thay vì theo bitmap
-        /// đang hiển thị thực tế, vì bitmap đó có thể đã bị "nâng cấp" độ phân giải.</summary>
-        private double _readerPageAspect = 1.0;
-
-        private CancellationTokenSource? _readerRealtimeRenderCts;
-
-        private const double ReaderTileStartWidthPx = 3200;
-        /// <summary>Layers = "phiên bản trạng thái layer" của file lúc yêu cầu tile (PdfLayerStateStore).</summary>
-        private readonly record struct ReaderTileKey(string Path, int Page, int FullWidth, int FullHeight, int X, int Y, int Width, int Height, string Layers);
-
-        private static bool IsCurrentLayerState(PageRow row, string layers)
-            => string.Equals(PdfLayerStateStore.GetToken(row.SourcePath), layers, StringComparison.Ordinal);
-        private readonly BitmapMemoryCache<ReaderTileKey> _readerTileCache = new(48L * 1024 * 1024);
-        private readonly Dictionary<ReaderTileKey, Task<BitmapSource?>> _readerTileLoads = new();
-        /// <summary>Token huỷ của từng lượt vẽ tile/vùng đang chạy — để bỏ riêng lượt có vùng đã ra khỏi màn hình.</summary>
-        private readonly Dictionary<ReaderTileKey, CancellationTokenSource> _readerTileLoadCts = new();
-        private readonly HashSet<ReaderTileKey> _visibleReaderTiles = new();
-        private readonly HashSet<ReaderTileKey> _pendingReaderTiles = new();
-        private long _readerTileRequestId;
-
-        // ReaderTileCanvas/ReaderTileCanvasB — double buffering: canvas KHÔNG hiển thị dùng để chuẩn
-        // Each buffer keeps its own geometry; incoming tiles cover the old image
-        // progressively, and the fallback releases its images after completion.
-        private bool _readerTileActiveIsA = true;
-        private Canvas ActiveReaderTileCanvas => _readerTileActiveIsA ? ReaderTileCanvas : ReaderTileCanvasB;
-        private Canvas InactiveReaderTileCanvas => _readerTileActiveIsA ? ReaderTileCanvasB : ReaderTileCanvas;
-        private ScaleTransform ActiveReaderTileScaleTransform => _readerTileActiveIsA ? ReaderTileScaleTransform : ReaderTileScaleTransformB;
-        private ScaleTransform InactiveReaderTileScaleTransform => _readerTileActiveIsA ? ReaderTileScaleTransformB : ReaderTileScaleTransform;
-        private RotateTransform ActiveReaderTileRotateTransform => _readerTileActiveIsA ? ReaderTileRotateTransform : ReaderTileRotateTransformB;
-        private RotateTransform InactiveReaderTileRotateTransform => _readerTileActiveIsA ? ReaderTileRotateTransformB : ReaderTileRotateTransform;
-
-        // (fullWidth, fullHeight) hệ toạ độ mà lượt tile TRƯỚC đã dùng — đổi zoom là đổi luôn hệ này,
-        // tile cũ (đặt Canvas.Left/Top/Width/Height theo hệ CŨ) phải bị xoá NGAY LẬP TỨC trước khi áp
-        // scale MỚI cho ReaderTileScaleTransform, không thì có 1 khung hình tile cũ bị biến dạng sai vị
-        // trí/kích thước (đúng bug "zoom chưa chính xác" — Canvas đổi scale tức thì nhưng con bên trong
-        // vẫn còn từ hệ toạ độ cũ tới tận khi vòng async dọn dẹp chạy xong ở cuối UpdateReaderTilesAsync).
-        private (int Width, int Height) _readerTileCoordSpace;
-        private const double ReaderRealtimeRerenderFactor = 1.05; // render lại sớm hơn khi zoom vượt độ phân giải bitmap đang có
-        private const double ReaderMaxRenderWidthPx = 7600; // chặn trần RAM/CPU khi zoom cực sâu
-
-        // Lượng tử hoá độ phân giải NÉT của tile theo bậc 400px thay vì bám sát TỪNG GIÁ TRỊ ZOOM LIÊN
-        // TỤC — nếu không, mỗi nấc zoom (dù chỉ nhích 1%) đều ra 1 "fullWidth" khác, ReaderTileKey đổi
-        // theo, toàn bộ tile đang có bị coi là "khác hệ toạ độ" và phải render lại từ đầu (PDFium) —
-        // log thực tế cho thấy đúng vậy: cacheHits=0 liên tục suốt lúc đang kéo zoom, chỉ có cacheHits
-        // khi zoom đứng yên TUYỆT ĐỐI. Hàng chục lượt render PDF liên tiếp mỗi ~120ms chính là nguồn
-        // giật khi zoom sâu (KHÔNG giật ở zoom nhỏ vì dưới ngưỡng tile, không đụng tới đường này).
-        // Lượng tử hoá "fullWidth" (độ phân giải RENDER) về bậc rời rạc trong khi vẫn dùng zoom LIÊN
-        // TỤC thật cho tileScale (kích thước HIỂN THỊ) — độ nét chỉ đổi theo bậc (Ítre-render hơn hẳn,
-        // đúng cách Chrome/Acrobat làm: không rasterize lại ở MỌI mức zoom, chỉ ở vài mức rời rạc rồi
-        // scale nhẹ qua GPU cho các mức ở giữa), còn kích thước hiển thị vẫn mượt theo đúng zoom hiện tại.
-        private const double ReaderTileResolutionQuantumPx = 400;
-
-        private static int QuantizeTileFullWidth(double fullWidthCapped)
-            => Math.Max(1, (int)(Math.Ceiling(fullWidthCapped / ReaderTileResolutionQuantumPx) * ReaderTileResolutionQuantumPx));
-
-        /// <summary>Chế độ xem: TRUE = cuộn liên tục qua TẤT CẢ trang (ReaderContinuousView),
-        /// FALSE = 1 trang 1 lần (ReaderScrollViewer/ReaderImage như cũ). Toggle qua nút
-        /// ReaderContinuousToggle — lăn chuột thường cuộn dọc mượt, Ctrl+lăn chuột mới zoom
-        /// (khác chế độ 1-trang: ở đó lăn chuột thường ĐÃ LÀ zoom, vì không cần cuộn qua
-        /// trang khác bằng lăn chuột nữa).</summary>
+        /// <summary>Bố cục của vùng xem (ReaderContinuousView — bộ vẽ DUY NHẤT): TRUE = cuộn liên tục qua mọi trang,
+        /// FALSE = 1 trang (lăn quá mép = sang trang kế/trước, như Foxit). Lăn chuột cuộn, Ctrl+lăn chuột zoom.</summary>
         private bool _readerContinuousMode;
 
-        /// <summary>Xoay CHỈ ĐỂ XEM (0/90/180/270) — không đụng tới file PDF gốc, không
-        /// ảnh hưởng lúc Lưu/merge. Reset về 0 mỗi khi đổi sang trang khác (xoay là tiện
-        /// ích tạm thời cho ĐÚNG trang đang nhìn, không mang theo giữa các trang).</summary>
+        /// <summary>Xoay CHỈ ĐỂ XEM (0/90/180/270) cho mọi trang — không đụng tới file PDF, không ảnh hưởng lúc Lưu/merge.</summary>
         private int _readerRotation;
 
         /// <summary>Nhớ zoom (mode + mức %) RIÊNG cho từng file (DocumentGroup) — chuyển
         /// qua lại giữa các window trong danh sách không bị mất mức zoom đang xem dở của
         /// từng file đó (khác hẳn trước đây: 1 biến _readerZoom DÙNG CHUNG cho mọi file).</summary>
         private readonly Dictionary<DocumentGroup, (ReaderZoomMode Mode, double Zoom)> _readerZoomByGroup = new();
-
-        // Kéo để pan (giữ chuột trái HOẶC chuột giữa kéo, như Foxit/Word) — tách biệt
-        // hẳn khỏi SmoothScrollBy (easing): pan cần bám NGAY theo vị trí chuột, dùng
-        // easing ở đây sẽ tạo cảm giác trễ/"cao su" sai với thao tác kéo trực tiếp.
-        private bool _readerPanning;
-        private Point _readerPanStartMouse;
-        private double _readerPanStartH, _readerPanStartV;
-        private bool _readerPanFramePending;
-        private ScrollViewer? _readerPanFrameScrollViewer;
-        private double _readerPanFrameTargetH, _readerPanFrameTargetV;
-
-        // Gộp NHIỀU nấc lăn chuột đến trong CÙNG 1 khung hình render thành ĐÚNG 1 lần áp
-        // zoom+UpdateLayout+sửa điểm neo (giống cách trình duyệt/Figma coalesce input về 1 lần
-        // mỗi khung hình thay vì làm việc lại từ đầu cho từng sự kiện wheel) — trước đây mỗi nấc
-        // wheel gọi UpdateLayout() đồng bộ + 2 lượt "sửa điểm neo" (1 ngay, 1 ở Render priority)
-        // riêng cho NẤC ĐÓ; lăn chuột nhanh (nhiều nấc/giây) khiến các lượt sửa của các nấc chồng
-        // lấn, mỗi lượt đo lại vị trí trên 1 layout có thể chưa ổn định từ nấc trước → cảm giác
-        // giật (nhiều lượt layout ép buộc/giây) và thỉnh thoảng neo sai điểm (lượt sửa trễ của nấc
-        // N ghi đè lên kết quả đã đúng của nấc N+1). Gộp về 1 lần/khung hình vừa giảm hẳn số lần
-        // ép layout, vừa đảm bảo chỉ có 1 chuỗi "áp zoom → sửa điểm neo" chạy tại một thời điểm.
-        private bool _readerZoomFramePending;
-        private double _readerZoomFramePendingTarget;
-        private Point _readerZoomFrameAnchor;
-        private static DateTime _lastContinuousTileDebugLog = DateTime.MinValue;
-        private static readonly string ContinuousTileDebugLogPath =
-            Path.Combine(Path.GetTempPath(), "XTPdfMergeApp_ContinuousTile.log");
-
-        private static void LogContinuousTileDebug(string info)
-        {
-            if (!RenderDiagnostics.TraceEnabled) return;
-            var now = DateTime.Now;
-            if ((now - _lastContinuousTileDebugLog).TotalMilliseconds < 200) return;
-            _lastContinuousTileDebugLog = now;
-            try
-            {
-                string line = $"{now:HH:mm:ss.fff} | {info}";
-                File.AppendAllText(ContinuousTileDebugLogPath, line + Environment.NewLine);
-                Debug.WriteLine("[ContinuousTile] " + line);
-            }
-            catch
-            {
-                // best-effort debug log only
-            }
-        }
 
         internal static (int Cache, int Inflight, long Bytes) GetReaderCacheStats()
         {
@@ -407,27 +258,15 @@ namespace XTPdfMergeApp
         internal static void ReleaseUnusedSources(HashSet<string> active)
         {
             lock (_readerCacheLock) _readerCache.RemoveWhere(key => !active.Contains(key.Path));
-            Instance?._readerTileCache.RemoveWhere(key => !active.Contains(key.Path));
         }
 
         private CancellationTokenSource _readerPageCts = new();
-        private double ReaderDpiScale => VisualTreeHelper.GetDpi(this).DpiScaleX;
-        /// <summary>Độ phân giải ảnh trang của chế độ 1 trang (chế độ Cuộn liên tục: ContinuousPdfView tự tính theo từng trang).</summary>
-        private int DesiredReaderWidth()
-        {
-            double width = _readerZoomMode == ReaderZoomMode.Manual ? ReaderRenderWidthPx * _readerZoom
-                : Math.Max(640, ReaderScrollViewer.ViewportWidth);
-            // Quantized keys avoid fresh renders for tiny resize/zoom changes. Logical page
-            // coordinates stay at 2200 DIPs; only the backing bitmap resolution changes.
-            return (int)Math.Clamp(Math.Ceiling(width * ReaderDpiScale / 256) * 256, 512, 2304);
-        }
-
-        /// <param name="width">Chiều rộng pixel cần vẽ; null = theo zoom chế độ 1 trang (<see cref="DesiredReaderWidth"/>).</param>
+        /// <param name="width">Chiều rộng pixel cần vẽ (ContinuousPdfView tính theo từng trang).</param>
         private Task<BitmapSource?> GetReaderLoadTask((string Path, int Page) source, bool prefetch = false,
             CancellationToken cancellationToken = default, int? width = null)
         {
             // Key kèm "phiên bản trạng thái layer" của file — xem PdfLayerStateStore / MainWindow.ThumbnailKey.
-            var key = RenderCacheKeys.ReaderPage(source.Path, source.Page, width ?? DesiredReaderWidth());
+            var key = RenderCacheKeys.ReaderPage(source.Path, source.Page, width ?? 2304);
             var token = cancellationToken.CanBeCanceled ? cancellationToken : _readerPageCts.Token;
             lock (_readerCacheLock)
             {
@@ -442,34 +281,6 @@ namespace XTPdfMergeApp
                 });
                 return completion.Task;
             }
-        }
-
-        private void ResetReaderSpeculativeWork(DocumentGroup group, PageRow row)
-        {
-            _readerPrefetchCts.Cancel();
-            _readerPrefetchCts.Dispose();
-            _readerPrefetchCts = new();
-
-            int currentIndex = group.Pages.IndexOf(row);
-            var keep = new List<(string Path, int Page)>();
-            if (currentIndex >= 0)
-            {
-                for (int i = Math.Max(0, currentIndex - ReaderAdjacentPrefetchCount);
-                     i <= Math.Min(group.Pages.Count - 1, currentIndex + ReaderAdjacentPrefetchCount);
-                     i++)
-                {
-                    keep.Add((group.Pages[i].SourcePath, group.Pages[i].PageNumber));
-                }
-            }
-
-            lock (_readerCacheLock)
-            {
-                _readerLoads.Clear();
-                _readerCache.Trim(key => keep.Any(page =>
-                    page.Page == key.Page &&
-                    string.Equals(page.Path, key.Path, StringComparison.OrdinalIgnoreCase)));
-            }
-            PdfThumbnailService.ReleaseCachedPages();
         }
 
         private static async Task<BitmapSource?> RenderAndCacheReaderAsync(
@@ -508,9 +319,6 @@ namespace XTPdfMergeApp
             CommitAnnotationEditor(cancel: true);
             CancelHighlightDrag();
             Interlocked.Increment(ref _readerRequestId);
-            _qualityRestoreTimer.Stop();
-            _tilePresentation.Clear();
-            ReaderBitmapScalingMode = BitmapScalingMode.HighQuality;
             // Cửa sổ đọc là cửa sổ chính: không ẩn control nữa, chỉ về màn trống.
             _readerPageCts.Cancel();
             _readerPageCts.Dispose();
@@ -519,13 +327,9 @@ namespace XTPdfMergeApp
             _readerPrefetchCts.Dispose();
             _readerPrefetchCts = new();
             lock (_readerCacheLock) _readerCache.Clear();
-            _readerTileCache.Clear();
             PdfThumbnailService.ReleaseCachedPages();
-            ReaderImage.Source = null;
-            ClearReaderTiles();
             ShowEmptyReaderState();
             ReaderContinuousView.SetDocument(null, ReaderContinuousView.Zoom);
-            _readerRealtimeRenderCts?.Cancel();
             _readerGroup = null;
             _readerPage = null;
         }
@@ -535,13 +339,7 @@ namespace XTPdfMergeApp
         /// năng chính, chọn trang không tự mở Viewer.</summary>
         internal void NotifySelectionChanged(DocumentGroup group, PageRow page)
         {
-            if (_readerContinuousMode)
-            {
-                ShowReaderContinuous(group, page);
-                return;
-            }
-
-            _ = ShowPageAsync(group, page, preserveZoomMode: true);
+            ShowReaderContinuous(group, page);
         }
 
         /// <summary>Vị trí (0-based) trang đang xem trong <paramref name="group"/>, 0 nếu window đó không đang xem.</summary>
@@ -555,8 +353,7 @@ namespace XTPdfMergeApp
             ReaderSidePanel.InvalidateSource(path, bookmarks: true, layers: true);
             if (!ReferenceEquals(_readerGroup, group) || group.Pages.Count == 0) return;
             var row = group.Pages[Math.Clamp(keepIndex, 0, group.Pages.Count - 1)];
-            if (_readerContinuousMode) ShowReaderContinuous(group, row);
-            else _ = ShowPageAsync(group, row, preserveZoomMode: true);
+            ShowReaderContinuous(group, row);
         }
 
         internal void NotifyPagesChanged(DocumentGroup group)
@@ -575,13 +372,7 @@ namespace XTPdfMergeApp
                 return;
             }
 
-            if (_readerContinuousMode)
-            {
-                ShowReaderContinuous(group, group.Pages[0]);
-                return;
-            }
-
-            _ = ShowPageAsync(group, group.Pages[0], preserveZoomMode: true);
+            ShowReaderContinuous(group, group.Pages[0]);
         }
         internal async Task ShowPageAsync(DocumentGroup group, PageRow row, bool preserveZoomMode = true)
         {
@@ -590,116 +381,9 @@ namespace XTPdfMergeApp
                 await Dispatcher.InvokeAsync(() => ShowPageAsync(group, row, preserveZoomMode)).Task.Unwrap();
                 return;
             }
-
-            ShowAndActivate();
             if (!ReferenceEquals(_readerPage, row)) CommitAnnotationEditor();
-            bool groupChanged = !ReferenceEquals(_readerGroup, group);
-            if (!ReferenceEquals(_readerPage, row))
-            {
-                _readerPageCts.Cancel();
-                _readerPageCts.Dispose();
-                _readerPageCts = new();
-            }
-            _readerGroup = group;
-            _readerPage = row;
-            long requestId = Interlocked.Increment(ref _readerRequestId);
-            ResetReaderSpeculativeWork(group, row);
-            ClearReaderTiles();
-
-            if (!preserveZoomMode)
-            {
-                _readerZoomMode = DefaultReaderZoomMode();
-            }
-            else if (groupChanged)
-            {
-                // Quay lại 1 file đã xem trước đó → khôi phục ĐÚNG mức zoom của
-                // riêng file đó, thay vì luôn về Fit width như file mới toanh.
-                if (_readerZoomByGroup.TryGetValue(group, out var saved))
-                {
-                    _readerZoomMode = saved.Mode;
-                    _readerZoom = saved.Zoom;
-                }
-                else
-                {
-                    _readerZoomMode = DefaultReaderZoomMode();
-                }
-            }
-
-            // Đang ở chế độ cuộn liên tục (mặc định): hiện file/trang bằng vùng cuộn liên tục, không vẽ vào vùng 1 trang đang ẩn.
-            if (_readerContinuousMode)
-            {
-                ShowReaderContinuous(group, row);
-                return;
-            }
-
-            _readerRotation = 0;
-            ReaderRotateTransform.Angle = 0;
-            ReaderTileRotateTransform.Angle = 0;
-            ReaderTileRotateTransformB.Angle = 0;
-
-            UpdateReaderChrome(group, row);
-            // #3: chế độ 1 trang — giữ bản đã parse của trang đang xem và 2 trang kề (Trang trước/sau không parse lại).
-            int hotIndex = group.Pages.IndexOf(row);
-            PdfThumbnailService.SetHotPages(Enumerable.Range(hotIndex - 1, 3)
-                .Where(i => i >= 0 && i < group.Pages.Count)
-                .Select(i => (group.Pages[i].SourcePath, group.Pages[i].PageNumber)));
-            BitmapSource? preview = row.ReaderDisplayBitmap;
-            if (preview != null)
-            {
-                ReaderImage.Source = preview;
-                _readerBitmapNativeWidthPx = preview.PixelWidth;
-                _readerPageAspect = preview.PixelWidth > 0 ? preview.PixelHeight / (double)preview.PixelWidth : 1.0;
-                ReaderEmptyText.Visibility = Visibility.Collapsed;
-                ApplyReaderZoomMode(resetScroll: true);
-            }
-            else
-            {
-                ReaderEmptyText.Text = "Loading page…";
-                ReaderEmptyText.Visibility = Visibility.Visible;
-                ReaderImage.Source = null;
-                // #1: xin ảnh thấp (340 px, ưu tiên Visible) TRƯỚC ảnh nét — hiện ngay khi có, ảnh nét thay sau.
-                _ = ShowLowResPreviewAsync(row, requestId);
-            }
-
-            var key = (row.SourcePath, row.PageNumber);
-            string layers = PdfLayerStateStore.GetToken(row.SourcePath);
-            var bmp = await GetReaderLoadTask(key);
-            if (bmp == null && requestId == Volatile.Read(ref _readerRequestId)) bmp = await GetReaderLoadTask(key);
-            if (requestId != Volatile.Read(ref _readerRequestId) || !ReferenceEquals(_readerPage, row)) return;
-            if (!IsCurrentLayerState(row, layers)) return; // user vừa bật/tắt layer — OnLayerStateChanged tự vẽ lại
-
-            if (bmp == null)
-            {
-                if (preview == null)
-                {
-                    ReaderEmptyText.Text = "This page could not be rendered";
-                    ReaderEmptyText.Visibility = Visibility.Visible;
-                }
-                return;
-            }
-
-            row.ReaderBitmap = bmp;
-            ReaderImage.Source = bmp;
-            _readerBitmapNativeWidthPx = bmp.PixelWidth;
-            _readerPageAspect = bmp.PixelWidth > 0 ? bmp.PixelHeight / (double)bmp.PixelWidth : 1.0;
-            _readerRealtimeRenderCts?.Cancel();
-            ReaderEmptyText.Visibility = Visibility.Collapsed;
-            ApplyReaderZoomMode(resetScroll: true);
-            QueueReaderAdjacentPrefetch(group, row);
-        }
-
-        /// <summary>Tối ưu #1: hiện ảnh thấp trong lúc ảnh nét của trang đang vẽ. Bỏ qua nếu ảnh nét đã tới trước
-        /// hoặc user đã chuyển trang.</summary>
-        private async Task ShowLowResPreviewAsync(PageRow row, long requestId)
-        {
-            var preview = await ThumbnailCache.LoadPreviewAsync(row);
-            if (preview == null || requestId != Volatile.Read(ref _readerRequestId) || !ReferenceEquals(_readerPage, row)) return;
-            if (ReaderImage.Source != null) return; // ảnh nét đã hiện
-            ReaderImage.Source = preview;
-            _readerBitmapNativeWidthPx = preview.PixelWidth;
-            _readerPageAspect = preview.PixelWidth > 0 ? preview.PixelHeight / (double)preview.PixelWidth : 1.0;
-            ReaderEmptyText.Visibility = Visibility.Collapsed;
-            ApplyReaderZoomMode(resetScroll: true);
+            if (!preserveZoomMode) _readerZoomMode = DefaultReaderZoomMode();
+            ShowReaderContinuous(group, row);
         }
 
         private void UpdateReaderChrome(DocumentGroup group, PageRow row)
@@ -709,25 +393,6 @@ namespace XTPdfMergeApp
             ReaderPageBox.Text = position >= 0 ? (position + 1).ToString() : row.Index.ToString();
             ReaderPageTotalText.Text = $"/ {group.Pages.Count}";
             OnReaderCurrentPageChanged(group, row);
-        }
-
-        private void QueueReaderAdjacentPrefetch(DocumentGroup group, PageRow row)
-        {
-            int index = group.Pages.IndexOf(row);
-            if (index < 0) return;
-
-            for (int distance = 1; distance <= ReaderAdjacentPrefetchCount; distance++)
-            {
-                QueueReaderPrefetchAt(group, index - distance);
-                QueueReaderPrefetchAt(group, index + distance);
-            }
-        }
-
-        private void QueueReaderPrefetchAt(DocumentGroup group, int index)
-        {
-            if (index < 0 || index >= group.Pages.Count) return;
-            var row = group.Pages[index];
-            _ = GetReaderLoadTask((row.SourcePath, row.PageNumber), prefetch: true, _readerPrefetchCts.Token);
         }
 
         private async Task NavigateReaderAsync(int delta)
@@ -747,14 +412,8 @@ namespace XTPdfMergeApp
             int nextIndex = Math.Clamp(index, 0, _readerGroup.Pages.Count - 1);
             if (ReferenceEquals(_readerGroup.Pages[nextIndex], _readerPage)) return;
 
-            var target = _readerGroup.Pages[nextIndex];
-            if (_readerContinuousMode)
-            {
-                ScrollReaderContinuousTo(target);
-                return;
-            }
-
-            await ShowPageAsync(_readerGroup, target, preserveZoomMode: true);
+            ScrollReaderContinuousTo(_readerGroup.Pages[nextIndex]);
+            await Task.CompletedTask;
         }
 
         private async Task TryNavigateReaderPageFromBoxAsync()
@@ -769,637 +428,13 @@ namespace XTPdfMergeApp
             }
 
             pagePosition = Math.Clamp(pagePosition, 1, _readerGroup.Pages.Count);
-            var target = _readerGroup.Pages[pagePosition - 1];
-            if (_readerContinuousMode)
-            {
-                ScrollReaderContinuousTo(target);
-                return;
-            }
-
-            await ShowPageAsync(_readerGroup, target, preserveZoomMode: true);
+            ScrollReaderContinuousTo(_readerGroup.Pages[pagePosition - 1]);
+            await Task.CompletedTask;
         }
 
         /// <summary>Cách hiện trang khi mở file lần đầu (Settings → Display → Zoom when opening a file).</summary>
         private static ReaderZoomMode DefaultReaderZoomMode()
             => AppSettings.ZoomOnOpen == DefaultZoom.FitPage ? ReaderZoomMode.FitPage : ReaderZoomMode.FitWidth;
-
-        private void ApplyReaderZoomMode(bool resetScroll = false)
-        {
-            if (ReaderImage.Source is not BitmapSource) return;
-
-            var (viewportWidth, viewportHeight) = ReaderViewportContentSize();
-
-            // Luôn tính theo kích thước BASELINE (ReaderRenderWidthPx x tỉ lệ trang thật,
-            // _readerPageAspect) — KHÔNG theo bitmap đang hiển thị thực tế (có thể đã được
-            // "nâng cấp" nét hơn ở độ phân giải cao hơn lúc zoom sâu, xem
-            // ScheduleReaderRealtimeRerender) — để _readerZoom luôn mang đúng 1 ý nghĩa cố
-            // định bất kể đang hiện bản thường hay bản đã nâng cấp.
-            var (effectiveWidth, effectiveHeight) = ReaderZoomMath.EffectivePageSize(ReaderRenderWidthPx, _readerPageAspect, _readerRotation);
-
-            if (_readerZoomMode == ReaderZoomMode.FitWidth)
-                SetReaderZoom(ReaderZoomMath.FitWidthZoom(viewportWidth, effectiveWidth), ReaderZoomMode.FitWidth);
-            else if (_readerZoomMode == ReaderZoomMode.FitPage)
-                SetReaderZoom(ReaderZoomMath.FitPageZoom(viewportWidth, viewportHeight, effectiveWidth, effectiveHeight), ReaderZoomMode.FitPage);
-            else
-                SetReaderZoom(_readerZoom, ReaderZoomMode.Manual);
-
-            if (resetScroll)
-            {
-                ReaderScrollViewer.ScrollToHorizontalOffset(0);
-                ReaderScrollViewer.ScrollToVerticalOffset(0);
-            }
-        }
-
-        /// <summary>Kích thước viewport THỰC (đã trừ Padding của ReaderScrollViewer) dùng xuyên
-        /// suốt cho mọi phép tính Fit/neo zoom — tách thành 1 hàm để ApplyReaderZoomMode,
-        /// ApplyReaderLayout và ZoomReaderAtPoint luôn dùng ĐÚNG 1 công thức, không lệch nhau.</summary>
-        private (double Width, double Height) ReaderViewportContentSize() => (
-            Math.Max(1, ReaderScrollViewer.ViewportWidth - ReaderScrollViewer.Padding.Left - ReaderScrollViewer.Padding.Right),
-            Math.Max(1, ReaderScrollViewer.ViewportHeight - ReaderScrollViewer.Padding.Top - ReaderScrollViewer.Padding.Bottom));
-
-        private void SetReaderZoom(double zoom)
-            => SetReaderZoom(zoom, ReaderZoomMode.Manual);
-
-        private void SetReaderZoom(double zoom, ReaderZoomMode mode)
-        {
-            _readerZoomMode = mode;
-            double newZoom = ReaderZoomMath.Clamp(zoom, ReaderMinZoom, ReaderMaxZoom);
-            bool zoomActuallyChanged = Math.Abs(newZoom - _readerZoom) > 0.0001;
-            _readerZoom = newZoom;
-            ApplyReaderLayout();
-            ReaderZoomText.Text = $"{_readerZoom * 100:0}%";
-            if (_findHits.Count > 0) ScheduleFindRefresh();
-
-            if (_readerGroup != null)
-                _readerZoomByGroup[_readerGroup] = (_readerZoomMode, _readerZoom);
-
-            // Zoom OUT xuống dưới ngưỡng cần tile → co NGAY (đồng bộ) ReaderTileCanvas, không đợi
-            // ScheduleReaderTileRefresh (async, trễ 1 nhịp) mới co.
-            if (_readerZoom * ReaderRenderWidthPx * ReaderDpiScale < ReaderTileStartWidthPx)
-                ClearReaderTiles(invalidate: false);
-
-            ScheduleReaderRealtimeRerender();
-
-            // CHỈ đặt lịch debounce "render lại cho nét" khi zoom THẬT SỰ đổi giá trị — không thì
-            // lăn chuột vẫn bắn sự kiện dù đã kẹp trần/không còn đổi (newZoom giống hệt _readerZoom
-            // cũ, chỉ là kẹp lại đúng số cũ) sẽ liên tục HUỶ + ĐẶT LẠI hẹn giờ debounce, không bao
-            // giờ đủ 200ms yên tĩnh THẬT SỰ để nó tới hạn — log thực tế: đứng yên ở zoom=4.00 suốt
-            // 7 giây vẫn chưa load hết tile, vì mỗi lần chuột vẫn bắn (dù trị số không đổi) lại reset
-            // debounce từ đầu.
-            if (zoomActuallyChanged)
-            {
-                MarkReaderInteraction();
-                ScheduleReaderTileRefresh(resolutionChanged: true);
-            }
-        }
-
-        /// <summary>Tính lại TOÀN BỘ vị trí/kích thước hiển thị trang đang xem (kích thước "sizer"
-        /// ReaderContentCanvas cấp cho ScrollViewer + vị trí ảnh + overlay tile) — THUẦN CÔNG THỨC
-        /// từ 3 con số zoom/rotation/aspect hiện có, KHÔNG đọc lại vị trí đã đo qua layout (khác hẳn
-        /// cách cũ dùng LayoutTransform + UpdateLayout() + TranslatePoint đo lại sau khi zoom). Nhờ
-        /// vậy đổi zoom/rotation chỉ cần gọi hàm này 1 LẦN DUY NHẤT là ảnh + vùng cuộn đã đúng ngay
-        /// trong cùng 1 khung hình — không có bước "áp tạm rồi tự sửa lại" nên không còn hiện tượng
-        /// nhảy/giật giữa 2 khung hình như cách cũ. Đây đúng là cách Chrome PDF viewer/Acrobat làm:
-        /// transform chỉ tác động lúc VẼ (RenderTransform, không đụng đo-layout), phần cần layout thật
-        /// (kích thước cuộn) được tính trước bằng công thức rồi áp thẳng.</summary>
-        private void ApplyReaderLayout()
-        {
-            if (ReaderImage.Source is not BitmapSource) return;
-
-            var layout = ComputeReaderEffectiveLayout();
-
-            ReaderContentCanvas.Width = layout.SizerWidth;
-            ReaderContentCanvas.Height = layout.SizerHeight;
-
-            ReaderScaleTransform.ScaleX = _readerZoom;
-            ReaderScaleTransform.ScaleY = _readerZoom;
-            ReaderRotateTransform.Angle = _readerRotation;
-
-            double nativeWidth = ReaderRenderWidthPx;
-            double nativeHeight = ReaderRenderWidthPx * _readerPageAspect;
-            ReaderImage.Width = nativeWidth;
-            ReaderImage.Height = nativeHeight;
-            Canvas.SetLeft(ReaderImage, layout.TargetX - nativeWidth / 2 + layout.EffectiveWidth / 2);
-            Canvas.SetTop(ReaderImage, layout.TargetY - nativeHeight / 2 + layout.EffectiveHeight / 2);
-
-            PositionReaderTileCanvas(layout);
-            UpdateReaderTileScaleForCurrentZoom();
-        }
-
-        /// <summary>Cập nhật ĐỘ PHÓNG của overlay tile theo ĐÚNG zoom hiện tại — chạy ở MỌI nấc zoom
-        /// (rẻ, chỉ gán 1 giá trị transform, không đụng PDFium/render gì) — TÁCH HẲN khỏi việc quyết
-        /// định có cần RENDER LẠI tile ở độ phân giải khác hay không (việc đó nặng, chỉ nên làm khi
-        /// zoom đã DỪNG hẳn, xem ScheduleReaderTileRefresh). Nhờ tách 2 việc này, tile ĐANG CÓ luôn
-        /// scale mượt theo đúng zoom sống động — không cần chờ debounce mới "trông đúng cỡ", và
-        /// KHÔNG cần xoá/vẽ lại tile chỉ vì zoom nhích — đúng cách Foxit/Chrome PDF làm: zoom mượt =
-        /// scale tức thời nội dung ĐANG CÓ, còn nét-lại-cho-đúng-độ-phân-giải là việc riêng, ít khi
-        /// xảy ra hơn nhiều.</summary>
-        private void UpdateReaderTileScaleForCurrentZoom()
-        {
-            foreach (var (canvas, scale) in new[] {
-                (ReaderTileCanvas, ReaderTileScaleTransform),
-                (ReaderTileCanvasB, ReaderTileScaleTransformB) })
-            {
-                if (canvas.Visibility != Visibility.Visible || canvas.Width <= 0 || scale.IsFrozen) continue;
-                scale.ScaleX = scale.ScaleY = ReaderRenderWidthPx * _readerZoom / canvas.Width;
-            }
-        }
-
-        /// <summary>Kích thước/vị trí "hiệu dụng" (đã xoay + zoom) của trang đang xem, và kích thước
-        /// "sizer" ScrollViewer cần để vừa centered khi nhỏ hơn viewport / vừa cuộn được khi lớn hơn —
-        /// TÍNH TOÁN THUẦN, không phụ thuộc bất kỳ giá trị đã đo qua layout nào ngoài ViewportWidth/
-        /// Height hiện có (đọc property thường, không cần UpdateLayout()).</summary>
-        private readonly record struct ReaderEffectiveLayout(
-            double EffectiveWidth, double EffectiveHeight,
-            double SizerWidth, double SizerHeight,
-            double TargetX, double TargetY);
-
-        private ReaderEffectiveLayout ComputeReaderEffectiveLayout()
-        {
-            var (effW0, effH0) = ReaderZoomMath.EffectivePageSize(ReaderRenderWidthPx, _readerPageAspect, _readerRotation);
-            double effW = effW0 * _readerZoom, effH = effH0 * _readerZoom;
-            var (viewportW, viewportH) = ReaderViewportContentSize();
-            double sizerW = Math.Max(viewportW, effW), sizerH = Math.Max(viewportH, effH);
-            return new ReaderEffectiveLayout(effW, effH, sizerW, sizerH, (sizerW - effW) / 2, (sizerH - effH) / 2);
-        }
-
-        /// <summary>Overlay tile (bản render nét hơn khi zoom sâu, xem UpdateReaderTilesAsync) phải
-        /// phủ ĐÚNG lên vùng ảnh baseline đang hiển thị — dùng lại chung layout.EffectiveWidth/Height/
-        /// TargetX/Y đã tính cho ảnh chính, chỉ khác kích thước khối gốc (fullWidth/fullHeight của tile
-        /// thay vì baseline width) nên công thức định tâm giống hệt ApplyReaderLayout ở trên. Định vị
-        /// CẢ 2 canvas (A/B, retained tile layers) — canvas nào đang KHÔNG hiển thị (Visibility
-        /// != Visible) tự bỏ qua, không tốn gì thêm.</summary>
-        private void PositionReaderTileCanvas(ReaderEffectiveLayout layout)
-        {
-            PositionOneReaderTileCanvas(ReaderTileCanvas, ReaderTileRotateTransform, layout);
-            PositionOneReaderTileCanvas(ReaderTileCanvasB, ReaderTileRotateTransformB, layout);
-        }
-
-        private void PositionOneReaderTileCanvas(Canvas tileCanvas, RotateTransform rotateTransform, ReaderEffectiveLayout layout)
-        {
-            if (tileCanvas.Visibility != Visibility.Visible) return;
-            double fullWidth = tileCanvas.Width, fullHeight = tileCanvas.Height;
-            if (fullWidth <= 0 || fullHeight <= 0) return;
-
-            rotateTransform.Angle = _readerRotation;
-            Canvas.SetLeft(tileCanvas, layout.TargetX - fullWidth / 2 + layout.EffectiveWidth / 2);
-            Canvas.SetTop(tileCanvas, layout.TargetY - fullHeight / 2 + layout.EffectiveHeight / 2);
-        }
-
-        /// <summary>Zoom sâu quá độ phân giải bitmap đang có (>115%) → âm thầm render lại ở
-        /// độ phân giải khớp với zoom hiện tại (debounce 200ms để không render dồn dập khi
-        /// đang lăn chuột liên tục) — fix "zoom to quá thì vẫn mờ" vì trước đây zoom chỉ là
-        /// phóng to bitmap cố định 2200px bằng ScaleTransform (nội suy), không render lại.</summary>
-        private void ScheduleReaderRealtimeRerender()
-        {
-            if (_readerGroup == null || _readerPage == null) return;
-
-            _readerRealtimeRenderCts?.Cancel();
-            double neededWidthPx = ReaderRenderWidthPx * _readerZoom * ReaderDpiScale;
-            if (neededWidthPx <= _readerBitmapNativeWidthPx * ReaderRealtimeRerenderFactor) return;
-            if (neededWidthPx >= ReaderTileStartWidthPx)
-            {
-                _readerRealtimeRenderCts?.Cancel();
-                ScheduleReaderTileRefresh();
-                return;
-            }
-
-            double targetWidthPx = Math.Min(neededWidthPx, ReaderMaxRenderWidthPx);
-            if (targetWidthPx <= _readerBitmapNativeWidthPx * ReaderRealtimeRerenderFactor) return; // đã chạm trần, bitmap hiện có đủ rồi
-
-            _readerRealtimeRenderCts?.Cancel();
-            var cts = new CancellationTokenSource();
-            _readerRealtimeRenderCts = cts;
-            _ = RunReaderRealtimeRerenderAsync(_readerGroup, _readerPage, targetWidthPx, cts.Token);
-        }
-
-        private async Task RunReaderRealtimeRerenderAsync(DocumentGroup group, PageRow row, double widthPx, CancellationToken token)
-        {
-            try { await Task.Delay(120, token).ConfigureAwait(true); }
-            catch (OperationCanceledException) { return; }
-            if (token.IsCancellationRequested) return;
-            if (!ReferenceEquals(_readerGroup, group) || !ReferenceEquals(_readerPage, row)) return;
-
-            BitmapSource? bmp;
-            string layers = PdfLayerStateStore.GetToken(row.SourcePath);
-            try { bmp = await Task.Run(() => PdfThumbnailService.RenderPageAsync(row.SourcePath, row.PageNumber - 1, widthPx, token,
-                layerToken: layers), token).ConfigureAwait(true); }
-            catch (OperationCanceledException) { return; }
-
-            if (token.IsCancellationRequested || bmp == null || !IsCurrentLayerState(row, layers)) return;
-            if (!ReferenceEquals(_readerGroup, group) || !ReferenceEquals(_readerPage, row)) return;
-
-            // Image dùng Stretch=Fill trên khung Width/Height cố định (ReaderRenderWidthPx) nên đổi
-            // sang bitmap độ phân giải cao hơn KHÔNG cần đụng transform/vị trí gì — chỉ đổi độ nét.
-            ReaderImage.Source = bmp;
-            _readerBitmapNativeWidthPx = bmp.PixelWidth;
-
-            // Bitmap zoom-sâu chỉ giữ cho trang đang xem; không đẩy vào cache chung để tránh giữ RAM lớn quá lâu.
-        }
-
-        // ── Chế độ Cuộn liên tục — TẤT CẢ trang của 1 window xếp dọc, cuộn mượt qua lại ──
-
-        // One cancellation generation per resolution/page. Pan reuses the current
-        // generation so continuous motion does not repeatedly cancel useful tile work.
-        private CancellationTokenSource _readerTileRefreshCts = new();
-        private readonly ViewportRenderScheduler _viewportRenderScheduler;
-
-        // Đảm bảo KHÔNG BAO GIỜ có 2 lượt UpdateReaderTilesAsync chạy CHỒNG LẤN nhau — quan trọng vì
-        // PDFium bị khoá 1 luồng cho TOÀN BỘ ứng dụng (native library không an toàn gọi đồng thời, xem
-        // PdfiumInstance.Gate) nên tải hết 1 bộ tile (12-25 viên) có thể mất VÀI GIÂY,
-        // lâu hơn hẳn 200ms debounce — nếu zoom vẫn tiếp tục đổi trong lúc đó, lượt debounce MỚI sẽ
-        // khởi động trong khi lượt CŨ còn dở dang (đang await PDFium), 2 lượt cùng đọc/ghi
-        // _continuousTileActiveIsA (canvas nào đang active cho từng trang) ĐỘC LẬP nhau → tráo canvas
-        // sai/chồng chéo, gây "nhảy loạn xạ" đã gặp. Semaphore này xếp hàng lượt MỚI chờ lượt CŨ xong
-        // hẳn rồi mới bắt đầu (với dữ liệu MỚI NHẤT tại thời điểm đó), không bao giờ chạy cùng lúc.
-        private readonly SemaphoreSlim _readerTileUpdateGate = new(1, 1);
-
-        private readonly ViewportMotionTracker _viewportMotion = new();
-
-        private void ScheduleReaderTileRefresh(bool resolutionChanged = false)
-        {
-            if (!Dispatcher.CheckAccess())
-            {
-                _ = Dispatcher.InvokeAsync(() => ScheduleReaderTileRefresh(resolutionChanged), DispatcherPriority.Background);
-                return;
-            }
-            // Chế độ Cuộn liên tục: ContinuousPdfView tự xin ảnh/vùng nét cho trang đang hiện.
-            if (!IsVisible || _readerPage == null || _readerContinuousMode) return;
-            var scroll = ReaderScrollViewer;
-            bool moved = _viewportMotion.Update(
-                new Point(scroll.HorizontalOffset, scroll.VerticalOffset),
-                new Size(Math.Max(0, scroll.ViewportWidth), Math.Max(0, scroll.ViewportHeight)), resolutionChanged);
-            if (resolutionChanged || moved) InvalidateReaderTileWork();
-            _viewportRenderScheduler.Request(resolutionChanged);
-        }
-
-        private void InvalidateReaderTileWork()
-        {
-            Interlocked.Increment(ref _readerTileRequestId);
-            _readerTileRefreshCts.Cancel();
-            _readerTileRefreshCts.Dispose();
-            _readerTileRefreshCts = new();
-            _readerTileLoads.Clear();
-            _readerTileLoadCts.Clear(); // đã huỷ chung qua _readerTileRefreshCts
-            _tilePresentation.Clear();
-            _pendingReaderTiles.Clear();
-            _readerTileCache.Trim(key => _visibleReaderTiles.Contains(key));
-        }
-
-        /// <summary>Thời gian CHỜ _readerTileUpdateGate của lượt refresh gần nhất — đo riêng ở đây
-        /// (không phải bên trong UpdateReaderContinuousTilesAsync) vì đây là thời gian XẾP HÀNG, khác
-        /// với thời gian XỬ LÝ thật bên trong; tách 2 số này ra mới biết "chậm vì đang chờ lượt trước
-        /// xong" hay "chậm vì chính lượt này xử lý lâu" — 2 nguyên nhân cần fix khác hẳn nhau.</summary>
-        private long _lastTileGateWaitMs;
-
-        private async Task RunReaderTileRefreshAsync(long requestId, CancellationToken token)
-        {
-            if (token.IsCancellationRequested) return;
-
-            var gateWaitSw = Stopwatch.StartNew();
-            try { await _readerTileUpdateGate.WaitAsync(token).ConfigureAwait(true); }
-            catch (OperationCanceledException) { return; }
-            _lastTileGateWaitMs = gateWaitSw.ElapsedMilliseconds;
-            try
-            {
-                // Có thể đã có 1 lượt MỚI HƠN chạy xong trong lúc ta xếp hàng chờ gate (lượt CŨ vẫn
-                // đang tải PDFium) — bỏ qua nếu đã lỗi thời, không làm lại việc dữ liệu cũ.
-                if (requestId != Volatile.Read(ref _readerTileRequestId))
-                {
-                    if (_lastTileGateWaitMs > 50)
-                        LogContinuousTileDebug($"requestId={requestId} SKIP stale sau khi chờ gate {_lastTileGateWaitMs}ms (lượt trước xử lý lâu hơn debounce 200ms)");
-                    return;
-                }
-
-                // Exception ở đây trước giờ thành "unobserved task exception" (gọi qua fire-and-forget)
-                // — .NET hiện đại KHÔNG crash app vì việc này mà chỉ âm thầm nuốt mất; đúng lỗi thật đã
-                // bắt được (ScaleTransform bị Freeze) nhờ log ở đây, giữ lại phòng còn sót lỗi tương tự.
-                await UpdateReaderTilesAsync(requestId);
-            }
-            catch (Exception ex)
-            {
-                LogContinuousTileDebug($"EXCEPTION in UpdateReaderTilesAsync: {ex}");
-            }
-            finally
-            {
-                _readerTileUpdateGate.Release();
-            }
-        }
-
-        private async Task UpdateReaderTilesAsync(long requestId)
-        {
-            if (requestId != Volatile.Read(ref _readerTileRequestId))
-            {
-                LogContinuousTileDebug($"UpdateReaderTilesAsync SKIP stale requestId={requestId} current={Volatile.Read(ref _readerTileRequestId)}");
-                return;
-            }
-            if (_readerContinuousMode) return;
-
-            if (_readerRotation != 0 || _readerPage == null || ReaderImage.Source is not BitmapSource)
-            {
-                ClearReaderTiles(invalidate: false);
-                return;
-            }
-
-            double requestedFullWidth = ReaderRenderWidthPx * _readerZoom * ReaderDpiScale;
-            if (requestedFullWidth < ReaderTileStartWidthPx || requestedFullWidth <= _readerBitmapNativeWidthPx * 1.03)
-            {
-                ClearReaderTiles(invalidate: false);
-                return;
-            }
-
-            int fullWidth = QuantizeTileFullWidth(Math.Min(requestedFullWidth, ReaderMaxRenderWidthPx));
-            int fullHeight = Math.Max(1, (int)Math.Round(fullWidth * _readerPageAspect));
-            double displayWidth = ReaderRenderWidthPx * _readerZoom;
-            double tileScale = displayWidth / fullWidth;
-
-            // Tính vùng nhìn thấy THUẦN CÔNG THỨC (từ scroll offset + layout hiện có) — KHÔNG cần
-            // ReaderTileCanvas đã resize về đúng fullWidth/fullHeight MỚI trước (khác cách đo cũ qua
-            // TranslatePoint, bắt buộc canvas đổi TRƯỚC mới đo đúng) — nhờ vậy tính được cần tải tile
-            // nào ở độ phân giải MỚI mà CHƯA phải đụng/xoá canvas đang hiển thị hệ toạ độ CŨ.
-            Rect visible = ComputeReaderTileVisibleRect(fullWidth, fullHeight);
-            if (visible.IsEmpty)
-            {
-                ClearReaderTiles(invalidate: false);
-                return;
-            }
-
-            var needed = new HashSet<ReaderTileKey>
-            {
-                ComputeViewportRegion(_readerPage.SourcePath, _readerPage.PageNumber, fullWidth, fullHeight, visible)
-            };
-
-            Canvas? fallback = null;
-            if (_readerTileCoordSpace != (fullWidth, fullHeight))
-            {
-                fallback = ActiveReaderTileCanvas;
-                var next = InactiveReaderTileCanvas;
-                RetainedTilePresentation.Begin(fallback, next);
-                next.Width = fullWidth;
-                next.Height = fullHeight;
-                InactiveReaderTileScaleTransform.ScaleX = InactiveReaderTileScaleTransform.ScaleY = tileScale;
-                InactiveReaderTileRotateTransform.Angle = _readerRotation;
-                _readerTileActiveIsA = !_readerTileActiveIsA;
-                _readerTileCoordSpace = (fullWidth, fullHeight);
-            }
-            ActiveReaderTileScaleTransform.ScaleX = ActiveReaderTileScaleTransform.ScaleY = tileScale;
-            ActiveReaderTileCanvas.Visibility = Visibility.Visible;
-            PositionReaderTileCanvas(ComputeReaderEffectiveLayout());
-            _visibleReaderTiles.Clear();
-            foreach (var key in needed) _visibleReaderTiles.Add(key);
-            // #4: vùng cũ giữ trên màn hình tới khi vùng mới hiện xong (vùng mới vẽ đè lên), rồi mới gỡ.
-            await RefineCanvasAsync(ActiveReaderTileCanvas, fallback ?? InactiveReaderTileCanvas,
-                needed, visible, requestId);
-            if (requestId == Volatile.Read(ref _readerTileRequestId)) RemoveReaderTileVisualsNotIn(needed);
-        }
-
-        // ── Tối ưu #4: zoom sâu vẽ 1 VÙNG/trang thay vì lưới tile 640 px (cách của Chromium) ─────────────────
-        // Đo trên bản vẽ CAD dày nét (PdfBench mục 2d): phủ vùng xem 1650×880 ở zoom 200% bằng tile 640 px mất
-        // 184 ms (9 tile, mỗi tile PDFium duyệt lại TOÀN BỘ đối tượng của trang, lại phủ rộng hơn vùng xem), vẽ
-        // đúng vùng xem 1 lần chỉ 51 ms. ReaderTileKey vốn là hình chữ nhật bất kỳ nên cache, hiển thị, giữ ảnh
-        // cũ khi đổi độ phân giải… giữ nguyên — chỉ đổi cách chọn hình chữ nhật.
-        // Lề mỗi phía: pan trong lề không phải vẽ lại. Đo PdfBench 2d (zoom 200%): lề 25% → 115 ms, 12,5% → 75 ms
-        // (tile 640 cũ: 185 ms) — chọn 12,5%.
-        private const double RegionMarginFraction = 0.125;
-        private const int RegionSnapPx = 64;
-        private const long MaxRegionPixels = 12_000_000;
-
-        /// <summary>Vùng cần vẽ của 1 trang: dùng lại vùng đang hiện nếu nó còn chứa trọn phần đang nhìn; nếu
-        /// không thì vùng mới = phần đang nhìn + lề, bám lưới 64 px, không quá <see cref="MaxRegionPixels"/>.</summary>
-        private ReaderTileKey ComputeViewportRegion(string path, int page, int fullWidth, int fullHeight, Rect visible)
-        {
-            string layers = RenderCacheKeys.TileLayers(path);
-            foreach (var k in _visibleReaderTiles)
-            {
-                if (k.Page == page && k.FullWidth == fullWidth && k.FullHeight == fullHeight &&
-                    string.Equals(k.Layers, layers, StringComparison.Ordinal) &&
-                    string.Equals(k.Path, path, StringComparison.OrdinalIgnoreCase) &&
-                    k.X <= visible.Left && k.Y <= visible.Top &&
-                    k.X + k.Width >= visible.Right && k.Y + k.Height >= visible.Bottom)
-                    return k;
-            }
-
-            double marginX = Math.Max(RegionSnapPx * 2, visible.Width * RegionMarginFraction);
-            double marginY = Math.Max(RegionSnapPx * 2, visible.Height * RegionMarginFraction);
-            while (true)
-            {
-                int x0 = Math.Max(0, (int)Math.Floor((visible.Left - marginX) / RegionSnapPx) * RegionSnapPx);
-                int y0 = Math.Max(0, (int)Math.Floor((visible.Top - marginY) / RegionSnapPx) * RegionSnapPx);
-                int x1 = Math.Min(fullWidth, (int)Math.Ceiling((visible.Right + marginX) / RegionSnapPx) * RegionSnapPx);
-                int y1 = Math.Min(fullHeight, (int)Math.Ceiling((visible.Bottom + marginY) / RegionSnapPx) * RegionSnapPx);
-                if ((long)(x1 - x0) * (y1 - y0) <= MaxRegionPixels || (marginX < 1 && marginY < 1))
-                    return new ReaderTileKey(path, page, fullWidth, fullHeight, x0, y0, Math.Max(1, x1 - x0), Math.Max(1, y1 - y0), layers);
-                marginX /= 2;
-                marginY /= 2;
-            }
-        }
-
-        /// <summary>Vùng NHÌN THẤY của trang, quy đổi ra toạ độ tile fullWidth×fullHeight — THUẦN
-        /// CÔNG THỨC từ ComputeReaderEffectiveLayout + scroll offset hiện có, KHÔNG cần đo qua
-        /// TranslatePoint (nên không phụ thuộc việc ReaderTileCanvas đã resize về đúng fullWidth/
-        /// fullHeight này hay chưa) — cho phép tính "cần tải tile nào" ở độ phân giải MỚI trước khi
-        /// đụng tới canvas đang hiển thị hệ toạ độ CŨ (xem UpdateReaderTilesAsync).</summary>
-        private Rect ComputeReaderTileVisibleRect(int fullWidth, int fullHeight)
-        {
-            if (ReaderScrollViewer.ViewportWidth <= 0 || ReaderScrollViewer.ViewportHeight <= 0) return Rect.Empty;
-            var layout = ComputeReaderEffectiveLayout();
-            if (layout.EffectiveWidth <= 0 || layout.EffectiveHeight <= 0) return Rect.Empty;
-
-            double viewportLeft = ReaderScrollViewer.HorizontalOffset;
-            double viewportTop = ReaderScrollViewer.VerticalOffset;
-            double viewportRight = viewportLeft + ReaderScrollViewer.ViewportWidth;
-            double viewportBottom = viewportTop + ReaderScrollViewer.ViewportHeight;
-
-            double pageLeft = layout.TargetX, pageTop = layout.TargetY;
-            double pageRight = pageLeft + layout.EffectiveWidth, pageBottom = pageTop + layout.EffectiveHeight;
-
-            double ix0 = Math.Max(viewportLeft, pageLeft), iy0 = Math.Max(viewportTop, pageTop);
-            double ix1 = Math.Min(viewportRight, pageRight), iy1 = Math.Min(viewportBottom, pageBottom);
-            if (ix1 <= ix0 || iy1 <= iy0) return Rect.Empty;
-
-            double fracLeft = Math.Clamp((ix0 - pageLeft) / layout.EffectiveWidth, 0, 1);
-            double fracTop = Math.Clamp((iy0 - pageTop) / layout.EffectiveHeight, 0, 1);
-            double fracRight = Math.Clamp((ix1 - pageLeft) / layout.EffectiveWidth, 0, 1);
-            double fracBottom = Math.Clamp((iy1 - pageTop) / layout.EffectiveHeight, 0, 1);
-
-            return new Rect(
-                new Point(fracLeft * fullWidth, fracTop * fullHeight),
-                new Point(fracRight * fullWidth, fracBottom * fullHeight));
-        }
-
-        private async Task RefineCanvasAsync(Canvas canvas, Canvas fallback,
-            HashSet<ReaderTileKey> needed, Rect visible, long requestId)
-        {
-            var owner = canvas.DataContext;
-            // Visible center first. No border overscan ahead of pixels actually on screen.
-            var ordered = needed.OrderBy(k => Math.Pow(k.X + k.Width * .5 - (visible.X + visible.Width * .5), 2)
-                + Math.Pow(k.Y + k.Height * .5 - (visible.Y + visible.Height * .5), 2)).ToList();
-            await PresentCanvasTilesAsync(canvas, ordered, requestId);
-            if (requestId != Volatile.Read(ref _readerTileRequestId)) return;
-            if (ordered.Count > 0)
-            {
-                await EnsureReaderTileBatchLoadedAsync(ordered);
-            }
-            if (requestId != Volatile.Read(ref _readerTileRequestId) || !ReferenceEquals(canvas.DataContext, owner)) return;
-            await PresentCanvasTilesAsync(canvas, ordered, requestId);
-            if (requestId != Volatile.Read(ref _readerTileRequestId) || !ReferenceEquals(canvas.DataContext, owner)) return;
-            if (needed.All(k => _readerTileCache.ContainsKey(k))) RetainedTilePresentation.Complete(fallback);
-            foreach (var key in needed) _pendingReaderTiles.Remove(key);
-            _readerTileCache.Trim(k => _visibleReaderTiles.Contains(k) || _pendingReaderTiles.Contains(k));
-        }
-
-        // Deduplicated, ordered batch; each completion is presented independently.
-        private async Task EnsureReaderTileBatchLoadedAsync(List<ReaderTileKey> keys)
-        {
-            var pending = new List<Task<BitmapSource?>>();
-            var missing = new List<ReaderTileKey>();
-            var completions = new List<TaskCompletionSource<BitmapSource?>>();
-            foreach (var key in keys)
-            {
-                _pendingReaderTiles.Add(key);
-                if (_readerTileCache.ContainsKey(key)) continue;
-                if (_readerTileLoads.TryGetValue(key, out var existing)) { pending.Add(existing); continue; }
-                var completion = new TaskCompletionSource<BitmapSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
-                _readerTileLoads[key] = completion.Task;
-                pending.Add(completion.Task);
-                missing.Add(key);
-                completions.Add(completion);
-            }
-            if (missing.Count > 0)
-            {
-                var cts = CancellationTokenSource.CreateLinkedTokenSource(_readerTileRefreshCts?.Token ?? CancellationToken.None);
-                foreach (var key in missing) _readerTileLoadCts[key] = cts;
-                _ = LoadTileBatchAsync(missing, completions, cts);
-            }
-            await Task.WhenAll(pending);
-        }
-
-        private async Task LoadTileBatchAsync(List<ReaderTileKey> keys,
-            IReadOnlyList<TaskCompletionSource<BitmapSource?>> completions, CancellationTokenSource cts)
-        {
-            var token = cts.Token;
-            try
-            {
-                for (int i = 0; i < keys.Count; i++)
-                {
-                    token.ThrowIfCancellationRequested();
-                    var key = keys[i];
-                    var bmp = await PdfThumbnailService.RenderPageTileAsync(key.Path, key.Page - 1,
-                        key.FullWidth, key.FullHeight, new Int32Rect(key.X, key.Y, key.Width, key.Height), token, key.Layers);
-                    if (token.IsCancellationRequested) break;
-                    if (bmp != null)
-                    {
-                        CacheReaderTile(key, bmp);
-                        if (_visibleReaderTiles.Contains(key))
-                            _ = _tilePresentation.Enqueue(() =>
-                            {
-                                if (!_visibleReaderTiles.Contains(key)) return;
-                                if (!_readerContinuousMode) AddReaderTileVisual(key, bmp);
-                            }, token);
-                    }
-                    completions[i].TrySetResult(bmp);
-                }
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception ex) { LogContinuousTileDebug($"Tile rendering failed: {ex.Message}"); }
-            finally
-            {
-                for (int i = 0; i < keys.Count; i++)
-                {
-                    if (_readerTileLoads.TryGetValue(keys[i], out var current) && ReferenceEquals(current, completions[i].Task))
-                        _readerTileLoads.Remove(keys[i]);
-                    if (_readerTileLoadCts.TryGetValue(keys[i], out var owner) && ReferenceEquals(owner, cts))
-                        _readerTileLoadCts.Remove(keys[i]);
-                    completions[i].TrySetResult(null);
-                }
-                cts.Dispose();
-            }
-        }
-
-        private void CacheReaderTile(ReaderTileKey key, BitmapSource bmp) =>
-            _readerTileCache.Set(key, bmp, k => _visibleReaderTiles.Contains(k) || _pendingReaderTiles.Contains(k));
-
-        private Task PresentCanvasTilesAsync(Canvas canvas, IEnumerable<ReaderTileKey> keys, long requestId)
-        {
-            var jobs = new List<Task>();
-            var owner = canvas.DataContext;
-            var token = _readerTileRefreshCts.Token;
-            foreach (var key in keys)
-            {
-                if (canvas.Children.OfType<Image>().Any(i => i.Tag is ReaderTileKey existing && existing.Equals(key))) continue;
-                if (!_readerTileCache.TryGetValue(key, out var bitmap)) continue;
-                jobs.Add(_tilePresentation.Enqueue(() =>
-                {
-                    if (requestId == Volatile.Read(ref _readerTileRequestId) && ReferenceEquals(canvas.DataContext, owner))
-                        AddTileVisual(canvas, key, bitmap);
-                }, token));
-            }
-            return Task.WhenAll(jobs);
-        }
-
-        private void AddReaderTileVisual(ReaderTileKey key, BitmapSource bmp)
-            => AddTileVisual(ActiveReaderTileCanvas, key, bmp);
-
-        private void AddTileVisual(Canvas canvas, ReaderTileKey key, BitmapSource bmp)
-        {
-            foreach (var child in canvas.Children)
-                if (child is Image existing && existing.Tag is ReaderTileKey existingKey && existingKey.Equals(key))
-                    return;
-
-            var image = new Image
-            {
-                Source = bmp,
-                Width = key.Width,
-                Height = key.Height,
-                Stretch = Stretch.Fill,
-                IsHitTestVisible = false,
-                Tag = key
-            };
-            BindingOperations.SetBinding(image, RenderOptions.BitmapScalingModeProperty,
-                new Binding(nameof(ReaderBitmapScalingMode)) { Source = this });
-            Canvas.SetLeft(image, key.X);
-            Canvas.SetTop(image, key.Y);
-            canvas.Children.Add(image);
-        }
-
-        private void RemoveReaderTileVisualsNotIn(HashSet<ReaderTileKey> needed)
-            => RemoveTileVisualsNotIn(ActiveReaderTileCanvas, needed);
-
-        private static void RemoveTileVisualsNotIn(Canvas canvas, HashSet<ReaderTileKey> needed)
-        {
-            for (int i = canvas.Children.Count - 1; i >= 0; i--)
-            {
-                if (canvas.Children[i] is Image image &&
-                    image.Tag is ReaderTileKey key &&
-                    !needed.Contains(key))
-                {
-                    canvas.Children.RemoveAt(i);
-                }
-            }
-        }
-
-        private void ClearReaderTileVisuals()
-        {
-            ReaderTileCanvas.Children.Clear();
-            ReaderTileCanvasB.Children.Clear();
-            _visibleReaderTiles.Clear();
-        }
-
-        private void ClearReaderTiles(bool invalidate = true)
-        {
-            if (invalidate)
-            {
-                _viewportRenderScheduler.Cancel();
-                InvalidateReaderTileWork();
-                _readerTileCache.Clear();
-            }
-            _pendingReaderTiles.Clear();
-            ClearReaderTileVisuals();
-            _readerTileCache.Trim();
-            ReaderTileCanvas.Visibility = Visibility.Collapsed;
-            ReaderTileCanvasB.Visibility = Visibility.Collapsed;
-            _readerTileCoordSpace = default;
-        }
 
         private void ReaderViewSingle_Click(object sender, RoutedEventArgs e) { if (_readerContinuousMode) ReaderContinuousToggle_Click(sender, e); else UpdateViewModeButtons(); }
         private void ReaderViewContinuous_Click(object sender, RoutedEventArgs e) { if (!_readerContinuousMode) ReaderContinuousToggle_Click(sender, e); else UpdateViewModeButtons(); }
@@ -1412,26 +447,9 @@ namespace XTPdfMergeApp
 
         private void ReaderContinuousToggle_Click(object sender, RoutedEventArgs e)
         {
-            Interlocked.Increment(ref _readerRequestId);
-            _readerRealtimeRenderCts?.Cancel();
             _readerContinuousMode = !_readerContinuousMode;
-
-            if (_readerContinuousMode)
-            {
-                ClearReaderTiles();
-                ReaderScrollViewer.Visibility = Visibility.Collapsed;
-                ReaderContinuousView.Visibility = Visibility.Visible;
-                if (_readerGroup != null && _readerPage != null)
-                    ShowReaderContinuous(_readerGroup, _readerPage);
-            }
-            else
-            {
-                ReaderContinuousView.Visibility = Visibility.Collapsed;
-                ReaderContinuousView.SetDocument(null, ReaderContinuousView.Zoom);
-                ReaderScrollViewer.Visibility = Visibility.Visible;
-                if (_readerGroup != null && _readerPage != null)
-                    _ = ShowPageAsync(_readerGroup, _readerPage, preserveZoomMode: true);
-            }
+            ReaderContinuousView.SinglePage = !_readerContinuousMode;
+            ReapplyZoomMode();
             UpdateViewModeButtons();
         }
 
@@ -1466,8 +484,7 @@ namespace XTPdfMergeApp
             // Như Chromium Viewport.resize_(): đang "vừa chiều rộng" thì đổi cỡ cửa sổ / kéo panel trái → khớp lại zoom.
             view.ViewportResized += () =>
             {
-                if (_readerContinuousMode && _readerZoomMode == ReaderZoomMode.FitWidth && view.Pages.Count > 0)
-                    SetReaderContinuousZoom(ComputeReaderContinuousFitWidthZoom(), ReaderZoomMode.FitWidth);
+                if (view.Pages.Count > 0) ReapplyZoomMode();
             };
         }
 
@@ -1476,8 +493,8 @@ namespace XTPdfMergeApp
         private void ShowReaderContinuous(DocumentGroup group, PageRow row)
         {
             ShowAndActivate();
-            ReaderScrollViewer.Visibility = Visibility.Collapsed;
             ReaderContinuousView.Visibility = Visibility.Visible;
+            ReaderEmptyText.Visibility = Visibility.Collapsed;
 
             bool bound = ReferenceEquals(ReaderContinuousView.Pages, group.Pages);
             bool groupChanged = !ReferenceEquals(_readerGroup, group);
@@ -1486,7 +503,6 @@ namespace XTPdfMergeApp
                 _readerPageCts.Cancel();
                 _readerPageCts.Dispose();
                 _readerPageCts = new();
-                ClearReaderTiles();
             }
             if (groupChanged)
             {
@@ -1529,12 +545,10 @@ namespace XTPdfMergeApp
             {
                 if (ReferenceEquals(_continuousBindPending, group)) _continuousBindPending = null;
             }
-            if (!_readerContinuousMode || !ReferenceEquals(_readerGroup, group) ||
-                ReferenceEquals(ReaderContinuousView.Pages, group.Pages)) return;
-            ReaderContinuousView.SetDocument(group.Pages,
-                _readerZoomMode == ReaderZoomMode.Manual ? _readerZoom : ComputeReaderContinuousFitWidthZoom());
-            OnContinuousZoomChanged(_readerZoomMode);
+            if (!ReferenceEquals(_readerGroup, group) || ReferenceEquals(ReaderContinuousView.Pages, group.Pages)) return;
+            ReaderContinuousView.SetDocument(group.Pages, _readerZoomMode == ReaderZoomMode.Manual ? _readerZoom : 1.0);
             if (_readerPage is { } current) ScrollReaderContinuousTo(current);
+            ReapplyZoomMode();
         }
 
         private void ScrollReaderContinuousTo(PageRow row)
@@ -1553,7 +567,41 @@ namespace XTPdfMergeApp
             double width = ReaderContinuousView.ViewportWidth;
             if (width <= 0) return _readerZoom > 0 ? _readerZoom : 1.0; // chưa layout — khớp lại khi có kích thước (ViewportResized)
             double viewportWidth = Math.Max(1, width - 2 * ContinuousPageLayout.Margin - 2 * ContinuousPageLayout.BorderThickness);
-            return ReaderZoomMath.Clamp(ReaderZoomMath.FitWidthZoom(viewportWidth, ReaderRenderWidthPx), ReaderMinZoom, ReaderMaxZoom);
+            // Trang rộng nhất như đang hiện: không xoay = ReaderRenderWidthPx; xoay 90/270 = trang cao nhất.
+            double widest = ReaderRenderWidthPx;
+            if (_readerRotation % 180 != 0)
+            {
+                var pages = ReaderContinuousView.Pages;
+                widest = 0;
+                for (int i = 0; i < pages.Count; i++) widest = Math.Max(widest, ReaderContinuousView.DisplayBaseSize(i).Width);
+                if (widest <= 0) widest = ReaderRenderWidthPx;
+            }
+            return ReaderZoomMath.Clamp(ReaderZoomMath.FitWidthZoom(viewportWidth, widest), ReaderMinZoom, ReaderMaxZoom);
+        }
+
+        /// <summary>Trang đang xem hiện trọn trong khung nhìn (Fit page).</summary>
+        private double ComputeReaderFitPageZoom()
+        {
+            var view = ReaderContinuousView;
+            if (_readerGroup == null || _readerPage == null || view.ViewportWidth <= 0 || view.ViewportHeight <= 0) return _readerZoom;
+            var (w, h) = view.DisplayBaseSize(_readerGroup.Pages.IndexOf(_readerPage));
+            if (w <= 0 || h <= 0) return _readerZoom;
+            double extra = 2 * ContinuousPageLayout.Margin + 2 * ContinuousPageLayout.BorderThickness;
+            double zoom = Math.Min(Math.Max(1, view.ViewportWidth - extra) / w, Math.Max(1, view.ViewportHeight - extra) / h);
+            return ReaderZoomMath.Clamp(zoom, ReaderMinZoom, ReaderMaxZoom);
+        }
+
+        /// <summary>Khớp lại zoom theo chế độ đang chọn (Fit width / Fit page) — khi đổi cỡ khung nhìn, xoay, đổi bố cục.</summary>
+        private void ReapplyZoomMode()
+        {
+            if (ReaderContinuousView.Pages.Count == 0) return;
+            if (_readerZoomMode == ReaderZoomMode.FitWidth)
+                SetReaderContinuousZoom(ComputeReaderContinuousFitWidthZoom(), ReaderZoomMode.FitWidth);
+            else if (_readerZoomMode == ReaderZoomMode.FitPage)
+            {
+                SetReaderContinuousZoom(ComputeReaderFitPageZoom(), ReaderZoomMode.FitPage);
+                if (_readerPage != null && _readerGroup != null) ReaderContinuousView.ScrollToPage(_readerGroup.Pages.IndexOf(_readerPage));
+            }
         }
 
         /// <summary>Đổi zoom giữ nguyên điểm ở giữa-đỉnh khung nhìn (vừa chiều rộng). Zoom theo con trỏ: ZoomContinuousAtPoint.</summary>
@@ -1699,42 +747,14 @@ namespace XTPdfMergeApp
                 foreach (var key in _readerLoads.Keys.Where(key => Matches(key.Path, key.Page)).ToList())
                     _readerLoads.Remove(key);
             }
-            _readerTileCache.RemoveWhere(key => Matches(key.Path, key.Page));
             InvalidateAnnotationCache(path, pages);
             // Xoay trang đổi khổ (DocumentSession đã xoá PageWidthPoints): đọc lại kích thước thật cho bố cục.
             if (geometryChanged && _readerGroup != null) _ = EnsureContinuousPageSizesAsync(_readerGroup);
 
             if (_readerGroup == null || _readerPage == null) return;
-            var affected = _readerGroup.Pages.Where(r => Matches(r.SourcePath, r.PageNumber)).ToList();
-            if (_readerContinuousMode)
-            {
-                // Chú thích: ảnh cũ nằm yên tới khi ảnh mới xong. Xoay trang: ảnh cũ sai tỉ lệ — bỏ, bố cục dựng lại theo khổ mới.
-                ReaderContinuousView.InvalidatePages(r => Matches(r.SourcePath, r.PageNumber), dropImages: geometryChanged);
-                if (geometryChanged) ReaderContinuousView.RefreshPageSizes();
-            }
-            else if (affected.Contains(_readerPage))
-            {
-                if (geometryChanged) _ = ShowPageAsync(_readerGroup, _readerPage, preserveZoomMode: true);
-                else _ = RefreshReaderBitmapInPlaceAsync(_readerPage);
-            }
-        }
-
-        /// <summary>Render lại 1 trang cùng kích thước rồi thay ảnh tại chỗ (không qua trạng thái "Đang
-        /// tải"), sau đó làm mới tile nét cao.</summary>
-        private async Task RefreshReaderBitmapInPlaceAsync(PageRow row)
-        {
-            string layers = PdfLayerStateStore.GetToken(row.SourcePath);
-            var bmp = await GetReaderLoadTask((row.SourcePath, row.PageNumber));
-            if (bmp == null || !IsCurrentLayerState(row, layers)) return;
-            row.ReaderBitmap = bmp;
-            if (!_readerContinuousMode && ReferenceEquals(_readerPage, row))
-            {
-                ClearReaderTiles();
-                ReaderImage.Source = bmp;
-                _readerBitmapNativeWidthPx = bmp.PixelWidth;
-                ApplyReaderLayout();
-            }
-            ScheduleReaderTileRefresh();
+            // Chú thích: ảnh cũ nằm yên tới khi ảnh mới xong. Xoay trang: ảnh cũ sai tỉ lệ — bỏ, bố cục dựng lại theo khổ mới.
+            ReaderContinuousView.InvalidatePages(r => Matches(r.SourcePath, r.PageNumber), dropImages: geometryChanged);
+            if (geometryChanged) ReaderContinuousView.RefreshPageSizes();
         }
 
         private void ReaderRotateLeft_Click(object sender, RoutedEventArgs e) => SetReaderRotation((_readerRotation - 90 + 360) % 360);
@@ -1743,78 +763,10 @@ namespace XTPdfMergeApp
         private void SetReaderRotation(int degrees)
         {
             _readerRotation = degrees;
-            ClearReaderTiles();
-            if (_readerZoomMode != ReaderZoomMode.Manual) ApplyReaderZoomMode();
-            else ApplyReaderLayout();
+            ReaderContinuousView.ViewRotation = degrees;
+            ReapplyZoomMode();
+            if (_findHits.Count > 0) ScheduleFindRefresh();
         }
-
-        /// <summary>Zoom NHƯNG giữ nguyên điểm ảnh đang nằm dưới <paramref name="viewportPoint"/>
-        /// (toạ độ trong ReaderScrollViewer) — TÍNH THẲNG bằng công thức (điểm neo tính theo % vị
-        /// trí trong ảnh TRƯỚC khi đổi zoom, rồi suy ra offset cuộn MỚI cần có), không đo lại vị trí
-        /// qua layout sau khi áp zoom như cách cũ (LayoutTransform + UpdateLayout() + TranslatePoint).
-        /// Nhờ vậy chỉ 1 lần gán offset DUY NHẤT, không có bước "áp tạm rồi tự sửa lại" nên không còn
-        /// độ trễ 1 khung hình giữa lúc ảnh phóng to/nhỏ và lúc cuộn bù lại — hết hẳn cảm giác giật/neo
-        /// sai điểm khi lăn chuột nhanh.</summary>
-        private void ZoomReaderAtPoint(double newZoomRaw, Point viewportPoint)
-        {
-            if (ReaderImage.Source is not BitmapSource) { SetReaderZoom(newZoomRaw); return; }
-
-            var oldLayout = ComputeReaderEffectiveLayout();
-            double contentX = ReaderScrollViewer.HorizontalOffset + viewportPoint.X;
-            double contentY = ReaderScrollViewer.VerticalOffset + viewportPoint.Y;
-            double fracX = oldLayout.EffectiveWidth > 0 ? (contentX - oldLayout.TargetX) / oldLayout.EffectiveWidth : 0.5;
-            double fracY = oldLayout.EffectiveHeight > 0 ? (contentY - oldLayout.TargetY) / oldLayout.EffectiveHeight : 0.5;
-
-            SetReaderZoom(newZoomRaw);
-
-            var newLayout = ComputeReaderEffectiveLayout();
-            double newContentX = newLayout.TargetX + fracX * newLayout.EffectiveWidth;
-            double newContentY = newLayout.TargetY + fracY * newLayout.EffectiveHeight;
-            ReaderScrollViewer.ScrollToHorizontalOffset(Math.Max(0, newContentX - viewportPoint.X));
-            ReaderScrollViewer.ScrollToVerticalOffset(Math.Max(0, newContentY - viewportPoint.Y));
-        }
-
-        /// <summary>Gọi từ wheel handler thay vì ZoomReaderAtPoint/ZoomContinuousAtPoint trực
-        /// tiếp — nếu chưa có khung hình nào đang chờ áp zoom thì đặt lịch 1 lần ở
-        /// DispatcherPriority.Render (đúng nhịp trước khi WPF render khung kế tiếp); nếu đã có
-        /// khung đang chờ (vài nấc wheel đến dồn dập trong cùng 1 khung) thì CHỈ cập nhật đích
-        /// zoom + điểm neo mới nhất, KHÔNG đặt lịch thêm — dồn nhiều nấc thành đúng 1 lần
-        /// UpdateLayout+sửa điểm neo khi khung đó thực sự chạy.</summary>
-        private void RequestReaderZoomAtPoint(int wheelDelta, Point viewportPoint)
-        {
-            double baseZoom = _readerZoomFramePending ? _readerZoomFramePendingTarget : _readerZoom;
-            _readerZoomFramePendingTarget = ReaderZoomMath.WheelZoom(
-                baseZoom, wheelDelta, ReaderZoomStep, ReaderMinZoom, ReaderMaxZoom);
-            _readerZoomFrameAnchor = viewportPoint;
-
-            if (_readerZoomFramePending) return;
-            _readerZoomFramePending = true;
-            _ = Dispatcher.InvokeAsync(() =>
-            {
-                _readerZoomFramePending = false;
-                if (!_readerContinuousMode) ZoomReaderAtPoint(_readerZoomFramePendingTarget, _readerZoomFrameAnchor);
-            }, DispatcherPriority.Render);
-        }
-
-        private void RequestReaderPanTo(ScrollViewer scrollViewer, double horizontalOffset, double verticalOffset)
-        {
-            _readerPanFrameScrollViewer = scrollViewer;
-            _readerPanFrameTargetH = Math.Clamp(horizontalOffset, 0, scrollViewer.ScrollableWidth);
-            _readerPanFrameTargetV = Math.Clamp(verticalOffset, 0, scrollViewer.ScrollableHeight);
-
-            if (_readerPanFramePending) return;
-            _readerPanFramePending = true;
-            _ = Dispatcher.InvokeAsync(() =>
-            {
-                _readerPanFramePending = false;
-                if (_readerPanFrameScrollViewer is not { } target) return;
-                target.ScrollToHorizontalOffset(_readerPanFrameTargetH);
-                target.ScrollToVerticalOffset(_readerPanFrameTargetV);
-                _readerPanFrameScrollViewer = null;
-            }, DispatcherPriority.Render);
-        }
-
-        private Point ReaderViewportCenter() => new(ReaderScrollViewer.ViewportWidth / 2, ReaderScrollViewer.ViewportHeight / 2);
 
         private async void ReaderPreviousPage_Click(object sender, RoutedEventArgs e)
             => await NavigateReaderAsync(-1);
@@ -1824,138 +776,21 @@ namespace XTPdfMergeApp
 
         private void ReaderFitPage_Click(object sender, RoutedEventArgs e)
         {
-            // Chế độ Cuộn liên tục không có khái niệm "1 trang vừa khít viewport" (nội
-            // dung là 1 dải cuộn dài) — coi Fit page = Fit width cho đỡ khó hiểu thay vì
-            // vô tác dụng.
-            if (_readerContinuousMode) { SetReaderContinuousZoom(ComputeReaderContinuousFitWidthZoom(), ReaderZoomMode.FitWidth); return; }
             _readerZoomMode = ReaderZoomMode.FitPage;
-            ApplyReaderZoomMode();
+            ReapplyZoomMode();
         }
 
         private void ReaderFitWidth_Click(object sender, RoutedEventArgs e)
         {
-            if (_readerContinuousMode) { SetReaderContinuousZoom(ComputeReaderContinuousFitWidthZoom(), ReaderZoomMode.FitWidth); return; }
             _readerZoomMode = ReaderZoomMode.FitWidth;
-            ApplyReaderZoomMode();
+            ReapplyZoomMode();
         }
 
         private void ReaderZoomIn_Click(object sender, RoutedEventArgs e)
-        {
-            if (_readerContinuousMode) { ZoomContinuousAtPoint(ReaderContinuousZoom * ReaderZoomStep, ReaderContinuousView.ViewportCenter); return; }
-            ZoomReaderAtPoint(_readerZoom * ReaderZoomStep, ReaderViewportCenter());
-        }
+            => ZoomContinuousAtPoint(ReaderContinuousZoom * ReaderZoomStep, ReaderContinuousView.ViewportCenter);
 
         private void ReaderZoomOut_Click(object sender, RoutedEventArgs e)
-        {
-            if (_readerContinuousMode) { ZoomContinuousAtPoint(ReaderContinuousZoom / ReaderZoomStep, ReaderContinuousView.ViewportCenter); return; }
-            ZoomReaderAtPoint(_readerZoom / ReaderZoomStep, ReaderViewportCenter());
-        }
-
-        /// <summary>Lăn chuột THƯỜNG (không cần giữ Ctrl) = zoom neo theo con trỏ —
-        /// đã có kéo-thả để pan (xem ReaderImage_MouseMove) nên khỏi cần dành riêng
-        /// lăn chuột cho cuộn dọc nữa, giống quy ước Google Maps/nhiều app xem ảnh.</summary>
-        private void ReaderScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
-        {
-            if ((Keyboard.Modifiers & ModifierKeys.Control) != ModifierKeys.Control) return;
-            RequestReaderZoomAtPoint(e.Delta, e.GetPosition(ReaderScrollViewer));
-            e.Handled = true;
-        }
-
-        private void ReaderScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            if (_readerZoomMode != ReaderZoomMode.Manual)
-                ApplyReaderZoomMode();
-            else
-                // Zoom Manual không đổi, nhưng "sizer"/vị trí centered phụ thuộc viewport
-                // (xem ComputeReaderEffectiveLayout) — phải tính lại khi panel đổi kích thước,
-                // WPF không còn tự làm việc này giúp mình như hồi còn Grid tự canh giữa.
-                ApplyReaderLayout();
-            ScheduleReaderTileRefresh();
-        }
-
-        private void ReaderScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
-        {
-            ScheduleReaderTileRefresh();
-            if (_findHits.Count > 0) ScheduleFindRefresh();
-        }
-
-        private void ReaderImage_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            if (e.ClickCount >= 2)
-            {
-                _readerPanning = false;
-                if (_readerZoomMode == ReaderZoomMode.FitWidth && _readerZoom < 0.95)
-                    SetReaderZoom(1.0);
-                else
-                {
-                    _readerZoomMode = ReaderZoomMode.FitWidth;
-                    ApplyReaderZoomMode();
-                }
-
-                e.Handled = true;
-                return;
-            }
-
-            // Click đơn → bắt đầu kéo pan (bám thẳng theo chuột, KHÔNG qua
-            // SmoothScrollBy — easing sẽ tạo độ trễ sai cảm giác "kéo" trực tiếp).
-            BeginReaderPan(e.GetPosition(ReaderScrollViewer));
-            e.Handled = true;
-        }
-
-        /// <summary>Chuột GIỮA cũng pan được (song song chuột trái) — tiện khi cần giữ
-        /// chuột trái để làm việc khác (VD bôi đen vùng trong tương lai) mà vẫn muốn di
-        /// chuyển view.</summary>
-        private void ReaderImage_MouseDown(object sender, MouseButtonEventArgs e)
-        {
-            if (e.ChangedButton != MouseButton.Middle) return;
-            BeginReaderPan(e.GetPosition(ReaderScrollViewer));
-            e.Handled = true;
-        }
-
-        private void ReaderImage_MouseUp(object sender, MouseButtonEventArgs e)
-        {
-            if (e.ChangedButton != MouseButton.Middle) return;
-            EndReaderPan();
-            e.Handled = true;
-        }
-
-        private void BeginReaderPan(Point viewportPoint)
-        {
-            _readerPanning = true;
-            _readerPanStartMouse = viewportPoint;
-            _readerPanStartH = ReaderScrollViewer.HorizontalOffset;
-            _readerPanStartV = ReaderScrollViewer.VerticalOffset;
-            ReaderImage.CaptureMouse();
-            ReaderImage.Cursor = Cursors.SizeAll;
-        }
-
-        private void ReaderImage_MouseMove(object sender, MouseEventArgs e)
-        {
-            if (!_readerPanning) return;
-            if (e.LeftButton != MouseButtonState.Pressed && e.MiddleButton != MouseButtonState.Pressed)
-            {
-                EndReaderPan();
-                return;
-            }
-
-            MarkReaderInteraction();
-            Point current = e.GetPosition(ReaderScrollViewer);
-            double dx = current.X - _readerPanStartMouse.X;
-            double dy = current.Y - _readerPanStartMouse.Y;
-            RequestReaderPanTo(ReaderScrollViewer, _readerPanStartH - dx, _readerPanStartV - dy);
-        }
-
-        private void ReaderImage_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => EndReaderPan();
-
-        private void ReaderImage_LostMouseCapture(object sender, MouseEventArgs e) => EndReaderPan();
-
-        private void EndReaderPan()
-        {
-            if (!_readerPanning) return;
-            _readerPanning = false;
-            if (ReaderImage.IsMouseCaptured) ReaderImage.ReleaseMouseCapture();
-            ReaderImage.Cursor = Cursors.Hand;
-        }
+            => ZoomContinuousAtPoint(ReaderContinuousZoom / ReaderZoomStep, ReaderContinuousView.ViewportCenter);
 
         private async void ReaderPageBox_KeyDown(object sender, KeyEventArgs e)
         {
