@@ -39,7 +39,9 @@ Trạng thái: `[ ]` chưa · `[~]` đang · `[x]` xong. Số theo mockup.
   Khác mockup: nhãn xoay ghi "Turn left/right" (ô 53 px không đủ cho "Rotate left"); thanh công cụ cuộn ngang ẩn khi cửa sổ hẹp (chưa có menu "…");
   nút Light/Dark còn ở thanh tiêu đề cho tới khi làm Settings (P4); chữ trong thanh trạng thái/hộp thoại còn tiếng Việt (P10).
   Chưa có: chấm cam "unsaved" trên tab (P2, cần quyết định Save — xem mục 8).
-- [ ] **P2 — Pages panel hành vi** (mockup 5): menu chuột phải, Copy/Cut/Paste before-after, Move (to start / up / down / to end / to position),
+- [~] **P2 — Pages panel hành vi** (mockup 5) — **P2a xong 28/09** (chấm cam + Save/Save As + hỏi khi đóng tab/cửa sổ: `WorkspaceDocument.IsDirty`,
+  `DocumentSession.SaveGroupAsync`; Save ghi file tạm cùng thư mục rồi `File.Replace` với `.xtsave.bak` tạm, thành công thì xoá bản sao lưu; nếu window khác
+  đang dùng trang của file thì chuyển sang Save As; sau Save lịch sử Undo bị xoá); còn P2b (menu, clipboard, Move) và P2c (kéo thả): menu chuột phải, Copy/Cut/Paste before-after, Move (to start / up / down / to end / to position),
   Duplicate, phím tắt (Ctrl+C/X/V/D, Alt+↑↓, Ctrl+Shift+Home/End), kéo thả có vạch chèn + tự cuộn, kéo sang tab khác (giữ 0,5 s),
   Ctrl = copy, dirty dot + hỏi khi đóng.
 - [ ] **P3 — Layers** (mockup 3, 3b): cây có checkbox 3 trạng thái, ô tìm, Show all/Hide all, chip "N files" cho layer gộp, saved Views

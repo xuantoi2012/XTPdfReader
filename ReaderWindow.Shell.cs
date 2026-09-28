@@ -243,11 +243,29 @@ namespace XTPdfMergeApp
                 ReaderDocumentTabs.SelectedItem = group;
         }
 
-        private void ReaderCloseDocument_Click(object sender, RoutedEventArgs e)
+        private async void ReaderCloseDocument_Click(object sender, RoutedEventArgs e)
         {
-            if ((sender as FrameworkElement)?.DataContext is DocumentGroup group) EditHost?.CloseDocument(group);
             e.Handled = true;
+            if ((sender as FrameworkElement)?.DataContext is not DocumentGroup group || EditHost == null) return;
+            if (group.IsDirty)
+            {
+                var answer = MessageBox.Show(this, $"Save changes to \"{group.FileName}\" before closing?", "Unsaved changes",
+                    MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+                if (answer == MessageBoxResult.Cancel) return;
+                if (answer == MessageBoxResult.Yes && !await EditHost.SaveGroupAsync(group, saveAs: false)) return;
+            }
+            EditHost.CloseDocument(group);
         }
+
+        // ── Save / Save As (Ctrl+S, Ctrl+Shift+S, menu chuột phải tab — chuột phải đã chọn tab đó) ──
+        private async System.Threading.Tasks.Task SaveCurrentGroupAsync(bool saveAs)
+        {
+            if (_readerGroup == null || EditHost == null) return;
+            await EditHost.SaveGroupAsync(_readerGroup, saveAs);
+        }
+
+        private async void ReaderTabSave_Click(object sender, RoutedEventArgs e) => await SaveCurrentGroupAsync(saveAs: false);
+        private async void ReaderTabSaveAs_Click(object sender, RoutedEventArgs e) => await SaveCurrentGroupAsync(saveAs: true);
 
         // ── Lệnh ribbon gọi sang cửa sổ chủ ────────────────────────────
 
@@ -285,8 +303,27 @@ namespace XTPdfMergeApp
             Activate();
         }
 
-        private void ReaderWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+        private bool _closingConfirmed;
+
+        private async void ReaderWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            if (!_closingConfirmed && EditHost?.GetDirtyGroups() is { Count: > 0 } dirty)
+            {
+                string question = dirty.Count == 1
+                    ? $"Save changes to \"{dirty[0].FileName}\" before closing?"
+                    : $"{dirty.Count} files have unsaved changes. Save them before closing?";
+                var answer = MessageBox.Show(this, question, "Unsaved changes", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+                if (answer == MessageBoxResult.Cancel) { e.Cancel = true; return; }
+                if (answer == MessageBoxResult.Yes)
+                {
+                    e.Cancel = true; // lưu xong mới đóng thật
+                    foreach (var group in dirty)
+                        if (!await EditHost.SaveGroupAsync(group, saveAs: false)) return;
+                    _closingConfirmed = true;
+                    Close();
+                    return;
+                }
+            }
             _mergeWindow?.Close();
             ShutdownReader();
         }

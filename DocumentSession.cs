@@ -190,6 +190,7 @@ namespace XTPdfMergeApp
             }
 
             group.Pages.AddRange(Enumerable.Range(1, pageCount).Select(p => _workspace.CreatePlacement(fullPath, p)));
+            group.SetBaseline();
             group.SetOpening(false);
 
             RequestThumbnailScan();
@@ -465,6 +466,138 @@ namespace XTPdfMergeApp
             RequestThumbnailScan();
         }
 
+        // ── Lưu (Save / Save As) ───────────────────────────────────────────
+
+        /// <summary>Window có thay đổi chưa lưu (theo thứ tự tab).</summary>
+        IReadOnlyList<DocumentGroup> IReaderPageEditHost.GetDirtyGroups() => _groups.Where(g => g.IsDirty).ToList();
+
+        /// <summary>Lưu danh sách trang hiện tại của window. Save ghi đè file gốc (viết file tạm cùng thư mục rồi thay thế; bản sao lưu
+        /// tạm bị xoá khi thành công). Save As ghi file mới và mở nó thành tab mới. Nếu window khác đang dùng trang của file này thì
+        /// không ghi đè (số trang sẽ lệch) — chuyển sang Save As.</summary>
+        async Task<bool> IReaderPageEditHost.SaveGroupAsync(DocumentGroup group, bool saveAs)
+        {
+            if (!_groups.Contains(group) || group.Pages.Count == 0) return false;
+            string target = group.SourcePath;
+            if (!saveAs && !group.IsDirty) return true;
+
+            if (!saveAs && _groups.Any(g => !ReferenceEquals(g, group) &&
+                    g.Pages.Any(p => string.Equals(p.SourcePath, target, StringComparison.OrdinalIgnoreCase))))
+            {
+                var answer = MessageBox.Show(OwnerWindow,
+                    "Other windows use pages from this file, so it cannot be overwritten safely.\n\nSave as a new file instead?",
+                    "Save", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (answer != MessageBoxResult.Yes) return false;
+                saveAs = true;
+            }
+
+            var pageList = group.Pages.Select(p => (p.SourcePath, p.PageNumber)).ToList();
+            return saveAs ? await SaveGroupAsNewFileAsync(group, pageList) : await OverwriteSourceFileAsync(group, target, pageList);
+        }
+
+        private async Task<bool> SaveGroupAsNewFileAsync(DocumentGroup group, List<(string SourcePath, int PageNumber)> pageList)
+        {
+            string dir = Path.GetDirectoryName(group.SourcePath) ?? "";
+            using var dlg = new System.Windows.Forms.SaveFileDialog
+            {
+                Title = "Save as",
+                Filter = "PDF (*.pdf)|*.pdf",
+                DefaultExt = "pdf",
+                FileName = Path.GetFileNameWithoutExtension(group.SourcePath) + " - edited.pdf",
+                InitialDirectory = Directory.Exists(dir) ? dir : ""
+            };
+            if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return false;
+
+            string output;
+            try { output = Path.GetFullPath(dlg.FileName); }
+            catch { return false; }
+            if (_groups.Any(g => g.Pages.Any(p => string.Equals(p.SourcePath, output, StringComparison.OrdinalIgnoreCase))))
+            {
+                MessageBox.Show(OwnerWindow, "That file is open or used by an open window. Choose a different name.",
+                    "Save as", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+
+            string error = "";
+            bool ok = await Task.Run(() =>
+            {
+                bool r = XTPdfMerger.TryMergePages(pageList, output, out var e, null, mergeLayersByName: true);
+                error = e;
+                return r;
+            });
+            if (!ok)
+            {
+                MessageBox.Show(OwnerWindow, "Could not save the file:\n" + error, "Save as", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
+            }
+
+            var opened = await AddFileAsGroup(output);
+            if (opened != null && opened.Pages.Count > 0 && ReaderWindow.Instance is { } reader)
+                await reader.ShowPageAsync(opened, opened.Pages[0], preserveZoomMode: true);
+            XTStyle.Controls.XTGrowl.Success("Saved " + Path.GetFileName(output), OwnerWindow);
+            return true;
+        }
+
+        private async Task<bool> OverwriteSourceFileAsync(DocumentGroup group, string target, List<(string SourcePath, int PageNumber)> pageList)
+        {
+            string temp = target + ".xtsave.tmp", backup = target + ".xtsave.bak";
+            string error = "";
+            bool ok = await Task.Run(() =>
+            {
+                bool r = XTPdfMerger.TryMergePages(pageList, temp, out var e, null, mergeLayersByName: true);
+                error = e;
+                return r;
+            });
+            if (!ok)
+            {
+                TryDelete(temp);
+                MessageBox.Show(OwnerWindow, "Could not save the file:\n" + error, "Save", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
+            }
+
+            int oldMax = group.Pages.Where(p => string.Equals(p.SourcePath, target, StringComparison.OrdinalIgnoreCase))
+                .Select(p => p.PageNumber).DefaultIfEmpty(0).Max();
+            int keepIndex = ReaderWindow.Instance?.CurrentPageIndexIn(group) ?? 0;
+
+            await _sourceEditGate.WaitAsync();
+            try
+            {
+                using (await PdfThumbnailService.SuspendDocumentAsync(target, TimeSpan.FromSeconds(3)))
+                    await Task.Run(() => File.Replace(temp, target, backup, ignoreMetadataErrors: true));
+            }
+            catch (Exception ex)
+            {
+                TryDelete(temp);
+                MessageBox.Show(OwnerWindow, $"Could not write the file:\n{target}\n\n{ex.Message}", "Save", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
+            }
+            finally
+            {
+                _sourceEditGate.Release();
+            }
+            TryDelete(backup);
+
+            // Đặt lại window theo file vừa lưu: trang 1..N của file mới, mốc "đã lưu" mới, lịch sử cũ không còn đúng.
+            int count = pageList.Count;
+            _workspace.RefreshSourceDocument(target);
+            var fresh = Enumerable.Range(1, count).Select(i => _workspace.CreatePlacement(target, i)).ToList();
+            group.Pages.Clear();
+            group.Pages.AddRange(fresh);
+            group.SetBaseline();
+            _workspace.History.Clear();
+            InvalidateSourcePageRenders(target, Enumerable.Range(1, Math.Max(oldMax, count)).ToList(), geometryChanged: true);
+            ReaderWindow.Instance?.OnGroupSaved(group, target, keepIndex);
+            ReleaseUnusedPdfDocuments();
+            AfterHistoryChange();
+            XTStyle.Controls.XTGrowl.Success("Saved " + Path.GetFileName(target), OwnerWindow);
+            return true;
+        }
+
+        private static void TryDelete(string path)
+        {
+            try { if (File.Exists(path)) File.Delete(path); }
+            catch { /* file tạm/sao lưu: bỏ qua */ }
+        }
+
         // ── Chèn trang từ file khác ────────────────────────────────────────
 
         async Task IReaderPageEditHost.InsertPagesFromFileAsync(DocumentGroup target, int insertIndex)
@@ -577,6 +710,10 @@ namespace XTPdfMergeApp
         Task SetLayerHiddenAsync(string path, IReadOnlySet<string> hidden, IReadOnlySet<string> defaultHidden);
         Task OpenFilesAsync();
         void CloseDocument(DocumentGroup group);
+        /// <summary>Lưu window: <paramref name="saveAs"/> false = ghi đè file gốc, true = file mới. Trả về true nếu đã lưu (hoặc không có gì để lưu).</summary>
+        Task<bool> SaveGroupAsync(DocumentGroup group, bool saveAs);
+        /// <summary>Window có thay đổi chưa lưu.</summary>
+        IReadOnlyList<DocumentGroup> GetDirtyGroups();
         void Undo();
         void Redo();
         /// <summary>Ghi các thay đổi annotation vào file nguồn và đưa vào Undo/Redo.</summary>

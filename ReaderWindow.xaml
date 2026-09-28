@@ -29,6 +29,7 @@
 
     <xt:XTWindow.Resources>
         <ResourceDictionary>
+            <BooleanToVisibilityConverter x:Key="BoolToVis"/>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/XTPdfMergeApp;component/Resources/ReaderResources.xaml"/>
             </ResourceDictionary.MergedDictionaries>
@@ -120,6 +121,9 @@
                                     PreviewMouseRightButtonDown="ReaderTab_PreviewMouseRightButtonDown">
                             <StackPanel.ContextMenu>
                                 <ContextMenu>
+                                    <MenuItem Header="Save" InputGestureText="Ctrl+S" Click="ReaderTabSave_Click"/>
+                                    <MenuItem Header="Save as…" InputGestureText="Ctrl+Shift+S" Click="ReaderTabSaveAs_Click"/>
+                                    <Separator/>
                                     <MenuItem Header="Open in default app" Click="ReaderOpenExternal_Click"/>
                                     <MenuItem Header="Close" Click="ReaderCloseDocument_Click"/>
                                 </ContextMenu>
@@ -131,6 +135,9 @@
                                 </Canvas>
                             </Viewbox>
                             <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" MaxWidth="220" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                            <Ellipse Width="7" Height="7" Margin="8,0,0,0" VerticalAlignment="Center" Fill="{DynamicResource Ui.Warn}"
+                                     ToolTip="Unsaved changes (Ctrl+S to save)"
+                                     Visibility="{Binding IsDirty, Converter={StaticResource BoolToVis}}"/>
                             <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.close}" Width="20" Height="20"
                                          IconSize="11" Margin="8,0,0,0" ToolTip="Close file" Click="ReaderCloseDocument_Click"/>
                         </StackPanel>

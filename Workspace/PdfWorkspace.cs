@@ -26,6 +26,16 @@ internal sealed class PdfWorkspace
         return document;
     }
 
+    /// <summary>File nguồn vừa bị ghi đè (Save): cập nhật kích thước/mtime, giữ nguyên id.</summary>
+    public void RefreshSourceDocument(string path)
+    {
+        string fullPath = Path.GetFullPath(path);
+        if (!_sourceDocuments.TryGetValue(fullPath, out var document)) return;
+        var info = new FileInfo(fullPath);
+        if (!info.Exists) return;
+        _sourceDocuments[fullPath] = document with { LastWriteTimeUtc = info.LastWriteTimeUtc, FileLength = info.Length };
+    }
+
     public PagePlacement CreatePlacement(string path, int pageNumber)
     {
         SourceDocument document = GetOrAddSourceDocument(path);

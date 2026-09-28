@@ -117,6 +117,13 @@ namespace XTPdfMergeApp
                 return;
             }
 
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.S)
+            {
+                _ = SaveCurrentGroupAsync(saveAs: (Keyboard.Modifiers & ModifierKeys.Shift) != 0);
+                e.Handled = true;
+                return;
+            }
+
             switch (e.Key)
             {
                 case Key.F12:
@@ -477,6 +484,21 @@ namespace XTPdfMergeApp
             }
 
             _ = ShowPageAsync(group, page, preserveZoomMode: true);
+        }
+
+        /// <summary>Vị trí (0-based) trang đang xem trong <paramref name="group"/>, 0 nếu window đó không đang xem.</summary>
+        internal int CurrentPageIndexIn(DocumentGroup group)
+            => ReferenceEquals(_readerGroup, group) && _readerPage != null ? Math.Max(0, group.Pages.IndexOf(_readerPage)) : 0;
+
+        /// <summary>Window vừa được lưu đè lên file gốc: placement đã được dựng lại — đọc lại bookmark/layer của file và
+        /// quay về đúng vị trí trang đang xem.</summary>
+        internal void OnGroupSaved(DocumentGroup group, string path, int keepIndex)
+        {
+            ReaderSidePanel.InvalidateSource(path, bookmarks: true, layers: true);
+            if (!ReferenceEquals(_readerGroup, group) || group.Pages.Count == 0) return;
+            var row = group.Pages[Math.Clamp(keepIndex, 0, group.Pages.Count - 1)];
+            if (_readerContinuousMode) ShowReaderContinuous(group, row);
+            else _ = ShowPageAsync(group, row, preserveZoomMode: true);
         }
 
         internal void NotifyPagesChanged(DocumentGroup group)

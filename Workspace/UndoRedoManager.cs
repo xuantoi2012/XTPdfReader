@@ -32,6 +32,14 @@ internal sealed class UndoRedoManager
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>Bỏ toàn bộ lịch sử (sau khi lưu đè file: các lệnh cũ giữ placement không còn đúng số trang).</summary>
+    public void Clear()
+    {
+        _undo.Clear();
+        _redo.Clear();
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     public void Undo()
     {
         if (!_undo.TryPop(out var command)) return;

@@ -66,6 +66,39 @@ internal sealed class WorkspaceDocument : INotifyPropertyChanged
         Pages.CollectionChanged += Pages_CollectionChanged;
     }
 
+    // ── Thay đổi chưa lưu (chấm cam trên tab) ──────────────────────────
+    // Sửa cấu trúc trang (xoá/chèn/đổi thứ tự) chỉ đổi workspace tới khi Save. Baseline = danh sách (file, số trang nguồn)
+    // lúc mở hoặc lúc lưu xong; IsDirty = danh sách hiện tại khác baseline. Xoay THẬT và annotation ghi thẳng file nên không tính.
+    private List<(string Path, int Page)>? _baseline;
+    public bool IsDirty { get; private set; }
+
+    /// <summary>Lấy danh sách trang hiện tại làm mốc "đã lưu".</summary>
+    public void SetBaseline()
+    {
+        _baseline = Pages.Select(p => (p.SourcePath, p.PageNumber)).ToList();
+        UpdateDirty();
+    }
+
+    private void UpdateDirty()
+    {
+        bool dirty = false;
+        if (_baseline != null)
+        {
+            if (Pages.Count != _baseline.Count) dirty = true;
+            else
+                for (int i = 0; i < _baseline.Count; i++)
+                    if (Pages[i].PageNumber != _baseline[i].Page ||
+                        !string.Equals(Pages[i].SourcePath, _baseline[i].Path, StringComparison.OrdinalIgnoreCase))
+                    {
+                        dirty = true;
+                        break;
+                    }
+        }
+        if (dirty == IsDirty) return;
+        IsDirty = dirty;
+        Notify(nameof(IsDirty));
+    }
+
     public void SetDisplayName(string name)
     {
         _displayName = name;
@@ -110,6 +143,7 @@ internal sealed class WorkspaceDocument : INotifyPropertyChanged
         }
 
         RefreshPages();
+        UpdateDirty();
     }
 
     private void Page_PropertyChanged(object? sender, PropertyChangedEventArgs e)
