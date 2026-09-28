@@ -56,6 +56,13 @@ namespace XTPdfMergeApp.Services
             set => Set("WarmFiles", Math.Clamp(value, 0, 8));
         }
 
+        /// <summary>Last used Typewriter format (font, size, colour, bold, italic), see <see cref="TextFormat"/>.</summary>
+        public static string TypewriterFormat
+        {
+            get => GetString("TypewriterFormat", "");
+            set => Set("TypewriterFormat", value);
+        }
+
         // ── Ghép file (hộp thoại Save merged file) ────────────────────
 
         public static MergeOptions MergeOptionsSaved

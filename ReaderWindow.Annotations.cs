@@ -52,6 +52,8 @@ namespace XTPdfMergeApp
             CommitAnnotationEditor();
             CancelHighlightDrag();
             _readerTool = tool;
+            if (tool != ReaderTool.Hand) SelectAnnotation(null, null);
+            UpdateFormatBarVisibility();
             ReaderHandToolButton.Tag = tool == ReaderTool.Hand ? "Active" : null;
             ReaderTypewriterToolButton.Tag = tool == ReaderTool.Typewriter ? "Active" : null;
             ReaderCommentToolButton.Tag = tool == ReaderTool.Comment ? "Active" : null;
@@ -210,6 +212,9 @@ namespace XTPdfMergeApp
 
         private void ReaderContentHost_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
+            // Thanh Find / thanh định dạng nằm đè lên trang: bấm vào chúng không được coi là bấm lên trang.
+            if (IsInside(e.OriginalSource as DependencyObject, FindBar) || IsInside(e.OriginalSource as DependencyObject, TextFormatBar)) return;
+
             // Click ra ngoài ô nhập = xong (Image không nhận focus nên LostKeyboardFocus không tự bắn).
             if (_annotationEditor != null)
             {
@@ -225,12 +230,18 @@ namespace XTPdfMergeApp
             switch (_readerTool)
             {
                 case ReaderTool.Hand:
-                    // Bấm icon ghi chú khi đang ở Hand = mở ra sửa; chỗ khác vẫn kéo cuộn như cũ.
-                    if (e.ClickCount == 1 && FindAnnotationAt(page, hit, QuickAnnotationKind.Comment) is { } note)
+                    // Bấm lên annotation = chọn (kéo = di chuyển, bấm đúp = sửa chữ, Delete = xoá); chỗ khác vẫn kéo cuộn như cũ.
+                    if (PickAnnotation(page, hit) is { } picked)
                     {
                         e.Handled = true;
-                        _ = OpenAnnotationEditorAsync(hit, QuickAnnotationKind.Comment, note);
+                        Focus();
+                        SelectAnnotation(hit.Row, picked);
+                        if (e.ClickCount >= 2 && picked.Kind is QuickAnnotationKind.Typewriter or QuickAnnotationKind.Comment)
+                            _ = OpenAnnotationEditorAsync(hit, picked.Kind, picked);
+                        else
+                            BeginAnnotationMove(hit, picked);
                     }
+                    else SelectAnnotation(null, null);
                     break;
 
                 case ReaderTool.Typewriter:
@@ -260,6 +271,11 @@ namespace XTPdfMergeApp
         private void ReaderContentHost_PreviewMouseMove(object sender, MouseEventArgs e)
         {
             Point point = e.GetPosition(ReaderContentHost);
+            if (UpdateAnnotationMove(point))
+            {
+                e.Handled = true;
+                return;
+            }
             if (_highlightDrag is { } drag)
             {
                 UpdateHighlightDrag(drag, point);
@@ -272,6 +288,11 @@ namespace XTPdfMergeApp
 
         private void ReaderContentHost_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
+            if (FinishAnnotationMove())
+            {
+                e.Handled = true;
+                return;
+            }
             if (_highlightDrag is not { } drag) return;
             e.Handled = true;
             FinishHighlightDrag(drag, e.GetPosition(ReaderContentHost));
@@ -388,6 +409,9 @@ namespace XTPdfMergeApp
             editor.Text = existing?.Text ?? "";
             if (kind == QuickAnnotationKind.Comment)
             {
+                editor.FontWeight = FontWeights.Normal;
+                editor.FontStyle = FontStyles.Normal;
+                editor.Foreground = Brushes.Black;
                 editor.FontFamily = FontFamily;
                 editor.Background = new SolidColorBrush(Color.FromRgb(0xFF, 0xF6, 0xC4));
                 editor.FontSize = 13;
@@ -397,14 +421,18 @@ namespace XTPdfMergeApp
             }
             else
             {
-                // Cùng họ font với chữ sẽ ghi vào PDF (Arial) để khi Enter chữ không "nhảy".
-                editor.FontFamily = new FontFamily("Arial");
+                // Cùng font/kiểu/màu với chữ sẽ ghi vào PDF để khi Enter chữ không "nhảy".
+                if (existing != null) _textFormat = TextFormat.Decode(existing.Format);
+                LoadFormatBar();
+                ApplyEditorFormat();
                 editor.Background = new SolidColorBrush(Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF));
                 editor.TextWrapping = TextWrapping.NoWrap;
                 editor.Width = double.NaN;
                 editor.MinHeight = 0;
             }
             editor.Visibility = Visibility.Visible;
+            UpdateFormatBarVisibility();
+            UpdateSelectionVisual();
             PositionAnnotationEditor();
             editor.CaretIndex = editor.Text.Length;
             editor.Focus();
@@ -426,7 +454,7 @@ namespace XTPdfMergeApp
             if (state.Kind == QuickAnnotationKind.Typewriter)
             {
                 // Khớp cỡ chữ + lề 2pt của annotation sẽ ghi → chữ gõ nằm đúng chỗ chữ sau khi ghi.
-                ReaderAnnotationEditor.FontSize = Math.Max(8, PdfQuickAnnotationService.TypewriterFontSize * pixelsPerPoint);
+                ReaderAnnotationEditor.FontSize = Math.Max(6, _textFormat.Size * pixelsPerPoint);
                 left = anchor.X;
                 top = anchor.Y;
             }
@@ -446,6 +474,11 @@ namespace XTPdfMergeApp
         private void ReaderContentHost_LayoutUpdated(object? sender, EventArgs e)
         {
             if (_annotationEditor != null) PositionAnnotationEditor();
+            else if (_selAnn != null)
+            {
+                RefreshSelectionFromCache();
+                UpdateSelectionVisual();
+            }
         }
 
         private void ReaderAnnotationEditor_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -473,8 +506,11 @@ namespace XTPdfMergeApp
             string text = ReaderAnnotationEditor.Text.TrimEnd();
             ReaderAnnotationEditor.Visibility = Visibility.Collapsed;
             Focus();
+            UpdateFormatBarVisibility();
+            UpdateSelectionVisual();
             if (cancel) return;
 
+            string format = state.Kind == QuickAnnotationKind.Typewriter ? _textFormat.Encode() : "";
             QuickAnnotationChange change;
             string description;
             string label = state.Kind == QuickAnnotationKind.Comment ? "note" : "typewriter";
@@ -482,10 +518,10 @@ namespace XTPdfMergeApp
             {
                 if (text.Length == 0) return;
                 change = new QuickAnnotationChange(null, new QuickAnnotationSpec(NewAnnotationName(), state.Kind,
-                    state.Row.PageNumber, state.U, state.V, state.U, state.V, text));
+                    state.Row.PageNumber, state.U, state.V, state.U, state.V, text) { Format = format });
                 description = "Add " + label;
             }
-            else if (text == existing.Text)
+            else if (text == existing.Text && (state.Kind != QuickAnnotationKind.Typewriter || TextFormat.Decode(existing.Format) == _textFormat))
             {
                 return;
             }
@@ -498,7 +534,7 @@ namespace XTPdfMergeApp
             {
                 // Annotation do app khác tạo (không có /NM) nhận tên mới khi được ghi lại.
                 string name = existing.Name.StartsWith('#') ? NewAnnotationName() : existing.Name;
-                change = new QuickAnnotationChange(existing, existing with { Name = name, Text = text });
+                change = new QuickAnnotationChange(existing, existing with { Name = name, Text = text, Format = format });
                 description = "Edit " + label;
             }
             CommitAnnotationChange(state.Row, change, description);

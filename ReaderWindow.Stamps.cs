@@ -57,20 +57,5 @@ namespace XTPdfMergeApp
             CommitAnnotationChange(hit.Row, new QuickAnnotationChange(null, spec), "Stamp");
             if ((Keyboard.Modifiers & ModifierKeys.Shift) == 0) SetReaderTool(ReaderTool.Hand);
         }
-
-        /// <summary>Chuột phải lên dấu đã đặt → menu "Delete stamp".</summary>
-        private void ReaderContent_StampContextMenu(object sender, MouseButtonEventArgs e)
-        {
-            if (_annotationEditor != null || !TryHitPage(e.GetPosition(ReaderContentHost), out var hit)) return;
-            var page = GetCachedPageAnnotations(hit.Row);
-            var stamp = FindAnnotationAt(page, hit, QuickAnnotationKind.Stamp);
-            if (stamp == null) return;
-            e.Handled = true;
-            var menu = new ContextMenu();
-            var delete = new MenuItem { Header = "Delete stamp" };
-            delete.Click += (_, _) => CommitAnnotationChange(hit.Row, new QuickAnnotationChange(stamp, null), "Delete stamp");
-            menu.Items.Add(delete);
-            menu.IsOpen = true;
-        }
     }
 }

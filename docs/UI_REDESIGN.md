@@ -158,3 +158,10 @@ zoom vào ~1,0 s, cuộn 40 nấc ~0,05 s, RAM khi dùng 620–660 MB private WS
 - Title bar (left): hide/show side panel «, New (blank A4 PDF, asks where to save), Open, Save, Save as, Undo, Redo.
 - Start icon is a house ("Home"); the active tab is white + bold + 3 px accent underline on a darker strip.
 - Toolbar grouped like Foxit with captions: Tools · View · Comment · Find & print (Undo/Redo moved to the title bar).
+
+## Round 3 feedback (28/09)
+
+- Merge is a separate window (`Controls/MergeWindow.cs` hosting `MergeView`); closing hides it. Dropping pages on the dock or the empty area creates a Temp window; page drags show a ghost (`Controls/DragGhost.cs`).
+- Settings shows one section at a time.
+- Annotations can be selected with the Hand tool (Typewriter text, Note, Highlight, Stamp): click = select, drag = move, double-click = edit text, Delete / right-click menu = delete (`ReaderWindow.Selection.cs`).
+- Typewriter format bar (font, size, bold, italic, colour), stored in the annotation as /XTFormat and remembered as the default; changing it on a selected text rewrites that annotation.

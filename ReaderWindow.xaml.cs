@@ -147,6 +147,19 @@ namespace XTPdfMergeApp
 
             if (Keyboard.FocusedElement is TextBox or ComboBox) return;
 
+            if (_selAnn != null && e.Key == Key.Delete)
+            {
+                DeleteSelectedAnnotation();
+                e.Handled = true;
+                return;
+            }
+            if (_selAnn != null && e.Key == Key.Escape)
+            {
+                SelectAnnotation(null, null);
+                e.Handled = true;
+                return;
+            }
+
             if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.O)
             {
                 if (EditHost != null) _ = EditHost.OpenFilesAsync();

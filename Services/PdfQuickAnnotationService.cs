@@ -27,6 +27,9 @@ namespace XTPdfMergeApp.Services
         string Name, QuickAnnotationKind Kind, int PageNumber,
         double U1, double V1, double U2, double V2, string Text)
     {
+        /// <summary>Typewriter only: encoded <see cref="TextFormat"/> ("" = default).</summary>
+        public string Format { get; init; } = "";
+
         public bool Contains(double u, double v) => u >= U1 && u <= U2 && v >= V1 && v <= V2;
     }
 
@@ -49,6 +52,33 @@ namespace XTPdfMergeApp.Services
         private const float CommentIconSize = 20f;
         private static readonly PdfName TypewriterIntent = new("FreeTextTypeWriter");
         private static readonly PdfName IntentKey = new("IT");
+        private static readonly PdfName FormatKey = new("XTFormat");
+
+        private static readonly System.Collections.Generic.Dictionary<string, string[]> FontFiles = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Arial"] = new[] { "arial.ttf", "arialbd.ttf", "ariali.ttf", "arialbi.ttf" },
+            ["Times New Roman"] = new[] { "times.ttf", "timesbd.ttf", "timesi.ttf", "timesbi.ttf" },
+            ["Tahoma"] = new[] { "tahoma.ttf", "tahomabd.ttf", "tahoma.ttf", "tahomabd.ttf" },
+            ["Segoe UI"] = new[] { "segoeui.ttf", "segoeuib.ttf", "segoeuii.ttf", "segoeuiz.ttf" },
+            ["Calibri"] = new[] { "calibri.ttf", "calibrib.ttf", "calibrii.ttf", "calibriz.ttf" },
+            ["Verdana"] = new[] { "verdana.ttf", "verdanab.ttf", "verdanai.ttf", "verdanaz.ttf" },
+            ["Courier New"] = new[] { "cour.ttf", "courbd.ttf", "couri.ttf", "courbi.ttf" },
+        };
+
+        /// <summary>Embedded Unicode font for a Typewriter format (falls back to the default Unicode font when the family is not installed).</summary>
+        private static PdfFont CreateFormatFont(TextFormat format)
+        {
+            if (FontFiles.TryGetValue(format.Family, out var files))
+            {
+                string path = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), files[(format.Bold ? 1 : 0) + (format.Italic ? 2 : 0)]);
+                if (File.Exists(path))
+                {
+                    try { return PdfFontFactory.CreateFont(path, PdfEncodings.IDENTITY_H, PdfFontFactory.EmbeddingStrategy.PREFER_EMBEDDED); }
+                    catch { /* fall through */ }
+                }
+            }
+            return CreateUnicodeFont();
+        }
 
         /// <summary>Font TrueType có đủ dấu tiếng Việt cho typewriter. null = tự dò font hệ thống.</summary>
         public static string? FontPathOverride { get; set; }
@@ -87,7 +117,8 @@ namespace XTPdfMergeApp.Services
                 var (u1, v1, u2, v2) = geometry.UserRectToDisplay(rect.GetLeft(), rect.GetBottom(), rect.GetRight(), rect.GetTop());
                 string name = annot.GetName()?.ToUnicodeString() is { Length: > 0 } nm ? nm : "#" + i;
                 result.Add(new QuickAnnotationSpec(name, kind.Value, pageNumber, u1, v1, u2, v2,
-                    annot.GetContents()?.ToUnicodeString() ?? ""));
+                    annot.GetContents()?.ToUnicodeString() ?? "")
+                { Format = annot.GetPdfObject().GetAsString(FormatKey)?.ToUnicodeString() ?? "" });
             }
             return result;
         }
@@ -105,6 +136,7 @@ namespace XTPdfMergeApp.Services
         public static void ApplyChanges(PdfDocument doc, IEnumerable<QuickAnnotationChange> changes)
         {
             PdfFont? typewriterFont = null;
+            var formatFonts = new System.Collections.Generic.Dictionary<string, PdfFont>();
             foreach (var change in changes)
             {
                 var page = doc.GetPage(change.PageNumber);
@@ -113,9 +145,13 @@ namespace XTPdfMergeApp.Services
                 switch (change.Add.Kind)
                 {
                     case QuickAnnotationKind.Typewriter:
-                        typewriterFont ??= CreateUnicodeFont();
-                        AddTypewriter(doc, page, change.Add, typewriterFont);
+                    {
+                        var format = TextFormat.Decode(change.Add.Format);
+                        string fontKey = format.Family + format.Bold + format.Italic;
+                        if (!formatFonts.TryGetValue(fontKey, out var formatFont)) formatFonts[fontKey] = formatFont = CreateFormatFont(format);
+                        AddTypewriter(doc, page, change.Add, formatFont, format);
                         break;
+                    }
                     case QuickAnnotationKind.Comment:
                         AddComment(doc, page, change.Add);
                         break;
@@ -155,18 +191,21 @@ namespace XTPdfMergeApp.Services
 
         // ── Typewriter (FreeText không viền, chữ hiện thẳng trên trang) ──
 
-        private static void AddTypewriter(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec, PdfFont font)
+        private static void AddTypewriter(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec, PdfFont font, TextFormat format)
         {
             var geometry = GetGeometry(page);
             string[] lines = SplitLines(spec.Text);
-            float size = TypewriterFontSize;
+            float size = (float)format.Size;
+            var color = ParseColor(format.Color);
+            var rgb = color.GetColorValue();
             float lead = size * TypewriterLineHeight;
             float width = Math.Max(20f, lines.Max(l => font.GetWidth(l, size)) + 2 * TypewriterPadding);
             float height = lines.Length * lead + 2 * TypewriterPadding;
 
             var rect = DisplayBoxToUser(geometry, spec.U1, spec.V1, width, height);
             var annot = new PdfFreeTextAnnotation(rect, new PdfString(spec.Text, PdfEncodings.UNICODE_BIG));
-            annot.SetDefaultAppearance(new PdfString($"0 g /Helv {size:0.##} Tf"));
+            annot.SetDefaultAppearance(new PdfString(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{rgb[0]:0.###} {rgb[1]:0.###} {rgb[2]:0.###} rg /Helv {size:0.##} Tf")));
+            annot.GetPdfObject().Put(FormatKey, new PdfString(format.Encode(), PdfEncodings.UNICODE_BIG));
             annot.GetPdfObject().Put(IntentKey, TypewriterIntent);
             annot.GetPdfObject().Put(PdfName.BS, new PdfDictionary(new Dictionary<PdfName, PdfObject> { [PdfName.W] = new PdfNumber(0) }));
             if (geometry.Rotation != 0) annot.GetPdfObject().Put(PdfName.Rotate, new PdfNumber(geometry.Rotation));
@@ -176,7 +215,7 @@ namespace XTPdfMergeApp.Services
             var form = new PdfFormXObject(new Rectangle(0, 0, width, height));
             SetRotationMatrix(form, geometry.Rotation);
             var canvas = new PdfCanvas(form, doc);
-            canvas.BeginText().SetFontAndSize(font, size).SetFillColor(ColorConstants.BLACK)
+            canvas.BeginText().SetFontAndSize(font, size).SetFillColor(color)
                 .MoveText(TypewriterPadding, height - TypewriterPadding - size * 0.9);
             for (int i = 0; i < lines.Length; i++)
             {
