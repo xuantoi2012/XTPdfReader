@@ -317,6 +317,51 @@ namespace XTPdfMergeApp
             RefreshRendersAfterLayerChange(path);
         }
 
+        /// <summary>"Export PDF with this view…": lưu bản sao các trang của window (layer cùng tên gộp) ra file mới với layer đang tắt
+        /// làm mặc định. File xuất vẫn có layer (bật/tắt lại được); window đang xem không đổi.</summary>
+        async Task IReaderPageEditHost.ExportWithLayerViewAsync(DocumentGroup group, IReadOnlySet<string> hiddenNames, string viewName)
+        {
+            var pageList = group.Pages.Select(p => (p.SourcePath, p.PageNumber)).ToList();
+            if (pageList.Count == 0) return;
+
+            string dir = Path.GetDirectoryName(group.SourcePath) ?? "";
+            string suffix = string.Concat(viewName.Where(c => Array.IndexOf(Path.GetInvalidFileNameChars(), c) < 0));
+            using var dlg = new System.Windows.Forms.SaveFileDialog
+            {
+                Title = "Export PDF with this view",
+                Filter = "PDF (*.pdf)|*.pdf",
+                DefaultExt = "pdf",
+                FileName = Path.GetFileNameWithoutExtension(group.SourcePath) + " - " + suffix + ".pdf",
+                InitialDirectory = Directory.Exists(dir) ? dir : ""
+            };
+            if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+
+            string output;
+            try { output = Path.GetFullPath(dlg.FileName); }
+            catch { return; }
+            if (_groups.Any(g => g.Pages.Any(p => string.Equals(p.SourcePath, output, StringComparison.OrdinalIgnoreCase))))
+            {
+                MessageBox.Show(OwnerWindow, "That file is open or used by an open window. Choose a different name.",
+                    "Export PDF", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            string error = "";
+            bool ok = await Task.Run(() =>
+            {
+                if (!XTPdfMerger.TryMergePages(pageList, output, out var e, null, mergeLayersByName: true)) { error = e; return false; }
+                try { PdfLayerService.SetDefaultVisibilityByName(output, hiddenNames); return true; }
+                catch (Exception ex) { error = ex.Message; return false; }
+            });
+            if (!ok)
+            {
+                TryDelete(output);
+                MessageBox.Show(OwnerWindow, "Could not export the file:\n" + error, "Export PDF", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            XTStyle.Controls.XTGrowl.Success("Exported " + Path.GetFileName(output), OwnerWindow);
+        }
+
         private void RefreshRendersAfterLayerChange(string path)
         {
             var rows = _groups.SelectMany(g => g.Pages)
@@ -777,6 +822,7 @@ namespace XTPdfMergeApp
         void DeletePages(DocumentGroup group, IReadOnlyList<PageRow> pages);
         /// <summary>Đặt tập layer đang tắt của file và vẽ lại thumbnail/Viewer theo trạng thái đó.</summary>
         Task SetLayerHiddenAsync(string path, IReadOnlySet<string> hidden, IReadOnlySet<string> defaultHidden);
+        Task ExportWithLayerViewAsync(DocumentGroup group, IReadOnlySet<string> hiddenNames, string viewName);
         Task OpenFilesAsync();
         void CloseDocument(DocumentGroup group);
         Task<IReadOnlyList<PageRow>> InsertBlankPageAsync(DocumentGroup target, int insertIndex, PageRow reference);

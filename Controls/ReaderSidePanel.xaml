@@ -30,18 +30,15 @@
             </Style>
 
             <HierarchicalDataTemplate DataType="{x:Type svc:PdfBookmarkNode}" ItemsSource="{Binding Children}">
-                <TextBlock Text="{Binding Title}" Padding="2,1" ToolTip="{Binding Title}"
-                           MouseLeftButtonUp="Bookmark_MouseLeftButtonUp"/>
-            </HierarchicalDataTemplate>
-
-            <HierarchicalDataTemplate DataType="{x:Type local:LayerItem}" ItemsSource="{Binding Children}">
-                <StackPanel Orientation="Horizontal" ToolTip="{Binding ToolTipText}" ToolTipService.ShowOnDisabled="True">
-                    <CheckBox IsChecked="{Binding IsVisible, Mode=OneWay}" IsEnabled="{Binding CanToggle}"
-                              Visibility="{Binding CheckBoxVisibility}" VerticalAlignment="Center" Margin="0,0,4,0"
-                              ToolTip="{Binding ToolTipText}" ToolTipService.ShowOnDisabled="True"
-                              Click="LayerCheckBox_Click"/>
-                    <TextBlock Text="{Binding Title}" VerticalAlignment="Center" FontWeight="{Binding TitleWeight}"/>
-                </StackPanel>
+                <Grid Background="Transparent" ToolTip="{Binding Title}" MouseLeftButtonUp="Bookmark_MouseLeftButtonUp">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
+                    <TextBlock Grid.Column="1" Text="{Binding PageNumber}" FontSize="11" Margin="10,0,0,0" VerticalAlignment="Center"
+                               Foreground="{DynamicResource Ui.Muted}"/>
+                </Grid>
             </HierarchicalDataTemplate>
         </ResourceDictionary>
     </UserControl.Resources>
@@ -160,10 +157,13 @@
                         HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False" Panel.ZIndex="5"/>
 
                 <TreeView x:Name="BookmarkTree" BorderThickness="0" Background="Transparent" Visibility="Collapsed"
-                          VirtualizingPanel.IsVirtualizing="True"/>
+                          VirtualizingPanel.IsVirtualizing="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled" Padding="0,2">
+                    <TreeView.Resources>
+                        <Style TargetType="TreeViewItem" BasedOn="{StaticResource UiTreeItem}"/>
+                    </TreeView.Resources>
+                </TreeView>
 
-                <TreeView x:Name="LayerTree" BorderThickness="0" Background="Transparent" Visibility="Collapsed"
-                          VirtualizingPanel.IsVirtualizing="True"/>
+                <local:LayersPanel x:Name="LayersView" Visibility="Collapsed"/>
 
                 <TextBlock x:Name="PanelEmptyText" Visibility="Collapsed" Margin="14" TextWrapping="Wrap"
                            Foreground="{DynamicResource Ui.Muted}"/>

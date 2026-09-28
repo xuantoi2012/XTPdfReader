@@ -198,9 +198,59 @@ namespace XTPdfMergeApp.Services
                     config.Put(PdfName.OFF, off);
                     config.SetModified();
                     ocProperties.SetModified();
+                    // /OCProperties và /D thường là từ điển TRỰC TIẾP nằm trong Catalog (file AutoCAD/pdfFactory): iText chỉ ghi
+                    // đối tượng gián tiếp bị đánh dấu sửa, nên phải đánh dấu chính Catalog — không thì phần nối thêm rỗng và
+                    // bật/tắt layer không có tác dụng.
+                    doc.GetCatalog().GetPdfObject().SetModified();
                 }
             }
             return tail.ToArray();
+        }
+
+        /// <summary>
+        /// Ghi lại /D/ON, /D/OFF của file <paramref name="path"/> theo TÊN layer: layer có tên trong <paramref name="hiddenNames"/> tắt,
+        /// còn lại bật. Bỏ /D/AS để mọi trình xem đều hiện đúng View này (không bị usage View bật lại). Ghi ra file tạm rồi thay.
+        /// </summary>
+        public static void SetDefaultVisibilityByName(string path, IReadOnlySet<string> hiddenNames)
+        {
+            string temp = path + ".xtview.tmp";
+            try
+            {
+                using (var reader = new PdfReader(path))
+                using (var writer = new PdfWriter(temp))
+                using (var doc = new PdfDocument(reader, writer))
+                {
+                    var ocProperties = doc.GetCatalog().GetPdfObject().GetAsDictionary(PdfName.OCProperties);
+                    var ocgs = ocProperties?.GetAsArray(PdfName.OCGs);
+                    if (ocProperties != null && ocgs != null)
+                    {
+                        var config = ocProperties.GetAsDictionary(PdfName.D);
+                        if (config == null)
+                        {
+                            config = new PdfDictionary();
+                            ocProperties.Put(PdfName.D, config);
+                        }
+                        var on = new PdfArray();
+                        var off = new PdfArray();
+                        for (int i = 0; i < ocgs.Size(); i++)
+                        {
+                            if (ocgs.GetAsDictionary(i) is not { } ocg) continue;
+                            string name = ocg.GetAsString(PdfName.Name)?.ToUnicodeString() ?? "(không tên)";
+                            (hiddenNames.Contains(name) ? off : on).Add(ocgs.Get(i, false));
+                        }
+                        config.Put(PdfName.ON, on);
+                        config.Put(PdfName.OFF, off);
+                        config.Remove(AS);
+                        config.SetModified();
+                    }
+                }
+                File.Move(temp, path, overwrite: true);
+            }
+            catch
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); } catch { /* file tạm */ }
+                throw;
+            }
         }
 
         /// <summary>iText đọc file gốc qua <see cref="PdfBlockCache"/>. Không sở hữu bộ đệm (người gọi giữ tham chiếu).</summary>

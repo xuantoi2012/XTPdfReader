@@ -46,8 +46,17 @@ Trạng thái: `[ ]` chưa · `[~]` đang · `[x]` xong. Số theo mockup.
   (Ctrl+C/X/V/D, Alt+↑↓, Ctrl+Shift+Home/End). P2c: kéo thả có vạch chèn + tự cuộn, kéo sang tab khác (giữ 0,5 s tab tự chuyển), thả lên tab, Ctrl = copy.
   P2d: Insert ▾ (From an open file / From disk… / Blank page — trang trắng cùng khổ trang tham chiếu, file PDF 1 trang trong thư mục tạm, xoá khi thoát).
   Khác mockup: không có ghost adorner khi kéo (chỉ vạch chèn), menu chuột phải chưa có icon/mũi tên submenu; "Send to Merge window" để P6.
-- [ ] **P3 — Layers** (mockup 3, 3b): cây có checkbox 3 trạng thái, ô tìm, Show all/Hide all, chip "N files" cho layer gộp, saved Views
-  (lưu/áp dụng/isolate/reset), nút "Export PDF with this view…". Bookmarks panel theo cùng style.
+- [x] **P3 — Layers + Bookmarks** (mockup 3, 3b) — **xong 28/09**. Tab Layers (`Controls/LayersPanel.*`, model `Controls/LayerScope.cs`): cây theo /Order của
+  **mọi file trong window đang xem**, layer cùng tên (so khớp y như khi lưu file ghép) gộp 1 dòng, chip "N files"; ô chọn 3 trạng thái (nhóm suy ra từ con, bấm nhóm
+  áp cho mọi layer con; layer khoá / bị /AS điều khiển mờ đi, có tooltip); ô tìm (giữ dòng khớp + tổ tiên + con cháu), nút mở/thu tất cả, Show all / Hide all,
+  Isolate selected, Reset (về mặc định lưu trong file), chip số layer sau gộp. **View** lưu theo TÊN layer (`Services/LayerViewStore.cs`, file
+  `%LocalAppData%\XTPdfReader\layer-views.json`, dùng chung mọi file): menu View có Default / All layers / các View đã lưu ("N visible", dấu ✓ View đang khớp) /
+  Save current as new view… / Update "X" / Manage views… (đổi tên, xoá). "Export PDF with this view…" lưu bản sao các trang của window (layer cùng tên gộp) với
+  layer đang tắt làm **mặc định của file mới** (`PdfLayerService.SetDefaultVisibilityByName`, bỏ /D/AS) — file xuất vẫn còn layer. Bookmarks cùng style
+  (`UiTreeItem`: hàng 30, chevron nét mảnh, hover/chọn, số trang bên phải).
+  **Sửa lỗi có sẵn:** file có `/OCProperties` và `/D` là từ điển TRỰC TIẾP trong Catalog (file AutoCAD/pdfFactory, vd ACAD-991ND…) thì bật/tắt layer không có tác dụng
+  vì iText không ghi Catalog trong phần nối thêm — nay đánh dấu Catalog đã sửa (`PdfLayerService.BuildVisibilityTail`); có test hồi quy trong `Tests/PoolTest`.
+  Chưa có (để P8): xuất **flatten** thật (xoá hẳn nội dung layer ẩn khỏi file). Khác mockup: menu View chưa có icon/dòng phụ 2 tầng (dùng "N visible" bên phải).
 - [ ] **P4 — Settings** (mockup 4): Appearance (Theme Light/Dark/System, accent 4 màu), Display (view mode mặc định, zoom khi mở),
   Performance & memory (files kept warm, file cache: dung lượng + Clear cache), Integration (pdfFactory).
 - [ ] **P5 — Start screen, thông báo, Command palette** (mockup 13, 16): Recent (ghim), Quick locations, Workspaces (lưu/khôi phục bộ file + layout Merge),

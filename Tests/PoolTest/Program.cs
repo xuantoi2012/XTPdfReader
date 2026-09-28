@@ -119,6 +119,16 @@ static class P
         var after = await Task.WhenAll(Enumerable.Range(0, 2 * k).Select(_ => Task.Run(() => PdfThumbnailService.RenderPageAsync(layers, 0, 400, layerToken: token))));
         Check(after.All(b => b != null && Colour(b, 50) == "-" && Colour(b, 150) == "B"), $"tắt LAYER_A: mọi lệnh ({after.Length}) vẽ A ẩn, B hiện");
 
+        // ── Layer trong file có /OCProperties là từ điển TRỰC TIẾP trong Catalog (file AutoCAD/pdfFactory) ──
+        // Trước đây phần nối thêm rỗng (iText không ghi Catalog) nên tắt layer không có tác dụng.
+        string direct = MakeDirectOcProperties();
+        var dInfo = PdfLayerService.ReadLayers(direct);
+        string dIdA = dInfo.Names.First(kv => kv.Value == "LAYER_A").Key;
+        PdfLayerStateStore.SetHidden(direct, new HashSet<string> { dIdA }, dInfo.DefaultHidden);
+        await PdfThumbnailService.RetireDocumentAsync(direct);
+        var dAfter = await PdfThumbnailService.RenderPageAsync(direct, 0, 400, layerToken: PdfLayerStateStore.GetToken(direct));
+        Check(dAfter != null && Colour(dAfter, 50) == "-" && Colour(dAfter, 150) == "B", "tắt LAYER_A trong file có /OCProperties trực tiếp: A ẩn, B hiện");
+
         // ── Stress: 16 luồng, huỷ ngẫu nhiên, tile, tỉ lệ trang, ReleaseCachedPages, Suspend ──
         var errors = new ConcurrentBag<string>();
         int renders = 0, cancelled = 0, suspends = 0;
@@ -197,6 +207,37 @@ static class P
             doc.AddNewPage(new iText.Kernel.Geom.PageSize(1191, 842));            // A3 ngang
             doc.AddNewPage(new iText.Kernel.Geom.PageSize(1191, 842)).SetRotation(90); // A3 ngang xoay 90 → hiện dọc
         }
+        return f;
+    }
+
+    /// <summary>PDF viết tay: /OCProperties và /D là từ điển trực tiếp trong Catalog, như file AutoCAD xuất ra.</summary>
+    static string MakeDirectOcProperties()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "xtpooltest"); Directory.CreateDirectory(dir);
+        string f = Path.Combine(dir, "direct-oc.pdf");
+        string[] objects =
+        {
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [5 0 R 6 0 R] /D << /Order [5 0 R 6 0 R] /OFF [] >> >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 100] /Resources << /Properties << /OC1 5 0 R /OC2 6 0 R >> >> /Contents 4 0 R >>",
+            null, // nội dung trang (stream) — dựng bên dưới
+            "<< /Type /OCG /Name (LAYER_A) >>",
+            "<< /Type /OCG /Name (LAYER_B) >>",
+        };
+        const string content = "/OC /OC1 BDC 1 0 0 rg 10 10 80 80 re f EMC /OC /OC2 BDC 0 0 1 rg 110 10 80 80 re f EMC";
+        objects[3] = $"<< /Length {content.Length} >>\nstream\n{content}\nendstream";
+        var sb = new System.Text.StringBuilder("%PDF-1.5\n");
+        var offsets = new List<int>();
+        for (int i = 0; i < objects.Length; i++)
+        {
+            offsets.Add(sb.Length);
+            sb.Append($"{i + 1} 0 obj\n{objects[i]}\nendobj\n");
+        }
+        int xref = sb.Length;
+        sb.Append($"xref\n0 {objects.Length + 1}\n0000000000 65535 f \n");
+        foreach (int o in offsets) sb.Append($"{o:D10} 00000 n \n");
+        sb.Append($"trailer\n<< /Size {objects.Length + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        File.WriteAllText(f, sb.ToString(), System.Text.Encoding.ASCII);
         return f;
     }
 

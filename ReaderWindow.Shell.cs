@@ -46,7 +46,8 @@ namespace XTPdfMergeApp
             };
             ReaderSidePanel.HasPageClipboard = () => EditHost?.HasPageClipboard == true;
             ReaderSidePanel.BookmarkActivated += NavigateToSourcePage;
-            ReaderSidePanel.LayerToggled += OnLayerToggled;
+            ReaderSidePanel.LayerHiddenChanged += OnLayerHiddenChanged;
+            ReaderSidePanel.ExportLayerViewRequested += OnExportLayerView;
             ShowEmptyReaderState();
         }
 
@@ -550,13 +551,17 @@ namespace XTPdfMergeApp
 
         // ── Layer ─────────────────────────────────────────────────────
 
-        private async void OnLayerToggled(string path, PdfLayerInfo info, string ocgId, bool visible)
+        private async void OnLayerHiddenChanged(string path, PdfLayerInfo info, IReadOnlySet<string> hidden)
         {
             if (EditHost == null) return;
-            var hidden = new HashSet<string>(PdfLayerStateStore.GetHiddenOverride(path, out _) ?? info.DefaultHidden);
-            if (visible) hidden.Remove(ocgId);
-            else hidden.Add(ocgId);
             await EditHost.SetLayerHiddenAsync(path, hidden, info.DefaultHidden);
+        }
+
+        /// <summary>"Export PDF with this view…": lưu bản sao các trang của window đang xem, layer đang tắt thành mặc định của file mới.</summary>
+        private async void OnExportLayerView(IReadOnlySet<string> hiddenNames, string viewName)
+        {
+            if (EditHost == null || _readerGroup == null) return;
+            await EditHost.ExportWithLayerViewAsync(_readerGroup, hiddenNames, viewName);
         }
 
         /// <summary>Trạng thái layer của file vừa đổi (lease PDFium cũ đã đóng). Trang đang hiện: vẽ lại TẠI CHỖ

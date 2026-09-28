@@ -218,6 +218,127 @@
         </Setter>
     </Style>
 
+    <!-- ══ Nút viền mảnh (Show all / Hide all / Isolate…): icon tuỳ chọn + chữ 12 px ══ -->
+    <ControlTemplate x:Key="UiGhostButtonTemplate" TargetType="{x:Type xt:XTButton}">
+        <Border x:Name="Bd" CornerRadius="6" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}"
+                Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Viewbox x:Name="Icon" Width="14" Height="14" Margin="0,0,6,0">
+                    <Canvas Width="24" Height="24">
+                        <Path Data="{TemplateBinding IconData}" Stroke="{TemplateBinding IconBrush}" Style="{StaticResource UiLineIconPath}"/>
+                    </Canvas>
+                </Viewbox>
+                <TextBlock Text="{TemplateBinding Text}" Foreground="{TemplateBinding Foreground}" FontSize="12" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IconData" Value="{x:Null}">
+                <Setter TargetName="Icon" Property="Visibility" Value="Collapsed"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.42"/>
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <Style x:Key="UiGhostButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
+        <Setter Property="Template" Value="{StaticResource UiGhostButtonTemplate}"/>
+        <Setter Property="Width" Value="Auto"/>
+        <Setter Property="MinWidth" Value="0"/>
+        <Setter Property="Height" Value="30"/>
+        <Setter Property="Padding" Value="10,0"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+        <Setter Property="IconBrush" Value="{DynamicResource Ui.Text}"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Ui.Hover}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ══ Dòng danh sách (Layers…): hover + chọn nền accent nhạt ══ -->
+    <Style x:Key="UiRowItem" TargetType="ListBoxItem">
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="Bd" Background="Transparent" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                        <ContentPresenter/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ══ Cây (Bookmarks): hàng cao 30, mũi tên chevron nét mảnh, hover/chọn cùng kiểu danh sách Layers ══ -->
+    <Style x:Key="UiTreeExpander" TargetType="ToggleButton">
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border Background="Transparent" Width="22" Height="28">
+                        <Viewbox Width="14" Height="14">
+                            <Canvas Width="24" Height="24">
+                                <Path x:Name="Chev" Data="{StaticResource Ui.Icon.chevr}" Stroke="{DynamicResource Ui.Muted}"
+                                      Style="{StaticResource UiLineIconPath}" StrokeThickness="2"/>
+                            </Canvas>
+                        </Viewbox>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Chev" Property="Data" Value="{StaticResource Ui.Icon.chevd}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="UiTreeItem" TargetType="TreeViewItem">
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TreeViewItem">
+                    <StackPanel>
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="5" Margin="4,0" SnapsToDevicePixels="True">
+                            <DockPanel MinHeight="28">
+                                <ToggleButton x:Name="Expander" DockPanel.Dock="Left" Style="{StaticResource UiTreeExpander}" ClickMode="Press"
+                                              IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"/>
+                                <ContentPresenter x:Name="PART_Header" ContentSource="Header" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            </DockPanel>
+                        </Border>
+                        <ItemsPresenter x:Name="Items" Margin="16,0,0,0" Visibility="Collapsed"/>
+                    </StackPanel>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsExpanded" Value="True">
+                            <Setter TargetName="Items" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="HasItems" Value="False">
+                            <Setter TargetName="Expander" Property="Visibility" Value="Hidden"/>
+                        </Trigger>
+                        <Trigger SourceName="Bd" Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="UiCountChip" TargetType="Border">
         <Setter Property="Background" Value="{DynamicResource Ui.Chip}"/>
         <Setter Property="CornerRadius" Value="9"/>
