@@ -439,6 +439,10 @@ namespace XTPdfMergeApp
 
         Task IReaderPageEditHost.OpenFilesAsync() => ((IReaderPageEditHost)this).OpenFilesDialogAsync(null);
 
+        Task IReaderPageEditHost.SetCommentResolvedAsync(string path, int pageNumber, string name, bool resolved)
+            => EditSourceFilesAsync(new[] { (path, (IReadOnlyCollection<int>)new[] { pageNumber }) },
+                (p, _) => PdfPageEditService.EditInPlace(p, doc => PdfCommentService.SetResolved(doc, pageNumber, name, resolved)), geometryChanged: false);
+
         async Task IReaderPageEditHost.MergeAllToFileAsync()
         {
             var pageList = _groups.SelectMany(g => g.Pages).Select(p => (p.SourcePath, p.PageNumber)).ToList();
@@ -935,6 +939,8 @@ namespace XTPdfMergeApp
         Task OpenFilesAsync();
         /// <summary>Ghép trang của MỌI window (theo thứ tự) thành 1 file PDF mới (layer cùng tên gộp).</summary>
         Task MergeAllToFileAsync();
+        /// <summary>Đặt / bỏ trạng thái Resolved của 1 chú thích (ghi thẳng file nguồn).</summary>
+        Task SetCommentResolvedAsync(string path, int pageNumber, string name, bool resolved);
         /// <summary>Tạo window tạm trống ("Temp N") để gom trang từ nhiều file.</summary>
         DocumentGroup CreateTempWindow();
         /// <summary>Hộp thoại chọn file bắt đầu ở <paramref name="initialDirectory"/> (null = mặc định).</summary>

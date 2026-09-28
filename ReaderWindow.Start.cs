@@ -161,6 +161,7 @@ namespace XTPdfMergeApp
                 Cmd("Show pages panel", "", "pages", () => { ShowStart(false); ReaderSidePanel.ShowPanel("Pages"); });
                 Cmd("Show bookmarks panel", "", "bookmark", () => { ShowStart(false); ReaderSidePanel.ShowPanel("Bookmarks"); });
                 Cmd("Show layers panel", "", "layers", () => { ShowStart(false); ReaderSidePanel.ShowPanel("Layers"); });
+                Cmd("Show comments panel", "", "comment", () => { ShowStart(false); ReaderSidePanel.ShowPanel("Comments"); });
             }
             Cmd("Find in document…", "Ctrl+F", "search", OpenFind);
             if (_readerGroup != null) Cmd("Export / split PDF…", "Ctrl+Shift+E", "export", () => OpenExport(preferFlatten: false));

@@ -1660,6 +1660,7 @@ namespace XTPdfMergeApp
         /// cũ trên màn hình tới khi ảnh mới xong, không nhảy lại vị trí cuộn/zoom.</summary>
         internal void OnSourcePagesEdited(string path, IReadOnlyCollection<int> pages, bool geometryChanged)
         {
+            ReaderSidePanel.OnSourceEdited(path);
             bool Matches(string p, int page) =>
                 pages.Contains(page) && string.Equals(p, path, StringComparison.OrdinalIgnoreCase);
 

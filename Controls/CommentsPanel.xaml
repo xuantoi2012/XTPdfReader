@@ -1,0 +1,118 @@
+<UserControl x:Class="XTPdfMergeApp.Controls.CommentsPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
+             xmlns:local="clr-namespace:XTPdfMergeApp.Controls"
+             FontFamily="Segoe UI" FontSize="12">
+    <UserControl.Resources>
+        <Style x:Key="StatusItem" TargetType="RadioButton">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bd" Height="26" Padding="10,0" CornerRadius="5" Background="Transparent">
+                            <TextBlock x:Name="Tx" Text="{TemplateBinding Content}" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource XTPrimaryButtonBackground}"/>
+                                <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.OnAccent}"/>
+                                <Setter TargetName="Tx" Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="CommentRowItem" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <ContentPresenter/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsHeader}" Value="True">
+                    <Setter Property="IsHitTestVisible" Value="False"/>
+                    <Setter Property="Focusable" Value="False"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <DataTemplate DataType="{x:Type local:CommentGroupHeader}">
+            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Margin="14,10,10,2" Foreground="{DynamicResource Ui.Muted}"/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type local:CommentCard}">
+            <Border x:Name="Card" Margin="8,4" Padding="12,10" CornerRadius="8" BorderThickness="1.5" BorderBrush="{DynamicResource Ui.Border}"
+                    Background="{DynamicResource Ui.Surface}" Cursor="Hand">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Viewbox Width="16" Height="16" Margin="0,0,8,0">
+                            <Canvas Width="24" Height="24">
+                                <Path Data="{Binding Icon}" Stroke="#D97706" Style="{StaticResource UiLineIconPath}"/>
+                            </Canvas>
+                        </Viewbox>
+                        <TextBlock Grid.Column="1" Text="{Binding Author}" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
+                        <TextBlock Grid.Column="2" Text="{Binding DateText}" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}" FontSize="11"/>
+                        <Border Grid.Column="3" x:Name="Chip" CornerRadius="9" Padding="8,1" Cursor="Hand" ToolTip="Click to change the status"
+                                Background="{DynamicResource Ui.AccentSoft}" MouseLeftButtonUp="Status_MouseLeftButtonUp">
+                            <TextBlock x:Name="ChipText" Text="Open" FontSize="11" Foreground="{DynamicResource Ui.Accent}"/>
+                        </Border>
+                    </Grid>
+                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" Margin="0,6,0,0" LineHeight="17" Foreground="{DynamicResource Ui.Text}"/>
+                </StackPanel>
+            </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                    <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
+                    <Setter TargetName="Card" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Resolved}" Value="True">
+                    <Setter TargetName="Chip" Property="Background" Value="{DynamicResource Ui.Chip}"/>
+                    <Setter TargetName="ChipText" Property="Text" Value="Resolved"/>
+                    <Setter TargetName="ChipText" Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" Padding="12,10">
+            <xt:XTButton Style="{StaticResource UiGhostButton}" Icon="{StaticResource Ui.Icon.export}" Text="Export summary…" HorizontalAlignment="Stretch"
+                         ToolTip="Save all comments of this document as a spreadsheet (CSV)" Click="Export_Click"/>
+        </Border>
+        <StackPanel DockPanel.Dock="Top" Margin="12,0,12,10">
+            <Border CornerRadius="7" Background="{DynamicResource Ui.Chip}" Padding="2" HorizontalAlignment="Left">
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton x:Name="StatusAll" Style="{StaticResource StatusItem}" GroupName="CommentStatus" IsChecked="True" Checked="Filter_Changed"/>
+                    <RadioButton x:Name="StatusOpen" Style="{StaticResource StatusItem}" GroupName="CommentStatus" Checked="Filter_Changed"/>
+                    <RadioButton x:Name="StatusResolved" Style="{StaticResource StatusItem}" GroupName="CommentStatus" Checked="Filter_Changed"/>
+                </StackPanel>
+            </Border>
+            <Grid Margin="0,10,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <ComboBox x:Name="TypeBox" Height="30" SelectionChanged="Filter_SelectionChanged">
+                    <ComboBoxItem Content="All types" Tag="" IsSelected="True"/>
+                    <ComboBoxItem Content="Typewriter" Tag="Typewriter"/>
+                    <ComboBoxItem Content="Note" Tag="Comment"/>
+                    <ComboBoxItem Content="Highlight" Tag="Highlight"/>
+                </ComboBox>
+                <ComboBox x:Name="AuthorBox" Grid.Column="2" Height="30" SelectionChanged="Filter_SelectionChanged"/>
+            </Grid>
+        </StackPanel>
+        <Grid>
+            <ListBox x:Name="Cards" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource Ui.Border}" Background="Transparent" ItemContainerStyle="{StaticResource CommentRowItem}"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" SelectionChanged="Cards_SelectionChanged"/>
+            <TextBlock x:Name="EmptyText" Margin="14" TextWrapping="Wrap" Foreground="{DynamicResource Ui.Muted}" Visibility="Collapsed"/>
+        </Grid>
+    </DockPanel>
+</UserControl>

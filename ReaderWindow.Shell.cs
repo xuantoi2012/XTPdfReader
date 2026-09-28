@@ -50,6 +50,11 @@ namespace XTPdfMergeApp
             };
             ReaderSidePanel.HasPageClipboard = () => EditHost?.HasPageClipboard == true;
             ReaderSidePanel.BookmarkActivated += NavigateToSourcePage;
+            ReaderSidePanel.CommentActivated += c => NavigateToSourcePage(c.Path, c.Page);
+            ReaderSidePanel.CommentResolvedToggled += async (c, resolved) =>
+            {
+                if (EditHost != null) await EditHost.SetCommentResolvedAsync(c.Path, c.Page, c.Name, resolved);
+            };
             ReaderSidePanel.LayerHiddenChanged += OnLayerHiddenChanged;
             ReaderSidePanel.ExportLayerViewRequested += OnExportLayerView;
             ShowEmptyReaderState();

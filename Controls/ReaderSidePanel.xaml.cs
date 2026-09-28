@@ -23,7 +23,7 @@ namespace XTPdfMergeApp.Controls
     /// </summary>
     public partial class ReaderSidePanel : UserControl
     {
-        private enum Tab { Thumbnails, Bookmarks, Layers, Find }
+        private enum Tab { Thumbnails, Bookmarks, Layers, Find, Comments }
 
         private Tab _tab = Tab.Thumbnails;
         private DocumentGroup? _group;
@@ -36,6 +36,9 @@ namespace XTPdfMergeApp.Controls
         {
             InitializeComponent();
             LayersView.HiddenChanged += (path, info, hidden) => LayerHiddenChanged?.Invoke(path, info, hidden);
+            CommentsView.CommentActivated += c => CommentActivated?.Invoke(c);
+            CommentsView.ResolvedToggled += (c, resolved) => CommentResolvedToggled?.Invoke(c, resolved);
+            CommentsView.CountChanged += count => { _commentCount = count; if (_tab == Tab.Comments) UpdateCount(); };
             LayersView.ExportViewRequested += (names, view) => ExportLayerViewRequested?.Invoke(names, view);
             LayersView.CountChanged += count =>
             {
@@ -44,7 +47,7 @@ namespace XTPdfMergeApp.Controls
             };
         }
 
-        private int? _layerCount;
+        private int? _layerCount, _commentCount;
         private string _layerPathsKey = "";
 
         /// <summary>Bấm 1 thumbnail (không giữ Ctrl/Shift) → nhảy tới trang đó.</summary>
@@ -298,6 +301,7 @@ namespace XTPdfMergeApp.Controls
                 ThumbnailList.ItemsSource = group?.Pages;
                 UpdateCount();
                 if (_tab == Tab.Layers) _ = RefreshLayersAsync(force: false); // đổi window (tab file): tập file khác
+                if (_tab == Tab.Comments) _ = RefreshCommentsAsync();
             }
 
             if (row != null && !ThumbnailList.SelectedItems.Contains(row))
@@ -324,8 +328,10 @@ namespace XTPdfMergeApp.Controls
 
         private void UpdateCount()
         {
-            PanelCountText.Text = _tab == Tab.Layers ? _layerCount?.ToString() ?? "" : _group == null ? "" : _group.Pages.Count.ToString();
-            PanelCountChip.Visibility = _tab == Tab.Thumbnails || (_tab == Tab.Layers && _layerCount != null) ? Visibility.Visible : Visibility.Collapsed;
+            PanelCountText.Text = _tab == Tab.Layers ? _layerCount?.ToString() ?? "" : _tab == Tab.Comments ? _commentCount?.ToString() ?? ""
+                : _group == null ? "" : _group.Pages.Count.ToString();
+            PanelCountChip.Visibility = _tab == Tab.Thumbnails || (_tab == Tab.Layers && _layerCount != null) || (_tab == Tab.Comments && _commentCount != null)
+                ? Visibility.Visible : Visibility.Collapsed;
         }
 
         /// <summary>Thanh "N pages selected" chỉ hiện khi chọn từ 2 trang (1 trang luôn được chọn = trang đang xem).</summary>
@@ -359,7 +365,27 @@ namespace XTPdfMergeApp.Controls
 
         /// <summary>Chuyển tab theo tên ("Pages", "Bookmarks", "Layers") — cho bảng lệnh.</summary>
         internal void ShowPanel(string name)
-            => SetTab(name switch { "Bookmarks" => Tab.Bookmarks, "Layers" => Tab.Layers, "Find" => Tab.Find, _ => Tab.Thumbnails });
+            => SetTab(name switch { "Bookmarks" => Tab.Bookmarks, "Layers" => Tab.Layers, "Find" => Tab.Find, "Comments" => Tab.Comments, _ => Tab.Thumbnails });
+
+        private void CommentsTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Comments);
+
+        /// <summary>Chú thích của các file trong window đang xem (nạp nền, có cache).</summary>
+        private Task RefreshCommentsAsync()
+        {
+            var paths = _group == null ? new List<string>()
+                : _group.Pages.Select(p => p.SourcePath).Where(p => !BlankPageService.IsBlankFile(p) && File.Exists(p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return CommentsView.SetFilesAsync(paths);
+        }
+
+        /// <summary>File vừa được sửa (chú thích…): bỏ cache chú thích, đọc lại nếu tab đang mở.</summary>
+        internal void OnSourceEdited(string path)
+        {
+            CommentsView.Invalidate(path);
+            if (_tab == Tab.Comments) _ = RefreshCommentsAsync();
+        }
+
+        internal event Action<CommentInfo>? CommentActivated;
+        internal event Action<CommentInfo, bool>? CommentResolvedToggled;
 
         private void FindTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Find);
 
@@ -385,6 +411,7 @@ namespace XTPdfMergeApp.Controls
             BookmarkTabButton.Tag = !active && _tab == Tab.Bookmarks ? "Active" : null;
             LayerTabButton.Tag = !active && _tab == Tab.Layers ? "Active" : null;
             FindTabButton.Tag = !active && _tab == Tab.Find ? "Active" : null;
+            CommentsTabButton.Tag = !active && _tab == Tab.Comments ? "Active" : null;
         }
 
         private void SetTab(Tab tab)
@@ -396,7 +423,9 @@ namespace XTPdfMergeApp.Controls
             LayerTabButton.Tag = tab == Tab.Layers ? "Active" : null;
             FindTabButton.Tag = tab == Tab.Find ? "Active" : null;
             FindView.Visibility = tab == Tab.Find ? Visibility.Visible : Visibility.Collapsed;
-            PanelTitleText.Text = tab switch { Tab.Bookmarks => "Bookmarks", Tab.Layers => "Layers", Tab.Find => "Find", _ => "Pages" };
+            CommentsTabButton.Tag = tab == Tab.Comments ? "Active" : null;
+            CommentsView.Visibility = tab == Tab.Comments ? Visibility.Visible : Visibility.Collapsed;
+            PanelTitleText.Text = tab switch { Tab.Bookmarks => "Bookmarks", Tab.Layers => "Layers", Tab.Find => "Find", Tab.Comments => "Comments", _ => "Pages" };
             PageActionsBar.Visibility = tab == Tab.Thumbnails ? Visibility.Visible : Visibility.Collapsed;
             UpdateSelectionBar();
             ThumbnailList.Visibility = tab == Tab.Thumbnails ? Visibility.Visible : Visibility.Collapsed;
@@ -405,6 +434,7 @@ namespace XTPdfMergeApp.Controls
             PanelEmptyText.Visibility = Visibility.Collapsed;
             PanelSourceText.Visibility = tab == Tab.Bookmarks ? Visibility.Visible : Visibility.Collapsed;
             UpdateCount();
+            if (tab == Tab.Comments) _ = RefreshCommentsAsync();
             if (tab == Tab.Layers) _ = RefreshLayersAsync(force: false);
             else if (tab == Tab.Bookmarks) _ = RefreshSourceTabAsync();
         }

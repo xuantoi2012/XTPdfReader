@@ -61,6 +61,8 @@
                              Icon="{StaticResource Ui.Icon.layers}" Text="Layers" ToolTip="Layers" Click="LayerTab_Click"/>
                 <xt:XTButton x:Name="FindTabButton" Style="{StaticResource UiRailButton}"
                              Icon="{StaticResource Ui.Icon.search}" Text="Find" ToolTip="Find in document (Ctrl+F)" Click="FindTab_Click"/>
+                <xt:XTButton x:Name="CommentsTabButton" Style="{StaticResource UiRailButton}"
+                             Icon="{StaticResource Ui.Icon.comment}" Text="Comments" ToolTip="Comments" Click="CommentsTab_Click"/>
                 <xt:XTButton x:Name="SettingsTabButton" Style="{StaticResource UiRailButton}"
                              Icon="{StaticResource Ui.Icon.settings}" Text="Settings" ToolTip="Settings" Click="SettingsTab_Click"/>
             </StackPanel>
@@ -169,6 +171,7 @@
 
                 <local:LayersPanel x:Name="LayersView" Visibility="Collapsed"/>
                 <local:FindPanel x:Name="FindView" Visibility="Collapsed"/>
+                <local:CommentsPanel x:Name="CommentsView" Visibility="Collapsed"/>
 
                 <TextBlock x:Name="PanelEmptyText" Visibility="Collapsed" Margin="14" TextWrapping="Wrap"
                            Foreground="{DynamicResource Ui.Muted}"/>
