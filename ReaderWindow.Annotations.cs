@@ -68,14 +68,6 @@ namespace XTPdfMergeApp
             ReaderContentHost.ForceCursor = tool != ReaderTool.Hand;
         }
 
-        private void ReaderRotatePagesMenu_Click(object sender, RoutedEventArgs e)
-        {
-            if (ReaderRotatePagesButton.ContextMenu is not { } menu) return;
-            menu.PlacementTarget = ReaderRotatePagesButton;
-            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
-            menu.IsOpen = true;
-        }
-
         private void ReaderDeletePages_Click(object sender, RoutedEventArgs e)
         {
             var pages = GetEditTargetPages();

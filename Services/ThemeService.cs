@@ -30,6 +30,14 @@ namespace XTPdfMergeApp.Services
                     : "pack://application:,,,/XTStyle;component/Themes/Light.xaml",
                     UriKind.Absolute)
             });
+            // Token của thiết kế mới (Resources/UiTokens.*.xaml) gộp SAU dictionary của XTStyle: ghi đè brush XT* và thêm brush Ui.*.
+            dictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri(darkTheme
+                    ? "pack://application:,,,/XTPdfMergeApp;component/Resources/UiTokens.Dark.xaml"
+                    : "pack://application:,,,/XTPdfMergeApp;component/Resources/UiTokens.Light.xaml",
+                    UriKind.Absolute)
+            });
             IsDark = darkTheme;
         }
     }

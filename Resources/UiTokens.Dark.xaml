@@ -1,0 +1,44 @@
+<!-- Token giao diện TỐI — nguồn: docs/ui-mockup/gen_ui.py (DARK) -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Ghi đè brush XT* của XTStyle (gộp SAU Light/Dark của XTStyle, xem ThemeService) để mọi control XT trong app nhận màu của thiết kế mới. -->
+    <SolidColorBrush x:Key="XTWorkspaceBackground" Color="#171A1F"/>
+    <SolidColorBrush x:Key="XTTitleBarBackground" Color="#171A1F"/>
+    <SolidColorBrush x:Key="XTToolbarBackground" Color="#20242B"/>
+    <SolidColorBrush x:Key="XTChromeButtonBackground" Color="#2A3039"/>
+    <SolidColorBrush x:Key="XTChromeInputBackground" Color="#20242B"/>
+    <SolidColorBrush x:Key="XTChromeBorder" Color="#2F353E"/>
+    <SolidColorBrush x:Key="XTWindowBorder" Color="#3A414C"/>
+    <SolidColorBrush x:Key="XTChromeHoverBackground" Color="#2A3039"/>
+    <SolidColorBrush x:Key="XTChromeText" Color="#E8EBF0"/>
+    <SolidColorBrush x:Key="XTPaletteBackground" Color="#1C2026"/>
+    <SolidColorBrush x:Key="XTPanelBackground" Color="#20242B"/>
+    <SolidColorBrush x:Key="XTInputBackground" Color="#171A1F"/>
+    <SolidColorBrush x:Key="XTBorder" Color="#3A414C"/>
+    <SolidColorBrush x:Key="XTBorderSubtle" Color="#2F353E"/>
+    <SolidColorBrush x:Key="XTTextPrimary" Color="#E8EBF0"/>
+    <SolidColorBrush x:Key="XTTextSecondary" Color="#A3ACB9"/>
+    <SolidColorBrush x:Key="XTSelectionBlue" Color="#6EA8FF"/>
+    <SolidColorBrush x:Key="XTSelectionBackground" Color="#33445E"/>
+    <SolidColorBrush x:Key="XTHoverBlue" Color="#8DBBFF"/>
+    <SolidColorBrush x:Key="XTHoverBackground" Color="#2A3039"/>
+    <SolidColorBrush x:Key="XTPrimaryButtonBackground" Color="#3D7BEA"/>
+    <SolidColorBrush x:Key="XTPrimaryButtonHoverBackground" Color="#5B92F0"/>
+    <SolidColorBrush x:Key="XTButtonSurface" Color="#2A3039"/>
+    <!-- Brush riêng của thiết kế mới (docs/UI_REDESIGN.md, mục 4). -->
+    <SolidColorBrush x:Key="Ui.Bg" Color="#171A1F"/>
+    <SolidColorBrush x:Key="Ui.Surface" Color="#20242B"/>
+    <SolidColorBrush x:Key="Ui.Panel" Color="#1C2026"/>
+    <SolidColorBrush x:Key="Ui.Border" Color="#2F353E"/>
+    <SolidColorBrush x:Key="Ui.Text" Color="#E8EBF0"/>
+    <SolidColorBrush x:Key="Ui.Muted" Color="#A3ACB9"/>
+    <SolidColorBrush x:Key="Ui.Hover" Color="#2A3039"/>
+    <SolidColorBrush x:Key="Ui.View" Color="#0F1114"/>
+    <SolidColorBrush x:Key="Ui.Chip" Color="#2A3039"/>
+    <SolidColorBrush x:Key="Ui.Accent" Color="#6EA8FF"/>
+    <SolidColorBrush x:Key="Ui.AccentSoft" Color="#33445E"/>
+    <SolidColorBrush x:Key="Ui.OnAccent" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Ui.Warn" Color="#F0A35E"/>
+    <SolidColorBrush x:Key="Ui.Danger" Color="#F0776B"/>
+    <SolidColorBrush x:Key="PdfViewerBackgroundBrush" Color="#0F1114"/>
+</ResourceDictionary>

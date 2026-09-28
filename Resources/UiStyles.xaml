@@ -1,0 +1,227 @@
+<!-- Style của thiết kế mới (docs/UI_REDESIGN.md). Dựa trên XTButton/XTToolButton của XTStyle nhưng vẽ icon NÉT MẢNH
+     (Stroke, lưới 24×24, Resources/UiIcons.xaml) thay vì icon Material tô đặc. Màu lấy từ brush Ui.* (Resources/UiTokens.*.xaml),
+     đổi theo theme lúc chạy nên dùng DynamicResource. Trạng thái bật của công cụ: Tag="Active" (như code-behind hiện có). -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle">
+
+    <Style x:Key="UiLineIconPath" TargetType="Path">
+        <Setter Property="StrokeThickness" Value="1.7"/>
+        <Setter Property="StrokeStartLineCap" Value="Round"/>
+        <Setter Property="StrokeEndLineCap" Value="Round"/>
+        <Setter Property="StrokeLineJoin" Value="Round"/>
+        <Setter Property="Fill" Value="Transparent"/>
+    </Style>
+
+    <!-- ══ Nút toolbar: icon trên, chữ 11 px dưới ══ -->
+    <ControlTemplate x:Key="UiToolbarButtonTemplate" TargetType="{x:Type xt:XTButton}">
+        <Border x:Name="Bd" CornerRadius="6" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Viewbox Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}" HorizontalAlignment="Center">
+                    <Canvas Width="24" Height="24">
+                        <Path Data="{TemplateBinding IconData}" Stroke="{TemplateBinding IconBrush}" Style="{StaticResource UiLineIconPath}"/>
+                    </Canvas>
+                </Viewbox>
+                <TextBlock Text="{TemplateBinding Text}" Foreground="{TemplateBinding Foreground}" FontSize="11"
+                           TextAlignment="Center" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+            </StackPanel>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.42"/>
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <Style x:Key="UiToolbarButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
+        <Setter Property="Template" Value="{StaticResource UiToolbarButtonTemplate}"/>
+        <Setter Property="Width" Value="Auto"/>
+        <Setter Property="MinWidth" Value="60"/>
+        <Setter Property="Height" Value="48"/>
+        <Setter Property="Padding" Value="6,0"/>
+        <Setter Property="Margin" Value="1,0"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="IconSize" Value="20"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
+        <Setter Property="IconBrush" Value="{DynamicResource Ui.Text}"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Ui.Hover}"/>
+            </Trigger>
+            <Trigger Property="Tag" Value="Active">
+                <Setter Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Ui.Accent}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Accent}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ══ Nút chính (Merge files): nền accent, icon + chữ ngang ══ -->
+    <ControlTemplate x:Key="UiPrimaryButtonTemplate" TargetType="{x:Type xt:XTButton}">
+        <Border x:Name="Bd" CornerRadius="6" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Viewbox Width="17" Height="17">
+                    <Canvas Width="24" Height="24">
+                        <Path Data="{TemplateBinding IconData}" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.9"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Fill="Transparent"/>
+                    </Canvas>
+                </Viewbox>
+                <TextBlock Text="{TemplateBinding Text}" Foreground="{TemplateBinding Foreground}" FontWeight="SemiBold" Margin="7,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.5"/>
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <Style x:Key="UiPrimaryButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
+        <Setter Property="Template" Value="{StaticResource UiPrimaryButtonTemplate}"/>
+        <Setter Property="Width" Value="Auto"/>
+        <Setter Property="MinWidth" Value="0"/>
+        <Setter Property="Height" Value="34"/>
+        <Setter Property="Padding" Value="14,0"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Background" Value="{DynamicResource XTPrimaryButtonBackground}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Ui.OnAccent}"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource XTPrimaryButtonHoverBackground}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ══ Nút thanh trái (Pages / Bookmarks / Layers): 56×54, icon 20 + chữ 11 ══ -->
+    <Style x:Key="UiRailButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiToolbarButton}">
+        <Setter Property="Width" Value="56"/>
+        <Setter Property="MinWidth" Value="56"/>
+        <Setter Property="Height" Value="54"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Margin" Value="0,1"/>
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
+        <Setter Property="IconBrush" Value="{DynamicResource Ui.Muted}"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Ui.Hover}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Text}"/>
+            </Trigger>
+            <Trigger Property="Tag" Value="Active">
+                <Setter Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Ui.Accent}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Accent}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ══ Nút hành động trong panel (Insert / Delete / Rotate / Extract): dàn đều, icon 19 + chữ 11 ══ -->
+    <Style x:Key="UiPanelAction" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiToolbarButton}">
+        <Setter Property="MinWidth" Value="0"/>
+        <Setter Property="Height" Value="46"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="Padding" Value="2,0"/>
+        <Setter Property="IconSize" Value="19"/>
+    </Style>
+
+    <!-- ══ Nút icon nhỏ (thanh trạng thái, đóng tab…) ══ -->
+    <ControlTemplate x:Key="UiIconButtonTemplate" TargetType="{x:Type xt:XTButton}">
+        <Border x:Name="Bd" CornerRadius="5" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+            <Viewbox Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Canvas Width="24" Height="24">
+                    <Path Data="{TemplateBinding IconData}" Stroke="{TemplateBinding IconBrush}" StrokeThickness="2"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Fill="Transparent"/>
+                </Canvas>
+            </Viewbox>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.42"/>
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <Style x:Key="UiIconButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
+        <Setter Property="Template" Value="{StaticResource UiIconButtonTemplate}"/>
+        <Setter Property="Width" Value="26"/>
+        <Setter Property="Height" Value="26"/>
+        <Setter Property="MinWidth" Value="0"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="IconSize" Value="15"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="IconBrush" Value="{DynamicResource Ui.Muted}"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Ui.Hover}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Text}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ══ Tab file (ListBoxItem): nền mặt khi chọn, gạch accent 2 px dưới chân ══ -->
+    <Style x:Key="UiTabItem" TargetType="ListBoxItem">
+        <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
+        <Setter Property="Height" Value="34"/>
+        <Setter Property="Margin" Value="0,0,1,0"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="Bd" Padding="12,0,6,0" BorderThickness="0,0,0,2" BorderBrush="Transparent" Background="Transparent" SnapsToDevicePixels="True">
+                        <ContentPresenter VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Surface}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ══ Ô thumbnail trong panel Pages ══ -->
+    <Style x:Key="UiThumbItem" TargetType="ListBoxItem">
+        <Setter Property="Margin" Value="1"/>
+        <Setter Property="Padding" Value="2,0"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="Bd" CornerRadius="6" BorderThickness="1.5" BorderBrush="Transparent" Background="Transparent" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Top"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="UiCountChip" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource Ui.Chip}"/>
+        <Setter Property="CornerRadius" Value="9"/>
+        <Setter Property="Padding" Value="8,1"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <Style x:Key="UiToolbarSeparator" TargetType="Border">
+        <Setter Property="Width" Value="1"/>
+        <Setter Property="Margin" Value="6,10"/>
+        <Setter Property="Background" Value="{DynamicResource Ui.Border}"/>
+    </Style>
+</ResourceDictionary>

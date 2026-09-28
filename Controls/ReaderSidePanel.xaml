@@ -4,6 +4,7 @@
              xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
              xmlns:svc="clr-namespace:XTPdfMergeApp.Services"
              xmlns:local="clr-namespace:XTPdfMergeApp.Controls"
+             xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
              FontFamily="Segoe UI" FontSize="12">
     <UserControl.Resources>
         <ResourceDictionary>
@@ -11,17 +12,16 @@
                 <ResourceDictionary Source="pack://application:,,,/XTPdfMergeApp;component/Resources/ReaderResources.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- Nút đổi tab dọc bên trái (kiểu dải icon Pages/Bookmarks/Layers của Foxit). -->
-            <Style x:Key="SideTabButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource PdfViewerIconButton}">
-                <Setter Property="Width" Value="32"/>
-                <Setter Property="Height" Value="32"/>
-                <Setter Property="Margin" Value="2,2,2,0"/>
-                <Setter Property="IconSize" Value="18"/>
+            <Style x:Key="UiThumbNumber" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="HorizontalAlignment" Value="Center"/>
+                <Setter Property="Margin" Value="0,5,0,0"/>
+                <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
                 <Style.Triggers>
-                    <Trigger Property="Tag" Value="Active">
-                        <Setter Property="Background" Value="{DynamicResource XTSelectionBackground}"/>
-                        <Setter Property="BorderBrush" Value="{DynamicResource XTSelectionBlue}"/>
-                    </Trigger>
+                    <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource Ui.Accent}"/>
+                        <Setter Property="FontWeight" Value="SemiBold"/>
+                    </DataTrigger>
                 </Style.Triggers>
             </Style>
 
@@ -42,58 +42,83 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <Grid Background="{DynamicResource XTPanelBackground}">
+    <Grid Background="{DynamicResource Ui.Surface}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Column="0" Background="{DynamicResource XTToolbarBackground}"
-                BorderBrush="{DynamicResource XTChromeBorder}" BorderThickness="0,0,1,0">
-            <StackPanel>
-                <xt:XTButton x:Name="ThumbnailTabButton" Style="{StaticResource SideTabButton}" Tag="Active"
-                             Icon="{StaticResource PdfUi.PagesPanel}" ToolTip="Trang (thumbnail)" Click="ThumbnailTab_Click"/>
-                <xt:XTButton x:Name="BookmarkTabButton" Style="{StaticResource SideTabButton}"
-                             Icon="{StaticResource PdfUi.BookmarkPanel}" ToolTip="Bookmark" Click="BookmarkTab_Click"/>
-                <xt:XTButton x:Name="LayerTabButton" Style="{StaticResource SideTabButton}"
-                             Icon="{StaticResource PdfUi.LayerPanel}" ToolTip="Layer" Click="LayerTab_Click"/>
+        <!-- Thanh trái: icon + chữ. Tag="Active" do SetTab đặt. -->
+        <Border Grid.Column="0" Width="64" Background="{DynamicResource Ui.Panel}"
+                BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,1,0">
+            <StackPanel Margin="0,8,0,0">
+                <xt:XTButton x:Name="ThumbnailTabButton" Style="{StaticResource UiRailButton}" Tag="Active"
+                             Icon="{StaticResource Ui.Icon.pages}" Text="Pages" ToolTip="Pages" Click="ThumbnailTab_Click"/>
+                <xt:XTButton x:Name="BookmarkTabButton" Style="{StaticResource UiRailButton}"
+                             Icon="{StaticResource Ui.Icon.bookmark}" Text="Bookmarks" ToolTip="Bookmarks" Click="BookmarkTab_Click"/>
+                <xt:XTButton x:Name="LayerTabButton" Style="{StaticResource UiRailButton}"
+                             Icon="{StaticResource Ui.Icon.layers}" Text="Layers" ToolTip="Layers" Click="LayerTab_Click"/>
             </StackPanel>
         </Border>
 
         <DockPanel Grid.Column="1">
-            <Border DockPanel.Dock="Top" Padding="8,5" BorderBrush="{DynamicResource XTBorder}" BorderThickness="0,0,0,1">
-                <StackPanel>
-                    <TextBlock x:Name="PanelTitleText" Text="Trang" FontWeight="SemiBold" Foreground="{DynamicResource XTTextPrimary}"/>
-                    <TextBlock x:Name="PanelSourceText" Foreground="{DynamicResource XTTextSecondary}" FontSize="11"
-                               TextTrimming="CharacterEllipsis" Visibility="Collapsed"/>
-                </StackPanel>
+            <Grid DockPanel.Dock="Top" Height="40" Margin="14,0">
+                <TextBlock x:Name="PanelTitleText" Text="Pages" FontWeight="SemiBold" FontSize="13"
+                           VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
+                <Border x:Name="PanelCountChip" Style="{StaticResource UiCountChip}" HorizontalAlignment="Right">
+                    <TextBlock x:Name="PanelCountText" FontSize="11.5" Foreground="{DynamicResource Ui.Muted}"/>
+                </Border>
+            </Grid>
+
+            <TextBlock x:Name="PanelSourceText" DockPanel.Dock="Top" Margin="14,0,14,8" FontSize="11"
+                       Foreground="{DynamicResource Ui.Muted}" TextTrimming="CharacterEllipsis" Visibility="Collapsed"/>
+
+            <!-- Hàng thao tác trang (chỉ tab Pages). Panel chỉ báo sự kiện; ReaderWindow gọi handler cũ. -->
+            <Border x:Name="PageActionsBar" DockPanel.Dock="Top" Padding="10,0,10,8"
+                    BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1">
+                <UniformGrid Rows="1">
+                    <xt:XTButton Style="{StaticResource UiPanelAction}" Icon="{StaticResource Ui.Icon.insert}" Text="Insert"
+                                 ToolTip="Insert pages from another PDF after the current page" Click="InsertPages_Click"/>
+                    <xt:XTButton Style="{StaticResource UiPanelAction}" Icon="{StaticResource Ui.Icon.trash}" Text="Delete"
+                                 ToolTip="Delete the selected pages from this document (can be undone)" Click="DeletePages_Click"/>
+                    <xt:XTButton Style="{StaticResource UiPanelAction}" Icon="{StaticResource Ui.Icon.rotl}" Text="Turn left"
+                                 ToolTip="Rotate the selected pages 90° left and save to the file" Click="RotateLeft_Click"/>
+                    <xt:XTButton Style="{StaticResource UiPanelAction}" Icon="{StaticResource Ui.Icon.rotr}" Text="Turn right"
+                                 ToolTip="Rotate the selected pages 90° right and save to the file" Click="RotateRight_Click"/>
+                    <xt:XTButton Style="{StaticResource UiPanelAction}" Icon="{StaticResource Ui.Icon.extract}" Text="Extract"
+                                 ToolTip="Extract the selected pages to a new PDF" Click="ExtractPages_Click"/>
+                </UniformGrid>
+            </Border>
+
+            <Border x:Name="SelectionBar" DockPanel.Dock="Top" Height="32" Background="{DynamicResource Ui.AccentSoft}" Visibility="Collapsed">
+                <TextBlock x:Name="SelectionText" Margin="14,0" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Ui.Accent}"/>
             </Border>
 
             <Grid>
-                <!-- Thumbnail trang của file đang xem (thay dải thumbnail ngang cũ). Chọn nhiều trang bằng
-                     Ctrl/Shift để xoay/xuất/xoá cùng lúc từ ribbon. -->
-                <ListBox x:Name="ThumbnailList" BorderThickness="0" Background="Transparent"
-                         SelectionMode="Extended" HorizontalContentAlignment="Center"
+                <!-- Thumbnail 2 cột (ảo hoá). Chọn nhiều trang bằng Ctrl/Shift để xoay/xuất/xoá cùng lúc. -->
+                <ListBox x:Name="ThumbnailList" BorderThickness="0" Background="Transparent" Padding="6,6,6,0"
+                         SelectionMode="Extended" ItemContainerStyle="{StaticResource UiThumbItem}"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                          VirtualizingPanel.ScrollUnit="Pixel"
                          SelectionChanged="ThumbnailList_SelectionChanged">
                     <ListBox.ItemsPanel>
                         <ItemsPanelTemplate>
-                            <VirtualizingStackPanel Orientation="Vertical"/>
+                            <vwp:VirtualizingWrapPanel Orientation="Horizontal" SpacingMode="Uniform" StretchItems="False"
+                                                       IsGridLayoutEnabled="True" ItemSize="128,124"/>
                         </ItemsPanelTemplate>
                     </ListBox.ItemsPanel>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Margin="0,6,0,2">
-                                <Border Background="White" BorderBrush="#33000000" BorderThickness="1"
-                                        HorizontalAlignment="Center" MinWidth="60" MinHeight="60">
-                                    <Image Source="{Binding Thumbnail}" MaxWidth="132" MaxHeight="170" Stretch="Uniform"
+                            <StackPanel Margin="0,6,0,4" Width="112">
+                                <Border Background="White" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="1" CornerRadius="2"
+                                        Width="112" Height="84" HorizontalAlignment="Center">
+                                    <Image Source="{Binding Thumbnail}" Stretch="Uniform"
                                            Loaded="ThumbnailImage_Loaded" Unloaded="ThumbnailImage_Unloaded"
                                            DataContextChanged="ThumbnailImage_DataContextChanged"/>
                                 </Border>
-                                <TextBlock Text="{Binding Index}" HorizontalAlignment="Center" Margin="0,3,0,0"
-                                           Foreground="{DynamicResource XTTextSecondary}"/>
+                                <TextBlock Text="{Binding Index}" Style="{StaticResource UiThumbNumber}"/>
                             </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
@@ -105,8 +130,8 @@
                 <TreeView x:Name="LayerTree" BorderThickness="0" Background="Transparent" Visibility="Collapsed"
                           VirtualizingPanel.IsVirtualizing="True"/>
 
-                <TextBlock x:Name="PanelEmptyText" Visibility="Collapsed" Margin="12" TextWrapping="Wrap"
-                           Foreground="{DynamicResource XTTextSecondary}"/>
+                <TextBlock x:Name="PanelEmptyText" Visibility="Collapsed" Margin="14" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Ui.Muted}"/>
             </Grid>
         </DockPanel>
     </Grid>

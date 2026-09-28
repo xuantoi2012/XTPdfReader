@@ -15,7 +15,7 @@ using DocumentGroup = XTPdfMergeApp.Domain.WorkspaceDocument;
 namespace XTPdfMergeApp.Controls
 {
     /// <summary>
-    /// Panel trái của cửa sổ đọc (mô phỏng Foxit): dải icon đổi tab Trang / Bookmark / Layer.
+    /// Panel trái của cửa sổ đọc: thanh icon + chữ đổi tab Pages / Bookmarks / Layers (docs/UI_REDESIGN.md).
     /// - Trang: thumbnail của window (DocumentGroup) đang xem.
     /// - Bookmark / Layer: của FILE NGUỒN chứa trang đang xem (1 window đã ghép nhiều file thì đổi theo
     ///   trang đang xem), đọc bằng iText ở luồng nền, cache theo file.
@@ -41,6 +41,14 @@ namespace XTPdfMergeApp.Controls
         /// <summary>Bật/tắt 1 layer: (file, thông tin layer của file, id OCG, hiện?).</summary>
         internal event Action<string, PdfLayerInfo, string, bool>? LayerToggled;
 
+        // Hàng thao tác trang: panel chỉ báo, ReaderWindow gọi handler sẵn có (chèn/xoá/xoay thật/trích xuất).
+        internal event RoutedEventHandler? InsertPagesRequested, DeletePagesRequested, RotateLeftRequested, RotateRightRequested, ExtractPagesRequested;
+        private void InsertPages_Click(object sender, RoutedEventArgs e) => InsertPagesRequested?.Invoke(this, e);
+        private void DeletePages_Click(object sender, RoutedEventArgs e) => DeletePagesRequested?.Invoke(this, e);
+        private void RotateLeft_Click(object sender, RoutedEventArgs e) => RotateLeftRequested?.Invoke(this, e);
+        private void RotateRight_Click(object sender, RoutedEventArgs e) => RotateRightRequested?.Invoke(this, e);
+        private void ExtractPages_Click(object sender, RoutedEventArgs e) => ExtractPagesRequested?.Invoke(this, e);
+
         /// <summary>Trang đang chọn trong panel thumbnail (theo thứ tự trong window).</summary>
         internal IReadOnlyList<PageRow> SelectedPages
             => _group == null ? Array.Empty<PageRow>()
@@ -51,8 +59,11 @@ namespace XTPdfMergeApp.Controls
         {
             if (!ReferenceEquals(_group, group))
             {
+                if (_group != null) _group.Pages.CollectionChanged -= OnPagesChanged;
                 _group = group;
+                if (_group != null) _group.Pages.CollectionChanged += OnPagesChanged;
                 ThumbnailList.ItemsSource = group?.Pages;
+                UpdateCount();
             }
 
             if (row != null && !ThumbnailList.SelectedItems.Contains(row))
@@ -69,6 +80,18 @@ namespace XTPdfMergeApp.Controls
                 _sourcePath = path;
                 _ = RefreshSourceTabAsync();
             }
+        }
+
+        private void OnPagesChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) => UpdateCount();
+
+        private void UpdateCount() => PanelCountText.Text = _group == null ? "" : _group.Pages.Count.ToString();
+
+        /// <summary>Thanh "N pages selected" chỉ hiện khi chọn từ 2 trang (1 trang luôn được chọn = trang đang xem).</summary>
+        private void UpdateSelectionBar()
+        {
+            int n = ThumbnailList.SelectedItems.Count;
+            SelectionBar.Visibility = _tab == Tab.Thumbnails && n >= 2 ? Visibility.Visible : Visibility.Collapsed;
+            SelectionText.Text = n + " pages selected";
         }
 
         /// <summary>File vừa bị sửa (annotation…) hoặc layer vừa đổi — đọc lại khi cần.</summary>
@@ -98,7 +121,10 @@ namespace XTPdfMergeApp.Controls
             ThumbnailTabButton.Tag = tab == Tab.Thumbnails ? "Active" : null;
             BookmarkTabButton.Tag = tab == Tab.Bookmarks ? "Active" : null;
             LayerTabButton.Tag = tab == Tab.Layers ? "Active" : null;
-            PanelTitleText.Text = tab switch { Tab.Bookmarks => "Bookmark", Tab.Layers => "Layer", _ => "Trang" };
+            PanelTitleText.Text = tab switch { Tab.Bookmarks => "Bookmarks", Tab.Layers => "Layers", _ => "Pages" };
+            PanelCountChip.Visibility = tab == Tab.Thumbnails ? Visibility.Visible : Visibility.Collapsed;
+            PageActionsBar.Visibility = tab == Tab.Thumbnails ? Visibility.Visible : Visibility.Collapsed;
+            UpdateSelectionBar();
             ThumbnailList.Visibility = tab == Tab.Thumbnails ? Visibility.Visible : Visibility.Collapsed;
             BookmarkTree.Visibility = Visibility.Collapsed;
             LayerTree.Visibility = Visibility.Collapsed;
@@ -111,10 +137,10 @@ namespace XTPdfMergeApp.Controls
         {
             if (_tab == Tab.Thumbnails) return;
             string? path = _sourcePath;
-            PanelSourceText.Text = path == null ? "" : "Nguồn: " + Path.GetFileName(path);
+            PanelSourceText.Text = path == null ? "" : "Source: " + Path.GetFileName(path);
             if (path == null)
             {
-                ShowEmpty("Chưa mở tài liệu.");
+                ShowEmpty("No document is open.");
                 return;
             }
 
@@ -124,7 +150,7 @@ namespace XTPdfMergeApp.Controls
                     _bookmarks[path] = task = Task.Run(() => SafeRead(() => PdfOutlineService.ReadBookmarks(path), Array.Empty<PdfBookmarkNode>()));
                 var nodes = await task;
                 if (_tab != Tab.Bookmarks || !string.Equals(path, _sourcePath, StringComparison.OrdinalIgnoreCase)) return;
-                if (nodes.Count == 0) { ShowEmpty("Tài liệu này không có bookmark."); return; }
+                if (nodes.Count == 0) { ShowEmpty("This document has no bookmarks."); return; }
                 PanelEmptyText.Visibility = Visibility.Collapsed;
                 BookmarkTree.ItemsSource = nodes;
                 BookmarkTree.Visibility = Visibility.Visible;
@@ -135,7 +161,7 @@ namespace XTPdfMergeApp.Controls
                     _layers[path] = task = Task.Run(() => SafeRead(() => PdfLayerService.ReadLayers(path), PdfLayerInfo.Empty));
                 var info = await task;
                 if (_tab != Tab.Layers || !string.Equals(path, _sourcePath, StringComparison.OrdinalIgnoreCase)) return;
-                if (!info.HasLayers) { ShowEmpty("Tài liệu này không có layer."); return; }
+                if (!info.HasLayers) { ShowEmpty("This document has no layers."); return; }
                 PanelEmptyText.Visibility = Visibility.Collapsed;
                 var hidden = PdfLayerStateStore.GetHiddenOverride(path, out _) ?? info.DefaultHidden;
                 LayerTree.ItemsSource = info.Roots.Select(n => new LayerItem(n, hidden)).ToList();
@@ -207,6 +233,7 @@ namespace XTPdfMergeApp.Controls
 
         private void ThumbnailList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            UpdateSelectionBar();
             if (_syncingSelection || ThumbnailList.SelectedItems.Count != 1) return;
             if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) != 0) return;
             if (ThumbnailList.SelectedItem is PageRow row) PageActivated?.Invoke(row);
@@ -237,8 +264,8 @@ namespace XTPdfMergeApp.Controls
     /// <summary>1 dòng trong cây Layer.</summary>
     public sealed class LayerItem : INotifyPropertyChanged
     {
-        public const string LockedToolTip = "Lớp bị khoá, không đổi hiển thị được";
-        public const string UsageToolTip = "Lớp do /AS (usage) của file tự điều khiển khi xem — không đổi hiển thị được";
+        public const string LockedToolTip = "This layer is locked; its visibility cannot be changed";
+        public const string UsageToolTip = "This layer is controlled by the file's /AS (usage) rules while viewing; its visibility cannot be changed";
 
         public LayerItem(PdfLayerNode node, IReadOnlySet<string> hidden)
         {

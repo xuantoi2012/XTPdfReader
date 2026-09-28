@@ -30,6 +30,12 @@ namespace XTPdfMergeApp
                 if (_readerGroup == null || !_readerGroup.Pages.Contains(row)) return;
                 NavigateToRow(_readerGroup, row);
             };
+            // Hàng thao tác trang của panel Pages → handler sẵn có (chèn/xoá đổi workspace; xoay thật lưu file).
+            ReaderSidePanel.InsertPagesRequested += ReaderInsertPages_Click;
+            ReaderSidePanel.DeletePagesRequested += ReaderDeletePages_Click;
+            ReaderSidePanel.RotateLeftRequested += ReaderPageRotateLeft_Click;
+            ReaderSidePanel.RotateRightRequested += ReaderPageRotateRight_Click;
+            ReaderSidePanel.ExtractPagesRequested += ReaderExtractPages_Click;
             ReaderSidePanel.BookmarkActivated += NavigateToSourcePage;
             ReaderSidePanel.LayerToggled += OnLayerToggled;
             ShowEmptyReaderState();
@@ -228,6 +234,13 @@ namespace XTPdfMergeApp
             if (_syncingDocumentTabs || ReaderDocumentTabs.SelectedItem is not DocumentGroup group) return;
             if (ReferenceEquals(group, _readerGroup)) return;
             ShowGroup(group);
+        }
+
+        /// <summary>Bấm chuột phải lên tab thì chọn tab đó trước, để menu ("Open in default app"…) tác động đúng file.</summary>
+        private void ReaderTab_PreviewMouseRightButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is DocumentGroup group && !ReferenceEquals(ReaderDocumentTabs.SelectedItem, group))
+                ReaderDocumentTabs.SelectedItem = group;
         }
 
         private void ReaderCloseDocument_Click(object sender, RoutedEventArgs e)

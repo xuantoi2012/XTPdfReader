@@ -1,5 +1,7 @@
 # XTMerge architecture
 
+UI redesign (decisions, screens, progress): `docs/UI_REDESIGN.md`. Mockup generator: `docs/ui-mockup/`.
+
 ## Ownership
 
 - `PdfWorkspace` owns source identities, workspace documents and command history.

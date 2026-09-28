@@ -8,7 +8,6 @@
 
     <!-- Nền vùng đọc — trước đây chỉ khai báo ở MainWindow (ReaderWindow được dock trong đó); giờ cửa
          sổ đọc là cửa sổ riêng nên đặt ở đây. -->
-    <SolidColorBrush x:Key="PdfViewerBackgroundBrush" Color="#20242A"/>
 
     <!-- Icon công cụ sửa nhanh trên toolbar Viewer (Material Design Icons, Apache 2.0) — khai báo ở
          app, không thêm vào XTStyle. -->
