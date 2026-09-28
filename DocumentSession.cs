@@ -61,6 +61,56 @@ namespace XTPdfMergeApp
             NotifyStatusChanged();
         }
 
+        // ── File đổi trên đĩa (người khác lưu đè…) ─────────────────────────
+
+        private readonly Dictionary<string, (long Length, DateTime Utc)> _diskStamps = new(StringComparer.OrdinalIgnoreCase);
+
+        private static (long Length, DateTime Utc)? StampOf(string path)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                return info.Exists ? (info.Length, info.LastWriteTimeUtc) : null;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>Ghi lại dấu (cỡ, giờ ghi) hiện tại của file: gọi khi mở và sau mỗi lần CHÍNH app ghi file, để không tự báo "đã đổi".</summary>
+        internal void RefreshDiskStamp(string path)
+        {
+            var stamp = StampOf(path);
+            if (stamp == null) return;
+            lock (_diskStamps) _diskStamps[path] = stamp.Value;
+        }
+
+        /// <summary>Các window có file nguồn đã bị đổi trên đĩa kể từ lần mở / lần bỏ qua gần nhất (đọc đĩa — gọi ở luồng nền).</summary>
+        public IReadOnlyList<(DocumentGroup Group, DateTime ChangedLocal)> FindChangedOnDisk(IReadOnlyList<DocumentGroup> groups)
+        {
+            var changed = new List<(DocumentGroup, DateTime)>();
+            foreach (var group in groups)
+            {
+                if (group.IsOpening || string.IsNullOrEmpty(group.SourcePath)) continue;
+                (long Length, DateTime Utc) known;
+                lock (_diskStamps)
+                    if (!_diskStamps.TryGetValue(group.SourcePath, out known)) continue;
+                var now = StampOf(group.SourcePath);
+                if (now != null && (now.Value.Length != known.Length || now.Value.Utc != known.Utc))
+                    changed.Add((group, now.Value.Utc.ToLocalTime()));
+            }
+            return changed;
+        }
+
+        void IReaderPageEditHost.IgnoreDiskChange(DocumentGroup group) => RefreshDiskStamp(group.SourcePath);
+
+        /// <summary>Đóng window rồi mở lại từ đĩa (bỏ mọi bản render/đệm cũ của file). Người gọi đã hỏi nếu có thay đổi chưa lưu.</summary>
+        async Task IReaderPageEditHost.ReloadGroupAsync(DocumentGroup group)
+        {
+            string path = group.SourcePath;
+            ((IReaderPageEditHost)this).CloseDocument(group);
+            try { PdfFileBuffer.Invalidate(Path.GetFullPath(path), PdfFileBuffer.InvalidateReason.Changed); } catch { }
+            await OpenFilesInReaderAsync(new[] { path });
+        }
+
         // ── Mở file ─────────────────────────────────────────────────────
 
         private readonly HashSet<string> _loadingSourcePaths = new(StringComparer.OrdinalIgnoreCase);
@@ -137,6 +187,8 @@ namespace XTPdfMergeApp
                 }
 
                 await _dispatcher.InvokeAsync(() => FinishOpeningGroup(placeholder, fullPath, pageCount));
+                RefreshDiskStamp(fullPath);
+                if (pageCount > 0) RecentFilesStore.NoteOpened(fullPath, pageCount);
                 return await _dispatcher.InvokeAsync(() =>
                     _groups.Contains(placeholder) && placeholder.Pages.Count > 0 ? placeholder : null);
             }
@@ -384,14 +436,19 @@ namespace XTPdfMergeApp
 
         // ── Lệnh cửa sổ đọc gọi sang (mở/đóng file, undo, cửa sổ ghép) ─────────
 
-        async Task IReaderPageEditHost.OpenFilesAsync()
+        Task IReaderPageEditHost.OpenFilesAsync() => ((IReaderPageEditHost)this).OpenFilesDialogAsync(null);
+
+        Task IReaderPageEditHost.OpenPathsAsync(IEnumerable<string> paths) => OpenFilesInReaderAsync(paths);
+
+        async Task IReaderPageEditHost.OpenFilesDialogAsync(string? initialDirectory)
         {
             using var dlg = new System.Windows.Forms.OpenFileDialog
             {
-                Title = "Mở file PDF",
+                Title = "Open PDF files",
                 Filter = "PDF (*.pdf)|*.pdf",
                 Multiselect = true
             };
+            if (!string.IsNullOrEmpty(initialDirectory) && Directory.Exists(initialDirectory)) dlg.InitialDirectory = initialDirectory;
             if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
             await OpenFilesInReaderAsync(dlg.FileNames);
         }
@@ -486,6 +543,7 @@ namespace XTPdfMergeApp
         /// mới render xong để trang không chớp trắng.</summary>
         internal void InvalidateSourcePageRenders(string path, IReadOnlyCollection<int> pages, bool geometryChanged)
         {
+            RefreshDiskStamp(path); // file vừa do CHÍNH app ghi
             bool Matches(string p, int page) =>
                 pages.Contains(page) && string.Equals(p, path, StringComparison.OrdinalIgnoreCase);
 
@@ -824,6 +882,15 @@ namespace XTPdfMergeApp
         Task SetLayerHiddenAsync(string path, IReadOnlySet<string> hidden, IReadOnlySet<string> defaultHidden);
         Task ExportWithLayerViewAsync(DocumentGroup group, IReadOnlySet<string> hiddenNames, string viewName);
         Task OpenFilesAsync();
+        /// <summary>Hộp thoại chọn file bắt đầu ở <paramref name="initialDirectory"/> (null = mặc định).</summary>
+        Task OpenFilesDialogAsync(string? initialDirectory);
+        Task OpenPathsAsync(IEnumerable<string> paths);
+        /// <summary>Các window có file nguồn đã đổi trên đĩa (đọc đĩa — gọi ở luồng nền).</summary>
+        IReadOnlyList<(DocumentGroup Group, DateTime ChangedLocal)> FindChangedOnDisk(IReadOnlyList<DocumentGroup> groups);
+        /// <summary>Bỏ qua thay đổi trên đĩa của file này (ghi lại dấu hiện tại).</summary>
+        void IgnoreDiskChange(DocumentGroup group);
+        /// <summary>Đóng rồi mở lại window từ đĩa.</summary>
+        Task ReloadGroupAsync(DocumentGroup group);
         void CloseDocument(DocumentGroup group);
         Task<IReadOnlyList<PageRow>> InsertBlankPageAsync(DocumentGroup target, int insertIndex, PageRow reference);
         /// <summary>Có trang trong clipboard (đã Copy/Cut) để dán.</summary>

@@ -23,8 +23,8 @@ namespace XTPdfMergeApp
         private void InitializeShellParts()
         {
             Title = AppInfo.DisplayName;
-            TitleIcon = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/XTPdfMergeApp;component/Resources/AppIcon.png"));
             InitializeSettings();
+            InitializeStart();
             Closing += ReaderWindow_Closing;
             ReaderDocumentTabs.ItemsSource = _groups;
             ReaderSidePanel.PageActivated += row =>
@@ -244,7 +244,9 @@ namespace XTPdfMergeApp
         private void ReaderDocumentTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_syncingDocumentTabs || ReaderDocumentTabs.SelectedItem is not DocumentGroup group) return;
+            ShowStart(false);
             if (ReferenceEquals(group, _readerGroup)) return;
+            Dispatcher.BeginInvoke(new Action(UpdateDiskBanner), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
             ShowGroup(group);
         }
 
@@ -527,7 +529,11 @@ namespace XTPdfMergeApp
         private void ShowSettings(bool show)
         {
             if (show == (SettingsPage.Visibility == Visibility.Visible)) return;
-            if (show) SettingsPage.Reload();
+            if (show)
+            {
+                SettingsPage.Reload();
+                ShowStart(false);
+            }
             SettingsPage.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             ReaderSidePanel.SetSettingsActive(show);
         }

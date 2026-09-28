@@ -8,7 +8,8 @@
         xmlns:conv="clr-namespace:XTPdfMergeApp.Converters"
         xmlns:local="clr-namespace:XTPdfMergeApp"
         xmlns:ctl="clr-namespace:XTPdfMergeApp.Controls"
-        Title="PDF Reader Pro" Width="1280" Height="820"
+        Title="PDF Reader Pro" Width="1280"
+        TitleIcon="{StaticResource App.Icon.Logo}" TitleIconBrush="{DynamicResource Ui.Accent}" Height="820"
         MinWidth="760" MinHeight="520" TitleBarMode="Full"
         WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI" FontSize="13"
@@ -80,7 +81,8 @@
             </Border>
 
             <!-- Tab các file đang mở, dưới toolbar. Bấm tab = chuyển file, × = đóng file, + = mở thêm file. -->
-            <ListBox x:Name="ReaderDocumentTabs" Grid.Row="1" Height="36" BorderThickness="0,0,0,1" Padding="8,0,8,0"
+            <StackPanel Grid.Row="1">
+            <ListBox x:Name="ReaderDocumentTabs" Height="36" BorderThickness="0,0,0,1" Padding="8,0,8,0"
                      BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Panel}"
                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
                      ItemContainerStyle="{StaticResource UiTabItem}"
@@ -92,6 +94,9 @@
                                 BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
                             <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Focusable="False">
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
+                                    <xt:XTButton x:Name="StartButton" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.clock}" IconSize="16"
+                                                 VerticalAlignment="Center" Margin="0,0,6,0" ToolTip="Start: recent files and workspaces"
+                                                 Click="StartButton_Click"/>
                                     <ItemsPresenter/>
                                     <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.plus}" IconSize="16"
                                                  VerticalAlignment="Center" Margin="4,0,0,0" ToolTip="Open another file (Ctrl+O)"
@@ -135,6 +140,22 @@
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
+
+            <!-- Thanh vàng: file đang xem đã bị đổi trên đĩa (Reload / Ignore). -->
+            <Border x:Name="DiskChangedBanner" Visibility="Collapsed" Height="40" Padding="16,0"
+                    Background="{DynamicResource Ui.WarnSoft}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1">
+                <DockPanel>
+                    <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource UiGhostButton}" Text="Ignore" Height="26" Padding="10,0" Margin="8,0,0,0" Click="BannerIgnore_Click"/>
+                    <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource UiGhostButton}" Text="Reload" Height="26" Padding="10,0" Click="BannerReload_Click"/>
+                    <Viewbox DockPanel.Dock="Left" Width="18" Height="18" Margin="0,0,10,0">
+                        <Canvas Width="24" Height="24">
+                            <Path Data="{StaticResource Ui.Icon.alert}" Stroke="{DynamicResource Ui.Warn}" Style="{StaticResource UiLineIconPath}" StrokeThickness="2"/>
+                        </Canvas>
+                    </Viewbox>
+                    <TextBlock x:Name="DiskChangedText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Ui.Text}"/>
+                </DockPanel>
+            </Border>
+            </StackPanel>
 
             <Grid Grid.Row="2">
                 <Grid.ColumnDefinitions>
@@ -245,6 +266,12 @@
 
             <!-- Trang Settings phủ lên panel + vùng xem (chừa thanh trái để đổi tab). Mở bằng nút Settings trên thanh trái. -->
             <ctl:SettingsPage x:Name="SettingsPage" Grid.Row="2" Margin="64,0,0,0" Visibility="Collapsed"/>
+
+            <!-- Màn hình Start (Recent, Quick locations, Workspaces): tự hiện khi chưa mở file nào, hoặc bấm nút đồng hồ ở dải tab. -->
+            <ctl:StartPage x:Name="StartPage" Grid.Row="2" Visibility="Collapsed"/>
+
+            <!-- Bảng lệnh Ctrl+K: phủ toàn cửa sổ, nền mờ; bấm ra ngoài hoặc Esc để đóng. -->
+            <ctl:CommandPalette x:Name="Palette" Grid.RowSpan="4" Visibility="Collapsed"/>
 
             <!-- Thanh trạng thái: đường dẫn · điều hướng trang (giữa) · zoom (phải) -->
             <Grid Grid.Row="3" Background="{DynamicResource Ui.Panel}" Height="30"

@@ -25,11 +25,11 @@ namespace XTPdfMergeApp.Services
             set => Set("Theme", Pick(value, "Light", "Dark", "System"));
         }
 
-        /// <summary>Màu nhấn: "Blue" (mặc định) | "Green" | "Purple" | "Red".</summary>
+        /// <summary>Màu nhấn: "Orange" (mặc định) | "Blue" | "Green" | "Purple" | "Red".</summary>
         public static string Accent
         {
-            get => Pick(GetString("Accent", "Blue"), "Blue", "Green", "Purple", "Red");
-            set => Set("Accent", Pick(value, "Blue", "Green", "Purple", "Red"));
+            get => Pick(GetString("Accent", "Orange"), "Orange", "Blue", "Green", "Purple", "Red");
+            set => Set("Accent", Pick(value, "Orange", "Blue", "Green", "Purple", "Red"));
         }
 
         // ── Display ───────────────────────────────────────────────────

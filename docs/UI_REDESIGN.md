@@ -64,8 +64,13 @@ Trạng thái: `[ ]` chưa · `[~]` đang · `[x]` xong. Số theo mockup.
   "Clear cache" (đóng document PDFium + bỏ bộ đệm file không nằm trên màn hình; hiện dung lượng đang dùng); **Integration** pdfFactory "View PDF". Nút Light/Dark ở thanh tiêu đề đã bỏ.
   App đổi tên hiển thị **PDF Reader Pro** (`AppInfo.DisplayName`), icon mới (`PDF icon.ico` + `Resources/AppIcon.png`, sinh bằng script; hình trang giấy + dải PDF, gradient cam→đỏ, không giống logo hãng nào).
   Thêm trạng thái nhấn `Ui.Pressed` cho nút toolbar/rail/icon/ghost (hover + pressed đều theo theme). Bỏ "Actual size" vì mức % của app tính trên bản vẽ nền 2200 px, không phải kích thước thật.
-- [ ] **P5 — Start screen, thông báo, Command palette** (mockup 13, 16): Recent (ghim), Quick locations, Workspaces (lưu/khôi phục bộ file + layout Merge),
-  thanh vàng "file changed on disk" (Reload / Ignore), Ctrl+K.
+- [x] **P5 — Start, thông báo, Command palette** (mockup 13, 16) — **xong 28/09**. **Start** (`Controls/StartPage.*`): tự hiện khi chưa mở file nào, hoặc bấm nút đồng hồ ở dải tab;
+  Open file…, Quick locations (thư mục dùng gần nhất, Desktop, Documents, Downloads), Recent có ghim ★ (`Services/StartData.cs`, `%LocalAppData%\XTPdfReaderecent.json`, file
+  không còn thì báo "File not found"), Workspaces (lưu bộ file đang mở + file đang xem, Restore, xoá; `workspaces.json`; layout Merge để P6). **Thanh vàng "file changed on disk"**
+  (`ReaderWindow.Start.cs`): mỗi 20 s và khi cửa sổ được kích hoạt so cỡ + giờ ghi của file nguồn với lúc mở (dấu được làm mới sau mỗi lần CHÍNH app ghi file); Reload (đóng rồi mở
+  lại từ đĩa, hỏi nếu có thay đổi chưa lưu) / Ignore. **Ctrl+K** (`Controls/CommandPalette.*`): lọc lệnh + file đang mở + Recent, ↑↓ Enter Esc. Ctrl+O mở file.
+  Chưa có: "Compare with new version" trên thanh vàng (Compare đã loại), nút Open folder…. Sửa kèm theo: ở chế độ cuộn liên tục `ShowPageAsync` giờ hiện bằng vùng cuộn liên tục
+  (trước đây vẽ vào vùng 1 trang đang ẩn nên mở file sau khi đóng hết tab bị trống); app dùng màu nhấn **Orange** mặc định và logo chữ F (bo góc, đổi màu theo accent) ở thanh tiêu đề.
 - [ ] **P6 — Merge window mới** (mockup 6, 7): cửa sổ con mỗi file, layout + snap + giới hạn, Dock, cửa sổ tạm, kéo header chèn cả file,
   Move/Ctrl = Copy, Undo/Redo, Save all. Thay `MergeWorkspaceWindow`.
 - [ ] **P7 — Merge save options** (mockup 17): tên file, thư mục, bookmark theo file nguồn, giữ bookmark cũ, gộp layer, số trang, tối ưu dung lượng.

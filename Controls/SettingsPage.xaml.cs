@@ -48,7 +48,7 @@ namespace XTPdfMergeApp.Controls
 
         private void BuildSwatches()
         {
-            foreach (string name in new[] { "Blue", "Green", "Purple", "Red" })
+            foreach (string name in new[] { "Orange", "Blue", "Green", "Purple", "Red" })
             {
                 var swatch = new RadioButton
                 {

@@ -107,7 +107,22 @@ namespace XTPdfMergeApp
         /// nào đang focus, phím tắt ở đây chỉ bao giờ tới tay khi Viewer thật sự đang active.</summary>
         private void ReaderWindow_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.K)
+            {
+                if (Palette.IsOpen) Palette.Close(); else OpenPalette();
+                e.Handled = true;
+                return;
+            }
+            if (Palette.IsOpen) return; // bảng lệnh tự xử lý phím
+
             if (Keyboard.FocusedElement is TextBox or ComboBox) return;
+
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.O)
+            {
+                if (EditHost != null) _ = EditHost.OpenFilesAsync();
+                e.Handled = true;
+                return;
+            }
 
             if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && (e.Key == Key.Z || e.Key == Key.Y))
             {
@@ -565,6 +580,13 @@ namespace XTPdfMergeApp
                 {
                     _readerZoomMode = DefaultReaderZoomMode();
                 }
+            }
+
+            // Đang ở chế độ cuộn liên tục (mặc định): hiện file/trang bằng vùng cuộn liên tục, không vẽ vào vùng 1 trang đang ẩn.
+            if (_readerContinuousMode)
+            {
+                ShowReaderContinuous(group, row);
+                return;
             }
 
             _readerRotation = 0;

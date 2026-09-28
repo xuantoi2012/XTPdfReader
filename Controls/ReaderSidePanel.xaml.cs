@@ -357,6 +357,10 @@ namespace XTPdfMergeApp.Controls
 
         // ── Đổi tab ───────────────────────────────────────────────────
 
+        /// <summary>Chuyển tab theo tên ("Pages", "Bookmarks", "Layers") — cho bảng lệnh.</summary>
+        internal void ShowPanel(string name)
+            => SetTab(name switch { "Bookmarks" => Tab.Bookmarks, "Layers" => Tab.Layers, _ => Tab.Thumbnails });
+
         private void ThumbnailTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Thumbnails);
         private void BookmarkTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Bookmarks);
         private void LayerTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Layers);

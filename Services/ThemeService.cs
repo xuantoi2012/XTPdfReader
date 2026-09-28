@@ -16,6 +16,7 @@ namespace XTPdfMergeApp.Services
         /// <summary>Màu nhấn: (sáng, tối, nền nút chính khi tối). Nền nút chính khi sáng = màu sáng.</summary>
         private static readonly (string Name, string Light, string Dark, string DarkButton)[] Accents =
         {
+            ("Orange", "#E8590C", "#FF8A4C", "#E8590C"),
             ("Blue",   "#2563EB", "#6EA8FF", "#3D7BEA"),
             ("Green",  "#0F8B6D", "#3FCFA6", "#1F9E7F"),
             ("Purple", "#7C4DFF", "#B49BFF", "#6A4FE0"),

@@ -39,6 +39,7 @@
     <SolidColorBrush x:Key="Ui.Accent" Color="#2563EB"/>
     <SolidColorBrush x:Key="Ui.AccentSoft" Color="#E5ECFD"/>
     <SolidColorBrush x:Key="Ui.OnAccent" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Ui.WarnSoft" Color="#FBEFC9"/>
     <SolidColorBrush x:Key="Ui.Warn" Color="#B45309"/>
     <SolidColorBrush x:Key="Ui.Danger" Color="#C0392B"/>
     <SolidColorBrush x:Key="PdfViewerBackgroundBrush" Color="#DFE5EC"/>
