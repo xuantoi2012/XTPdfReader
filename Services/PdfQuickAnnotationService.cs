@@ -15,7 +15,7 @@ using iText.Kernel.Pdf.Xobject;
 
 namespace XTPdfMergeApp.Services
 {
-    public enum QuickAnnotationKind { Typewriter, Comment, Highlight }
+    public enum QuickAnnotationKind { Typewriter, Comment, Highlight, Stamp }
 
     /// <summary>
     /// 1 annotation do công cụ sửa nhanh quản lý, mô tả theo toạ độ TRANG HIỂN THỊ chuẩn hoá (xem
@@ -98,6 +98,7 @@ namespace XTPdfMergeApp.Services
             if (PdfName.FreeText.Equals(subtype)) return QuickAnnotationKind.Typewriter;
             if (PdfName.Text.Equals(subtype)) return QuickAnnotationKind.Comment;
             if (PdfName.Highlight.Equals(subtype) || PdfName.Square.Equals(subtype)) return QuickAnnotationKind.Highlight;
+            if (PdfName.Stamp.Equals(subtype)) return QuickAnnotationKind.Stamp;
             return null;
         }
 
@@ -120,6 +121,10 @@ namespace XTPdfMergeApp.Services
                         break;
                     case QuickAnnotationKind.Highlight:
                         AddHighlight(doc, page, change.Add);
+                        break;
+                    case QuickAnnotationKind.Stamp:
+                        typewriterFont ??= CreateUnicodeFont();
+                        AddStamp(doc, page, change.Add, typewriterFont);
                         break;
                 }
             }
@@ -181,6 +186,89 @@ namespace XTPdfMergeApp.Services
             canvas.EndText().Release();
             annot.SetNormalAppearance(form.GetPdfObject());
             page.AddAnnotation(annot);
+        }
+
+        // ── Stamp (dấu chữ có viền màu hoặc ảnh) ────────────────────────
+
+        /// <summary>Cỡ dấu (point, theo chiều trang HIỂN THỊ) — to theo khổ giấy để dấu vẫn đọc được trên bản vẽ A1/A0.</summary>
+        public static (double Width, double Height) StampSize(StampDefinition definition, string sub, double displayWidthPoints, PdfFont? font = null)
+        {
+            double scale = Math.Clamp(displayWidthPoints / 842.0, 1.0, 4.0);
+            if (definition.IsImage)
+            {
+                double aspect = 1.0;
+                try
+                {
+                    var image = iText.IO.Image.ImageDataFactory.Create(definition.ImagePath);
+                    if (image.GetHeight() > 0) aspect = image.GetWidth() / image.GetHeight();
+                }
+                catch { }
+                double h = 64 * scale;
+                return (h * aspect, h);
+            }
+            font ??= CreateUnicodeFont();
+            double size = 16 * scale, subSize = 9 * scale, pad = 8 * scale;
+            double width = Math.Max(font.GetWidth(definition.Text, (float)size) * 1.08, sub.Length > 0 ? font.GetWidth(sub, (float)subSize) : 0) + 2 * pad;
+            double height = size * 1.25 + (sub.Length > 0 ? subSize * 1.5 : 0) + 2 * pad;
+            return (width, height);
+        }
+
+        private static void AddStamp(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec, PdfFont font)
+        {
+            var geometry = GetGeometry(page);
+            var (definition, opacity) = StampDefinition.Decode(spec.Text);
+            string sub = definition.Sub;
+            var (width, height) = StampSize(definition, sub, geometry.DisplayWidth, font);
+            var rect = DisplayBoxToUser(geometry, spec.U1, spec.V1, width, height);
+
+            var annot = new PdfStampAnnotation(rect);
+            annot.SetStampName(new PdfName(definition.IsImage ? "Image" : "Custom"));
+            annot.SetContents(new PdfString(definition.IsImage ? "Stamp" : definition.Text, PdfEncodings.UNICODE_BIG));
+            StampCommon(annot, spec);
+
+            var form = new PdfFormXObject(new Rectangle(0, 0, (float)width, (float)height));
+            SetRotationMatrix(form, geometry.Rotation);
+            var canvas = new PdfCanvas(form, doc);
+            canvas.SaveState().SetExtGState(new PdfExtGState().SetFillOpacity(opacity / 100f).SetStrokeOpacity(opacity / 100f));
+            if (definition.IsImage)
+            {
+                try
+                {
+                    canvas.AddXObjectFittedIntoRectangle(new PdfImageXObject(iText.IO.Image.ImageDataFactory.Create(definition.ImagePath)), new Rectangle(0, 0, (float)width, (float)height));
+                }
+                catch { /* ảnh không đọc được: dấu trống */ }
+            }
+            else
+            {
+                double scale = Math.Clamp(geometry.DisplayWidth / 842.0, 1.0, 4.0);
+                float size = (float)(16 * scale), subSize = (float)(9 * scale), pad = (float)(8 * scale), line = (float)(3 * scale);
+                var color = ParseColor(definition.Color);
+                canvas.SetStrokeColor(color).SetFillColor(color).SetLineWidth(line);
+                float inset = line / 2;
+                canvas.RoundRectangle(inset, inset, (float)width - line, (float)height - line, 6 * (float)scale).Stroke();
+                float textWidth = font.GetWidth(definition.Text, size);
+                float textY = sub.Length > 0 ? pad + subSize * 1.5f : pad + (float)(height - 2 * pad - size) / 2;
+                canvas.BeginText().SetFontAndSize(font, size).SetTextRenderingMode(PdfCanvasConstants.TextRenderingMode.FILL_STROKE).SetLineWidth(size * 0.02f)
+                    .MoveText((width - textWidth) / 2, textY + size * 0.12f).ShowText(definition.Text).EndText();
+                if (sub.Length > 0)
+                {
+                    float subWidth = font.GetWidth(sub, subSize);
+                    canvas.BeginText().SetFontAndSize(font, subSize).SetTextRenderingMode(PdfCanvasConstants.TextRenderingMode.FILL).MoveText((width - subWidth) / 2, pad + subSize * 0.2f).ShowText(sub).EndText();
+                }
+            }
+            canvas.RestoreState().Release();
+            annot.SetNormalAppearance(form.GetPdfObject());
+            page.AddAnnotation(annot);
+        }
+
+        private static Color ParseColor(string hex)
+        {
+            try
+            {
+                var c = System.Drawing.ColorTranslator.FromHtml(hex);
+                return new DeviceRgb(c.R / 255f, c.G / 255f, c.B / 255f);
+            }
+            catch { return new DeviceRgb(0.75f, 0.22f, 0.17f); }
         }
 
         // ── Comment (sticky note: chỉ hiện icon, nội dung trong popup) ──

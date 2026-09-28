@@ -79,6 +79,8 @@
                                      ToolTip="Sticky note: click the page, type, then Enter. Hover the icon to read it, click to edit." Click="ReaderCommentTool_Click"/>
                         <xt:XTButton x:Name="ReaderHighlightToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl}" Text="Highlight"
                                      ToolTip="Drag a rectangle to highlight in yellow" Click="ReaderHighlightTool_Click"/>
+                        <xt:XTButton x:Name="ReaderStampToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.stamp}" Text="Stamp"
+                                     ToolTip="Stamps: approved, reviewed, your own text or image" Click="ReaderStampTool_Click"/>
                         </StackPanel>
                     </ScrollViewer>
                 </DockPanel>
@@ -176,6 +178,7 @@
                   PreviewMouseLeftButtonDown="ReaderContentHost_PreviewMouseLeftButtonDown"
                   PreviewMouseMove="ReaderContentHost_PreviewMouseMove"
                   PreviewMouseLeftButtonUp="ReaderContentHost_PreviewMouseLeftButtonUp"
+                  PreviewMouseRightButtonUp="ReaderContent_StampContextMenu"
                   MouseLeave="ReaderContentHost_MouseLeave"
                   LayoutUpdated="ReaderContentHost_LayoutUpdated">
             <ScrollViewer x:Name="ReaderScrollViewer"

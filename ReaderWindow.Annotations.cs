@@ -25,7 +25,7 @@ namespace XTPdfMergeApp
     /// </summary>
     public partial class ReaderWindow
     {
-        private enum ReaderTool { Hand, Typewriter, Comment, Highlight }
+        private enum ReaderTool { Hand, Typewriter, Comment, Highlight, Stamp }
 
         private ReaderTool _readerTool = ReaderTool.Hand;
 
@@ -56,6 +56,7 @@ namespace XTPdfMergeApp
             ReaderTypewriterToolButton.Tag = tool == ReaderTool.Typewriter ? "Active" : null;
             ReaderCommentToolButton.Tag = tool == ReaderTool.Comment ? "Active" : null;
             ReaderHighlightToolButton.Tag = tool == ReaderTool.Highlight ? "Active" : null;
+            ReaderStampToolButton.Tag = tool == ReaderTool.Stamp ? "Active" : null;
 
             // ForceCursor: con trỏ của vùng xem đè lên Cursor="Hand" sẵn có của ReaderImage.
             ReaderContentHost.Cursor = tool switch
@@ -63,6 +64,7 @@ namespace XTPdfMergeApp
                 ReaderTool.Typewriter => Cursors.IBeam,
                 ReaderTool.Comment => Cursors.Pen,
                 ReaderTool.Highlight => Cursors.Cross,
+                ReaderTool.Stamp => Cursors.Cross,
                 _ => null
             };
             ReaderContentHost.ForceCursor = tool != ReaderTool.Hand;
@@ -246,6 +248,11 @@ namespace XTPdfMergeApp
                 case ReaderTool.Highlight:
                     e.Handled = true;
                     BeginHighlightDrag(hit);
+                    break;
+
+                case ReaderTool.Stamp:
+                    e.Handled = true;
+                    _ = PlaceStampAsync(hit);
                     break;
             }
         }

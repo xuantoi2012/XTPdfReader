@@ -135,3 +135,11 @@ zoom vào ~1,0 s, cuộn 40 nấc ~0,05 s, RAM khi dùng 620–660 MB private WS
 ## 8. Câu hỏi mở (cần chốt trước khi làm giai đoạn liên quan)
 - **P2 — Save của sửa ảo:** Ctrl+S ghi đè file gốc (kèm bản sao lưu?) hay luôn Save As? Đề xuất: Save ghi đè có `.bak` tạm, Save As cho tên mới; hỏi khi đóng tab nếu chưa lưu.
 - **P2 — Insert ▾:** menu con (from open file / from disk / blank page) — hiện nút Insert chỉ chèn từ file PDF khác.
+
+## P8/P9 – Find, Print, Export/Split, Comments, Stamps (done)
+
+- **Find**: PDFium text search (Find tab + floating bar, Ctrl+F / F3), highlights in the reader overlay.
+- **Print**: `PrintWindow` (Ctrl+P), current layer view is always used. Not tested on a real printer.
+- **Export / Split**: `ExportWindow` (Ctrl+Shift+E), split by size / every N / bookmark / ranges, optional layer-view flatten.
+- **Comments**: panel listing all annotations with resolve toggle (Review state).
+- **Stamps**: toolbar Stamp popup (Standard / Mine, New stamp…, Import image…, name + date, opacity); click places, Shift repeats, right-click on a stamp deletes. Stamps are real PDF stamp annotations with an appearance stream.
