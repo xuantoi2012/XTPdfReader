@@ -263,11 +263,16 @@ namespace XTPdfMergeApp.Services
                 {
                     Finish(block, ok ? scratch : null); // lỗi đọc: trả khối về Missing, luồng đang chờ tự thử đọc lại
                 }
-                if (ok) RenderDiagnostics.FileBlockRead.Record(start);
+                if (ok)
+                {
+                    RenderDiagnostics.FileBlockRead.Record(start);
+                    DiagnosticsLog.Slow("khối cần gấp", Stopwatch.GetElapsedTime(start).TotalMilliseconds, $"khối {block}");
+                }
                 return ok;
             }
-            catch
+            catch (Exception ex)
             {
+                DiagnosticsLog.Event($"khối cần gấp {block} lỗi: {ex.Message}");
                 return false;
             }
             finally
@@ -384,13 +389,18 @@ namespace XTPdfMergeApp.Services
                     {
                         Finish(block, ok ? scratch : null);
                     }
-                    if (!ok) return;
+                    if (!ok) { DiagnosticsLog.Event($"đọc nền dừng: khối {block} đọc lỗi"); return; }
                 }
-                if (IsComplete) RenderDiagnostics.FileBufferRead.Record(start);
+                if (IsComplete)
+                {
+                    RenderDiagnostics.FileBufferRead.Record(start);
+                    DiagnosticsLog.Event($"file → RAM xong {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0} ms");
+                }
             }
-            catch
+            catch (Exception ex)
             {
                 // Lỗi đọc nền (mạng rớt, file bị xoá…): dừng nền, lệnh của trang vẫn tự đọc khối khi cần.
+                DiagnosticsLog.Event("đọc nền dừng do lỗi: " + ex.Message);
             }
         }
 

@@ -258,14 +258,17 @@ internal static class PdfiumPool
     /// Chọn bản cho 1 việc: ít việc nhất; bản đã có trang này parse sẵn được ưu tiên hơn 1 bậc (parse lại tốn
     /// 20–450 ms/trang trên file thật), bản đã mở document được ưu tiên khi hoà. Hoà nữa → bản số nhỏ hơn.
     /// </summary>
-    public static PdfiumInstance Choose(Func<PdfiumInstance, bool> hasPage, Func<PdfiumInstance, bool> hasDocument)
+    /// <param name="reserveFirst">Việc nền (thumbnail, tải trước): không được chọn bản #0 khi còn bản khác. Một lượt parse không
+    /// ngắt được (đo: 1,2–3,4 s trên trang CAD thật), nên bản #0 luôn rảnh cho trang người dùng đang xem.</param>
+    public static PdfiumInstance Choose(Func<PdfiumInstance, bool> hasPage, Func<PdfiumInstance, bool> hasDocument, bool reserveFirst = false)
     {
         var instances = _instances.Value;
         if (instances.Length == 1) return instances[0];
-        PdfiumInstance best = instances[0];
+        PdfiumInstance best = instances[reserveFirst ? 1 : 0];
         int bestScore = int.MaxValue;
         foreach (var instance in instances)
         {
+            if (reserveFirst && instance == instances[0]) continue;
             int score = instance.Load * 4 + (hasPage(instance) ? 0 : 3) + (hasDocument(instance) ? 0 : 1);
             if (score < bestScore)
             {

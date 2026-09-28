@@ -47,6 +47,7 @@ namespace XTPdfMergeApp.Services
                 _caller = caller;
                 _waitMs = waitMs;
                 RenderDiagnostics.NativeWait.AddMilliseconds(waitMs);
+                DiagnosticsLog.Slow("chờ gate", waitMs, $"{caller} bản #{pdfium.Index}");
             }
 
             public void Dispose()
@@ -284,7 +285,7 @@ namespace XTPdfMergeApp.Services
             => _documentCache.TryGetValue(new DocumentKey(normalizedPath, pdfium.Index), out var lazy) && lazy.IsValueCreated;
 
         /// <summary>Chọn bản PDFium cho 1 việc (xem PdfiumPool.Choose). pageIndex &lt; 0: việc không cần parse trang.</summary>
-        private static PdfiumInstance ChooseInstance(string normalizedPath, int pageIndex)
+        private static PdfiumInstance ChooseInstance(string normalizedPath, int pageIndex, PdfRenderPriority priority = PdfRenderPriority.Visible)
         {
             // Chưa có bộ đệm khối (lần mở đầu, file > 500 MB, hết ngân sách RAM): chỉ bản chính — nếu không, mỗi bản
             // sẽ tự đọc file qua mạng. Lần mở đầu trên bản chính tạo bộ đệm; từ đó việc được chia cho mọi bản.
@@ -292,7 +293,8 @@ namespace XTPdfMergeApp.Services
             string pathKey = normalizedPath.ToUpperInvariant();
             return PdfiumPool.Choose(
                 instance => pageIndex >= 0 && _parsedPages.ContainsKey((pathKey, pageIndex, instance.Index)),
-                instance => HasOpenDocument(normalizedPath, instance));
+                instance => HasOpenDocument(normalizedPath, instance),
+                reserveFirst: priority != PdfRenderPriority.Visible);
         }
 
         public static async Task<int> GetPageCountAsync(string pdfPath)
@@ -421,7 +423,7 @@ namespace XTPdfMergeApp.Services
                 if (_shuttingDown) return null;
 
                 string normalized = NormalizePath(pdfPath);
-                pdfium = ChooseInstance(normalized, pageIndex);
+                pdfium = ChooseInstance(normalized, pageIndex, priority);
                 pdfium.AddLoad(1);
                 using var usage = await AcquireDocumentAsync(normalized, pdfium, cancellationToken, layerToken).ConfigureAwait(false);
                 if (usage == null) return null;

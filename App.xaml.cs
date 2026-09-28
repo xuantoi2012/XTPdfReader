@@ -70,6 +70,13 @@ namespace XTPdfMergeApp
             _reader = new ReaderWindow();
             MainWindow = _reader;
             _reader.Show();
+            if (DiagnosticsLog.Begin())
+            {
+                var logTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background)
+                    { Interval = TimeSpan.FromSeconds(DiagnosticsLog.SnapshotSeconds) };
+                logTimer.Tick += (_, _) => DiagnosticsLog.Snapshot("snapshot", DiagnosticsReport.Build());
+                logTimer.Start();
+            }
             if (incomingPaths.Length > 0) _ = _reader.Session.OpenFilesInReaderAsync(incomingPaths);
         }
 
@@ -150,6 +157,8 @@ namespace XTPdfMergeApp
             // tile qua PDFium tuần tự do thư viện không an toàn đa luồng), rút hết hàng đợi có thể
             // mất hơn 2s — 2s cũ dễ hết hạn giữa chừng, để lại lệnh treo lơ lửng đúng lúc thư viện
             // bị huỷ (xem PdfThumbnailService._inFlightPublicCalls).
+            if (DiagnosticsLog.Enabled) DiagnosticsReport.CollectNow(); // để log có số private sau khi dọn
+            DiagnosticsLog.Snapshot("thoát", DiagnosticsReport.Build());
             PdfThumbnailService.PrepareForShutdown(TimeSpan.FromSeconds(5));
 
             _singleInstanceMutex?.Dispose();

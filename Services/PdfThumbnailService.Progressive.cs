@@ -135,6 +135,8 @@ public static partial class PdfThumbnailService
             long loadStart = Stopwatch.GetTimestamp();
             var handle = document.Pdfium.LoadPage(document.Document, index);
             RenderDiagnostics.PageOpen.Record(loadStart);
+            DiagnosticsLog.Slow("parse trang", Stopwatch.GetElapsedTime(loadStart).TotalMilliseconds,
+                $"trang {index + 1} bản #{document.Pdfium.Index} {priority}");
             if (handle == IntPtr.Zero) throw new InvalidOperationException("PDFium could not open the page.");
             page = new NativePage { Pdfium = document.Pdfium, Document = document.Document, Index = index, Handle = handle,
                 PathKey = NormalizePath(document.SourcePath).ToUpperInvariant() };
