@@ -146,7 +146,7 @@ namespace XTPdfMergeApp
             if (TryPageToLayer(hit.Row, hit.U, hit.V, out var p0) && TryPageToLayer(hit.Row, hit.U + 1.0 / Math.Max(1, page.Geometry.DisplayWidth), hit.V, out var p1))
                 ppp = Math.Max(0.05, (p1 - p0).Length);
             double tolerance = 6 / ppp;
-            return page.Annotations.Where(a => HitAnnotation(a, page.Geometry, hit, tolerance)).OrderBy(a => (a.U2 - a.U1) * (a.V2 - a.V1)).FirstOrDefault();
+            return page.Annotations.Where(a => a.Selectable && HitAnnotation(a, page.Geometry, hit, tolerance)).OrderBy(a => (a.U2 - a.U1) * (a.V2 - a.V1)).FirstOrDefault();
         }
 
         private static bool HitAnnotation(QuickAnnotationSpec spec, PdfPageGeometry geometry, PageHit hit, double tolerance)
@@ -239,7 +239,7 @@ namespace XTPdfMergeApp
                 u1 = Math.Max(0, u1 - delta / geometry.DisplayWidth); u2 = Math.Min(1, u2 + delta / geometry.DisplayWidth);
                 v1 = Math.Max(0, v1 - delta / geometry.DisplayHeight); v2 = Math.Min(1, v2 + delta / geometry.DisplayHeight);
             }
-            var changed = spec with { U1 = u1, V1 = v1, U2 = u2, V2 = v2, Format = style.Encode() };
+            var changed = Regenerated(spec) with { U1 = u1, V1 = v1, U2 = u2, V2 = v2, Format = style.Encode() };
             _selAnn = changed;
             CommitAnnotationChange(row, new QuickAnnotationChange(spec, changed), "Change shape style");
         }

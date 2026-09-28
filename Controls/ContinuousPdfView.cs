@@ -67,6 +67,7 @@ public sealed class ContinuousPdfView : Grid
     private int _currentPage = -1;
 
     private static readonly Pen BorderPen = CreateBorderPen();
+    private readonly List<AnnotationLayer.BaseImage> _bases = new();
 
     public ContinuousPdfView()
     {
@@ -576,7 +577,12 @@ public sealed class ContinuousPdfView : Grid
             }
 
             _states.TryGetValue(row, out var state);
-            if (BestBitmap(row, state) is { } bitmap) dc.DrawImage(bitmap, content);
+            _bases.Clear();
+            if (BestBitmap(row, state) is { } bitmap)
+            {
+                dc.DrawImage(bitmap, content);
+                _bases.Add(new AnnotationLayer.BaseImage(bitmap, new Rect(0, 0, 1, 1)));
+            }
             if (state is { Regions.Count: > 0 })
             {
                 dc.PushClip(new RectangleGeometry(content));
@@ -588,9 +594,12 @@ public sealed class ContinuousPdfView : Grid
                         content.Y + content.Height * k.Y / k.FullHeight,
                         content.Width * k.Width / k.FullWidth,
                         content.Height * k.Height / k.FullHeight));
+                    _bases.Add(new AnnotationLayer.BaseImage(region.Bitmap,
+                        new Rect((double)k.X / k.FullWidth, (double)k.Y / k.FullHeight, (double)k.Width / k.FullWidth, (double)k.Height / k.FullHeight)));
                 }
                 dc.Pop();
             }
+            AnnotationLayer.Draw(dc, row, content, dpi, _bases);
             PageDrawn?.Invoke(dc, row, content, dpi);
             if (rotated) { dc.Pop(); dc.Pop(); }
             dc.DrawRectangle(null, BorderPen, new Rect(outer.X + 0.5 / dpi, outer.Y + 0.5 / dpi,

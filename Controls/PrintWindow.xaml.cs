@@ -174,7 +174,7 @@ namespace XTPdfMergeApp.Controls
             _previewPosition = Math.Clamp(_previewPosition, 0, indices.Count - 1);
             int pageIndex = indices[_previewPosition];
             var (path, number) = _pages[pageIndex];
-            var bitmap = await PdfThumbnailService.RenderPageAsync(path, number - 1, 900, layerToken: PdfLayerStateStore.GetToken(path));
+            var bitmap = await PdfThumbnailService.RenderPageAsync(path, number - 1, 900, layerToken: PdfLayerStateStore.GetToken(path), withAnnotations: true);
             var sizes = await PdfThumbnailService.GetPageSizesAsync(path);
             if (version != _previewVersion) return;
             _sizes[path + "|" + number] = sizes != null && number - 1 < sizes.Length && sizes[number - 1].Width > 0 ? sizes[number - 1] : (595, 842);

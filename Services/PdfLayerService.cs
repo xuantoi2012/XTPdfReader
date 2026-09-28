@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -254,7 +254,7 @@ namespace XTPdfMergeApp.Services
         }
 
         /// <summary>iText đọc file gốc qua <see cref="PdfBlockCache"/>. Không sở hữu bộ đệm (người gọi giữ tham chiếu).</summary>
-        private sealed class BlockCacheSource(PdfBlockCache cache) : iText.IO.Source.IRandomAccessSource
+        internal sealed class BlockCacheSource(PdfBlockCache cache) : iText.IO.Source.IRandomAccessSource
         {
             private readonly byte[] _one = new byte[1];
 
@@ -353,6 +353,13 @@ namespace XTPdfMergeApp.Services
         }
 
         public static void Forget(string path) => _states.TryRemove(Normalize(path), out _);
+
+        /// <summary>Same layer view for a copy of the file (working copy with unsaved annotations).</summary>
+        public static void CopyState(string from, string to)
+        {
+            if (_states.TryGetValue(Normalize(from), out var state)) _states[Normalize(to)] = state;
+            else _states.TryRemove(Normalize(to), out _);
+        }
 
         /// <summary>Bỏ trạng thái của các file không còn mở (đóng hẳn file = mở lại về mặc định).</summary>
         public static void ForgetAllExcept(IEnumerable<string> openPaths)

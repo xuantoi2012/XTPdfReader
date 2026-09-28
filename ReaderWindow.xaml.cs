@@ -747,7 +747,6 @@ namespace XTPdfMergeApp
                 foreach (var key in _readerLoads.Keys.Where(key => Matches(key.Path, key.Page)).ToList())
                     _readerLoads.Remove(key);
             }
-            InvalidateAnnotationCache(path, pages);
             // Xoay trang đổi khổ (DocumentSession đã xoá PageWidthPoints): đọc lại kích thước thật cho bố cục.
             if (geometryChanged && _readerGroup != null) _ = EnsureContinuousPageSizesAsync(_readerGroup);
 

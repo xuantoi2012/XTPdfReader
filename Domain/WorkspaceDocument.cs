@@ -68,9 +68,19 @@ internal sealed class WorkspaceDocument : INotifyPropertyChanged
 
     // ── Thay đổi chưa lưu (chấm cam trên tab) ──────────────────────────
     // Sửa cấu trúc trang (xoá/chèn/đổi thứ tự) chỉ đổi workspace tới khi Save. Baseline = danh sách (file, số trang nguồn)
-    // lúc mở hoặc lúc lưu xong; IsDirty = danh sách hiện tại khác baseline. Xoay THẬT và annotation ghi thẳng file nên không tính.
+    // lúc mở hoặc lúc lưu xong. Chú thích chưa lưu (AnnotationStore) của file mà window dùng trang cũng tính. Xoay THẬT ghi thẳng file nên không tính.
     private List<(string Path, int Page)>? _baseline;
+    private bool _pagesDirty, _annotationsDirty;
     public bool IsDirty { get; private set; }
+    /// <summary>Only annotations changed (the page list is as saved): Save writes them into the file in place.</summary>
+    public bool OnlyAnnotationsDirty => _annotationsDirty && !_pagesDirty;
+
+    public void SetAnnotationsDirty(bool dirty)
+    {
+        if (_annotationsDirty == dirty) return;
+        _annotationsDirty = dirty;
+        UpdateDirty();
+    }
 
     /// <summary>Lấy danh sách trang hiện tại làm mốc "đã lưu".</summary>
     public void SetBaseline()
@@ -94,6 +104,8 @@ internal sealed class WorkspaceDocument : INotifyPropertyChanged
                         break;
                     }
         }
+        _pagesDirty = dirty;
+        dirty |= _annotationsDirty;
         if (dirty == IsDirty) return;
         IsDirty = dirty;
         Notify(nameof(IsDirty));

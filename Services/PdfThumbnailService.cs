@@ -442,8 +442,9 @@ namespace XTPdfMergeApp.Services
         /// <summary>pageIndex is zero-based.</summary>
         /// <param name="layerToken">Trạng thái layer mà kết quả sẽ được cache theo (PdfLayerStateStore.GetToken);
         /// lệch trạng thái hiện tại → trả null. null = không kiểm tra.</param>
+        /// <param name="withAnnotations">Print: include annotations. Screen renders never do (the annotation layer draws them over the page).</param>
         public static async Task<BitmapSource?> RenderPageAsync(string pdfPath, int pageIndex, double maxWidth = 96, CancellationToken cancellationToken = default,
-            PdfRenderPriority priority = PdfRenderPriority.Visible, string? layerToken = null)
+            PdfRenderPriority priority = PdfRenderPriority.Visible, string? layerToken = null, bool withAnnotations = false)
         {
             if (_shuttingDown) return null;
             Interlocked.Increment(ref _inFlightPublicCalls);
@@ -467,7 +468,7 @@ namespace XTPdfMergeApp.Services
                 if (pageIndex < 0 || pageIndex >= lease.PageCount) return null;
 
                 return await Task.Run(() => RenderPageProgressiveAsync(lease, pageIndex, maxWidth,
-                    priority, cancellationToken), cancellationToken).ConfigureAwait(false);
+                    priority, cancellationToken, withAnnotations), cancellationToken).ConfigureAwait(false);
             }
             catch
             {

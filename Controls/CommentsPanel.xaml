@@ -105,6 +105,9 @@
                     <ComboBoxItem Content="Typewriter" Tag="Typewriter"/>
                     <ComboBoxItem Content="Note" Tag="Comment"/>
                     <ComboBoxItem Content="Highlight" Tag="Highlight"/>
+                    <ComboBoxItem Content="Stamp" Tag="Stamp"/>
+                    <ComboBoxItem Content="Shape" Tag="Shape"/>
+                    <ComboBoxItem Content="Other" Tag="Other"/>
                 </ComboBox>
                 <ComboBox x:Name="AuthorBox" Grid.Column="2" Height="30" SelectionChanged="Filter_SelectionChanged"/>
             </Grid>

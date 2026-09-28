@@ -26,7 +26,19 @@ namespace XTPdfMergeApp
     {
         private readonly Dispatcher _dispatcher;
 
-        public DocumentSession(Dispatcher dispatcher) => _dispatcher = dispatcher;
+        public DocumentSession(Dispatcher dispatcher)
+        {
+            _dispatcher = dispatcher;
+            AnnotationStore.PendingChanged += _ => UpdateAnnotationDirty();
+        }
+
+        /// <summary>Tab chấm cam khi file nào mà window dùng trang còn chú thích chưa lưu.</summary>
+        private void UpdateAnnotationDirty()
+        {
+            var pending = new HashSet<string>(_groups.SelectMany(g => g.Pages).Select(p => p.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(AnnotationStore.HasPending), StringComparer.OrdinalIgnoreCase);
+            foreach (var group in _groups) group.SetAnnotationsDirty(pending.Count > 0 && group.Pages.Any(p => pending.Contains(p.SourcePath)));
+        }
 
         public PdfWorkspace Workspace { get; } = new();
         public ObservableCollection<DocumentGroup> Documents => Workspace.Documents;
@@ -50,6 +62,7 @@ namespace XTPdfMergeApp
         private void NotifyStatusChanged()
         {
             if (!_dispatcher.CheckAccess()) { _ = _dispatcher.InvokeAsync(NotifyStatusChanged); return; }
+            UpdateAnnotationDirty(); // trang vừa chuyển giữa các window
             StatusChanged?.Invoke();
         }
 
@@ -292,6 +305,14 @@ namespace XTPdfMergeApp
         internal void ReleaseUnusedPdfDocuments()
         {
             var active = new HashSet<string>(_groups.SelectMany(g => g.Pages.Select(p => p.SourcePath)), StringComparer.OrdinalIgnoreCase);
+            // File không còn window nào dùng: bỏ chú thích trong bộ nhớ (chưa lưu thì người dùng đã được hỏi khi đóng tab).
+            foreach (string path in _annotationFiles.Where(p => !active.Contains(p)).ToList())
+            {
+                AnnotationStore.Forget(path);
+                AnnotationWorkingCopy.Forget(path);
+                _annotationFiles.Remove(path);
+            }
+            foreach (string path in active) _annotationFiles.Add(path);
             ThumbnailCache.Invalidate(key => !active.Contains(key.Path));
             ReaderWindow.ReleaseUnusedSources(active);
             PdfLayerStateStore.ForgetAllExcept(active);
@@ -304,6 +325,7 @@ namespace XTPdfMergeApp
         /// <summary>Mọi lần ghi đè file nguồn đi tuần tự — Undo/Redo bấm liên tục không được ghi chồng
         /// lên nhau trên cùng 1 file.</summary>
         private static readonly SemaphoreSlim _sourceEditGate = new(1, 1);
+        private readonly HashSet<string> _annotationFiles = new(StringComparer.OrdinalIgnoreCase);
 
         IReadOnlyList<PageRow> IReaderPageEditHost.GetSelectedPages(DocumentGroup group)
         {
@@ -331,28 +353,24 @@ namespace XTPdfMergeApp
                 targets.Sum(t => t.Pages.Count), delta => ApplySourceRotationAsync(targets, delta)));
         }
 
-        private Task<bool> ApplySourceRotationAsync(
+        private async Task<bool> ApplySourceRotationAsync(
             IReadOnlyList<(string Path, IReadOnlyCollection<int> Pages)> targets, int deltaDegrees)
-            => EditSourceFilesAsync(targets, (path, pages) => PdfPageEditService.RotatePages(path, pages, deltaDegrees),
+        {
+            bool ok = await EditSourceFilesAsync(targets, (path, pages) => PdfPageEditService.RotatePages(path, pages, deltaDegrees),
                 geometryChanged: true);
+            if (ok) foreach (var (path, pages) in targets) AnnotationStore.PagesRotated(path, pages, deltaDegrees);
+            return ok;
+        }
 
         // ── Annotation (Typewriter / Ghi chú / Highlight) ─────────────────
 
-        async Task IReaderPageEditHost.ApplyAnnotationChangesAsync(string path, IReadOnlyList<QuickAnnotationChange> changes, string description)
+        /// <summary>Chú thích đổi trong BỘ NHỚ (vẽ lại ngay), có Undo/Redo; chỉ ghi vào file khi Save.</summary>
+        Task IReaderPageEditHost.ApplyAnnotationChangesAsync(string path, IReadOnlyList<QuickAnnotationChange> changes, string description)
         {
-            if (changes.Count == 0 || !await ApplyAnnotationChangesCoreAsync(path, changes)) return;
-            var inverse = changes.Reverse().Select(c => c.Inverse()).ToList();
-            _workspace.History.Record(new SourceFileEditCommand(description,
-                () => ApplyAnnotationChangesCoreAsync(path, changes),
-                () => ApplyAnnotationChangesCoreAsync(path, inverse)));
-        }
-
-        private Task<bool> ApplyAnnotationChangesCoreAsync(string path, IReadOnlyList<QuickAnnotationChange> changes)
-        {
-            IReadOnlyCollection<int> pages = changes.Select(c => c.PageNumber).Distinct().ToList();
-            return EditSourceFilesAsync(new[] { (path, pages) },
-                (p, _) => PdfPageEditService.EditInPlace(p, doc => PdfQuickAnnotationService.ApplyChanges(doc, changes)),
-                geometryChanged: false);
+            if (changes.Count == 0) return Task.CompletedTask;
+            _workspace.Execute(new AnnotationEditCommand(description, path, changes.ToList()));
+            NotifyStatusChanged();
+            return Task.CompletedTask;
         }
 
         // ── Layer (OCG): bật/tắt theo Cách 2 trong báo cáo điều tra ─────────
@@ -439,9 +457,13 @@ namespace XTPdfMergeApp
 
         Task IReaderPageEditHost.OpenFilesAsync() => ((IReaderPageEditHost)this).OpenFilesDialogAsync(null);
 
-        Task IReaderPageEditHost.SetCommentResolvedAsync(string path, int pageNumber, string name, bool resolved)
-            => EditSourceFilesAsync(new[] { (path, (IReadOnlyCollection<int>)new[] { pageNumber }) },
-                (p, _) => PdfPageEditService.EditInPlace(p, doc => PdfCommentService.SetResolved(doc, pageNumber, name, resolved)), geometryChanged: false);
+        async Task IReaderPageEditHost.SetCommentResolvedAsync(string path, int pageNumber, string name, bool resolved)
+        {
+            var page = await AnnotationStore.GetPageAsync(path, pageNumber);
+            if (page?.Annotations.FirstOrDefault(a => a.Name == name) is not { } spec || spec.Resolved == resolved) return;
+            await ((IReaderPageEditHost)this).ApplyAnnotationChangesAsync(path,
+                new[] { new QuickAnnotationChange(spec, spec with { Resolved = resolved }) }, resolved ? "Resolve comment" : "Reopen comment");
+        }
 
         async Task IReaderPageEditHost.MergeAllToFileAsync()
         {
@@ -459,6 +481,7 @@ namespace XTPdfMergeApp
             bool ok;
             try
             {
+                pageList = await AnnotationWorkingCopy.MapAsync(pageList);
                 ok = await Task.Run(() =>
                 {
                     bool r = XTPdfMerger.TryMergePages(pageList, output, out var e, null, mergeLayersByName: options.MergeLayers, options: options);
@@ -555,6 +578,7 @@ namespace XTPdfMergeApp
                 {
                     try
                     {
+                        AnnotationStore.ReleaseReader(path);
                         using (await PdfThumbnailService.SuspendDocumentAsync(path, TimeSpan.FromSeconds(3)))
                             await Task.Run(() => edit(path, pages));
                     }
@@ -716,8 +740,49 @@ namespace XTPdfMergeApp
                 saveAs = true;
             }
 
-            var pageList = group.Pages.Select(p => (p.SourcePath, p.PageNumber)).ToList();
+            // Only annotations changed and the window is exactly its own file: write them into the file (incremental update, fast).
+            if (!saveAs && group.OnlyAnnotationsDirty &&
+                group.Pages.All(p => string.Equals(p.SourcePath, target, StringComparison.OrdinalIgnoreCase)))
+                return await SaveAnnotationsInPlaceAsync(target);
+
+            List<(string SourcePath, int PageNumber)> pageList;
+            Mouse.OverrideCursor = Cursors.Wait;
+            try { pageList = await AnnotationWorkingCopy.MapAsync(group.Pages.Select(p => (p.SourcePath, p.PageNumber))); }
+            finally { Mouse.OverrideCursor = null; }
             return saveAs ? await SaveGroupAsNewFileAsync(group, pageList) : await OverwriteSourceFileAsync(group, target, pageList);
+        }
+
+        private async Task<bool> SaveAnnotationsInPlaceAsync(string target)
+        {
+            var changes = AnnotationStore.Pending(target);
+            if (changes.Count == 0) return true;
+            await _sourceEditGate.WaitAsync();
+            Mouse.OverrideCursor = Cursors.Wait;
+            try
+            {
+                AnnotationStore.ReleaseReader(target);
+                using (await PdfThumbnailService.SuspendDocumentAsync(target, TimeSpan.FromSeconds(3)))
+                    await Task.Run(() => AnnotationWorkingCopy.WriteInPlace(target, changes));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(OwnerWindow, $"Could not write the file:\n{target}\n\n{ex.Message}", "Save", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
+            }
+            finally
+            {
+                Mouse.OverrideCursor = null;
+                _sourceEditGate.Release();
+            }
+            RefreshDiskStamp(target);
+            // The page images do not change (they are rendered without annotations); the annotations are now read from the file.
+            AnnotationStore.FileRewritten(target, keepPending: false);
+            AnnotationWorkingCopy.Forget(target);
+            _workspace.History.Clear();
+            AfterHistoryChange();
+            ReaderWindow.Instance?.ReaderSidePanel.OnSourceEdited(target);
+            XTStyle.Controls.XTGrowl.Success("Saved " + Path.GetFileName(target), OwnerWindow);
+            return true;
         }
 
         private async Task<bool> SaveGroupAsNewFileAsync(DocumentGroup group, List<(string SourcePath, int PageNumber)> pageList)
@@ -788,6 +853,7 @@ namespace XTPdfMergeApp
             await _sourceEditGate.WaitAsync();
             try
             {
+                AnnotationStore.ReleaseReader(target);
                 using (await PdfThumbnailService.SuspendDocumentAsync(target, TimeSpan.FromSeconds(3)))
                     await Task.Run(() => File.Replace(temp, target, backup, ignoreMetadataErrors: true));
             }
@@ -809,7 +875,10 @@ namespace XTPdfMergeApp
             var fresh = Enumerable.Range(1, count).Select(i => _workspace.CreatePlacement(target, i)).ToList();
             group.Pages.Clear();
             group.Pages.AddRange(fresh);
+            AnnotationStore.FileRewritten(target, keepPending: false); // the saved file contains the edits
+            AnnotationWorkingCopy.Forget(target);
             group.SetBaseline();
+            UpdateAnnotationDirty();
             _workspace.History.Clear();
             InvalidateSourcePageRenders(target, Enumerable.Range(1, Math.Max(oldMax, count)).ToList(), geometryChanged: true);
             ReaderWindow.Instance?.OnGroupSaved(group, target, keepIndex);
@@ -900,7 +969,7 @@ namespace XTPdfMergeApp
                 return;
             }
 
-            var pageList = pages.Select(p => (p.SourcePath, p.PageNumber)).ToList();
+            var pageList = await AnnotationWorkingCopy.MapAsync(pages.Select(p => (p.SourcePath, p.PageNumber)));
             string err = "";
             // Cùng máy ghép trang của nút Lưu; chỉ gộp layer trùng TÊN (không đổi tên/collapse layer
             // như khi lưu bản ghép) — xuất trang phải giữ nguyên layer như file gốc.

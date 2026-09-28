@@ -23,6 +23,8 @@ internal sealed unsafe class PdfiumInstance
     private readonly delegate* unmanaged[Cdecl]<void> _destroyLibrary;
     private readonly delegate* unmanaged[Cdecl]<byte*, byte*, IntPtr> _loadDocument;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, byte*, IntPtr> _loadCustomDocument;
+    private readonly delegate* unmanaged[Cdecl]<byte*, nuint, byte*, IntPtr> _loadMemDocument64;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, int, int, int, int, int, void> _renderPageBitmap;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, void> _closeDocument;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, int> _getPageCount;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, int, double*, double*, int> _getPageSizeByIndex;
@@ -66,6 +68,8 @@ internal sealed unsafe class PdfiumInstance
         _destroyLibrary = (delegate* unmanaged[Cdecl]<void>)F("FPDF_DestroyLibrary");
         _loadDocument = (delegate* unmanaged[Cdecl]<byte*, byte*, IntPtr>)F("FPDF_LoadDocument");
         _loadCustomDocument = (delegate* unmanaged[Cdecl]<IntPtr, byte*, IntPtr>)F("FPDF_LoadCustomDocument");
+        _loadMemDocument64 = (delegate* unmanaged[Cdecl]<byte*, nuint, byte*, IntPtr>)F("FPDF_LoadMemDocument64");
+        _renderPageBitmap = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, int, int, int, int, int, void>)F("FPDF_RenderPageBitmap");
         _closeDocument = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("FPDF_CloseDocument");
         _getPageCount = (delegate* unmanaged[Cdecl]<IntPtr, int>)F("FPDF_GetPageCount");
         _getPageSizeByIndex = (delegate* unmanaged[Cdecl]<IntPtr, int, double*, double*, int>)F("FPDF_GetPageSizeByIndex");
@@ -190,6 +194,13 @@ internal sealed unsafe class PdfiumInstance
 
     /// <summary>fileAccess = FPDF_FILEACCESS* (xem LayeredDocumentSource).</summary>
     public IntPtr LoadCustomDocument(IntPtr fileAccess) => _loadCustomDocument(fileAccess, null);
+
+    /// <summary>Document from a buffer that must stay pinned until <see cref="CloseDocument"/>.</summary>
+    public IntPtr LoadMemDocument(byte* data, long length) => _loadMemDocument64(data, (nuint)length, null);
+
+    /// <summary>Non-progressive render (small pages: annotation appearances).</summary>
+    public void RenderPageBitmap(IntPtr bitmap, IntPtr page, int x, int y, int width, int height, int rotate, int flags)
+        => _renderPageBitmap(bitmap, page, x, y, width, height, rotate, flags);
     public void CloseDocument(IntPtr document) => _closeDocument(document);
     public int GetPageCount(IntPtr document) => _getPageCount(document);
 

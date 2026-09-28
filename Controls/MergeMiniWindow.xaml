@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
              xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
+             xmlns:local="clr-namespace:XTPdfMergeApp.Controls"
              FontFamily="Segoe UI" FontSize="12">
     <UserControl.Resources>
         <Style x:Key="GoToBox" TargetType="TextBox">
@@ -100,7 +101,7 @@
                                 <Border Background="White" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="1" CornerRadius="2"
                                         Width="{Binding ThumbWidth, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                         Height="{Binding ThumbHeight, RelativeSource={RelativeSource AncestorType=UserControl}}" HorizontalAlignment="Center">
-                                    <Image Source="{Binding Thumbnail}" Stretch="Uniform"
+                                    <local:PageThumbnailImage Source="{Binding Thumbnail}" Stretch="Uniform"
                                            Loaded="ThumbImage_Loaded" Unloaded="ThumbImage_Unloaded" DataContextChanged="ThumbImage_DataContextChanged"/>
                                 </Border>
                                 <TextBlock Text="{Binding Index}" FontSize="11" HorizontalAlignment="Center" Margin="0,4,0,0" Foreground="{DynamicResource Ui.Muted}"/>

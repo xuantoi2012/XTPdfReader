@@ -238,7 +238,7 @@ public static partial class PdfThumbnailService
     }
 
     private static async Task<BitmapSource?> RenderPageProgressiveAsync(PdfDocumentLease document,
-        int index, double requestedWidth, PdfRenderPriority priority, CancellationToken token)
+        int index, double requestedWidth, PdfRenderPriority priority, CancellationToken token, bool withAnnotations = false)
     {
         var page = await AcquirePageAsync(document, index, priority, token).ConfigureAwait(false);
         bool locked = false;
@@ -263,7 +263,7 @@ public static partial class PdfThumbnailService
                 height = Math.Max(1, (int)Math.Round(h * scale));
             }
             return await RenderRegionProgressiveAsync(page, width, height, new Int32Rect(0, 0, width, height),
-                priority, token).ConfigureAwait(false);
+                priority, token, withAnnotations).ConfigureAwait(false);
         }
         finally
         {
@@ -299,8 +299,9 @@ public static partial class PdfThumbnailService
         }
     }
 
+    /// <param name="withAnnotations">Print only: on screen the page is rendered without annotations (the annotation layer draws them).</param>
     private static async Task<BitmapSource?> RenderRegionProgressiveAsync(NativePage page,
-        int fullWidth, int fullHeight, Int32Rect rect, PdfRenderPriority priority, CancellationToken token)
+        int fullWidth, int fullHeight, Int32Rect rect, PdfRenderPriority priority, CancellationToken token, bool withAnnotations = false)
     {
         int x = Math.Clamp(rect.X, 0, fullWidth - 1), y = Math.Clamp(rect.Y, 0, fullHeight - 1);
         int width = Math.Min(rect.Width, fullWidth - x), height = Math.Min(rect.Height, fullHeight - y);
@@ -328,7 +329,7 @@ public static partial class PdfThumbnailService
                 pause.BeginSlice();
                 started = true;
                 status = pdfium.RenderPageBitmapStart(bitmap, page.Handle, -x, -y, fullWidth, fullHeight, 0,
-                    FpdfAnnot | FpdfLcdText | FpdfNoNativeText | FpdfRenderLimitedImageCache, pause.Pointer);
+                    (withAnnotations ? FpdfAnnot : 0) | FpdfLcdText | FpdfNoNativeText | FpdfRenderLimitedImageCache, pause.Pointer);
                 pause.RecordSlice();
             }
             while (status == 1) // FPDF_RENDER_TOBECONTINUED

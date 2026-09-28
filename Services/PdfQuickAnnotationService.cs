@@ -15,7 +15,9 @@ using iText.Kernel.Pdf.Xobject;
 
 namespace XTPdfMergeApp.Services
 {
-    public enum QuickAnnotationKind { Typewriter, Comment, Highlight, Stamp, Shape }
+    /// <summary>Other = chú thích của app khác mà app không tự vẽ lại được (ink, polygon, file đính kèm, form…): vẫn hiện
+    /// (appearance gốc), chọn/di chuyển/xoá được, không sửa nội dung.</summary>
+    public enum QuickAnnotationKind { Typewriter, Comment, Highlight, Stamp, Shape, Other }
 
     /// <summary>
     /// 1 annotation do công cụ sửa nhanh quản lý, mô tả theo toạ độ TRANG HIỂN THỊ chuẩn hoá (xem
@@ -27,10 +29,35 @@ namespace XTPdfMergeApp.Services
         string Name, QuickAnnotationKind Kind, int PageNumber,
         double U1, double V1, double U2, double V2, string Text)
     {
-        /// <summary>Typewriter only: encoded <see cref="TextFormat"/> ("" = default).</summary>
+        /// <summary>Typewriter: <see cref="TextFormat"/>; Shape: <see cref="ShapeStyle"/>; Highlight: "T|" + line rects ("" = default).</summary>
         public string Format { get; init; } = "";
 
+        /// <summary>Số hiệu đối tượng trong file khi chú thích lấy từ file và appearance gốc còn đúng (chưa sửa nội dung/kiểu):
+        /// vẽ bằng appearance gốc, lúc Save chỉ dịch chuyển. 0 = appearance do app tạo lại từ spec.</summary>
+        public int ObjectNumber { get; init; }
+        public int Generation { get; init; }
+        /// <summary>Màu /C (#RRGGBB, "" = mặc định của loại) và độ đục /CA.</summary>
+        public string Color { get; init; } = "";
+        public double Opacity { get; init; } = 1;
+        /// <summary>False: chỉ hiện (form field), không chọn/di chuyển.</summary>
+        public bool Selectable { get; init; } = true;
+        public string Author { get; init; } = "";
+        public DateTime? Date { get; init; }
+        public bool Resolved { get; init; }
+        /// <summary>Loại PDF gốc (/Subtype) — nhãn cho chú thích loại Other.</summary>
+        public string Subtype { get; init; } = "";
+
         public bool Contains(double u, double v) => u >= U1 && u <= U2 && v >= V1 && v <= V2;
+
+        /// <summary>Dịch chuyển (toạ độ trang hiển thị chuẩn hoá); highlight theo chữ dời luôn các dòng.</summary>
+        public QuickAnnotationSpec Translate(double du, double dv)
+        {
+            string format = Format;
+            if (Kind == QuickAnnotationKind.Highlight && format.StartsWith("T|", StringComparison.Ordinal))
+                format = PdfQuickAnnotationService.EncodeTextHighlight(
+                    PdfQuickAnnotationService.TextHighlightRects(format).Select(r => (r.U1 + du, r.V1 + dv, r.U2 + du, r.V2 + dv)));
+            return this with { U1 = U1 + du, V1 = V1 + dv, U2 = U2 + du, V2 = V2 + dv, Format = format };
+        }
     }
 
     /// <summary>1 bước sửa annotation: gỡ <see cref="Remove"/> (theo Name) rồi thêm <see cref="Add"/>.
@@ -91,37 +118,73 @@ namespace XTPdfMergeApp.Services
             return new PdfPageGeometry(crop.GetX(), crop.GetY(), crop.GetWidth(), crop.GetHeight(), rotation);
         }
 
-        /// <summary>Annotation Typewriter/Comment/Highlight (kể cả do app khác tạo) trên 1 trang.</summary>
-        public static IReadOnlyList<QuickAnnotationSpec> ReadAnnotations(string path, int pageNumber)
-            => ReadPage(path, pageNumber).Annotations;
+        private static readonly PdfName StateKey = new("State");
 
-        /// <summary>Hình học trang + annotation của trang — 1 lần mở file cho lớp tương tác của Viewer.</summary>
-        public static (PdfPageGeometry Geometry, IReadOnlyList<QuickAnnotationSpec> Annotations) ReadPage(string path, int pageNumber)
-        {
-            using var doc = new PdfDocument(new PdfReader(path));
-            var page = doc.GetPage(pageNumber);
-            var geometry = GetGeometry(page);
-            return (geometry, ReadAnnotations(page, geometry, pageNumber));
-        }
-
-        private static IReadOnlyList<QuickAnnotationSpec> ReadAnnotations(PdfPage page, PdfPageGeometry geometry, int pageNumber)
+        /// <summary>Mọi chú thích hiện được của trang (trừ Popup, Link, chú thích ẩn), kể cả của app khác — thứ tự vẽ như trong /Annots.</summary>
+        public static IReadOnlyList<QuickAnnotationSpec> ReadAnnotations(PdfPage page, PdfPageGeometry geometry, int pageNumber)
         {
             var result = new List<QuickAnnotationSpec>();
             var annotations = page.GetAnnotations();
             for (int i = 0; i < annotations.Count; i++)
             {
                 var annot = annotations[i];
-                QuickAnnotationKind? kind = KindOf(annot);
-                if (kind == null) continue;
+                var subtype = annot.GetSubtype();
+                if (subtype == null || PdfName.Popup.Equals(subtype) || PdfName.Link.Equals(subtype)) continue;
+                int flags = annot.GetFlags();
+                if ((flags & (PdfAnnotation.HIDDEN | PdfAnnotation.NO_VIEW)) != 0) continue;
+                QuickAnnotationKind kind = KindOf(annot) ?? QuickAnnotationKind.Other;
                 var rect = annot.GetRectangle()?.ToRectangle();
-                if (rect == null) continue;
+                if (rect == null || rect.GetWidth() <= 0 && rect.GetHeight() <= 0) continue;
                 var (u1, v1, u2, v2) = geometry.UserRectToDisplay(rect.GetLeft(), rect.GetBottom(), rect.GetRight(), rect.GetTop());
-                string name = annot.GetName()?.ToUnicodeString() is { Length: > 0 } nm ? nm : "#" + i;
-                result.Add(new QuickAnnotationSpec(name, kind.Value, pageNumber, u1, v1, u2, v2,
-                    annot.GetContents()?.ToUnicodeString() ?? "")
-                { Format = kind == QuickAnnotationKind.Highlight ? ReadHighlightFormat(annot, geometry) : annot.GetPdfObject().GetAsString(kind == QuickAnnotationKind.Shape ? ShapeKey : FormatKey)?.ToUnicodeString() ?? "" });
+                var obj = annot.GetPdfObject();
+                var reference = obj.GetIndirectReference();
+                string name = annot.GetName()?.ToUnicodeString() is { Length: > 0 } nm ? nm
+                    : reference != null ? $"#o{reference.GetObjNumber()}_{reference.GetGenNumber()}" : "#i" + i;
+                string state = obj.GetAsName(StateKey)?.GetValue() ?? obj.GetAsString(StateKey)?.ToUnicodeString() ?? "";
+                result.Add(new QuickAnnotationSpec(name, kind, pageNumber, u1, v1, u2, v2, annot.GetContents()?.ToUnicodeString() ?? "")
+                {
+                    Format = kind switch
+                    {
+                        QuickAnnotationKind.Highlight => ReadHighlightFormat(annot, geometry),
+                        QuickAnnotationKind.Shape => obj.GetAsString(ShapeKey)?.ToUnicodeString() ?? "",
+                        _ => obj.GetAsString(FormatKey)?.ToUnicodeString() ?? ""
+                    },
+                    ObjectNumber = reference?.GetObjNumber() ?? 0,
+                    Generation = reference?.GetGenNumber() ?? 0,
+                    Color = ColorOf(obj.GetAsArray(PdfName.C)),
+                    Opacity = obj.GetAsNumber(PdfName.CA)?.DoubleValue() ?? 1,
+                    Selectable = !PdfName.Widget.Equals(subtype),
+                    Author = obj.GetAsString(PdfName.T)?.ToUnicodeString() ?? "",
+                    Date = ParsePdfDate(obj.GetAsString(PdfName.M)?.ToUnicodeString() ?? obj.GetAsString(PdfName.CreationDate)?.ToUnicodeString()),
+                    Resolved = state is "Completed" or "Accepted" or "Cancelled" or "Rejected",
+                    Subtype = subtype.GetValue()
+                });
             }
             return result;
+        }
+
+        private static string ColorOf(PdfArray? c)
+        {
+            if (c == null) return "";
+            double Ch(int i) => Math.Clamp(c.GetAsNumber(i)?.DoubleValue() ?? 0, 0, 1);
+            (double r, double g, double b) = c.Size() switch
+            {
+                1 => (Ch(0), Ch(0), Ch(0)),
+                3 => (Ch(0), Ch(1), Ch(2)),
+                4 => ((1 - Ch(0)) * (1 - Ch(3)), (1 - Ch(1)) * (1 - Ch(3)), (1 - Ch(2)) * (1 - Ch(3))),
+                _ => (-1, -1, -1)
+            };
+            return r < 0 ? "" : $"#{(int)Math.Round(r * 255):X2}{(int)Math.Round(g * 255):X2}{(int)Math.Round(b * 255):X2}";
+        }
+
+        internal static DateTime? ParsePdfDate(string? text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+            string digits = new string(text.SkipWhile(c => !char.IsDigit(c)).TakeWhile(char.IsDigit).ToArray());
+            if (digits.Length < 8) return null;
+            digits = digits.PadRight(14, '0')[..14];
+            return DateTime.TryParseExact(digits, "yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var d) ? d : null;
         }
 
         /// <summary>A text highlight keeps its per-line rectangles (from /QuadPoints) so moving it does not turn it into one big block.</summary>
@@ -146,56 +209,165 @@ namespace XTPdfMergeApp.Services
             if (annot.GetPdfObject().ContainsKey(ShapeKey)) return QuickAnnotationKind.Shape;
             if (PdfName.FreeText.Equals(subtype)) return QuickAnnotationKind.Typewriter;
             if (PdfName.Text.Equals(subtype)) return QuickAnnotationKind.Comment;
-            if (PdfName.Highlight.Equals(subtype) || PdfName.Square.Equals(subtype)) return QuickAnnotationKind.Highlight;
+            if (PdfName.Highlight.Equals(subtype)) return QuickAnnotationKind.Highlight;
             if (PdfName.Stamp.Equals(subtype)) return QuickAnnotationKind.Stamp;
             return null;
         }
 
+        private static readonly Dictionary<string, PdfFont> _measureFonts = new();
+
+        /// <summary>Typewriter / Note placed at (U1, V1): the rectangle it will have once written — selection, moving and hit test work
+        /// before Save. Same metrics as <see cref="AddTypewriter"/> / <see cref="AddComment"/>.</summary>
+        public static QuickAnnotationSpec WithMeasuredSize(QuickAnnotationSpec spec, PdfPageGeometry geometry)
+        {
+            double width, height;
+            switch (spec.Kind)
+            {
+                case QuickAnnotationKind.Typewriter:
+                {
+                    var format = TextFormat.Decode(spec.Format);
+                    string[] lines = SplitLines(spec.Text);
+                    float size = (float)format.Size;
+                    lock (_measureFonts)
+                    {
+                        string key = format.Family + format.Bold + format.Italic;
+                        if (!_measureFonts.TryGetValue(key, out var font)) _measureFonts[key] = font = CreateFormatFont(format);
+                        width = Math.Max(20f, lines.Max(l => font.GetWidth(l, size)) + 2 * TypewriterPadding);
+                    }
+                    height = lines.Length * size * TypewriterLineHeight + 2 * TypewriterPadding;
+                    break;
+                }
+                case QuickAnnotationKind.Comment:
+                    width = height = CommentIconSize;
+                    break;
+                default:
+                    return spec;
+            }
+            return spec with { U2 = spec.U1 + width / geometry.DisplayWidth, V2 = spec.V1 + height / geometry.DisplayHeight };
+        }
+
+        /// <summary>Font nhúng dùng lại trong 1 document (PdfFont gắn với document của nó).</summary>
+        public sealed class FontSet
+        {
+            private readonly Dictionary<string, PdfFont> _fonts = new();
+            internal PdfFont Unicode => Get("unicode", CreateUnicodeFont);
+            internal PdfFont For(TextFormat format) => Get(format.Family + format.Bold + format.Italic, () => CreateFormatFont(format));
+            private PdfFont Get(string key, Func<PdfFont> create) => _fonts.TryGetValue(key, out var f) ? f : _fonts[key] = create();
+        }
+
+        /// <summary>Ghi các thay đổi đang chờ vào file (Save). Chú thích lấy từ file mà chỉ bị dời chỗ / đổi trạng thái Resolved thì giữ
+        /// nguyên appearance gốc (chỉ dịch toạ độ), còn lại gỡ rồi tạo lại từ spec.</summary>
         public static void ApplyChanges(PdfDocument doc, IEnumerable<QuickAnnotationChange> changes)
         {
-            PdfFont? typewriterFont = null;
-            var formatFonts = new System.Collections.Generic.Dictionary<string, PdfFont>();
+            var fonts = new FontSet();
             foreach (var change in changes)
             {
                 var page = doc.GetPage(change.PageNumber);
-                if (change.Remove != null) Remove(page, change.Remove.Name);
-                if (change.Add == null) continue;
-                switch (change.Add.Kind)
+                if (change is { Remove: { } before, Add: { } after } && after.ObjectNumber > 0 && after.ObjectNumber == before.ObjectNumber)
                 {
-                    case QuickAnnotationKind.Typewriter:
+                    if (Find(page, before.Name) is { } target)
                     {
-                        var format = TextFormat.Decode(change.Add.Format);
-                        string fontKey = format.Family + format.Bold + format.Italic;
-                        if (!formatFonts.TryGetValue(fontKey, out var formatFont)) formatFonts[fontKey] = formatFont = CreateFormatFont(format);
-                        AddTypewriter(doc, page, change.Add, formatFont, format);
-                        break;
+                        if (Math.Abs(after.U1 - before.U1) > 1e-9 || Math.Abs(after.V1 - before.V1) > 1e-9)
+                            Translate(page, target, before, after);
+                        if (after.Resolved != before.Resolved)
+                            PdfCommentService.SetResolved(target.GetPdfObject(), after.Resolved);
+                        if (after.Text != before.Text)
+                        {
+                            target.SetContents(new PdfString(after.Text, PdfEncodings.UNICODE_BIG));
+                            target.GetPdfObject().SetModified();
+                        }
                     }
-                    case QuickAnnotationKind.Comment:
-                        AddComment(doc, page, change.Add);
-                        break;
-                    case QuickAnnotationKind.Highlight:
-                        AddHighlight(doc, page, change.Add);
-                        break;
-                    case QuickAnnotationKind.Shape:
-                        AddShape(doc, page, change.Add);
-                        break;
-                    case QuickAnnotationKind.Stamp:
-                        typewriterFont ??= CreateUnicodeFont();
-                        AddStamp(doc, page, change.Add, typewriterFont);
-                        break;
+                    continue;
+                }
+                if (change.Remove != null) Remove(page, change.Remove.Name);
+                if (change.Add != null) AddGenerated(doc, page, change.Add, fonts);
+            }
+        }
+
+        /// <summary>Tạo chú thích từ spec (kèm appearance) trên <paramref name="page"/> — dùng cả cho file thật lẫn "tài liệu tí hon" vẽ appearance.</summary>
+        public static PdfAnnotation? AddGenerated(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec, FontSet fonts)
+        {
+            int before = page.GetAnnotations().Count;
+            switch (spec.Kind)
+            {
+                case QuickAnnotationKind.Typewriter:
+                {
+                    var format = TextFormat.Decode(spec.Format);
+                    AddTypewriter(doc, page, spec, fonts.For(format), format);
+                    break;
+                }
+                case QuickAnnotationKind.Comment:
+                    AddComment(doc, page, spec);
+                    break;
+                case QuickAnnotationKind.Highlight:
+                    AddHighlight(doc, page, spec);
+                    break;
+                case QuickAnnotationKind.Shape:
+                    AddShape(doc, page, spec);
+                    break;
+                case QuickAnnotationKind.Stamp:
+                    AddStamp(doc, page, spec, fonts.Unicode);
+                    break;
+                default:
+                    return null;
+            }
+            var annotations = page.GetAnnotations();
+            if (spec.Resolved && annotations.Count > before) PdfCommentService.SetResolved(annotations[before].GetPdfObject(), true);
+            return annotations.Count > before ? annotations[before] : null;
+        }
+
+        /// <summary>Chú thích theo tên: /NM, "#o{số}_{thế hệ}" (đối tượng gián tiếp không có /NM) hoặc "#i{chỉ số}".</summary>
+        public static PdfAnnotation? Find(PdfPage page, string name)
+        {
+            var annotations = page.GetAnnotations();
+            if (name.StartsWith("#o", StringComparison.Ordinal))
+            {
+                var parts = name[2..].Split('_');
+                if (parts.Length == 2 && int.TryParse(parts[0], out int number) && int.TryParse(parts[1], out int generation))
+                    return annotations.FirstOrDefault(a => a.GetPdfObject().GetIndirectReference() is { } r && r.GetObjNumber() == number && r.GetGenNumber() == generation);
+                return null;
+            }
+            if (name.StartsWith("#i", StringComparison.Ordinal))
+                return int.TryParse(name.AsSpan(2), out int index) && index >= 0 && index < annotations.Count && annotations[index].GetName() == null ? annotations[index] : null;
+            return annotations.FirstOrDefault(a => a.GetName()?.ToUnicodeString() == name);
+        }
+
+        /// <summary>Dời 1 chú thích có sẵn trong file: mọi toạ độ của nó (Rect, QuadPoints, L, Vertices, InkList, CL, Rect của popup) cùng
+        /// một vector — appearance (/AP) khớp theo /Rect nên không phải vẽ lại.</summary>
+        private static void Translate(PdfPage page, PdfAnnotation annot, QuickAnnotationSpec before, QuickAnnotationSpec after)
+        {
+            var geometry = GetGeometry(page);
+            var (x0, y0, _, _) = geometry.DisplayRectToUser(before.U1, before.V1, before.U1, before.V1);
+            var (x1, y1, _, _) = geometry.DisplayRectToUser(after.U1, after.V1, after.U1, after.V1);
+            float dx = (float)(x1 - x0), dy = (float)(y1 - y0);
+            var obj = annot.GetPdfObject();
+
+            void Shift(PdfArray? array)
+            {
+                if (array == null) return;
+                for (int i = 0; i + 1 < array.Size(); i += 2)
+                {
+                    if (array.GetAsNumber(i) is { } x) array.Set(i, new PdfNumber(x.DoubleValue() + dx));
+                    if (array.GetAsNumber(i + 1) is { } y) array.Set(i + 1, new PdfNumber(y.DoubleValue() + dy));
                 }
             }
+            foreach (var key in new[] { PdfName.Rect, PdfName.QuadPoints, PdfName.L, PdfName.Vertices, PdfName.CL })
+                Shift(obj.GetAsArray(key));
+            if (obj.GetAsArray(PdfName.InkList) is { } ink)
+                for (int i = 0; i < ink.Size(); i++) Shift(ink.GetAsArray(i));
+            if (obj.GetAsDictionary(PdfName.Popup) is { } popup)
+            {
+                Shift(popup.GetAsArray(PdfName.Rect));
+                popup.SetModified();
+            }
+            obj.SetModified();
         }
 
         // ── Gỡ ────────────────────────────────────────────────────────────
 
         private static void Remove(PdfPage page, string name)
         {
-            var annotations = page.GetAnnotations();
-            PdfAnnotation? target = annotations.FirstOrDefault(a => a.GetName()?.ToUnicodeString() == name);
-            if (target == null && name.StartsWith('#') && int.TryParse(name.AsSpan(1), out int index) &&
-                index >= 0 && index < annotations.Count && annotations[index].GetName() == null)
-                target = annotations[index];
+            PdfAnnotation? target = Find(page, name);
             if (target == null) return;
 
             var targetObject = target.GetPdfObject();
@@ -475,13 +647,14 @@ namespace XTPdfMergeApp.Services
             var quad = parts.SelectMany(p => new[] { (float)p.Left, (float)p.Top, (float)p.Right, (float)p.Top, (float)p.Left, (float)p.Bottom, (float)p.Right, (float)p.Bottom }).ToArray();
             var annot = PdfTextMarkupAnnotation.CreateHighLight(rect, quad);
             annot.SetColor(new DeviceRgb(1f, 0.92f, 0f));
+            annot.SetOpacity(new PdfNumber(0.85));
             if (!string.IsNullOrEmpty(spec.Text)) annot.SetContents(new PdfString(spec.Text, PdfEncodings.UNICODE_BIG));
             StampCommon(annot, spec);
 
             // Multiply giống bút dạ quang: chữ đen bên dưới vẫn đen, nền trắng thành vàng.
             var form = new PdfFormXObject(new Rectangle(0, 0, rect.GetWidth(), rect.GetHeight()));
             var canvas = new PdfCanvas(form, doc);
-            canvas.SaveState().SetExtGState(new PdfExtGState().SetBlendMode(PdfExtGState.BM_MULTIPLY).SetFillOpacity(0.85f))
+            canvas.SaveState().SetExtGState(new PdfExtGState().SetBlendMode(PdfExtGState.BM_MULTIPLY))
                 .SetFillColor(new DeviceRgb(1f, 0.92f, 0f));
             foreach (var p in parts)
                 canvas.Rectangle((float)(p.Left - left), (float)(p.Bottom - bottom), (float)(p.Right - p.Left), (float)(p.Top - p.Bottom));
@@ -515,8 +688,8 @@ namespace XTPdfMergeApp.Services
         private static void StampCommon(PdfMarkupAnnotation annot, QuickAnnotationSpec spec)
         {
             annot.SetName(new PdfString(spec.Name));
-            annot.SetTitle(new PdfString(Environment.UserName, PdfEncodings.UNICODE_BIG));
-            annot.SetDate(new PdfDate().GetPdfObject());
+            annot.SetTitle(new PdfString(spec.Author.Length > 0 ? spec.Author : Environment.UserName, PdfEncodings.UNICODE_BIG));
+            annot.SetDate((spec.Date is { } date ? new PdfDate(date) : new PdfDate()).GetPdfObject());
             annot.SetCreationDate(new PdfDate().GetPdfObject());
             annot.SetFlags(PdfAnnotation.PRINT);
         }

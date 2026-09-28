@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using XTPdfMergeApp.Controls;
 using XTPdfMergeApp.Services;
 using PageRow = XTPdfMergeApp.Domain.PagePlacement;
 
@@ -41,6 +42,10 @@ namespace XTPdfMergeApp
             }
             return false;
         }
+
+        /// <summary>Bars floating over the page (Find, text format, shape style, highlight mode): clicks on them are not clicks on the page.</summary>
+        private bool IsOverlayBar(DependencyObject? source)
+            => IsInside(source, FindBar) || IsInside(source, TextFormatBar) || IsInside(source, ShapeBar) || IsInside(source, HighlightBar);
 
         private void SelectAnnotation(PageRow? row, QuickAnnotationSpec? spec)
         {
@@ -116,6 +121,11 @@ namespace XTPdfMergeApp
             {
                 move.DeltaU = du;
                 move.DeltaV = dv;
+                // Chú thích đi theo chuột ngay (lớp chú thích vẽ nó lệch du, dv) — chưa đổi gì cho tới khi nhả chuột.
+                AnnotationLayer.Edit.MoveName = s.Name;
+                AnnotationLayer.Edit.MoveDU = du;
+                AnnotationLayer.Edit.MoveDV = dv;
+                ReaderContinuousView.Redraw();
                 UpdateSelectionVisual();
             }
             return true;
@@ -126,11 +136,16 @@ namespace XTPdfMergeApp
             if (_annMove is not { } move) return false;
             _annMove = null;
             if (ReaderContentHost.IsMouseCaptured) ReaderContentHost.ReleaseMouseCapture();
+            if (AnnotationLayer.Edit.MoveName != null)
+            {
+                AnnotationLayer.Edit.MoveName = null;
+                ReaderContinuousView.Redraw();
+            }
             if (!move.Moved || (Math.Abs(move.DeltaU) < 1e-6 && Math.Abs(move.DeltaV) < 1e-6)) { UpdateSelectionVisual(); return true; }
 
+            // Dời giữ nguyên appearance (và số đối tượng của chú thích lấy từ file: Save chỉ dịch toạ độ).
             var s = move.Spec;
-            string name = s.Name.StartsWith('#') ? NewAnnotationName() : s.Name;
-            var moved = s with { Name = name, U1 = s.U1 + move.DeltaU, V1 = s.V1 + move.DeltaV, U2 = s.U2 + move.DeltaU, V2 = s.V2 + move.DeltaV };
+            var moved = s.Translate(move.DeltaU, move.DeltaV);
             _selAnn = moved;
             CommitAnnotationChange(move.Row, new QuickAnnotationChange(s, moved), "Move " + KindLabel(s.Kind));
             UpdateSelectionVisual();
@@ -142,7 +157,9 @@ namespace XTPdfMergeApp
             QuickAnnotationKind.Typewriter => "text",
             QuickAnnotationKind.Comment => "note",
             QuickAnnotationKind.Highlight => "highlight",
-            _ => "stamp"
+            QuickAnnotationKind.Stamp => "stamp",
+            QuickAnnotationKind.Shape => "shape",
+            _ => "annotation"
         };
 
         // ── Delete / menu ─────────────────────────────────────────────
@@ -156,7 +173,7 @@ namespace XTPdfMergeApp
 
         private void ReaderContent_AnnotationContextMenu(object sender, MouseButtonEventArgs e)
         {
-            if (_annotationEditor != null || IsInside(e.OriginalSource as DependencyObject, FindBar) || IsInside(e.OriginalSource as DependencyObject, TextFormatBar) || IsInside(e.OriginalSource as DependencyObject, ShapeBar) || IsInside(e.OriginalSource as DependencyObject, HighlightBar)) return;
+            if (_annotationEditor != null || IsOverlayBar(e.OriginalSource as DependencyObject)) return;
             if (!TryHitPage(e.GetPosition(ReaderContentHost), out var hit)) return;
             var picked = PickAnnotation(GetCachedPageAnnotations(hit.Row), hit);
             if (picked == null) return;
@@ -321,8 +338,8 @@ namespace XTPdfMergeApp
             }
             if (_selAnn is { Kind: QuickAnnotationKind.Typewriter } spec && _selRow is { } row)
             {
-                var changed = spec with { Format = _textFormat.Encode() };
-                if (changed == spec) return;
+                if (spec.Format == _textFormat.Encode() || GetCachedPageAnnotations(row) is not { } page) return;
+                var changed = PdfQuickAnnotationService.WithMeasuredSize(Regenerated(spec) with { Format = _textFormat.Encode() }, page.Geometry);
                 _selAnn = changed;
                 CommitAnnotationChange(row, new QuickAnnotationChange(spec, changed), "Change text format");
             }

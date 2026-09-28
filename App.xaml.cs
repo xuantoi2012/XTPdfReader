@@ -152,6 +152,7 @@ namespace XTPdfMergeApp
 
         protected override void OnExit(ExitEventArgs e)
         {
+            AnnotationWorkingCopy.DeleteAll();
             // Chặn render PDFium mới + đợi lệnh đang chạy dở kết thúc TRƯỚC khi ProcessExit
             // gọi FPDF_DestroyLibrary() — tránh crash ExecutionEngineException do 1 thread khác
             // còn đang gọi vào PDFium (FPDF_LoadPage...) sau khi thư viện native đã bị huỷ.

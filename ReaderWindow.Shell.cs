@@ -57,6 +57,7 @@ namespace XTPdfMergeApp
             };
             ReaderSidePanel.LayerHiddenChanged += OnLayerHiddenChanged;
             ReaderSidePanel.ExportLayerViewRequested += OnExportLayerView;
+            AnnotationStore.Changed += OnAnnotationsChanged;
             ShowEmptyReaderState();
         }
 
@@ -683,10 +684,10 @@ namespace XTPdfMergeApp
         private void OnExportLayerView(IReadOnlySet<string> hiddenNames, string viewName) => OpenExport(preferFlatten: true);
 
         /// <summary>Hộp thoại Export / Split cho window đang xem.</summary>
-        private void OpenExport(bool preferFlatten)
+        private async void OpenExport(bool preferFlatten)
         {
             if (_readerGroup == null || _readerGroup.Pages.Count == 0) return;
-            var pages = _readerGroup.Pages.Select(p => (p.SourcePath, p.PageNumber)).ToList();
+            var pages = await AnnotationWorkingCopy.MapAsync(_readerGroup.Pages.Select(p => (p.SourcePath, p.PageNumber)));
             string dir = System.IO.Path.GetDirectoryName(_readerGroup.SourcePath) ?? "";
             string baseName = System.IO.Path.GetFileNameWithoutExtension(_readerGroup.FileName);
             var dialog = new Controls.ExportWindow(pages, baseName, System.IO.Directory.Exists(dir) ? dir : "", preferFlatten) { Owner = this };

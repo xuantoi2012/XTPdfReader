@@ -21,7 +21,6 @@ namespace XTPdfMergeApp.Controls
     public partial class CommentsPanel : UserControl
     {
         private List<CommentInfo> _all = new();
-        private readonly Dictionary<string, (DateTime Stamp, IReadOnlyList<CommentInfo> Items)> _cache = new(StringComparer.OrdinalIgnoreCase);
         private IReadOnlyList<string> _paths = Array.Empty<string>();
         private bool _selecting, _loadingAuthors;
         private int _version;
@@ -33,26 +32,23 @@ namespace XTPdfMergeApp.Controls
         /// <summary>Số chú thích (null = chưa có).</summary>
         internal event Action<int?>? CountChanged;
 
-        /// <summary>Nạp chú thích của các file (đọc nền, cache theo giờ ghi file).</summary>
+        /// <summary>Chú thích của các file như đang hiển thị (AnnotationStore: file + thay đổi chưa lưu).</summary>
         internal async Task SetFilesAsync(IReadOnlyList<string> paths)
         {
             _paths = paths;
             int version = ++_version;
-            EmptyText.Text = "Loading comments…";
-            EmptyText.Visibility = Visibility.Visible;
+            if (_all.Count == 0)
+            {
+                EmptyText.Text = "Loading comments…";
+                EmptyText.Visibility = Visibility.Visible;
+            }
             var all = new List<CommentInfo>();
             foreach (string path in paths)
             {
                 if (version != _version) return;
-                DateTime stamp = File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
-                if (!_cache.TryGetValue(path, out var cached) || cached.Stamp != stamp)
-                {
-                    IReadOnlyList<CommentInfo> items;
-                    try { items = await Task.Run(() => PdfCommentService.ReadAll(path)); }
-                    catch { items = Array.Empty<CommentInfo>(); }
-                    _cache[path] = cached = (stamp, items);
-                }
-                all.AddRange(cached.Items);
+                foreach (var a in await AnnotationStore.GetAllAsync(path))
+                    if (a.Selectable)
+                        all.Add(new CommentInfo(path, a.PageNumber, a.Name, a.Kind, a.Author, a.Date, a.Text, a.Resolved));
             }
             if (version != _version) return;
             _all = all;
@@ -60,9 +56,6 @@ namespace XTPdfMergeApp.Controls
             Rebuild();
             CountChanged?.Invoke(_all.Count == 0 ? null : _all.Count);
         }
-
-        /// <summary>File vừa được sửa (thêm / xoá chú thích…): đọc lại lần sau.</summary>
-        internal void Invalidate(string path) => _cache.Remove(path);
 
         private void LoadAuthors()
         {
@@ -111,9 +104,14 @@ namespace XTPdfMergeApp.Controls
 
         private static CommentCard ToCard(CommentInfo c)
         {
-            string iconName = c.Kind switch { QuickAnnotationKind.Typewriter => "type", QuickAnnotationKind.Highlight => "hl", _ => "comment" };
+            string iconName = c.Kind switch
+            {
+                QuickAnnotationKind.Typewriter => "type", QuickAnnotationKind.Highlight => "hl", QuickAnnotationKind.Stamp => "stamp",
+                QuickAnnotationKind.Shape => "shapes", _ => "comment"
+            };
             string text = c.Text.Trim();
-            if (text.Length == 0) text = c.Kind == QuickAnnotationKind.Highlight ? "Highlight" : "(empty)";
+            if (c.Kind == QuickAnnotationKind.Stamp) text = StampDefinition.Decode(c.Text).Definition is { IsImage: false } stamp ? stamp.Text : "Image stamp";
+            if (text.Length == 0) text = c.Kind switch { QuickAnnotationKind.Highlight => "Highlight", QuickAnnotationKind.Shape => "Shape", _ => "(empty)" };
             return new CommentCard(c, (Geometry)Application.Current.FindResource("Ui.Icon." + iconName),
                 c.Author.Length > 0 ? c.Author : "Unknown", c.Date?.ToString("d MMM") ?? "", text, c.Resolved);
         }

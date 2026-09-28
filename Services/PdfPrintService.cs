@@ -150,7 +150,7 @@ namespace XTPdfMergeApp.Services
                 double drawW = pageW * scale, drawH = pageH * scale;
                 int pixelsW = (int)Math.Clamp(drawW / 100.0 * Dpi, 200, MaxPixels);
 
-                var source = PdfThumbnailService.RenderPageAsync(path, number - 1, pixelsW, layerToken: PdfLayerStateStore.GetToken(path))
+                var source = PdfThumbnailService.RenderPageAsync(path, number - 1, pixelsW, layerToken: PdfLayerStateStore.GetToken(path), withAnnotations: true)
                     .GetAwaiter().GetResult();
                 if (source != null)
                 {

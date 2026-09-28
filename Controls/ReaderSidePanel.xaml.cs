@@ -383,11 +383,25 @@ namespace XTPdfMergeApp.Controls
             return CommentsView.SetFilesAsync(paths);
         }
 
-        /// <summary>File vừa được sửa (chú thích…): bỏ cache chú thích, đọc lại nếu tab đang mở.</summary>
+        /// <summary>File vừa được sửa (xoay trang, lưu…): đọc lại chú thích nếu tab đang mở.</summary>
         internal void OnSourceEdited(string path)
         {
-            CommentsView.Invalidate(path);
             if (_tab == Tab.Comments) _ = RefreshCommentsAsync();
+        }
+
+        private bool _commentsRefreshQueued;
+
+        /// <summary>Chú thích của 1 trang đổi (sửa / undo / đọc xong / ảnh xong): thumbnail vẽ lại, tab Comments đọc lại (gộp nhiều lần báo).</summary>
+        internal void OnAnnotationsChanged(string path, int page)
+        {
+            Controls.PageThumbnailImage.Invalidate(path, page);
+            if (_tab != Tab.Comments || _commentsRefreshQueued) return;
+            _commentsRefreshQueued = true;
+            _ = Dispatcher.InvokeAsync(() =>
+            {
+                _commentsRefreshQueued = false;
+                if (_tab == Tab.Comments) _ = RefreshCommentsAsync();
+            }, System.Windows.Threading.DispatcherPriority.Background);
         }
 
         internal event Action<CommentInfo>? CommentActivated;

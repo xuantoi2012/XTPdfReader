@@ -35,39 +35,52 @@ namespace XTPdfMergeApp.Services
 
         internal static int NormalizeRotation(int degrees) => ((degrees % 360) + 360) % 360;
 
-        /// <summary>Mở file, cho <paramref name="edit"/> sửa, rồi ghi đè lại chính file đó.</summary>
+        /// <summary>Mở file, cho <paramref name="edit"/> sửa, rồi NỐI bản cập nhật (incremental update) vào cuối chính file đó.
+        /// Không đọc cả file vào RAM, không chép lại phần cũ ra file tạm: file 165 MB chỉ được ghi thêm vài KB.</summary>
         public static void EditInPlace(string path, Action<PdfDocument> edit)
         {
-            byte[] original = File.ReadAllBytes(path);
-            string tempPath = path + ".xtedit.tmp";
+            var update = new MemoryStream();
+            long length;
+            var source = new SharedFileSource(path);
             try
             {
-                using (var reader = new PdfReader(new MemoryStream(original)))
-                using (var writer = new PdfWriter(tempPath))
-                using (var doc = new PdfDocument(reader, writer, new StampingProperties().UseAppendMode()))
-                {
-                    edit(doc);
-                }
-
-                CopyOverWithRetry(tempPath, path);
+                length = source.Length();
+                // Append mode chép nguyên các byte cũ ra writer rồi mới ghi phần cập nhật: TailStream bỏ phần chép, giữ phần cập nhật.
+                using var doc = new PdfDocument(new PdfReader(source, new ReaderProperties()), new PdfWriter(new TailStream(length, update)),
+                    new StampingProperties().UseAppendMode());
+                edit(doc);
             }
             finally
             {
-                try { if (File.Exists(tempPath)) File.Delete(tempPath); }
-                catch { /* best effort */ }
+                source.Close();
             }
+            if (update.Length > 0) AppendWithRetry(path, length, update);
         }
 
-        /// <summary>Handle PDFium đóng bất đồng bộ; thêm vài nhịp retry cho trường hợp handle vừa nhả
-        /// hoặc antivirus/indexer đang giữ file tạm thời.</summary>
-        private static void CopyOverWithRetry(string source, string destination)
+        /// <summary>Ghi phần cập nhật vào cuối file. Handle PDFium đóng bất đồng bộ, antivirus/indexer có thể giữ file một nhịp: thử lại.
+        /// Ghi hỏng giữa chừng thì cắt file về đúng độ dài cũ.</summary>
+        private static void AppendWithRetry(string path, long expectedLength, MemoryStream update)
         {
             const int attempts = 20;
             for (int i = 1; ; i++)
             {
                 try
                 {
-                    File.Copy(source, destination, overwrite: true);
+                    using var file = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+                    if (file.Length != expectedLength)
+                        throw new InvalidOperationException("The file was changed by another program while it was being saved. Nothing was written.");
+                    file.Seek(0, SeekOrigin.End);
+                    try
+                    {
+                        update.Position = 0;
+                        update.CopyTo(file);
+                        file.Flush(flushToDisk: true);
+                    }
+                    catch
+                    {
+                        try { file.SetLength(expectedLength); } catch { /* reported by the rethrow */ }
+                        throw;
+                    }
                     return;
                 }
                 catch (IOException) when (i < attempts)
@@ -75,6 +88,40 @@ namespace XTPdfMergeApp.Services
                     Thread.Sleep(100);
                 }
             }
+        }
+
+        /// <summary>Đầu ra của 1 lần ghi append mode: bỏ <c>skip</c> byte đầu (bản chép nội dung cũ), giữ phần sau vào <c>tail</c>.</summary>
+        private sealed class TailStream(long skip, Stream tail) : Stream
+        {
+            private long _position;
+
+            public override bool CanRead => false;
+            public override bool CanSeek => false;
+            public override bool CanWrite => true;
+            public override long Length => _position;
+            public override long Position { get => _position; set => throw new NotSupportedException(); }
+
+            public override void Write(byte[] buffer, int offset, int count)
+            {
+                long end = _position + count;
+                if (end > skip)
+                {
+                    int from = (int)Math.Max(0, skip - _position);
+                    tail.Write(buffer, offset + from, count - from);
+                }
+                _position = end;
+            }
+
+            public override void WriteByte(byte value)
+            {
+                if (_position >= skip) tail.WriteByte(value);
+                _position++;
+            }
+
+            public override void Flush() { }
+            public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
         }
     }
 }

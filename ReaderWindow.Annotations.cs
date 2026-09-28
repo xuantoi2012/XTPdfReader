@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using XTPdfMergeApp.Controls;
 using XTPdfMergeApp.Services;
 using static XTPdfMergeApp.Services.VisualTreeHelpers;
 using PageRow = XTPdfMergeApp.Domain.PagePlacement;
@@ -20,8 +21,8 @@ namespace XTPdfMergeApp
     ///    chính ReaderImage (tự tính cả zoom/xoay khung nhìn/cuộn), cuộn liên tục thì theo khung trang của
     ///    ContinuousPdfView. Đổi tiếp sang toạ độ PDF (point, theo
     ///    CropBox + /Rotate thật của trang) ở <see cref="PdfPageGeometry"/> lúc ghi file.
-    /// 3. Mọi thao tác kết thúc bằng 1 callback chung <see cref="CommitAnnotationChange"/> → host ghi
-    ///    annotation bằng iText + đưa vào Undo/Redo → trang render lại ngay.
+    /// 3. Mọi thao tác kết thúc bằng 1 callback chung <see cref="CommitAnnotationChange"/> → host đưa thay đổi vào
+    ///    <see cref="AnnotationStore"/> (bộ nhớ, có Undo/Redo) → lớp chú thích vẽ lại ngay; file chỉ được ghi khi Save.
     /// </summary>
     public partial class ReaderWindow
     {
@@ -31,11 +32,6 @@ namespace XTPdfMergeApp
 
         /// <summary>1 điểm trên 1 trang đang hiển thị: (U, V) chuẩn hoá 0..1, gốc trên-trái của trang.</summary>
         private readonly record struct PageHit(PageRow Row, double U, double V);
-
-        private sealed record PageAnnotations(PdfPageGeometry Geometry, IReadOnlyList<QuickAnnotationSpec> Annotations);
-
-        private readonly Dictionary<(string Path, int Page), PageAnnotations> _pageAnnotationCache = new();
-        private readonly Dictionary<(string Path, int Page), Task<PageAnnotations?>> _pageAnnotationLoads = new();
 
         // ── Chọn công cụ ────────────────────────────────────────────────
 
@@ -122,67 +118,38 @@ namespace XTPdfMergeApp
             return true;
         }
 
-        // ── Cache annotation theo trang (hit-test ghi chú đã có, cỡ trang thật) ─────
+        // ── Chú thích của trang (AnnotationStore: file + thay đổi chưa lưu) ─────
 
-        private PageAnnotations? GetCachedPageAnnotations(PageRow row)
+        /// <summary>Chú thích của trang như đang hiển thị, null khi trang đang được đọc (AnnotationStore.Changed báo khi xong).</summary>
+        private static PageAnnotations? GetCachedPageAnnotations(PageRow row) => AnnotationStore.TryGetPage(row.SourcePath, row.PageNumber);
+
+        private static Task<PageAnnotations?> LoadPageAnnotationsAsync(PageRow row) => AnnotationStore.GetPageAsync(row.SourcePath, row.PageNumber);
+
+        /// <summary>Chú thích đổi (sửa, undo, đọc xong, ảnh appearance xong): vẽ lại khung xem + thumbnail, khung chọn bám theo.</summary>
+        private void OnAnnotationsChanged(string path, int page)
         {
-            var key = (row.SourcePath, row.PageNumber);
-            if (_pageAnnotationCache.TryGetValue(key, out var cached)) return cached;
-            _ = LoadPageAnnotationsAsync(row);
-            return null;
-        }
-
-        private Task<PageAnnotations?> LoadPageAnnotationsAsync(PageRow row)
-        {
-            var key = (row.SourcePath, row.PageNumber);
-            if (_pageAnnotationCache.TryGetValue(key, out var cached)) return Task.FromResult<PageAnnotations?>(cached);
-            if (_pageAnnotationLoads.TryGetValue(key, out var pending)) return pending;
-
-            var task = LoadPageAnnotationsCoreAsync(key, _annotationCacheGeneration);
-            _pageAnnotationLoads[key] = task;
-            return task;
-        }
-
-        /// <summary>Tăng mỗi lần file bị sửa — kết quả đọc xong sau thời điểm đó là dữ liệu cũ, không cache.</summary>
-        private long _annotationCacheGeneration;
-
-        private async Task<PageAnnotations?> LoadPageAnnotationsCoreAsync((string Path, int Page) key, long generation)
-        {
-            try
+            ReaderContinuousView.Redraw();
+            ReaderSidePanel.OnAnnotationsChanged(path, page);
+            if (_selAnn != null && _annMove == null)
             {
-                var (geometry, annotations) = await Task.Run(() => PdfQuickAnnotationService.ReadPage(key.Path, key.Page));
-                var page = new PageAnnotations(geometry, annotations);
-                if (generation == _annotationCacheGeneration) _pageAnnotationCache[key] = page;
-                return page;
-            }
-            catch
-            {
-                return null; // file đang được ghi/đọc lỗi — lần rê chuột sau thử lại
-            }
-            finally
-            {
-                if (generation == _annotationCacheGeneration) _pageAnnotationLoads.Remove(key);
+                RefreshSelectionFromCache();
+                UpdateSelectionVisual();
             }
         }
 
-        private void InvalidateAnnotationCache(string path, IReadOnlyCollection<int> pages)
-        {
-            bool Matches((string Path, int Page) key) =>
-                pages.Contains(key.Page) && string.Equals(key.Path, path, StringComparison.OrdinalIgnoreCase);
-            foreach (var key in _pageAnnotationCache.Keys.Where(Matches).ToList()) _pageAnnotationCache.Remove(key);
-            foreach (var key in _pageAnnotationLoads.Keys.Where(Matches).ToList()) _pageAnnotationLoads.Remove(key);
-            _annotationCacheGeneration++;
-        }
+        /// <summary>Nội dung/kiểu đổi: chú thích được vẽ và lưu lại từ spec (chú thích của file không có /NM nhận tên mới).</summary>
+        private static QuickAnnotationSpec Regenerated(QuickAnnotationSpec spec)
+            => spec with { ObjectNumber = 0, Generation = 0, Name = spec.Name.StartsWith('#') ? NewAnnotationName() : spec.Name };
 
         private static QuickAnnotationSpec? FindAnnotationAt(PageAnnotations? page, PageHit hit, params QuickAnnotationKind[] kinds)
-            => page?.Annotations.LastOrDefault(a => kinds.Contains(a.Kind) && a.Contains(hit.U, hit.V));
+            => page?.Annotations.LastOrDefault(a => a.Selectable && kinds.Contains(a.Kind) && a.Contains(hit.U, hit.V));
 
         // ── Chuột trên vùng xem ─────────────────────────────────────────
 
         private void ReaderContentHost_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             // Thanh Find / thanh định dạng nằm đè lên trang: bấm vào chúng không được coi là bấm lên trang.
-            if (IsInside(e.OriginalSource as DependencyObject, FindBar) || IsInside(e.OriginalSource as DependencyObject, TextFormatBar) || IsInside(e.OriginalSource as DependencyObject, ShapeBar)) return;
+            if (IsOverlayBar(e.OriginalSource as DependencyObject)) return;
 
             // Click ra ngoài ô nhập = xong (Image không nhận focus nên LostKeyboardFocus không tự bắn).
             if (_annotationEditor != null)
@@ -409,6 +376,11 @@ namespace XTPdfMergeApp
                 editor.Width = double.NaN;
                 editor.MinHeight = 0;
             }
+            if (existing != null && kind == QuickAnnotationKind.Typewriter)
+            {
+                AnnotationLayer.Edit.HiddenName = existing.Name;
+                ReaderContinuousView.Redraw();
+            }
             editor.Visibility = Visibility.Visible;
             UpdateFormatBarVisibility();
             UpdateSelectionVisual();
@@ -484,6 +456,11 @@ namespace XTPdfMergeApp
             _annotationEditor = null; // trước khi ẩn: ẩn làm mất focus → LostKeyboardFocus gọi lại hàm này
             string text = ReaderAnnotationEditor.Text.TrimEnd();
             ReaderAnnotationEditor.Visibility = Visibility.Collapsed;
+            if (AnnotationLayer.Edit.HiddenName != null)
+            {
+                AnnotationLayer.Edit.HiddenName = null;
+                ReaderContinuousView.Redraw();
+            }
             Focus();
             UpdateFormatBarVisibility();
             UpdateSelectionVisual();
@@ -496,8 +473,8 @@ namespace XTPdfMergeApp
             if (state.Existing is not { } existing)
             {
                 if (text.Length == 0) return;
-                change = new QuickAnnotationChange(null, new QuickAnnotationSpec(NewAnnotationName(), state.Kind,
-                    state.Row.PageNumber, state.U, state.V, state.U, state.V, text) { Format = format });
+                change = new QuickAnnotationChange(null, PdfQuickAnnotationService.WithMeasuredSize(new QuickAnnotationSpec(NewAnnotationName(), state.Kind,
+                    state.Row.PageNumber, state.U, state.V, state.U, state.V, text) { Format = format }, state.Geometry));
                 description = "Add " + label;
             }
             else if (text == existing.Text && (state.Kind != QuickAnnotationKind.Typewriter || TextFormat.Decode(existing.Format) == _textFormat))
@@ -511,9 +488,11 @@ namespace XTPdfMergeApp
             }
             else
             {
-                // Annotation do app khác tạo (không có /NM) nhận tên mới khi được ghi lại.
-                string name = existing.Name.StartsWith('#') ? NewAnnotationName() : existing.Name;
-                change = new QuickAnnotationChange(existing, existing with { Name = name, Text = text, Format = format });
+                // Ghi chú: chỉ đổi /Contents, giữ icon gốc. Typewriter: chữ nằm trong appearance → vẽ lại từ spec.
+                var edited = state.Kind == QuickAnnotationKind.Comment
+                    ? existing with { Text = text }
+                    : PdfQuickAnnotationService.WithMeasuredSize(Regenerated(existing) with { Text = text, Format = format }, state.Geometry);
+                change = new QuickAnnotationChange(existing, edited);
                 description = "Edit " + label;
             }
             CommitAnnotationChange(state.Row, change, description);
@@ -523,6 +502,9 @@ namespace XTPdfMergeApp
         private void CommitAnnotationChange(PageRow row, QuickAnnotationChange change, string description)
         {
             if (EditHost == null) return;
+            // Tác giả / thời điểm sửa (panel Comments, ghi vào /T, /M lúc Save) — chú thích giữ appearance gốc thì giữ nguyên.
+            if (change.Add is { ObjectNumber: 0 } add)
+                change = change with { Add = add with { Author = add.Author.Length > 0 ? add.Author : Environment.UserName, Date = DateTime.Now } };
             _ = EditHost.ApplyAnnotationChangesAsync(row.SourcePath, new[] { change }, description);
         }
 

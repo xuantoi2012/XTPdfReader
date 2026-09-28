@@ -94,10 +94,11 @@ namespace XTPdfMergeApp
         private void ReaderFind_Click(object sender, RoutedEventArgs e) => OpenFind();
 
         /// <summary>In các trang của window đang xem (hộp thoại Print).</summary>
-        private void ReaderPrint_Click(object sender, RoutedEventArgs e)
+        private async void ReaderPrint_Click(object sender, RoutedEventArgs e)
         {
             if (_readerGroup == null || _readerGroup.Pages.Count == 0) return;
-            var pages = _readerGroup.Pages.Select(p => (p.SourcePath, p.PageNumber)).ToList();
+            // Unsaved annotations are printed too: files with edits are read from their working copy.
+            var pages = await AnnotationWorkingCopy.MapAsync(_readerGroup.Pages.Select(p => (p.SourcePath, p.PageNumber)));
             int current = _readerPage == null ? 0 : Math.Max(0, _readerGroup.Pages.IndexOf(_readerPage));
             var dialog = new Controls.PrintWindow(pages, current) { Owner = this };
             if (dialog.ShowDialog() == true) XTStyle.Controls.XTGrowl.Success("Sent to the printer", this);
