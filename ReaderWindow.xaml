@@ -271,6 +271,9 @@
             <ctl:StartPage x:Name="StartPage" Grid.Row="2" Visibility="Collapsed"/>
 
             <!-- Bảng lệnh Ctrl+K: phủ toàn cửa sổ, nền mờ; bấm ra ngoài hoặc Esc để đóng. -->
+            <!-- Màn hình Merge: mỗi file một cửa sổ con (Controls/MergeView). -->
+            <ctl:MergeView x:Name="MergeViewHost" Grid.Row="2" Visibility="Collapsed"/>
+
             <ctl:CommandPalette x:Name="Palette" Grid.RowSpan="4" Visibility="Collapsed"/>
 
             <!-- Thanh trạng thái: đường dẫn · điều hướng trang (giữa) · zoom (phải) -->

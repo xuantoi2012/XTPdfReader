@@ -65,14 +65,22 @@ Trạng thái: `[ ]` chưa · `[~]` đang · `[x]` xong. Số theo mockup.
   App đổi tên hiển thị **PDF Reader Pro** (`AppInfo.DisplayName`), icon mới (`PDF icon.ico` + `Resources/AppIcon.png`, sinh bằng script; hình trang giấy + dải PDF, gradient cam→đỏ, không giống logo hãng nào).
   Thêm trạng thái nhấn `Ui.Pressed` cho nút toolbar/rail/icon/ghost (hover + pressed đều theo theme). Bỏ "Actual size" vì mức % của app tính trên bản vẽ nền 2200 px, không phải kích thước thật.
 - [x] **P5 — Start, thông báo, Command palette** (mockup 13, 16) — **xong 28/09**. **Start** (`Controls/StartPage.*`): tự hiện khi chưa mở file nào, hoặc bấm nút đồng hồ ở dải tab;
-  Open file…, Quick locations (thư mục dùng gần nhất, Desktop, Documents, Downloads), Recent có ghim ★ (`Services/StartData.cs`, `%LocalAppData%\XTPdfReaderecent.json`, file
+  Open file…, Quick locations (thư mục dùng gần nhất, Desktop, Documents, Downloads), Recent có ghim ★ (`Services/StartData.cs`, `%LocalAppData%\XTPdfReader
+ecent.json`, file
   không còn thì báo "File not found"), Workspaces (lưu bộ file đang mở + file đang xem, Restore, xoá; `workspaces.json`; layout Merge để P6). **Thanh vàng "file changed on disk"**
   (`ReaderWindow.Start.cs`): mỗi 20 s và khi cửa sổ được kích hoạt so cỡ + giờ ghi của file nguồn với lúc mở (dấu được làm mới sau mỗi lần CHÍNH app ghi file); Reload (đóng rồi mở
   lại từ đĩa, hỏi nếu có thay đổi chưa lưu) / Ignore. **Ctrl+K** (`Controls/CommandPalette.*`): lọc lệnh + file đang mở + Recent, ↑↓ Enter Esc. Ctrl+O mở file.
   Chưa có: "Compare with new version" trên thanh vàng (Compare đã loại), nút Open folder…. Sửa kèm theo: ở chế độ cuộn liên tục `ShowPageAsync` giờ hiện bằng vùng cuộn liên tục
   (trước đây vẽ vào vùng 1 trang đang ẩn nên mở file sau khi đóng hết tab bị trống); app dùng màu nhấn **Orange** mặc định và logo chữ F (bo góc, đổi màu theo accent) ở thanh tiêu đề.
-- [ ] **P6 — Merge window mới** (mockup 6, 7): cửa sổ con mỗi file, layout + snap + giới hạn, Dock, cửa sổ tạm, kéo header chèn cả file,
-  Move/Ctrl = Copy, Undo/Redo, Save all. Thay `MergeWorkspaceWindow`.
+- [x] **P6 — Merge mới** (mockup 6, 7) — **xong 28/09** (`Controls/MergeView.*`, `Controls/MergeMiniWindow.*`). Nút "Merge files" mở màn hình Merge phủ lên panel + vùng xem
+  (nút đổi thành "Back to reader"; thay `MergeWorkspaceWindow`, class cũ còn trong repo nhưng không còn được mở — xoá ở P10). Mỗi file đang mở = 1 cửa sổ con (header: biểu tượng file,
+  tên, chấm cam chưa lưu, số trang, Save / thu nhỏ / phóng to / đóng). Layout **1 · 1|2 · 3 cột · 2×2 · Free** (tự chọn theo số cửa sổ tới khi người dùng chọn tay); tối đa 4 cửa sổ hiện,
+  cửa sổ dùng lâu nhất tự xuống **Dock**; bấm chip = mở lại, thả trang lên chip = nối vào cuối file đó. Free: kéo header = di chuyển (đang ở layout khác thì tự chuyển sang Free giữ nguyên chỗ),
+  kéo cạnh phải/dưới/góc = đổi cỡ, kéo sát mép trái/phải = snap nửa màn, sát mép trên = phóng to; nhấp đúp header = phóng to/trả lại; cửa sổ ≥ 320×240 và không ra ngoài vùng làm việc.
+  Kéo thả trang: **kéo = di chuyển, Ctrl = sao chép**, có vạch chèn; kéo **biểu tượng file** ở header sang cửa sổ khác = chèn cả file (file nguồn hết trang thì cửa sổ đóng); Delete xoá trang;
+  Undo/Redo dùng chung lịch sử. **Temp window**: nút "Temp window" tạo cửa sổ trống "Temp N" để gom trang từ nhiều file, Save luôn là Save as và cửa sổ tạm đóng sau khi lưu.
+  "Merge into one file…" ghép mọi cửa sổ theo thứ tự thành 1 PDF (layer cùng tên gộp) — hộp thoại tuỳ chọn ở P7. Chưa có: xem trước vùng snap khi kéo, "Send to Merge window" trong
+  menu trang, layout Merge trong Workspace, kéo trang ra vùng trống để tạo Temp (hiện dùng nút).
 - [ ] **P7 — Merge save options** (mockup 17): tên file, thư mục, bookmark theo file nguồn, giữ bookmark cũ, gộp layer, số trang, tối ưu dung lượng.
 - [ ] **P8 — Print và Export/Split** (mockup 14, 15): in (khoảng trang, khổ giấy, tỉ lệ, màu, theo View), Export (flatten theo View, tối ưu dung lượng,
   tách theo khổ giấy / N trang / bookmark).

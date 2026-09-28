@@ -60,6 +60,7 @@ namespace XTPdfMergeApp
             if (show)
             {
                 ShowSettings(false);
+                ShowMerge(false);
                 StartPage.Reload();
             }
             StartPage.Visibility = show ? Visibility.Visible : Visibility.Collapsed;

@@ -25,6 +25,7 @@ namespace XTPdfMergeApp
             Title = AppInfo.DisplayName;
             InitializeSettings();
             InitializeStart();
+            InitializeMerge();
             Closing += ReaderWindow_Closing;
             ReaderDocumentTabs.ItemsSource = _groups;
             ReaderSidePanel.PageActivated += row =>
@@ -455,7 +456,7 @@ namespace XTPdfMergeApp
 
         private void ReaderUndo_Click(object sender, RoutedEventArgs e) => EditHost?.Undo();
         private void ReaderRedo_Click(object sender, RoutedEventArgs e) => EditHost?.Redo();
-        private void ReaderShowMergeWindow_Click(object sender, RoutedEventArgs e) => OpenMergeWindow();
+        private void ReaderShowMergeWindow_Click(object sender, RoutedEventArgs e) => ShowMerge(MergeViewHost.Visibility != Visibility.Visible);
 
         // ── Cửa sổ ghép (phụ) — chỉ tạo ở đây, đóng là huỷ thật ─────────────
 
@@ -463,16 +464,30 @@ namespace XTPdfMergeApp
 
         /// <summary>Mở (hoặc đưa lên trước) cửa sổ ghép nhiều file. Cửa sổ ghép mượn <see cref="Session"/>
         /// nên có sẵn mọi file đang mở ở đây; đóng nó không ảnh hưởng gì tới phiên làm việc.</summary>
-        internal void OpenMergeWindow()
+        internal void OpenMergeWindow() => ShowMerge(true);
+
+        private void InitializeMerge()
         {
-            if (_mergeWindow == null)
+            MergeViewHost.HostProvider = () => EditHost;
+            MergeViewHost.Bind(_groups);
+            MergeViewHost.DoneRequested += () => ShowMerge(false);
+            MergeViewHost.OpenFileRequested += () => { if (EditHost != null) _ = EditHost.OpenFilesAsync(); };
+            MergeViewHost.MergeAllRequested += () => { if (EditHost != null) _ = EditHost.MergeAllToFileAsync(); };
+            ReaderSidePanel.RailTabChosen += () => ShowMerge(false);
+        }
+
+        /// <summary>Hiện/ẩn màn hình Merge (phủ lên panel + vùng xem).</summary>
+        private void ShowMerge(bool show)
+        {
+            if (show == (MergeViewHost.Visibility == Visibility.Visible)) return;
+            if (show)
             {
-                _mergeWindow = new MergeWorkspaceWindow(Session);
-                _mergeWindow.Closed += (_, _) => _mergeWindow = null;
-                _mergeWindow.Show();
+                ShowSettings(false);
+                ShowStart(false);
+                if (_readerGroup != null) MergeViewHost.ShowGroup(_readerGroup);
             }
-            if (_mergeWindow.WindowState == WindowState.Minimized) _mergeWindow.WindowState = WindowState.Normal;
-            _mergeWindow.Activate();
+            MergeViewHost.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            ReaderMergeButton.Text = show ? "Back to reader" : "Merge files";
         }
 
         /// <summary>Đưa cửa sổ đọc lên trước (vd double-click 1 trang trong cửa sổ ghép).</summary>
@@ -533,6 +548,7 @@ namespace XTPdfMergeApp
             {
                 SettingsPage.Reload();
                 ShowStart(false);
+                ShowMerge(false);
             }
             SettingsPage.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             ReaderSidePanel.SetSettingsActive(show);

@@ -438,6 +438,44 @@ namespace XTPdfMergeApp
 
         Task IReaderPageEditHost.OpenFilesAsync() => ((IReaderPageEditHost)this).OpenFilesDialogAsync(null);
 
+        async Task IReaderPageEditHost.MergeAllToFileAsync()
+        {
+            var pageList = _groups.SelectMany(g => g.Pages).Select(p => (p.SourcePath, p.PageNumber)).ToList();
+            if (pageList.Count == 0) return;
+            string dir = Path.GetDirectoryName(_groups[0].SourcePath) ?? "";
+            using var dlg = new System.Windows.Forms.SaveFileDialog
+            {
+                Title = "Merge into one file",
+                Filter = "PDF (*.pdf)|*.pdf",
+                DefaultExt = "pdf",
+                FileName = "Merged.pdf",
+                InitialDirectory = Directory.Exists(dir) ? dir : ""
+            };
+            if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+            string output;
+            try { output = Path.GetFullPath(dlg.FileName); }
+            catch { return; }
+            if (pageList.Any(p => string.Equals(p.SourcePath, output, StringComparison.OrdinalIgnoreCase)))
+            {
+                MessageBox.Show(OwnerWindow, "That file is one of the open files. Choose a different name.", "Merge", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            string error = "";
+            bool ok = await Task.Run(() =>
+            {
+                bool r = XTPdfMerger.TryMergePages(pageList, output, out var e, null, mergeLayersByName: true);
+                error = e;
+                return r;
+            });
+            if (!ok)
+            {
+                TryDelete(output);
+                MessageBox.Show(OwnerWindow, "Could not merge the files:\n" + error, "Merge", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            XTStyle.Controls.XTGrowl.Success($"Merged {pageList.Count} pages into {Path.GetFileName(output)}", OwnerWindow);
+        }
+
         Task IReaderPageEditHost.OpenPathsAsync(IEnumerable<string> paths) => OpenFilesInReaderAsync(paths);
 
         async Task IReaderPageEditHost.OpenFilesDialogAsync(string? initialDirectory)
@@ -646,10 +684,26 @@ namespace XTPdfMergeApp
         /// <summary>Lưu danh sách trang hiện tại của window. Save ghi đè file gốc (viết file tạm cùng thư mục rồi thay thế; bản sao lưu
         /// tạm bị xoá khi thành công). Save As ghi file mới và mở nó thành tab mới. Nếu window khác đang dùng trang của file này thì
         /// không ghi đè (số trang sẽ lệch) — chuyển sang Save As.</summary>
+        private static int _tempWindowCounter;
+
+        /// <summary>Window tạm ("Temp N") không gắn file nào: gom trang từ nhiều file, lưu thì luôn "Save as".</summary>
+        DocumentGroup IReaderPageEditHost.CreateTempWindow()
+        {
+            int number = ++_tempWindowCounter;
+            var group = new DocumentGroup { SourcePath = Path.Combine(Path.GetTempPath(), $"Temp {number}.pdf") };
+            group.SetDisplayName($"Temp {number}");
+            group.SetBaseline();
+            _groups.Add(group);
+            return group;
+        }
+
+        private static bool IsTempWindow(DocumentGroup group) => !File.Exists(group.SourcePath);
+
         async Task<bool> IReaderPageEditHost.SaveGroupAsync(DocumentGroup group, bool saveAs)
         {
             if (!_groups.Contains(group) || group.Pages.Count == 0) return false;
             string target = group.SourcePath;
+            if (IsTempWindow(group)) saveAs = true;
             if (!saveAs && !group.IsDirty) return true;
 
             if (!saveAs && _groups.Any(g => !ReferenceEquals(g, group) &&
@@ -703,6 +757,7 @@ namespace XTPdfMergeApp
             }
 
             var opened = await AddFileAsGroup(output);
+            if (IsTempWindow(group)) ((IReaderPageEditHost)this).CloseDocument(group); // đã lưu thành file thật, cửa sổ tạm hết việc
             if (opened != null && opened.Pages.Count > 0 && ReaderWindow.Instance is { } reader)
                 await reader.ShowPageAsync(opened, opened.Pages[0], preserveZoomMode: true);
             XTStyle.Controls.XTGrowl.Success("Saved " + Path.GetFileName(output), OwnerWindow);
@@ -882,6 +937,10 @@ namespace XTPdfMergeApp
         Task SetLayerHiddenAsync(string path, IReadOnlySet<string> hidden, IReadOnlySet<string> defaultHidden);
         Task ExportWithLayerViewAsync(DocumentGroup group, IReadOnlySet<string> hiddenNames, string viewName);
         Task OpenFilesAsync();
+        /// <summary>Ghép trang của MỌI window (theo thứ tự) thành 1 file PDF mới (layer cùng tên gộp).</summary>
+        Task MergeAllToFileAsync();
+        /// <summary>Tạo window tạm trống ("Temp N") để gom trang từ nhiều file.</summary>
+        DocumentGroup CreateTempWindow();
         /// <summary>Hộp thoại chọn file bắt đầu ở <paramref name="initialDirectory"/> (null = mặc định).</summary>
         Task OpenFilesDialogAsync(string? initialDirectory);
         Task OpenPathsAsync(IEnumerable<string> paths);
