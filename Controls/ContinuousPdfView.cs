@@ -41,9 +41,9 @@ public sealed class ContinuousPdfView : Grid
     /// <summary>Cuộn nhanh hơn chừng này (khung nhìn/giây) thì chưa xin vẽ gì — trang đang lướt qua sẽ rời màn hình trước
     /// khi kịp vẽ; đứng yên <see cref="SettleMilliseconds"/> thì xin cho đúng các trang đang hiện.</summary>
     private const double FastScrollViewportsPerSecond = 4;
-    private const int SettleMilliseconds = 100;
+    private const int SettleMilliseconds = 40;
     /// <summary>Đang zoom: chờ zoom đứng yên chừng này mới xin ảnh ở độ phân giải mới (giữa chừng chỉ co giãn ảnh có sẵn).</summary>
-    private const int ZoomSettleMilliseconds = 150;
+    private const int ZoomSettleMilliseconds = 60;
     private const int PrefetchSharpPages = 2;
     private const int PrefetchPreviewPages = 4;
     /// <summary>Trang ngoài [đầu − n, cuối + n] quanh khung nhìn: huỷ việc đang vẽ, bỏ ảnh riêng của view.</summary>
