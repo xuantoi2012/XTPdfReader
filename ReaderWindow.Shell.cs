@@ -609,11 +609,19 @@ namespace XTPdfMergeApp
             await EditHost.SetLayerHiddenAsync(path, hidden, info.DefaultHidden);
         }
 
-        /// <summary>"Export PDF with this view…": lưu bản sao các trang của window đang xem, layer đang tắt thành mặc định của file mới.</summary>
-        private async void OnExportLayerView(IReadOnlySet<string> hiddenNames, string viewName)
+        /// <summary>"Export PDF with this view…" của panel Layers → hộp thoại Export với "flatten theo View" được chọn sẵn.</summary>
+        private void OnExportLayerView(IReadOnlySet<string> hiddenNames, string viewName) => OpenExport(preferFlatten: true);
+
+        /// <summary>Hộp thoại Export / Split cho window đang xem.</summary>
+        private void OpenExport(bool preferFlatten)
         {
-            if (EditHost == null || _readerGroup == null) return;
-            await EditHost.ExportWithLayerViewAsync(_readerGroup, hiddenNames, viewName);
+            if (_readerGroup == null || _readerGroup.Pages.Count == 0) return;
+            var pages = _readerGroup.Pages.Select(p => (p.SourcePath, p.PageNumber)).ToList();
+            string dir = System.IO.Path.GetDirectoryName(_readerGroup.SourcePath) ?? "";
+            string baseName = System.IO.Path.GetFileNameWithoutExtension(_readerGroup.FileName);
+            var dialog = new Controls.ExportWindow(pages, baseName, System.IO.Directory.Exists(dir) ? dir : "", preferFlatten) { Owner = this };
+            if (dialog.ShowDialog() == true)
+                XTStyle.Controls.XTGrowl.Success(dialog.Written == 1 ? "Exported 1 file" : $"Exported {dialog.Written} files", this);
         }
 
         /// <summary>Trạng thái layer của file vừa đổi (lease PDFium cũ đã đóng). Trang đang hiện: vẽ lại TẠI CHỖ

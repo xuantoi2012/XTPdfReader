@@ -1,0 +1,133 @@
+<xt:XTWindow x:Class="XTPdfMergeApp.Controls.ExportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
+        xmlns:svc="clr-namespace:XTPdfMergeApp.Services"
+        Title="Export PDF" Width="1000" Height="640" MinWidth="820" MinHeight="520"
+        TitleBarMode="Dialog" WindowStartupLocation="CenterOwner" FontFamily="Segoe UI" FontSize="13"
+        UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <xt:XTWindow.Resources>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
+        </Style>
+        <Style x:Key="HintText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="26,1,0,8"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
+        </Style>
+        <Style x:Key="SegChoice" TargetType="RadioButton">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bd" Height="28" Padding="14,0" CornerRadius="5" Background="Transparent">
+                            <TextBlock x:Name="Tx" Text="{TemplateBinding Content}" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource XTPrimaryButtonBackground}"/>
+                                <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.OnAccent}"/>
+                                <Setter TargetName="Tx" Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </xt:XTWindow.Resources>
+
+    <Grid Background="{DynamicResource Ui.Surface}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="420"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="20,18,20,12">
+                <TextBlock Text="Layers" Style="{StaticResource FieldLabel}"/>
+                <RadioButton x:Name="KeepLayers" GroupName="ExportLayers" Content="Keep all layers" Checked="Setting_Changed"/>
+                <TextBlock x:Name="KeepHint" Style="{StaticResource HintText}"/>
+                <RadioButton x:Name="FlattenLayers" GroupName="ExportLayers" Content="Only the layers of the current view, flattened" Checked="Setting_Changed"/>
+                <TextBlock x:Name="FlattenHint" Style="{StaticResource HintText}" Margin="26,1,0,14"/>
+
+                <TextBlock Text="File size" Style="{StaticResource FieldLabel}"/>
+                <Border CornerRadius="7" Background="{DynamicResource Ui.Chip}" Padding="2" HorizontalAlignment="Left">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="SizeOriginal" Style="{StaticResource SegChoice}" GroupName="ExportSize" Content="Original"/>
+                        <RadioButton x:Name="SizeOptimized" Style="{StaticResource SegChoice}" GroupName="ExportSize" Content="Optimized" IsChecked="True"/>
+                    </StackPanel>
+                </Border>
+                <TextBlock Text="Optimized rewrites the file with full compression. Drawings stay vector, images are not re-compressed." Style="{StaticResource HintText}" Margin="0,6,0,14"/>
+
+                <TextBlock Text="Split into several files" Style="{StaticResource FieldLabel}"/>
+                <ComboBox x:Name="SplitBox" Height="32" SelectionChanged="Setting_Changed_Combo">
+                    <ComboBoxItem Content="Don’t split" Tag="None" IsSelected="True"/>
+                    <ComboBoxItem Content="By page size" Tag="PageSize"/>
+                    <ComboBoxItem Content="Every N pages" Tag="EveryN"/>
+                    <ComboBoxItem Content="At each top-level bookmark" Tag="Bookmark"/>
+                    <ComboBoxItem Content="By page ranges" Tag="Ranges"/>
+                </ComboBox>
+                <StackPanel x:Name="EveryNRow" Orientation="Horizontal" Margin="0,8,0,0" Visibility="Collapsed">
+                    <TextBlock Text="Pages per file" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource Ui.Text}"/>
+                    <TextBox x:Name="EveryNBox" Width="70" Height="30" Text="20" VerticalContentAlignment="Center" TextChanged="Setting_Changed_Text"/>
+                </StackPanel>
+                <StackPanel x:Name="RangesRow" Margin="0,8,0,0" Visibility="Collapsed">
+                    <TextBox x:Name="RangesBox" Height="30" Text="1-10; 11-40; 41-" VerticalContentAlignment="Center" TextChanged="Setting_Changed_Text"/>
+                    <TextBlock Text="Separate the files with semicolons. “41-” means to the last page." Style="{StaticResource HintText}" Margin="0,4,0,0"/>
+                </StackPanel>
+
+                <TextBlock Text="Save to" Style="{StaticResource FieldLabel}" Margin="0,16,0,6"/>
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBox x:Name="FolderBox" Height="32" VerticalContentAlignment="Center"/>
+                    <xt:XTButton Grid.Column="1" Style="{StaticResource UiGhostButton}" Text="Browse…" Height="32" Margin="8,0,0,0" Click="Browse_Click"/>
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Column="1" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="1,0,0,0" Padding="20,18">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Files that will be created" FontWeight="SemiBold" Margin="0,0,0,10" Foreground="{DynamicResource Ui.Text}"/>
+                <TextBlock x:Name="PartsNote" DockPanel.Dock="Bottom" Margin="0,10,0,0" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource Ui.Muted}"/>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="1" CornerRadius="8">
+                    <ItemsControl x:Name="PartsList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type svc:ExportPart}">
+                                <Grid Height="40" Margin="12,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="90"/><ColumnDefinition Width="100"/><ColumnDefinition Width="80"/><ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <CheckBox IsChecked="{Binding Enabled}" VerticalAlignment="Center" Margin="0,0,10,0" Checked="Part_Toggled" Unchecked="Part_Toggled"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Label}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Ui.Text}"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding Dims}" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>
+                                    <TextBlock Grid.Column="3" Text="{Binding PagesText}" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding FileName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Ui.Muted}" ToolTip="{Binding FileName}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Border>
+            </DockPanel>
+        </Border>
+
+        <Border Grid.Row="1" Grid.ColumnSpan="2" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" Background="{DynamicResource Ui.Panel}" Padding="20,12">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Cancel" Width="90" Height="34" Margin="0,0,8,0" IsCancel="True" Click="Cancel_Click"/>
+                    <xt:XTButton x:Name="ExportButton" Style="{StaticResource UiPrimaryButton}" Icon="{StaticResource Ui.Icon.export}" Text="Export" Height="34" IsDefault="True" Click="Export_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="SummaryText" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource Ui.Muted}"/>
+            </DockPanel>
+        </Border>
+    </Grid>
+</xt:XTWindow>

@@ -107,6 +107,12 @@ namespace XTPdfMergeApp
         /// nào đang focus, phím tắt ở đây chỉ bao giờ tới tay khi Viewer thật sự đang active.</summary>
         private void ReaderWindow_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.E)
+            {
+                OpenExport(preferFlatten: false);
+                e.Handled = true;
+                return;
+            }
             if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.P)
             {
                 ReaderPrint_Click(this, new RoutedEventArgs());
