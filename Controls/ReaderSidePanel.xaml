@@ -12,6 +12,10 @@
                 <ResourceDictionary Source="pack://application:,,,/XTPdfMergeApp;component/Resources/ReaderResources.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
+            <Style x:Key="UiThumbItemPanel" TargetType="ListBoxItem" BasedOn="{StaticResource UiThumbItem}">
+                <EventSetter Event="PreviewMouseRightButtonDown" Handler="ThumbItem_PreviewMouseRightButtonDown"/>
+            </Style>
+
             <Style x:Key="UiThumbNumber" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="11"/>
                 <Setter Property="HorizontalAlignment" Value="Center"/>
@@ -98,11 +102,35 @@
             <Grid>
                 <!-- Thumbnail 2 cột (ảo hoá). Chọn nhiều trang bằng Ctrl/Shift để xoay/xuất/xoá cùng lúc. -->
                 <ListBox x:Name="ThumbnailList" BorderThickness="0" Background="Transparent" Padding="6,6,6,0"
-                         SelectionMode="Extended" ItemContainerStyle="{StaticResource UiThumbItem}"
+                         SelectionMode="Extended" ItemContainerStyle="{StaticResource UiThumbItemPanel}"
+                         PreviewKeyDown="ThumbnailList_PreviewKeyDown" ContextMenuOpening="ThumbnailList_ContextMenuOpening"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                          VirtualizingPanel.ScrollUnit="Pixel"
                          SelectionChanged="ThumbnailList_SelectionChanged">
+                    <ListBox.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Copy" InputGestureText="Ctrl+C" Tag="Copy" Click="PageMenu_Click"/>
+                            <MenuItem Header="Cut" InputGestureText="Ctrl+X" Tag="Cut" Click="PageMenu_Click"/>
+                            <MenuItem x:Name="MiPasteAfter" Header="Paste after" InputGestureText="Ctrl+V" Tag="PasteAfter" Click="PageMenu_Click"/>
+                            <MenuItem x:Name="MiPasteBefore" Header="Paste before" InputGestureText="Ctrl+Shift+V" Tag="PasteBefore" Click="PageMenu_Click"/>
+                            <Separator/>
+                            <MenuItem Header="Move">
+                                <MenuItem Header="Move to start" InputGestureText="Ctrl+Shift+Home" Tag="MoveToStart" Click="PageMenu_Click"/>
+                                <MenuItem Header="Move up one" InputGestureText="Alt+Up" Tag="MoveUp" Click="PageMenu_Click"/>
+                                <MenuItem Header="Move down one" InputGestureText="Alt+Down" Tag="MoveDown" Click="PageMenu_Click"/>
+                                <MenuItem Header="Move to end" InputGestureText="Ctrl+Shift+End" Tag="MoveToEnd" Click="PageMenu_Click"/>
+                                <Separator/>
+                                <MenuItem Header="Move to position…" Tag="MoveToPosition" Click="PageMenu_Click"/>
+                            </MenuItem>
+                            <MenuItem Header="Duplicate" InputGestureText="Ctrl+D" Tag="Duplicate" Click="PageMenu_Click"/>
+                            <MenuItem Header="Rotate left" Tag="RotateLeft" Click="PageMenu_Click"/>
+                            <MenuItem Header="Rotate right" Tag="RotateRight" Click="PageMenu_Click"/>
+                            <MenuItem Header="Extract…" Tag="Extract" Click="PageMenu_Click"/>
+                            <Separator/>
+                            <MenuItem x:Name="MiDelete" Header="Delete" InputGestureText="Del" Tag="Delete" Click="PageMenu_Click"/>
+                        </ContextMenu>
+                    </ListBox.ContextMenu>
                     <ListBox.ItemsPanel>
                         <ItemsPanelTemplate>
                             <vwp:VirtualizingWrapPanel Orientation="Horizontal" SpacingMode="Uniform" StretchItems="False"

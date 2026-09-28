@@ -36,6 +36,8 @@ namespace XTPdfMergeApp
             ReaderSidePanel.RotateLeftRequested += ReaderPageRotateLeft_Click;
             ReaderSidePanel.RotateRightRequested += ReaderPageRotateRight_Click;
             ReaderSidePanel.ExtractPagesRequested += ReaderExtractPages_Click;
+            ReaderSidePanel.PageCommandRequested += OnPageCommand;
+            ReaderSidePanel.HasPageClipboard = () => EditHost?.HasPageClipboard == true;
             ReaderSidePanel.BookmarkActivated += NavigateToSourcePage;
             ReaderSidePanel.LayerToggled += OnLayerToggled;
             ShowEmptyReaderState();
@@ -255,6 +257,61 @@ namespace XTPdfMergeApp
                 if (answer == MessageBoxResult.Yes && !await EditHost.SaveGroupAsync(group, saveAs: false)) return;
             }
             EditHost.CloseDocument(group);
+        }
+
+        // ── Lệnh trang từ panel Pages (menu chuột phải, phím tắt) ────────────────
+
+        private async void OnPageCommand(PageCommand command)
+        {
+            if (_readerGroup == null || EditHost == null) return;
+            var group = _readerGroup;
+            IReadOnlyList<PageRow> pages = ReaderSidePanel.SelectedPages;
+            if (pages.Count == 0 && _readerPage != null) pages = new[] { _readerPage };
+            if (pages.Count == 0) return;
+            var indexes = pages.Select(p => group.Pages.IndexOf(p)).Where(i => i >= 0).ToList();
+            if (indexes.Count == 0) return;
+            int first = indexes.Min(), last = indexes.Max(), count = group.Pages.Count;
+            IReadOnlyList<PageRow> result = Array.Empty<PageRow>();
+
+            switch (command)
+            {
+                case PageCommand.Copy: EditHost.CopyPages(group, pages, cut: false); return;
+                case PageCommand.Cut: EditHost.CopyPages(group, pages, cut: true); return;
+                case PageCommand.PasteAfter: result = EditHost.PastePages(group, last + 1); break;
+                case PageCommand.PasteBefore: result = EditHost.PastePages(group, first); break;
+                case PageCommand.MoveToStart: result = EditHost.MovePages(group, group, pages, 0, copy: false); break;
+                case PageCommand.MoveUp: result = EditHost.MovePages(group, group, pages, Math.Max(0, first - 1), copy: false); break;
+                case PageCommand.MoveDown: result = EditHost.MovePages(group, group, pages, Math.Min(count, last + 2), copy: false); break;
+                case PageCommand.MoveToEnd: result = EditHost.MovePages(group, group, pages, count, copy: false); break;
+                case PageCommand.MoveToPosition:
+                {
+                    int max = Math.Max(1, count - indexes.Count + 1);
+                    int? position = Controls.NumberPromptWindow.Ask(this, "Move to position", "New position of the first selected page", 1, max, Math.Min(first + 1, max));
+                    if (position == null) return;
+                    result = EditHost.MovePages(group, group, pages, ToOriginalInsertIndex(position.Value - 1, indexes), copy: false);
+                    break;
+                }
+                case PageCommand.Duplicate: result = EditHost.MovePages(group, group, pages, last + 1, copy: true); break;
+                case PageCommand.RotateLeft: await RotateEditTargetsAsync(-90); return;
+                case PageCommand.RotateRight: await RotateEditTargetsAsync(90); return;
+                case PageCommand.Extract: await EditHost.ExtractPagesAsync(group, pages); return;
+                case PageCommand.Delete: EditHost.DeletePages(group, pages); return;
+            }
+            if (result.Count > 0 && ReferenceEquals(_readerGroup, group)) ReaderSidePanel.SelectPages(result);
+        }
+
+        /// <summary>Chỉ số chèn (theo danh sách GỐC, tính cả các trang đang bị rút ra) sao cho sau khi rút, trang đầu nằm đúng
+        /// <paramref name="finalIndex"/> (0-based) trong danh sách mới — MovePagesCommand tự trừ số trang chọn nằm trước điểm chèn.</summary>
+        private static int ToOriginalInsertIndex(int finalIndex, IReadOnlyList<int> selectedIndexes)
+        {
+            int insert = finalIndex;
+            for (int guard = 0; guard < 64; guard++)
+            {
+                int next = finalIndex + selectedIndexes.Count(i => i < insert);
+                if (next == insert) break;
+                insert = next;
+            }
+            return insert;
         }
 
         // ── Save / Save As (Ctrl+S, Ctrl+Shift+S, menu chuột phải tab — chuột phải đã chọn tab đó) ──

@@ -466,6 +466,52 @@ namespace XTPdfMergeApp
             RequestThumbnailScan();
         }
 
+        // ── Clipboard trang, Move, Duplicate (panel Pages) ─────────────────
+
+        private List<PageRow>? _clipPages;
+        private DocumentGroup? _clipSource;
+        private bool _clipCut;
+
+        bool IReaderPageEditHost.HasPageClipboard => _clipPages is { Count: > 0 };
+
+        /// <summary>Copy/Cut: chỉ ghi nhớ. Cut không xoá trang cho tới khi Paste (lúc đó trang được di chuyển, có Undo).</summary>
+        void IReaderPageEditHost.CopyPages(DocumentGroup source, IReadOnlyList<PageRow> pages, bool cut)
+        {
+            if (pages.Count == 0) return;
+            _clipPages = pages.ToList();
+            _clipSource = source;
+            _clipCut = cut;
+        }
+
+        IReadOnlyList<PageRow> IReaderPageEditHost.PastePages(DocumentGroup target, int insertIndex)
+        {
+            if (_clipPages is not { Count: > 0 } || !_groups.Contains(target)) return Array.Empty<PageRow>();
+            var pages = _clipPages.ToList();
+            bool move = _clipCut && _clipSource != null && _groups.Contains(_clipSource)
+                        && pages.All(p => _clipSource.Pages.Contains(p));
+            var source = move ? _clipSource! : (_clipSource != null && _groups.Contains(_clipSource) ? _clipSource : target);
+            var inserted = ((IReaderPageEditHost)this).MovePages(source, target, pages, insertIndex, copy: !move);
+            if (move) { _clipPages = null; _clipSource = null; _clipCut = false; }
+            return inserted;
+        }
+
+        IReadOnlyList<PageRow> IReaderPageEditHost.MovePages(DocumentGroup source, DocumentGroup target,
+            IReadOnlyList<PageRow> pages, int insertIndex, bool copy)
+        {
+            if (pages.Count == 0 || !_groups.Contains(source) || !_groups.Contains(target)) return Array.Empty<PageRow>();
+            var command = new MovePagesCommand(_workspace, source, target, pages, insertIndex, copy);
+            _workspace.Execute(command);
+            foreach (var group in new[] { source, target }.Distinct())
+            {
+                if (!_groups.Contains(group)) ReaderWindow.Instance?.NotifyGroupRemoved(group);
+                else ReaderWindow.Instance?.NotifyPagesChanged(group);
+            }
+            ReleaseUnusedPdfDocuments();
+            RequestThumbnailScan();
+            NotifyStatusChanged();
+            return command.InsertedPages;
+        }
+
         // ── Lưu (Save / Save As) ───────────────────────────────────────────
 
         /// <summary>Window có thay đổi chưa lưu (theo thứ tự tab).</summary>
@@ -710,6 +756,14 @@ namespace XTPdfMergeApp
         Task SetLayerHiddenAsync(string path, IReadOnlySet<string> hidden, IReadOnlySet<string> defaultHidden);
         Task OpenFilesAsync();
         void CloseDocument(DocumentGroup group);
+        /// <summary>Có trang trong clipboard (đã Copy/Cut) để dán.</summary>
+        bool HasPageClipboard { get; }
+        void CopyPages(DocumentGroup source, IReadOnlyList<PageRow> pages, bool cut);
+        /// <summary>Dán vào <paramref name="target"/> trước vị trí <paramref name="insertIndex"/> (0-based); trả về các trang vừa chèn.</summary>
+        IReadOnlyList<PageRow> PastePages(DocumentGroup target, int insertIndex);
+        /// <summary>Di chuyển (hoặc sao chép nếu <paramref name="copy"/>) trang sang vị trí <paramref name="insertIndex"/> của window đích;
+        /// trả về các placement vừa chèn. Có Undo.</summary>
+        IReadOnlyList<PageRow> MovePages(DocumentGroup source, DocumentGroup target, IReadOnlyList<PageRow> pages, int insertIndex, bool copy);
         /// <summary>Lưu window: <paramref name="saveAs"/> false = ghi đè file gốc, true = file mới. Trả về true nếu đã lưu (hoặc không có gì để lưu).</summary>
         Task<bool> SaveGroupAsync(DocumentGroup group, bool saveAs);
         /// <summary>Window có thay đổi chưa lưu.</summary>

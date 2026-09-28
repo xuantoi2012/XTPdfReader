@@ -41,6 +41,84 @@ namespace XTPdfMergeApp.Controls
         /// <summary>Bật/tắt 1 layer: (file, thông tin layer của file, id OCG, hiện?).</summary>
         internal event Action<string, PdfLayerInfo, string, bool>? LayerToggled;
 
+        /// <summary>Lệnh trên các trang đang chọn (menu chuột phải, phím tắt) — ReaderWindow thực thi.</summary>
+        internal event Action<PageCommand>? PageCommandRequested;
+        /// <summary>Có trang trong clipboard (bật/tắt mục Paste của menu).</summary>
+        internal Func<bool>? HasPageClipboard { get; set; }
+
+        private void PageMenu_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is MenuItem { Tag: string tag } && Enum.TryParse<PageCommand>(tag, out var command))
+                PageCommandRequested?.Invoke(command);
+        }
+
+        private void ThumbnailList_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+        {
+            int n = ThumbnailList.SelectedItems.Count;
+            if (_group == null || n == 0) { e.Handled = true; return; }
+            bool clip = HasPageClipboard?.Invoke() ?? false;
+            MiPasteAfter.IsEnabled = clip;
+            MiPasteBefore.IsEnabled = clip;
+            MiDelete.Header = n == 1 ? "Delete page" : $"Delete {n} pages";
+        }
+
+        /// <summary>Chuột phải lên trang chưa chọn thì chọn riêng trang đó (như Explorer); đã chọn thì giữ nguyên vùng chọn.</summary>
+        private void ThumbItem_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not ListBoxItem { IsSelected: false } item) return;
+            ThumbnailList.SelectedItems.Clear();
+            item.IsSelected = true;
+        }
+
+        private void ThumbnailList_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+            bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+            bool alt = (Keyboard.Modifiers & ModifierKeys.Alt) != 0;
+            Key key = e.Key == Key.System ? e.SystemKey : e.Key;
+            PageCommand? command = null;
+            if (ctrl && !alt)
+            {
+                command = key switch
+                {
+                    Key.C => PageCommand.Copy,
+                    Key.X => PageCommand.Cut,
+                    Key.V => shift ? PageCommand.PasteBefore : PageCommand.PasteAfter,
+                    Key.D => PageCommand.Duplicate,
+                    Key.Home when shift => PageCommand.MoveToStart,
+                    Key.End when shift => PageCommand.MoveToEnd,
+                    _ => null
+                };
+            }
+            else if (alt && !ctrl)
+            {
+                command = key switch { Key.Up => PageCommand.MoveUp, Key.Down => PageCommand.MoveDown, _ => null };
+            }
+            else if (key == Key.Delete && !ctrl && !shift)
+            {
+                command = PageCommand.Delete;
+            }
+            if (command == null) return;
+            PageCommandRequested?.Invoke(command.Value);
+            e.Handled = true;
+        }
+
+        /// <summary>Chọn đúng các trang này trong panel (sau Move/Paste) mà không kích hoạt nhảy trang.</summary>
+        internal void SelectPages(IReadOnlyList<PageRow> pages)
+        {
+            if (_group == null) return;
+            _syncingSelection = true;
+            try
+            {
+                ThumbnailList.SelectedItems.Clear();
+                foreach (var page in pages)
+                    if (_group.Pages.Contains(page)) ThumbnailList.SelectedItems.Add(page);
+            }
+            finally { _syncingSelection = false; }
+            UpdateSelectionBar();
+            if (pages.Count > 0 && _group.Pages.Contains(pages[0])) ThumbnailList.ScrollIntoView(pages[0]);
+        }
+
         // Hàng thao tác trang: panel chỉ báo, ReaderWindow gọi handler sẵn có (chèn/xoá/xoay thật/trích xuất).
         internal event RoutedEventHandler? InsertPagesRequested, DeletePagesRequested, RotateLeftRequested, RotateRightRequested, ExtractPagesRequested;
         private void InsertPages_Click(object sender, RoutedEventArgs e) => InsertPagesRequested?.Invoke(this, e);
