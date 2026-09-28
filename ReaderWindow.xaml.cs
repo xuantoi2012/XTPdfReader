@@ -193,7 +193,7 @@ namespace XTPdfMergeApp
         private enum ReaderZoomMode { Manual, FitWidth, FitPage }
 
         private const double ReaderRenderWidthPx = 2200;
-        internal const long ReaderCacheBudgetBytes = 160L * 1024 * 1024;
+        internal const long ReaderCacheBudgetBytes = 64L * 1024 * 1024;
         private const int ReaderAdjacentPrefetchCount = 2;
         private const double ReaderMinZoom = 0.05;
         private const double ReaderMaxZoom = 4.0;

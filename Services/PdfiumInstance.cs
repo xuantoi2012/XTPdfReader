@@ -121,7 +121,11 @@ internal sealed unsafe class PdfiumInstance
     private long _pagesParsed;
     /// <summary>Số lần FPDF_LoadPage (parse trang) trên bản này.</summary>
     public long PagesParsed => Interlocked.Read(ref _pagesParsed);
-    internal void MarkPageParsed() => Interlocked.Increment(ref _pagesParsed);
+    internal void MarkPageParsed() { Interlocked.Increment(ref _pagesParsed); Interlocked.Increment(ref _parsedSinceTrim); }
+    private long _parsedSinceTrim;
+    /// <summary>Số trang đã parse từ lần document của bản này được mở/thu hồi gần nhất — document giữ cache của chúng.</summary>
+    internal long ParsedSinceTrim => Interlocked.Read(ref _parsedSinceTrim);
+    internal void ResetParsedSinceTrim() => Interlocked.Exchange(ref _parsedSinceTrim, 0);
     /// <summary>Page handle đang giữ / document đang mở trên bản này (do PdfThumbnailService cập nhật).</summary>
     internal int CachedPages, OpenDocuments;
     private readonly long _createdTimestamp = Stopwatch.GetTimestamp();

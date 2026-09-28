@@ -28,11 +28,29 @@ namespace XTPdfMergeApp.Services
     public static class PdfFileBuffer
     {
         /// <summary>File lớn hơn mức này không đệm vào RAM.</summary>
-        public const long MaxFileBytes = 500L * 1024 * 1024;
+        public const long MaxFileBytes = 2L * 1024 * 1024 * 1024;
 
-        /// <summary>Tổng RAM tối đa cho mọi file đang đệm: min(2 GB, 1/4 RAM máy).</summary>
-        public static readonly long TotalBudgetBytes = Math.Min(2L * 1024 * 1024 * 1024,
-            Math.Max(256L * 1024 * 1024, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 4));
+        /// <summary>Tổng dung lượng file tạm tối đa cho mọi file đang đệm (bộ đệm nằm trên đĩa cục bộ, không chiếm RAM riêng).</summary>
+        public static readonly long TotalBudgetBytes = 4L * 1024 * 1024 * 1024;
+
+        private static readonly bool DirectLocalDisks = Environment.GetEnvironmentVariable("XTPDF_DIRECT_LOCAL") == "1";
+        private static readonly ConcurrentDictionary<string, bool> _localRoots = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Chỉ true khi đặt XTPDF_DIRECT_LOCAL=1 VÀ file nằm trên ổ cố định cục bộ: PDFium đọc thẳng, không đệm. Mặc định
+        /// vẫn đệm cả file cục bộ — đo 28/09: cuộn chuột 40 nấc trên file 165 MB ở SSD mất 0,8–1,0 s khi đọc thẳng so với
+        /// 0,05 s khi qua bộ đệm (đọc tuần tự 1 lần vào file tạm thay cho hàng nghìn lần đọc ngẫu nhiên nhỏ của PDFium).</summary>
+        public static bool IsLocalDisk(string normalizedPath)
+        {
+            if (!DirectLocalDisks) return false;
+            try
+            {
+                if (normalizedPath.StartsWith(@"\\", StringComparison.Ordinal)) return false;
+                string? root = Path.GetPathRoot(normalizedPath);
+                if (string.IsNullOrEmpty(root)) return false;
+                return _localRoots.GetOrAdd(root, r => new DriveInfo(r).DriveType == DriveType.Fixed);
+            }
+            catch { return false; }
+        }
 
         private static readonly ConcurrentDictionary<string, PdfBlockCache> _entries = new(StringComparer.OrdinalIgnoreCase);
         private static long _reservedBytes;
@@ -55,6 +73,7 @@ namespace XTPdfMergeApp.Services
         /// bắt đầu đọc nền. null = không đệm được (file quá lớn, hết ngân sách, không đọc được) → đọc file như cũ.</summary>
         public static PdfBlockCache? Acquire(string normalizedPath)
         {
+            if (IsLocalDisk(normalizedPath)) return null; // đọc thẳng từ đĩa cục bộ
             FileInfo info;
             try
             {
@@ -155,7 +174,9 @@ namespace XTPdfMergeApp.Services
         public const int BlockSize = 256 * 1024;
 
         private readonly Func<bool, IBlockFile> _open;
-        private readonly byte[] _data;
+        // Nội dung file nằm trong file tạm cục bộ (tự xoá khi đóng handle, kể cả khi app crash): RAM private ~0, hệ điều hành
+        // giữ trang đệm và tự thu hồi khi cần. Đọc lại nhanh như đọc RAM (đĩa cục bộ), không chịu độ trễ mạng.
+        private readonly SafeFileHandle _store;
         // Trạng thái từng khối: Missing → Loading (đúng 1 luồng đang đọc) → Present (ghi bằng Volatile.Write SAU khi
         // chép dữ liệu, không bao giờ đổi nữa). Luồng cần khối đang Loading thì chờ luồng kia, không đọc trùng.
         private const int Missing = 0, Present = 1, Loading = 2;
@@ -192,7 +213,10 @@ namespace XTPdfMergeApp.Services
             LastWriteUtc = lastWriteUtc;
             _onFreed = onFreed;
             _open = open;
-            _data = GC.AllocateUninitializedArray<byte>(checked((int)length));
+            _store = File.OpenHandle(
+                Path.Combine(Path.GetTempPath(), $"XTPdfCache_{Environment.ProcessId}_{Guid.NewGuid():N}.tmp"),
+                FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None,
+                FileOptions.DeleteOnClose | FileOptions.RandomAccess, length);
             _present = new int[(int)((length + BlockSize - 1) / BlockSize)];
             _file = open(false);
         }
@@ -217,23 +241,38 @@ namespace XTPdfMergeApp.Services
             _stop.Cancel();
             lock (_lock) Monitor.PulseAll(_lock);
             _file.Dispose();
+            _store.Dispose();
             _onFreed();
         }
 
         /// <summary>Chép [position, position+count) sang bộ nhớ native (callback m_GetBlock của PDFium).</summary>
-        public bool CopyTo(long position, IntPtr destination, int count)
+        public unsafe bool CopyTo(long position, IntPtr destination, int count)
         {
             if (!EnsureRange(position, count)) return false;
-            System.Runtime.InteropServices.Marshal.Copy(_data, (int)position, destination, count);
-            return true;
+            return ReadStore(new Span<byte>((void*)destination, count), position);
         }
 
         /// <summary>Chép [position, position+count) sang mảng (iText đọc /OCProperties).</summary>
         public bool CopyTo(long position, byte[] destination, int offset, int count)
         {
             if (!EnsureRange(position, count)) return false;
-            Buffer.BlockCopy(_data, (int)position, destination, offset, count);
-            return true;
+            return ReadStore(destination.AsSpan(offset, count), position);
+        }
+
+        private bool ReadStore(Span<byte> destination, long position)
+        {
+            try
+            {
+                int total = 0;
+                while (total < destination.Length)
+                {
+                    int n = RandomAccess.Read(_store, destination[total..], position + total);
+                    if (n <= 0) return false;
+                    total += n;
+                }
+                return true;
+            }
+            catch { return false; }
         }
 
         private bool EnsureRange(long position, int count)
@@ -270,8 +309,10 @@ namespace XTPdfMergeApp.Services
                 }
                 finally
                 {
+                    bool stored = true;
                     for (int k = 0; k < count; k++)
-                        Finish(block + k, ok ? scratch : null, k * BlockSize); // lỗi đọc: trả khối về Missing, luồng đang chờ tự thử đọc lại
+                        stored &= Finish(block + k, ok ? scratch : null, k * BlockSize) || !ok; // lỗi đọc: trả khối về Missing, luồng đang chờ tự thử đọc lại
+                    ok &= stored;
                 }
                 if (ok)
                 {
@@ -329,16 +370,21 @@ namespace XTPdfMergeApp.Services
         }
 
         /// <summary>Kết thúc lượt đọc đã <see cref="TryClaim"/>: có dữ liệu → Present, lỗi (null) → Missing.</summary>
-        private void Finish(int block, byte[]? scratch, int scratchOffset = 0)
+        private bool Finish(int block, byte[]? scratch, int scratchOffset = 0)
         {
             long offset = (long)block * BlockSize;
             int size = (int)Math.Min(BlockSize, Length - offset);
+            bool stored = false;
+            if (scratch != null)
+            {
+                // Luồng này đang giữ Loading nên không ai khác ghi vùng này; người đọc chỉ đọc sau khi thấy Present.
+                try { RandomAccess.Write(_store, scratch.AsSpan(scratchOffset, size), offset); stored = true; }
+                catch { /* ghi file tạm lỗi (đĩa đầy, handle đã đóng): trả khối về Missing */ }
+            }
             lock (_lock)
             {
-                if (scratch != null)
+                if (stored)
                 {
-                    // Luồng này đang giữ Loading nên không ai khác ghi vùng này; người đọc chỉ đọc sau khi thấy Present.
-                    Buffer.BlockCopy(scratch, scratchOffset, _data, (int)offset, size);
                     Volatile.Write(ref _present[block], Present);
                     _presentCount++;
                 }
@@ -348,6 +394,7 @@ namespace XTPdfMergeApp.Services
                 }
                 Monitor.PulseAll(_lock);
             }
+            return stored;
         }
 
         internal void StartBackgroundRead()
@@ -390,21 +437,21 @@ namespace XTPdfMergeApp.Services
                     if (token.IsCancellationRequested) return;
                     cursor = block + 1;
                     if (!TryClaim(block, wait: false)) continue; // trang vừa nhận đọc khối này
-                    bool ok = false;
+                    bool ok = false, stored = false;
                     try
                     {
                         ok = ReadFromFile(handle, block, scratch);
                     }
                     finally
                     {
-                        Finish(block, ok ? scratch : null);
+                        stored = Finish(block, ok ? scratch : null);
                     }
-                    if (!ok) { DiagnosticsLog.Event($"đọc nền dừng: khối {block} đọc lỗi"); return; }
+                    if (!ok || !stored) { DiagnosticsLog.Event($"đọc nền dừng: khối {block} {(ok ? "ghi file tạm lỗi" : "đọc lỗi")}"); return; }
                 }
                 if (IsComplete)
                 {
                     RenderDiagnostics.FileBufferRead.Record(start);
-                    DiagnosticsLog.Event($"file → RAM xong {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0} ms");
+                    DiagnosticsLog.Event($"file → đĩa tạm xong {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0} ms");
                 }
             }
             catch (Exception ex)

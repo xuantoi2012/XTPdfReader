@@ -46,6 +46,7 @@ namespace XTPdfMergeApp.Services
                 _pdfium = pdfium;
                 _caller = caller;
                 _waitMs = waitMs;
+                NoteNativeActivity();
                 RenderDiagnostics.NativeWait.AddMilliseconds(waitMs);
                 DiagnosticsLog.Slow("chờ gate", waitMs, $"{caller} bản #{pdfium.Index}");
             }
@@ -53,6 +54,7 @@ namespace XTPdfMergeApp.Services
             public void Dispose()
             {
                 _held.Stop();
+                NoteNativeActivity();
                 _pdfium.GateHeld.AddMilliseconds(_held.Elapsed.TotalMilliseconds);
                 Interlocked.Decrement(ref _activeNativeCalls);
                 _pdfium.Gate.Release();
@@ -289,7 +291,7 @@ namespace XTPdfMergeApp.Services
         {
             // Chưa có bộ đệm khối (lần mở đầu, file > 500 MB, hết ngân sách RAM): chỉ bản chính — nếu không, mỗi bản
             // sẽ tự đọc file qua mạng. Lần mở đầu trên bản chính tạo bộ đệm; từ đó việc được chia cho mọi bản.
-            if (!PdfFileBuffer.IsBuffered(normalizedPath)) return PdfiumInstance.Primary;
+            if (!PdfFileBuffer.IsBuffered(normalizedPath) && !PdfFileBuffer.IsLocalDisk(normalizedPath)) return PdfiumInstance.Primary;
             string pathKey = normalizedPath.ToUpperInvariant();
             return PdfiumPool.Choose(
                 instance => pageIndex >= 0 && _parsedPages.ContainsKey((pathKey, pageIndex, instance.Index)),
@@ -335,6 +337,34 @@ namespace XTPdfMergeApp.Services
                 if (_documentCache.TryRemove(key, out var lazy) && lazy.IsValueCreated)
                     _ = Task.Run(() => RequestLeaseDisposalWhenReadyAsync(lazy.Value));
             }
+        }
+
+        /// <summary>Đóng document PDFium đang giữ (cache đối tượng/stream đã đọc của PDFium nằm trong document: đo 28/09 trên file
+        /// CAD 165 MB, ~460 MB heap native đang cấp phát sau khi xem vài chục trang). Lần dùng sau tự mở lại (~50 ms + parse
+        /// trang). Lease đang có người dùng chỉ đóng khi họ nhả. <paramref name="includePrimary"/>=false giữ bản #0.</summary>
+        public static Task TrimDocumentsAsync(bool includePrimary)
+            => TrimDocumentsAsync(index => includePrimary || index != 0);
+
+        internal static Task TrimDocumentsAsync(Func<int, bool> instanceFilter)
+        {
+            var closing = new List<Task>();
+            foreach (var key in _documentCache.Keys)
+            {
+                if (!instanceFilter(key.Instance)) continue;
+                if (!_documentCache.TryRemove(key, out var lazy) || !lazy.IsValueCreated) continue;
+                closing.Add(Task.Run(async () =>
+                {
+                    try
+                    {
+                        var lease = await lazy.Value.ConfigureAwait(false);
+                        if (lease == null) return;
+                        lease.RequestDispose();
+                        await lease.NativeClosed.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                    }
+                    catch { /* best effort */ }
+                }));
+            }
+            return Task.WhenAll(closing);
         }
 
         private static readonly ConcurrentDictionary<string, int> _suspendedDocuments =

@@ -1,9 +1,9 @@
 ﻿# Do do tre mo file / nhay trang / cuon bang chup man hinh, dung chung cho Foxit va XTPdfMergeApp (chi chup man hinh chinh).
 # Vi du: .\CompareFoxit.ps1 -Exe <XTPdfMergeApp.exe> -Tag mine -ProcName XTPdfMergeApp [-PreEndWait 25]
 #        .\CompareFoxit.ps1 -Exe 'C:\Program Files (x86)\Foxit Software\Foxit PhantomPDF\FoxitPhantomPDF.exe' -Tag foxit
-# Cot ket qua: title_ms, doc_area_first_draw_ms, open_settle_ms, end_settle_ms, home_settle_ms, pgdn_settle_after_last_ms, zoom_in/out_settle_ms (gom 720 ms cuon chuot), wheel40_settle_after_last_ms.
+# Cot ket qua: title_ms, doc_area_first_draw_ms, open_settle_ms, end_settle_ms, home_settle_ms, pgdn_settle_after_last_ms, zoom_in/out_settle_ms (gom 720 ms cuon chuot), wheel40_settle_after_last_ms, ram_private/private_ws/workingset_mb, idle_* (sau -IdleWait s rảnh). Thêm: -PdfPath <file>, -Continuous (chuyển Cuộn liên tục), -IdleWait <s>.
 # Anh chup nam o %TEMP%\shots_<Tag>. Tra ket qua chi tin khi da xem anh: man hinh 'Dang tai trang' khong doi van tinh la yen lang.
-param([string]$Exe, [string]$Tag, [string]$TitleMatch = 'QUYEN', [int]$Scroll = 10, [string]$ProcName = '', [int]$PreEndWait = 0)
+param([string]$Exe, [string]$Tag, [string]$TitleMatch = 'QUYEN', [int]$Scroll = 10, [string]$ProcName = '', [int]$PreEndWait = 0, [string]$PdfPath = '', [switch]$Continuous, [int]$IdleWait = 0)
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 Add-Type @'
 using System; using System.Runtime.InteropServices;
@@ -16,6 +16,7 @@ public class W { [DllImport("user32.dll")] public static extern bool SetForegrou
 '@
 $dir = Get-ChildItem -Path 'P:\01-PIP\032-Tinh lo 991 noi dai\07-TKBVTC\C-Design\01-Publication\2026-09*\PDF' -Directory | Select-Object -First 1
 $f = (Get-ChildItem -LiteralPath $dir.FullName -Filter '03. QUYEN 2.2*.pdf' | Select-Object -First 1).FullName
+if ($PdfPath) { $f = $PdfPath }
 $out = "$env:TEMP\shots_$Tag"; New-Item -ItemType Directory -Force $out | Out-Null
 $scr = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 $W = 96; $H = 54
@@ -74,6 +75,7 @@ if ($tp) { [void]$sh.AppActivate($tp.Id) }
 Start-Sleep 1
 $prev = (Snap)[0]
 $res = [ordered]@{ tag = $Tag; title_ms = $titleT; doc_area_first_draw_ms = $firstDraw; open_settle_ms = $openSettle }
+if ($Continuous) { [void][W]::SetCursorPos(294, 68); Start-Sleep -Milliseconds 300; [W]::mouse_event(0x2, 0, 0, 0, [UIntPtr]::Zero); [W]::mouse_event(0x4, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Seconds 3; Shot 'continuous' }
 if ($PreEndWait -gt 0) { Start-Sleep $PreEndWait; $prev = (Snap)[0] }
 $t = $sw.Elapsed.TotalMilliseconds; [System.Windows.Forms.SendKeys]::SendWait('{END}'); $res.end_settle_ms = Settle $t; Shot 'end'
 $t = $sw.Elapsed.TotalMilliseconds; [System.Windows.Forms.SendKeys]::SendWait('{HOME}'); $res.home_settle_ms = Settle $t; Shot 'home'
@@ -98,6 +100,19 @@ $res.zoom_out_settle_ms = Settle $t 3000
 $prev = (Snap)[0]
 for ($i = 0; $i -lt 40; $i++) { [W]::mouse_event(0x0800, 0, 0, -120, [UIntPtr]::Zero); Start-Sleep -Milliseconds 30 }
 $tl = $sw.Elapsed.TotalMilliseconds; $res.wheel40_settle_after_last_ms = Settle $tl 3000; Shot 'wheel'
+$pn2 = if ($ProcName) { $ProcName } else { 'FoxitPhantomPDF' }
+$mp = @(Get-Process -Name $pn2 -ErrorAction SilentlyContinue)
+$res.ram_private_mb = [math]::Round((($mp | Measure-Object PrivateMemorySize64 -Sum).Sum) / 1MB)
+$pw = 0; foreach ($q in $mp) { $c = Get-CimInstance Win32_PerfFormattedData_PerfProc_Process -Filter "IDProcess=$($q.Id)" -ErrorAction SilentlyContinue; if ($c) { $pw += $c.WorkingSetPrivate } }
+$res.ram_private_ws_mb = [math]::Round($pw / 1MB)
+$res.ram_workingset_mb = [math]::Round((($mp | Measure-Object WorkingSet64 -Sum).Sum) / 1MB)
+if ($IdleWait -gt 0) {
+    Start-Sleep $IdleWait
+    $mp2 = @(Get-Process -Name $pn2 -ErrorAction SilentlyContinue)
+    $pw2 = 0; foreach ($q in $mp2) { $c = Get-CimInstance Win32_PerfFormattedData_PerfProc_Process -Filter "IDProcess=$($q.Id)" -ErrorAction SilentlyContinue; if ($c) { $pw2 += $c.WorkingSetPrivate } }
+    $res.idle_private_mb = [math]::Round((($mp2 | Measure-Object PrivateMemorySize64 -Sum).Sum) / 1MB)
+    $res.idle_private_ws_mb = [math]::Round($pw2 / 1MB)
+}
 $res | Format-List | Out-String
 $p.CloseMainWindow() | Out-Null; Start-Sleep 3
 if ($ProcName) { Get-Process -Name $ProcName -ErrorAction SilentlyContinue | Stop-Process -Force } else { Get-Process | Where-Object { $_.MainWindowTitle -match $TitleMatch -or $_.Id -eq $p.Id } | Stop-Process -Force -ErrorAction SilentlyContinue }

@@ -26,6 +26,7 @@ internal static class DiagnosticsReport
     /// giữ bộ nhớ native tới lúc này. Phần private còn lại sau khi dọn là bộ nhớ thật sự đang/đã được PDFium giữ.</summary>
     public static void CollectNow()
     {
+        try { PdfThumbnailService.TrimDocumentsAsync(includePrimary: true).Wait(TimeSpan.FromSeconds(6)); } catch { }
         using var before = Process.GetCurrentProcess();
         long privateBefore = before.PrivateMemorySize64, gcBefore = GC.GetTotalMemory(false);
         System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
@@ -70,13 +71,14 @@ internal static class DiagnosticsReport
         Row(sb, "Private (Task Manager)", $"{privateMb,8:0} MB");
         Row(sb, "Working set", $"{workingMb,8:0} MB");
         Row(sb, "GC heap (managed)", $"{gcMb,8:0} MB");
-        Row(sb, "  trong đó: file PDF trong RAM", $"{fileMb,8:0} MB");
-        Row(sb, "Ảnh trang (Reader cache)", $"{readerMb,8:0} MB  / 160   ({viewer?.ReaderCacheCount ?? 0} ảnh, đang vẽ {viewer?.ReaderInflight ?? 0})");
+        Row(sb, "Bộ đệm file PDF (đĩa tạm, ngoài RAM)", $"{fileMb,8:0} MB");
+        Row(sb, "Ảnh trang (Reader cache)", $"{readerMb,8:0} MB  / 64    ({viewer?.ReaderCacheCount ?? 0} ảnh, đang vẽ {viewer?.ReaderInflight ?? 0})");
         Row(sb, "Tile nét (1 trang)", $"{tileMb,8:0} MB  / 48    ({viewer?.TileCacheCount ?? 0} ảnh)");
         Row(sb, "Vùng nét (cuộn liên tục)", $"{regionMb,8:0} MB        ({viewer?.ContinuousRegions ?? 0} vùng)");
         Row(sb, "Thumbnail", $"{thumbMb,8:0} MB  / 48    ({thumbs.Cache} ảnh, đang vẽ {thumbs.Inflight})");
         Row(sb, "Còn lại ≈ PDFium + WPF + khác", $"{restMb,8:0} MB   (= private − GC − ảnh)");
         if (LastCollect != null) Row(sb, "Lần \"Dọn RAM\" gần nhất", LastCollect);
+        sb.AppendLine(MemoryProbe.Describe());
         sb.AppendLine();
 
         // ── File trong RAM ──
@@ -106,6 +108,7 @@ internal static class DiagnosticsReport
         Row(sb, "Doc / page handle trong cache", $"{PdfThumbnailService.CachedDocumentCount} / {PdfThumbnailService.CachedNativePageCount}");
         Row(sb, "Page cache hit / load", $"{PdfThumbnailService.NativePageCacheHits} / {PdfThumbnailService.NativePageLoads}");
         Row(sb, "Progressive yield / slice max", $"{PdfThumbnailService.ProgressiveYields} / {PdfThumbnailService.MaxNativeRenderSliceMilliseconds:0.0} ms");
+        Row(sb, "Thu hồi document (tái chế/rảnh)", $"{PdfThumbnailService.PolicyTrims} lần (sau {PdfThumbnailService.RecycleAfterPages} trang, rảnh {PdfThumbnailService.IdleTrimSeconds}/{PdfThumbnailService.IdleTrimAllSeconds} s)");
         Row(sb, "Nhường khi zoom/pan", $"{PdfThumbnailService.InteractionDeferrals}");
         sb.AppendLine();
 

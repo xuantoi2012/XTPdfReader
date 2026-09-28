@@ -67,6 +67,7 @@ namespace XTPdfMergeApp
             // Đối soát registry "View PDF" của pdfFactory (nếu user đã bật) — âm thầm, không hỏi.
             if (MergeAppSettingsStore.GetPdfFactoryViewEnabled()) MergeWorkspaceWindow.ReconcilePdfFactoryRegistry();
 
+            PdfThumbnailService.StartMemoryPolicy();
             _reader = new ReaderWindow();
             MainWindow = _reader;
             _reader.Show();
@@ -157,8 +158,12 @@ namespace XTPdfMergeApp
             // tile qua PDFium tuần tự do thư viện không an toàn đa luồng), rút hết hàng đợi có thể
             // mất hơn 2s — 2s cũ dễ hết hạn giữa chừng, để lại lệnh treo lơ lửng đúng lúc thư viện
             // bị huỷ (xem PdfThumbnailService._inFlightPublicCalls).
-            if (DiagnosticsLog.Enabled) DiagnosticsReport.CollectNow(); // để log có số private sau khi dọn
-            DiagnosticsLog.Snapshot("thoát", DiagnosticsReport.Build());
+            if (DiagnosticsLog.Enabled)
+            {
+                DiagnosticsLog.Snapshot("thoát, trước dọn RAM", DiagnosticsReport.Build());
+                DiagnosticsReport.CollectNow(); // đóng document PDFium + GC, để log có số sau khi dọn
+                DiagnosticsLog.Snapshot("thoát, sau dọn RAM", DiagnosticsReport.Build());
+            }
             PdfThumbnailService.PrepareForShutdown(TimeSpan.FromSeconds(5));
 
             _singleInstanceMutex?.Dispose();
