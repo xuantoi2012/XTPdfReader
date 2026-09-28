@@ -168,6 +168,12 @@ namespace XTPdfMergeApp.Services
 
         /// <summary>Trang cần khối cách vị trí đọc nền quá mức này (8 × 256 KB = 2 MB) thì luồng nền nhảy theo.</summary>
         private const int FollowDistanceBlocks = 8;
+
+        /// <summary>Khi trang đang xem hụt 1 khối, đọc thêm tối đa chừng này khối Missing liền sau trong CÙNG lệnh đọc:
+        /// nội dung 1 trang nằm liền nhau, PDFium đọc tuần tự, mỗi lần hụt qua mạng chịu ~100 ms độ trễ. Đọc nền không
+        /// gộp (đo 28/09: làm khối gấp chậm hơn); chỉ lệnh của trang mới đọc trước. XTPDF_FG_AHEAD đổi số này để đo.</summary>
+        internal static readonly int ForegroundAheadBlocks =
+            int.TryParse(Environment.GetEnvironmentVariable("XTPDF_FG_AHEAD"), out int ahead) ? Math.Clamp(ahead, 0, 31) : 3;
         private readonly IBlockFile _file;          // cho lệnh đọc của trang (đọc theo vị trí, không seek chung)
         private readonly CancellationTokenSource _stop = new();
         private readonly Action _onFreed;
@@ -253,15 +259,19 @@ namespace XTPdfMergeApp.Services
             try
             {
                 if (!TryClaim(block, wait: true)) return Volatile.Read(ref _present[block]) == Present;
-                scratch = ArrayPool<byte>.Shared.Rent(BlockSize);
+                int count = 1;
+                while (count <= ForegroundAheadBlocks && block + count < _present.Length && TryClaim(block + count, wait: false))
+                    count++;
+                scratch = ArrayPool<byte>.Shared.Rent(BlockSize * count);
                 bool ok = false;
                 try
                 {
-                    ok = ReadFromFile(_file, block, scratch);
+                    ok = ReadFromFile(_file, block, scratch, count);
                 }
                 finally
                 {
-                    Finish(block, ok ? scratch : null); // lỗi đọc: trả khối về Missing, luồng đang chờ tự thử đọc lại
+                    for (int k = 0; k < count; k++)
+                        Finish(block + k, ok ? scratch : null, k * BlockSize); // lỗi đọc: trả khối về Missing, luồng đang chờ tự thử đọc lại
                 }
                 if (ok)
                 {
@@ -305,10 +315,10 @@ namespace XTPdfMergeApp.Services
             }
         }
 
-        private bool ReadFromFile(IBlockFile file, int block, byte[] scratch)
+        private bool ReadFromFile(IBlockFile file, int block, byte[] scratch, int blockCount = 1)
         {
             long offset = (long)block * BlockSize;
-            int size = (int)Math.Min(BlockSize, Length - offset), read = 0;
+            int size = (int)Math.Min((long)BlockSize * blockCount, Length - offset), read = 0;
             while (read < size)
             {
                 int n = file.Read(offset + read, scratch.AsSpan(read, size - read));
@@ -319,7 +329,7 @@ namespace XTPdfMergeApp.Services
         }
 
         /// <summary>Kết thúc lượt đọc đã <see cref="TryClaim"/>: có dữ liệu → Present, lỗi (null) → Missing.</summary>
-        private void Finish(int block, byte[]? scratch)
+        private void Finish(int block, byte[]? scratch, int scratchOffset = 0)
         {
             long offset = (long)block * BlockSize;
             int size = (int)Math.Min(BlockSize, Length - offset);
@@ -328,7 +338,7 @@ namespace XTPdfMergeApp.Services
                 if (scratch != null)
                 {
                     // Luồng này đang giữ Loading nên không ai khác ghi vùng này; người đọc chỉ đọc sau khi thấy Present.
-                    Buffer.BlockCopy(scratch, 0, _data, (int)offset, size);
+                    Buffer.BlockCopy(scratch, scratchOffset, _data, (int)offset, size);
                     Volatile.Write(ref _present[block], Present);
                     _presentCount++;
                 }

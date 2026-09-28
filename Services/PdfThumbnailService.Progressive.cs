@@ -38,15 +38,28 @@ public static partial class PdfThumbnailService
     public static void NoteInteraction()
         => Volatile.Write(ref _interactionUntil, Stopwatch.GetTimestamp() + Stopwatch.Frequency * InteractionHoldMilliseconds / 1000);
 
+    /// <summary>Số lượt parse trang của việc Visible đang chạy. Parse không ngắt được và qua ổ mạng nó chờ khối file
+    /// (đo: trang 281 parse 5,1 s khi bấm End, cùng lúc 4 thumbnail lân cận cũng đọc mạng) — việc nền chưa vào gate
+    /// nhường tới khi xong, tối đa <see cref="VisibleParseHoldMilliseconds"/> mỗi việc để không bị bỏ đói.</summary>
+    private static int _visibleParsesInFlight;
+    internal static readonly int VisibleParseHoldMilliseconds =
+        int.TryParse(Environment.GetEnvironmentVariable("XTPDF_VISIBLE_HOLD_MS"), out int hold) ? Math.Clamp(hold, 0, 20000) : 3000; // 0 = tắt (để đo A/B)
+
     private static async Task WaitForInteractionIdleAsync(PdfRenderPriority priority, CancellationToken token)
     {
         if (priority == PdfRenderPriority.Visible) return;
         while (true)
         {
             long remaining = Volatile.Read(ref _interactionUntil) - Stopwatch.GetTimestamp();
-            if (remaining <= 0) return;
+            if (remaining <= 0) break;
             Interlocked.Increment(ref _interactionDeferrals);
             await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(1, remaining * 1000.0 / Stopwatch.Frequency)), token).ConfigureAwait(false);
+        }
+        long give = Stopwatch.GetTimestamp() + Stopwatch.Frequency * VisibleParseHoldMilliseconds / 1000;
+        while (Volatile.Read(ref _visibleParsesInFlight) > 0 && Stopwatch.GetTimestamp() < give)
+        {
+            Interlocked.Increment(ref _interactionDeferrals);
+            await Task.Delay(25, token).ConfigureAwait(false);
         }
     }
 
@@ -126,31 +139,40 @@ public static partial class PdfThumbnailService
     private static async Task<NativePage> AcquirePageAsync(PdfDocumentLease document, int index,
         PdfRenderPriority priority, CancellationToken token)
     {
-        using var native = await EnterGateAfterInteractionAsync(document.Pdfium, priority, token).ConfigureAwait(false);
-        token.ThrowIfCancellationRequested();
-        var pages = PagesOf(document.Pdfium);
-        var key = (document.Document, index);
-        if (!pages.Pages.TryGetValue(key, out var page))
+        bool visible = priority == PdfRenderPriority.Visible;
+        if (visible) Interlocked.Increment(ref _visibleParsesInFlight);
+        try
         {
-            long loadStart = Stopwatch.GetTimestamp();
-            var handle = document.Pdfium.LoadPage(document.Document, index);
-            RenderDiagnostics.PageOpen.Record(loadStart);
-            DiagnosticsLog.Slow("parse trang", Stopwatch.GetElapsedTime(loadStart).TotalMilliseconds,
-                $"trang {index + 1} bản #{document.Pdfium.Index} {priority}");
-            if (handle == IntPtr.Zero) throw new InvalidOperationException("PDFium could not open the page.");
-            page = new NativePage { Pdfium = document.Pdfium, Document = document.Document, Index = index, Handle = handle,
-                PathKey = NormalizePath(document.SourcePath).ToUpperInvariant() };
-            pages.Pages.Add(key, page);
-            _parsedPages[(page.PathKey, index, document.Pdfium.Index)] = 0;
-            document.Pdfium.MarkPageParsed();
-            Interlocked.Increment(ref _pageLoads);
+            using var native = await EnterGateAfterInteractionAsync(document.Pdfium, priority, token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            var pages = PagesOf(document.Pdfium);
+            var key = (document.Document, index);
+            if (!pages.Pages.TryGetValue(key, out var page))
+            {
+                long loadStart = Stopwatch.GetTimestamp();
+                var handle = document.Pdfium.LoadPage(document.Document, index);
+                RenderDiagnostics.PageOpen.Record(loadStart);
+                DiagnosticsLog.Slow("parse trang", Stopwatch.GetElapsedTime(loadStart).TotalMilliseconds,
+                    $"trang {index + 1} bản #{document.Pdfium.Index} {priority}");
+                if (handle == IntPtr.Zero) throw new InvalidOperationException("PDFium could not open the page.");
+                page = new NativePage { Pdfium = document.Pdfium, Document = document.Document, Index = index, Handle = handle,
+                    PathKey = NormalizePath(document.SourcePath).ToUpperInvariant() };
+                pages.Pages.Add(key, page);
+                _parsedPages[(page.PathKey, index, document.Pdfium.Index)] = 0;
+                document.Pdfium.MarkPageParsed();
+                Interlocked.Increment(ref _pageLoads);
+            }
+            else Interlocked.Increment(ref _pageCacheHits);
+            page.Users++;
+            page.KeepWarm |= priority == PdfRenderPriority.Visible;
+            page.LastUse = ++pages.UseSequence;
+            TrimNativePages(document.Pdfium);
+            return page;
         }
-        else Interlocked.Increment(ref _pageCacheHits);
-        page.Users++;
-        page.KeepWarm |= priority == PdfRenderPriority.Visible;
-        page.LastUse = ++pages.UseSequence;
-        TrimNativePages(document.Pdfium);
-        return page;
+        finally
+        {
+            if (visible) Interlocked.Decrement(ref _visibleParsesInFlight);
+        }
     }
 
     private static async Task ReleasePageAsync(NativePage page)
@@ -285,6 +307,7 @@ public static partial class PdfThumbnailService
         if (width <= 0 || height <= 0 || (long)width * height > MaxRenderPixels) return null;
         using var pause = new ProgressivePause(token);
         long bufferStart = Stopwatch.GetTimestamp();
+        int yields = 0;
         await _renderBufferSlots.Value.WaitAsync(priority, token).ConfigureAwait(false);
         RenderDiagnostics.BufferQueue.Record(bufferStart);
         var pdfium = page.Pdfium;
@@ -311,6 +334,7 @@ public static partial class PdfThumbnailService
             while (status == 1) // FPDF_RENDER_TOBECONTINUED
             {
                 Interlocked.Increment(ref _progressiveYields);
+                yields++;
                 token.ThrowIfCancellationRequested();
                 // The native gate is released, allowing other pages to run. A continuation
                 // remains at its original priority; cancellation is checked before re-entry.
@@ -330,6 +354,8 @@ public static partial class PdfThumbnailService
                 pixels, checked(stride * height), stride);
             result.Freeze();
             RenderDiagnostics.BitmapCopy.Record(copyStart);
+            DiagnosticsLog.Slow("vẽ vùng", Stopwatch.GetElapsedTime(bufferStart).TotalMilliseconds,
+                $"{width}x{height} trang {page.Index + 1} {priority} bản #{pdfium.Index} {yields} lát");
             return result;
         }
         catch (OperationCanceledException)

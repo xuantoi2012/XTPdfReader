@@ -9,11 +9,12 @@ namespace XTPdfMergeApp.Services;
 /// Ghi log debug ra file để đọc mà không cần mở cửa sổ Debug (F12). Chỉ chạy khi đặt biến môi trường
 /// <c>XTPDF_DEBUG_LOG</c> (=1 → %TEMP%\XTPdfMergeApp_debug.log, hoặc là đường dẫn file). Mỗi lần mở app ghi đè file cũ.
 /// Nội dung: dòng sự kiện chậm (parse trang, chờ gate, khối đọc gấp) kèm mốc thời gian từ lúc mở app,
-/// và ảnh chụp toàn bộ báo cáo Debug mỗi 3 giây + lúc thoát.
+/// và ảnh chụp toàn bộ báo cáo Debug mỗi 3 giây (ngưỡng "chậm" 300 ms, đổi bằng XTPDF_DEBUG_SLOW_MS) + lúc thoát.
 /// </summary>
 internal static class DiagnosticsLog
 {
-    private const double SlowMs = 300;
+    private static readonly double SlowMs =
+        double.TryParse(Environment.GetEnvironmentVariable("XTPDF_DEBUG_SLOW_MS"), out double slow) ? slow : 300;
 
     private static readonly string? Path = ResolvePath();
     private static readonly object Gate = new();

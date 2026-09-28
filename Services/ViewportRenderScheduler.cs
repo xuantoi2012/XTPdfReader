@@ -14,6 +14,11 @@ internal sealed class ViewportRenderScheduler : IDisposable
     private bool _dirty, _running, _disposed;
     private DateTime _notBefore;
 
+    /// <summary>Chờ sau nấc zoom cuối trước khi vẽ nét. Đo 28/09 trên trang CAD: vẽ vùng 2542×1797 ~190 ms, nên 120 ms
+    /// chờ là ~1/3 thời gian từ nấc cuối tới lúc nét (Foxit ~100 ms). XTPDF_ZOOM_DEBOUNCE_MS đổi số này để đo.</summary>
+    private static readonly int ZoomDebounceMilliseconds =
+        int.TryParse(Environment.GetEnvironmentVariable("XTPDF_ZOOM_DEBOUNCE_MS"), out int ms) ? Math.Clamp(ms, 0, 500) : 50;
+
     public ViewportRenderScheduler(Dispatcher dispatcher, Func<Task> render)
     {
         _render = render;
@@ -27,7 +32,7 @@ internal sealed class ViewportRenderScheduler : IDisposable
         _dirty = true;
         if (resolutionChanged)
         {
-            _notBefore = DateTime.UtcNow.AddMilliseconds(120);
+            _notBefore = DateTime.UtcNow.AddMilliseconds(ZoomDebounceMilliseconds);
             _timer.Stop();
         }
         if (!_running && !_timer.IsEnabled) Arm();
