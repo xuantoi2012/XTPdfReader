@@ -165,8 +165,7 @@
                             </StackPanel.ContextMenu>
                             <Viewbox Width="15" Height="15" VerticalAlignment="Center">
                                 <Canvas Width="24" Height="24">
-                                    <Path Data="{StaticResource Ui.Icon.file}" Stroke="{DynamicResource Ui.Muted}" StrokeThickness="1.7"
-                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                                    <Path Data="{StaticResource Ui.Icon.file}" Fill="{DynamicResource Ui.Muted}"/>
                                 </Canvas>
                             </Viewbox>
                             <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" MaxWidth="220" Margin="8,0,0,0" VerticalAlignment="Center"/>
@@ -188,7 +187,7 @@
                     <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource UiGhostButton}" Text="Reload" Height="26" Padding="10,0" Click="BannerReload_Click"/>
                     <Viewbox DockPanel.Dock="Left" Width="18" Height="18" Margin="0,0,10,0">
                         <Canvas Width="24" Height="24">
-                            <Path Data="{StaticResource Ui.Icon.alert}" Stroke="{DynamicResource Ui.Warn}" Style="{StaticResource UiLineIconPath}" StrokeThickness="2"/>
+                            <Path Data="{StaticResource Ui.Icon.alert}" Fill="{DynamicResource Ui.Warn}"/>
                         </Canvas>
                     </Viewbox>
                     <TextBlock x:Name="DiskChangedText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Ui.Text}"/>
@@ -436,7 +435,7 @@
                                 <Border Width="250" Height="28" CornerRadius="5" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Bg}" Margin="0,0,4,0">
                                     <DockPanel>
                                         <Viewbox DockPanel.Dock="Right" Width="15" Height="15" Margin="0,0,8,0">
-                                            <Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.search}" Stroke="{DynamicResource Ui.Muted}" Style="{StaticResource UiLineIconPath}"/></Canvas>
+                                            <Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.search}" Fill="{DynamicResource Ui.Muted}"/></Canvas>
                                         </Viewbox>
                                         <TextBlock x:Name="FindBarCount" DockPanel.Dock="Right" Margin="6,0,6,0" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>
                                         <Grid>

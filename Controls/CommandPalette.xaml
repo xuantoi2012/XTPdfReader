@@ -17,7 +17,7 @@
                         </Border>
                         <Viewbox DockPanel.Dock="Left" Width="18" Height="18" Margin="0,0,10,0">
                             <Canvas Width="24" Height="24">
-                                <Path Data="{StaticResource Ui.Icon.search}" Stroke="{DynamicResource Ui.Muted}" Style="{StaticResource UiLineIconPath}"/>
+                                <Path Data="{StaticResource Ui.Icon.search}" Fill="{DynamicResource Ui.Muted}"/>
                             </Canvas>
                         </Viewbox>
                         <TextBox x:Name="Query" BorderThickness="0" Background="Transparent" FontSize="15" VerticalContentAlignment="Center"
@@ -54,7 +54,7 @@
                                 </Grid.ColumnDefinitions>
                                 <Viewbox Width="17" Height="17" Margin="6,0,12,0">
                                     <Canvas Width="24" Height="24">
-                                        <Path Data="{Binding Icon}" Stroke="{DynamicResource Ui.Text}" Style="{StaticResource UiLineIconPath}"/>
+                                        <Path Data="{Binding Icon}" Fill="{DynamicResource Ui.Text}"/>
                                     </Canvas>
                                 </Viewbox>
                                 <TextBlock Grid.Column="1" Text="{Binding Title}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Ui.Text}"/>

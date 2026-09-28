@@ -58,7 +58,7 @@
                         </Grid.ColumnDefinitions>
                         <Viewbox Width="16" Height="16" Margin="0,0,8,0">
                             <Canvas Width="24" Height="24">
-                                <Path Data="{Binding Icon}" Stroke="#D97706" Style="{StaticResource UiLineIconPath}"/>
+                                <Path Data="{Binding Icon}" Fill="#D97706"/>
                             </Canvas>
                         </Viewbox>
                         <TextBlock Grid.Column="1" Text="{Binding Author}" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>

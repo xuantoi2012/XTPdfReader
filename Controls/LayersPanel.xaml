@@ -20,8 +20,7 @@
                         MouseLeftButtonDown="Arrow_MouseLeftButtonDown" Cursor="Hand">
                     <Viewbox Width="14" Height="14">
                         <Canvas Width="24" Height="24">
-                            <Path x:Name="Chevron" Data="{StaticResource Ui.Icon.chevr}" Stroke="{DynamicResource Ui.Muted}"
-                                  Style="{StaticResource UiLineIconPath}" StrokeThickness="2"/>
+                            <Path x:Name="Chevron" Data="{StaticResource Ui.Icon.chevr.Bold}" Fill="{DynamicResource Ui.Muted}"/>
                         </Canvas>
                     </Viewbox>
                 </Border>
@@ -31,10 +30,10 @@
                         BorderBrush="{DynamicResource Ui.Muted}" MouseLeftButtonDown="Cb_MouseLeftButtonDown">
                     <Viewbox Width="12" Height="12">
                         <Canvas Width="24" Height="24">
-                            <Path x:Name="CheckMark" Data="{StaticResource Ui.Icon.check}" Stroke="{DynamicResource Ui.OnAccent}"
-                                  Style="{StaticResource UiLineIconPath}" StrokeThickness="3.2" Visibility="Collapsed"/>
-                            <Path x:Name="MixedMark" Data="{StaticResource Ui.Icon.min}" Stroke="{DynamicResource Ui.OnAccent}"
-                                  Style="{StaticResource UiLineIconPath}" StrokeThickness="3.2" Visibility="Collapsed"/>
+                            <Path x:Name="CheckMark" Data="{StaticResource Ui.Icon.check.Bold}" Fill="{DynamicResource Ui.OnAccent}"
+                                  Visibility="Collapsed"/>
+                            <Path x:Name="MixedMark" Data="{StaticResource Ui.Icon.min.Bold}" Fill="{DynamicResource Ui.OnAccent}"
+                                  Visibility="Collapsed"/>
                         </Canvas>
                     </Viewbox>
                 </Border>
@@ -82,8 +81,7 @@
                             <DockPanel>
                                 <Viewbox DockPanel.Dock="Right" Width="14" Height="14" Margin="6,0,0,0">
                                     <Canvas Width="24" Height="24">
-                                        <Path Data="{StaticResource Ui.Icon.chevd}" Stroke="{DynamicResource Ui.Muted}"
-                                              Style="{StaticResource UiLineIconPath}" StrokeThickness="2"/>
+                                        <Path Data="{StaticResource Ui.Icon.chevd.Bold}" Fill="{DynamicResource Ui.Muted}"/>
                                     </Canvas>
                                 </Viewbox>
                                 <TextBlock Text="{TemplateBinding Content}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
@@ -140,7 +138,7 @@
                         </Grid.ColumnDefinitions>
                         <Viewbox Width="15" Height="15" Margin="9,0,4,0">
                             <Canvas Width="24" Height="24">
-                                <Path Data="{StaticResource Ui.Icon.search}" Stroke="{DynamicResource Ui.Muted}" Style="{StaticResource UiLineIconPath}"/>
+                                <Path Data="{StaticResource Ui.Icon.search}" Fill="{DynamicResource Ui.Muted}"/>
                             </Canvas>
                         </Viewbox>
                         <TextBox x:Name="SearchBox" Grid.Column="1" BorderThickness="0" Background="Transparent" VerticalContentAlignment="Center"

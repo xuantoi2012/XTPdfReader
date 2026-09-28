@@ -15,8 +15,8 @@
                                 <Border x:Name="Box" Width="14" Height="14" CornerRadius="3" BorderThickness="1.5" BorderBrush="{DynamicResource Ui.Muted}" Margin="0,0,6,0">
                                     <Viewbox Width="10" Height="10">
                                         <Canvas Width="24" Height="24">
-                                            <Path x:Name="Tick" Data="{StaticResource Ui.Icon.check}" Stroke="{DynamicResource Ui.OnAccent}" StrokeThickness="3.4"
-                                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Visibility="Collapsed"/>
+                                            <Path x:Name="Tick" Data="{StaticResource Ui.Icon.check.Bold}" Fill="{DynamicResource Ui.OnAccent}"
+                                                  Visibility="Collapsed"/>
                                         </Canvas>
                                     </Viewbox>
                                 </Border>
@@ -94,7 +94,7 @@
                     </Grid.ColumnDefinitions>
                     <Viewbox Width="16" Height="16" Margin="10,0,6,0">
                         <Canvas Width="24" Height="24">
-                            <Path Data="{StaticResource Ui.Icon.search}" Stroke="{DynamicResource Ui.Muted}" Style="{StaticResource UiLineIconPath}"/>
+                            <Path Data="{StaticResource Ui.Icon.search}" Fill="{DynamicResource Ui.Muted}"/>
                         </Canvas>
                     </Viewbox>
                     <TextBox x:Name="QueryBox" Grid.Column="1" BorderThickness="0" Background="Transparent" VerticalContentAlignment="Center" FontSize="13"
@@ -130,7 +130,7 @@
                 <StackPanel Orientation="Horizontal">
                     <Viewbox Width="16" Height="16" VerticalAlignment="Top" Margin="0,1,10,0">
                         <Canvas Width="24" Height="24">
-                            <Path Data="{StaticResource Ui.Icon.info}" Stroke="{DynamicResource Ui.Accent}" Style="{StaticResource UiLineIconPath}"/>
+                            <Path Data="{StaticResource Ui.Icon.info}" Fill="{DynamicResource Ui.Accent}"/>
                         </Canvas>
                     </Viewbox>
                     <TextBlock x:Name="NoTextText" TextWrapping="Wrap" Width="250" LineHeight="17" Foreground="{DynamicResource Ui.Text}"/>

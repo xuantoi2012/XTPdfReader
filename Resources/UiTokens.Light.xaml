@@ -32,6 +32,7 @@
     <SolidColorBrush x:Key="Ui.Border" Color="#DBE1E8"/>
     <SolidColorBrush x:Key="Ui.Text" Color="#1B2733"/>
     <SolidColorBrush x:Key="Ui.Muted" Color="#566373"/>
+    <SolidColorBrush x:Key="Ui.Icon" Color="#3F4756"/>
     <SolidColorBrush x:Key="Ui.Pressed" Color="#D6DEE8"/>
     <SolidColorBrush x:Key="Ui.Hover" Color="#E9EEF4"/>
     <SolidColorBrush x:Key="Ui.View" Color="#DFE5EC"/>

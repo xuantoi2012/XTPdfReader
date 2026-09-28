@@ -32,7 +32,7 @@
                     <Border Width="40" Height="48" CornerRadius="4" Background="{DynamicResource Ui.AccentSoft}" Margin="0,0,14,0">
                         <Viewbox Width="20" Height="20">
                             <Canvas Width="24" Height="24">
-                                <Path Data="{StaticResource Ui.Icon.file}" Stroke="{DynamicResource Ui.Accent}" Style="{StaticResource UiLineIconPath}"/>
+                                <Path Data="{StaticResource Ui.Icon.file}" Fill="{DynamicResource Ui.Accent}"/>
                             </Canvas>
                         </Viewbox>
                     </Border>
@@ -45,8 +45,7 @@
                             MouseLeftButtonUp="Pin_MouseLeftButtonUp" ToolTip="Pin to the top">
                         <Viewbox Width="17" Height="17">
                             <Canvas Width="24" Height="24">
-                                <Path x:Name="Star" Data="{StaticResource Ui.Icon.star}" Stroke="{DynamicResource Ui.Border}"
-                                      Style="{StaticResource UiLineIconPath}" StrokeThickness="2"/>
+                                <Path x:Name="Star" Data="{StaticResource Ui.Icon.star}" Fill="{DynamicResource Ui.Border}"/>
                             </Canvas>
                         </Viewbox>
                     </Border>
@@ -54,7 +53,7 @@
             </Border>
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding Pinned}" Value="True">
-                    <Setter TargetName="Star" Property="Stroke" Value="{DynamicResource Ui.Accent}"/>
+                    <Setter TargetName="Star" Property="Data" Value="{StaticResource Ui.Icon.star.Fill}"/>
                     <Setter TargetName="Star" Property="Fill" Value="{DynamicResource Ui.Accent}"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Missing}" Value="True">
@@ -71,7 +70,7 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <Viewbox Width="18" Height="18" Margin="0,0,8,0">
                             <Canvas Width="24" Height="24">
-                                <Path Data="{StaticResource Ui.Icon.workspace}" Stroke="{DynamicResource Ui.Accent}" Style="{StaticResource UiLineIconPath}"/>
+                                <Path Data="{StaticResource Ui.Icon.workspace}" Fill="{DynamicResource Ui.Accent}"/>
                             </Canvas>
                         </Viewbox>
                         <TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
@@ -80,7 +79,7 @@
                                 ToolTip="Delete this workspace">
                             <Viewbox Width="14" Height="14">
                                 <Canvas Width="24" Height="24">
-                                    <Path Data="{StaticResource Ui.Icon.close}" Stroke="{DynamicResource Ui.Muted}" Style="{StaticResource UiLineIconPath}" StrokeThickness="2"/>
+                                    <Path Data="{StaticResource Ui.Icon.close.Bold}" Fill="{DynamicResource Ui.Muted}"/>
                                 </Canvas>
                             </Viewbox>
                         </Border>
@@ -109,7 +108,7 @@
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                     <Viewbox Width="28" Height="28" HorizontalAlignment="Center">
                         <Canvas Width="24" Height="24">
-                            <Path Data="{StaticResource Ui.Icon.file}" Stroke="{DynamicResource Ui.Muted}" Style="{StaticResource UiLineIconPath}"/>
+                            <Path Data="{StaticResource Ui.Icon.file}" Fill="{DynamicResource Ui.Muted}"/>
                         </Canvas>
                     </Viewbox>
                     <TextBlock Text="Drop PDF files here" Margin="0,8,0,0" Foreground="{DynamicResource Ui.Muted}"/>
@@ -123,7 +122,7 @@
                             <StackPanel Orientation="Horizontal">
                                 <Viewbox Width="16" Height="16" Margin="0,0,10,0">
                                     <Canvas Width="24" Height="24">
-                                        <Path Data="{StaticResource Ui.Icon.folder}" Stroke="{DynamicResource Ui.Muted}" Style="{StaticResource UiLineIconPath}"/>
+                                        <Path Data="{StaticResource Ui.Icon.folder}" Fill="{DynamicResource Ui.Muted}"/>
                                     </Canvas>
                                 </Viewbox>
                                 <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Ui.Text}"/>

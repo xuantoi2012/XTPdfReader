@@ -46,7 +46,7 @@
                         <Border x:Name="Bd" Height="30" Padding="12,0" CornerRadius="15" Background="{DynamicResource Ui.Chip}" BorderThickness="1" BorderBrush="Transparent">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <Viewbox x:Name="Chk" Width="14" Height="14" Margin="0,0,7,0" Visibility="Collapsed">
-                                    <Canvas Width="24" Height="24"><Path Data="M5 12.5l4.5 4.5L19 7.5" Stroke="{DynamicResource Ui.Accent}" Style="{StaticResource UiLineIconPath}"/></Canvas>
+                                    <Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.check.Bold}" Fill="{DynamicResource Ui.Accent}"/></Canvas>
                                 </Viewbox>
                                 <TextBlock x:Name="Tx" Text="{TemplateBinding Content}" Foreground="{DynamicResource Ui.Muted}"/>
                             </StackPanel>
@@ -141,7 +141,7 @@
                     </Border>
                     <Border Width="1" Height="36" Margin="14,0,12,0" Background="{DynamicResource Ui.Border}"/>
                     <Viewbox Width="16" Height="16" Margin="0,0,8,0">
-                        <Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.file}" Stroke="{DynamicResource Ui.Muted}" Style="{StaticResource UiLineIconPath}"/></Canvas>
+                        <Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.file}" Fill="{DynamicResource Ui.Muted}"/></Canvas>
                     </Viewbox>
                     <TextBlock Text="Page size" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource Ui.Muted}"/>
                     <Slider x:Name="PageSizeSlider" Width="130" Minimum="64" Maximum="180" Value="100" VerticalAlignment="Center" ValueChanged="PageSize_Changed"
@@ -165,7 +165,7 @@
         <Border x:Name="DockBar" Grid.Row="2" Height="48" AllowDrop="True" DragOver="EmptyArea_DragOver" Drop="Dock_Drop" Background="{DynamicResource Ui.Panel}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" Padding="16,0">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
-                    <Viewbox Width="16" Height="16" Margin="0,0,7,0"><Canvas Width="24" Height="24"><Path Data="M4 13l2.5-7h11L20 13v6H4zM4 13h5l1 2h4l1-2h5" Stroke="{DynamicResource Ui.Text}" Style="{StaticResource UiLineIconPath}"/></Canvas></Viewbox>
+                    <Viewbox Width="16" Height="16" Margin="0,0,7,0"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.tray}" Fill="{DynamicResource Ui.Text}"/></Canvas></Viewbox>
                     <TextBlock Text="Dock" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
                 </StackPanel>
                 <TextBlock x:Name="DockInfo" DockPanel.Dock="Right" VerticalAlignment="Center" FontSize="11.5" Foreground="{DynamicResource Ui.Muted}"

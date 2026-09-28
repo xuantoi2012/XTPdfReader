@@ -66,7 +66,7 @@
                             MouseLeftButtonDown="FileHandle_MouseLeftButtonDown" MouseMove="FileHandle_MouseMove" MouseLeftButtonUp="FileHandle_MouseLeftButtonUp">
                         <Viewbox Width="16" Height="16">
                             <Canvas Width="24" Height="24">
-                                <Path Data="M9 5h.01M9 12h.01M9 19h.01M15 5h.01M15 12h.01M15 19h.01" Stroke="{DynamicResource Ui.Muted}" StrokeThickness="2.6" Style="{StaticResource UiLineIconPath}"/>
+                                <Path Data="{StaticResource Ui.Icon.grip}" Fill="{DynamicResource Ui.Muted}"/>
                             </Canvas>
                         </Viewbox>
                     </Border>
