@@ -49,6 +49,7 @@ internal sealed unsafe class PdfiumInstance
     private readonly delegate* unmanaged[Cdecl]<IntPtr, int> _textGetSchCount;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, void> _textFindClose;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, int, int, int> _textCountRects;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, double, double, double, double, int> _textGetCharIndexAtPos;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, int, double*, double*, double*, double*, int> _textGetRect;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, int> _pageGetRotation;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, float*, float*, float*, float*, int> _pageGetCropBox;
@@ -90,6 +91,7 @@ internal sealed unsafe class PdfiumInstance
         _textGetSchCount = (delegate* unmanaged[Cdecl]<IntPtr, int>)F("FPDFText_GetSchCount");
         _textFindClose = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("FPDFText_FindClose");
         _textCountRects = (delegate* unmanaged[Cdecl]<IntPtr, int, int, int>)F("FPDFText_CountRects");
+        _textGetCharIndexAtPos = (delegate* unmanaged[Cdecl]<IntPtr, double, double, double, double, int>)F("FPDFText_GetCharIndexAtPos");
         _textGetRect = (delegate* unmanaged[Cdecl]<IntPtr, int, double*, double*, double*, double*, int>)F("FPDFText_GetRect");
         _pageGetRotation = (delegate* unmanaged[Cdecl]<IntPtr, int>)F("FPDFPage_GetRotation");
         _pageGetCropBox = (delegate* unmanaged[Cdecl]<IntPtr, float*, float*, float*, float*, int>)F("FPDFPage_GetCropBox");
@@ -266,6 +268,38 @@ internal sealed unsafe class PdfiumInstance
                     }
                 }
                 finally { _textFindClose(search); }
+            }
+        }
+        finally { _textClosePage(text); }
+        return result;
+    }
+
+    /// <summary>Text between two points of a page (user space) as line rectangles (Left, Bottom, Right, Top) — used by "Highlight text". Empty when there is no text at either point.</summary>
+    internal List<(double L, double B, double R, double T)> SelectTextRects(IntPtr page, double ax, double ay, double bx, double by)
+    {
+        var result = new List<(double, double, double, double)>();
+        IntPtr text = _textLoadPage(page);
+        if (text == IntPtr.Zero) return result;
+        try
+        {
+            int IndexAt(double x, double y)
+            {
+                foreach (double tolerance in new[] { 3.0, 10.0, 24.0 })
+                {
+                    int i = _textGetCharIndexAtPos(text, x, y, tolerance, tolerance);
+                    if (i >= 0) return i;
+                }
+                return -1;
+            }
+            int a = IndexAt(ax, ay), b = IndexAt(bx, by);
+            if (a < 0 || b < 0) return result;
+            int start = Math.Min(a, b), count = Math.Abs(a - b) + 1;
+            int rectCount = _textCountRects(text, start, count);
+            for (int r = 0; r < rectCount; r++)
+            {
+                double left, top, right, bottom;
+                if (_textGetRect(text, r, &left, &top, &right, &bottom) != 0)
+                    result.Add((left, Math.Min(top, bottom), right, Math.Max(top, bottom)));
             }
         }
         finally { _textClosePage(text); }

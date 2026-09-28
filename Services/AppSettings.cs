@@ -56,6 +56,20 @@ namespace XTPdfMergeApp.Services
             set => Set("WarmFiles", Math.Clamp(value, 0, 8));
         }
 
+        /// <summary>"Text" = highlight the text under the drag, "Area" = highlight the dragged rectangle.</summary>
+        public static string HighlightMode
+        {
+            get => GetString("HighlightMode", "Text");
+            set => Set("HighlightMode", value);
+        }
+
+        /// <summary>Last used drawing-shape style (colour, width), see <see cref="ShapeStyle"/>.</summary>
+        public static string ShapeStyleSetting
+        {
+            get => GetString("ShapeStyle", "");
+            set => Set("ShapeStyle", value);
+        }
+
         /// <summary>Last used Typewriter format (font, size, colour, bold, italic), see <see cref="TextFormat"/>.</summary>
         public static string TypewriterFormat
         {

@@ -25,7 +25,7 @@ namespace XTPdfMergeApp
     /// </summary>
     public partial class ReaderWindow
     {
-        private enum ReaderTool { Hand, Typewriter, Comment, Highlight, Stamp }
+        private enum ReaderTool { Hand, Typewriter, Comment, Highlight, Stamp, Shape }
 
         private ReaderTool _readerTool = ReaderTool.Hand;
 
@@ -51,6 +51,7 @@ namespace XTPdfMergeApp
         {
             CommitAnnotationEditor();
             CancelHighlightDrag();
+            CancelShapeDrag();
             _readerTool = tool;
             if (tool != ReaderTool.Hand) SelectAnnotation(null, null);
             UpdateFormatBarVisibility();
@@ -59,6 +60,7 @@ namespace XTPdfMergeApp
             ReaderCommentToolButton.Tag = tool == ReaderTool.Comment ? "Active" : null;
             ReaderHighlightToolButton.Tag = tool == ReaderTool.Highlight ? "Active" : null;
             ReaderStampToolButton.Tag = tool == ReaderTool.Stamp ? "Active" : null;
+            ReaderShapesToolButton.Tag = tool == ReaderTool.Shape ? "Active" : null;
 
             // ForceCursor: con trỏ của vùng xem đè lên Cursor="Hand" sẵn có của ReaderImage.
             ReaderContentHost.Cursor = tool switch
@@ -67,6 +69,7 @@ namespace XTPdfMergeApp
                 ReaderTool.Comment => Cursors.Pen,
                 ReaderTool.Highlight => Cursors.Cross,
                 ReaderTool.Stamp => Cursors.Cross,
+                ReaderTool.Shape => Cursors.Cross,
                 _ => null
             };
             ReaderContentHost.ForceCursor = tool != ReaderTool.Hand;
@@ -213,7 +216,7 @@ namespace XTPdfMergeApp
         private void ReaderContentHost_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             // Thanh Find / thanh định dạng nằm đè lên trang: bấm vào chúng không được coi là bấm lên trang.
-            if (IsInside(e.OriginalSource as DependencyObject, FindBar) || IsInside(e.OriginalSource as DependencyObject, TextFormatBar)) return;
+            if (IsInside(e.OriginalSource as DependencyObject, FindBar) || IsInside(e.OriginalSource as DependencyObject, TextFormatBar) || IsInside(e.OriginalSource as DependencyObject, ShapeBar)) return;
 
             // Click ra ngoài ô nhập = xong (Image không nhận focus nên LostKeyboardFocus không tự bắn).
             if (_annotationEditor != null)
@@ -265,13 +268,18 @@ namespace XTPdfMergeApp
                     e.Handled = true;
                     _ = PlaceStampAsync(hit);
                     break;
+
+                case ReaderTool.Shape:
+                    e.Handled = true;
+                    BeginShapeDrag(hit);
+                    break;
             }
         }
 
         private void ReaderContentHost_PreviewMouseMove(object sender, MouseEventArgs e)
         {
             Point point = e.GetPosition(ReaderContentHost);
-            if (UpdateAnnotationMove(point))
+            if (UpdateAnnotationMove(point) || UpdateShapeDrag(point))
             {
                 e.Handled = true;
                 return;
@@ -288,7 +296,7 @@ namespace XTPdfMergeApp
 
         private void ReaderContentHost_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (FinishAnnotationMove())
+            if (FinishAnnotationMove() || FinishShapeDrag(e.GetPosition(ReaderContentHost)))
             {
                 e.Handled = true;
                 return;
@@ -358,6 +366,11 @@ namespace XTPdfMergeApp
             bool bigEnough = ReaderHighlightRubberBand.Width >= 4 && ReaderHighlightRubberBand.Height >= 4;
             CancelHighlightDrag();
             if (!haveEnd || !bigEnough) return;
+            if (AppSettings.HighlightMode != "Area")
+            {
+                _ = CommitTextHighlightAsync(drag, end.U, end.V);
+                return;
+            }
 
             var spec = new QuickAnnotationSpec(NewAnnotationName(), QuickAnnotationKind.Highlight, drag.Row.PageNumber,
                 Math.Min(drag.StartU, end.U), Math.Min(drag.StartV, end.V),

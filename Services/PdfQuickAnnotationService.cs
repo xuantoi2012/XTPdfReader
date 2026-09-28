@@ -15,7 +15,7 @@ using iText.Kernel.Pdf.Xobject;
 
 namespace XTPdfMergeApp.Services
 {
-    public enum QuickAnnotationKind { Typewriter, Comment, Highlight, Stamp }
+    public enum QuickAnnotationKind { Typewriter, Comment, Highlight, Stamp, Shape }
 
     /// <summary>
     /// 1 annotation do công cụ sửa nhanh quản lý, mô tả theo toạ độ TRANG HIỂN THỊ chuẩn hoá (xem
@@ -53,6 +53,7 @@ namespace XTPdfMergeApp.Services
         private static readonly PdfName TypewriterIntent = new("FreeTextTypeWriter");
         private static readonly PdfName IntentKey = new("IT");
         private static readonly PdfName FormatKey = new("XTFormat");
+        private static readonly PdfName ShapeKey = new("XTShape");
 
         private static readonly System.Collections.Generic.Dictionary<string, string[]> FontFiles = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -118,14 +119,31 @@ namespace XTPdfMergeApp.Services
                 string name = annot.GetName()?.ToUnicodeString() is { Length: > 0 } nm ? nm : "#" + i;
                 result.Add(new QuickAnnotationSpec(name, kind.Value, pageNumber, u1, v1, u2, v2,
                     annot.GetContents()?.ToUnicodeString() ?? "")
-                { Format = annot.GetPdfObject().GetAsString(FormatKey)?.ToUnicodeString() ?? "" });
+                { Format = kind == QuickAnnotationKind.Highlight ? ReadHighlightFormat(annot, geometry) : annot.GetPdfObject().GetAsString(kind == QuickAnnotationKind.Shape ? ShapeKey : FormatKey)?.ToUnicodeString() ?? "" });
             }
             return result;
+        }
+
+        /// <summary>A text highlight keeps its per-line rectangles (from /QuadPoints) so moving it does not turn it into one big block.</summary>
+        private static string ReadHighlightFormat(PdfAnnotation annot, PdfPageGeometry geometry)
+        {
+            if (!PdfName.Highlight.Equals(annot.GetSubtype())) return "";
+            var quads = annot.GetPdfObject().GetAsArray(PdfName.QuadPoints);
+            if (quads == null || quads.Size() < 16) return "";
+            var rects = new List<(double, double, double, double)>();
+            for (int i = 0; i + 7 < quads.Size(); i += 8)
+            {
+                var xs = new[] { quads.GetAsNumber(i).FloatValue(), quads.GetAsNumber(i + 2).FloatValue(), quads.GetAsNumber(i + 4).FloatValue(), quads.GetAsNumber(i + 6).FloatValue() };
+                var ys = new[] { quads.GetAsNumber(i + 1).FloatValue(), quads.GetAsNumber(i + 3).FloatValue(), quads.GetAsNumber(i + 5).FloatValue(), quads.GetAsNumber(i + 7).FloatValue() };
+                rects.Add(geometry.UserRectToDisplay(xs.Min(), ys.Min(), xs.Max(), ys.Max()));
+            }
+            return EncodeTextHighlight(rects);
         }
 
         private static QuickAnnotationKind? KindOf(PdfAnnotation annot)
         {
             var subtype = annot.GetSubtype();
+            if (annot.GetPdfObject().ContainsKey(ShapeKey)) return QuickAnnotationKind.Shape;
             if (PdfName.FreeText.Equals(subtype)) return QuickAnnotationKind.Typewriter;
             if (PdfName.Text.Equals(subtype)) return QuickAnnotationKind.Comment;
             if (PdfName.Highlight.Equals(subtype) || PdfName.Square.Equals(subtype)) return QuickAnnotationKind.Highlight;
@@ -157,6 +175,9 @@ namespace XTPdfMergeApp.Services
                         break;
                     case QuickAnnotationKind.Highlight:
                         AddHighlight(doc, page, change.Add);
+                        break;
+                    case QuickAnnotationKind.Shape:
+                        AddShape(doc, page, change.Add);
                         break;
                     case QuickAnnotationKind.Stamp:
                         typewriterFont ??= CreateUnicodeFont();
@@ -310,6 +331,101 @@ namespace XTPdfMergeApp.Services
             catch { return new DeviceRgb(0.75f, 0.22f, 0.17f); }
         }
 
+        // ── Shapes (rectangle, cloud, oval, arrow, line) ────────────────
+
+        private static void AddShape(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec)
+        {
+            var geometry = GetGeometry(page);
+            var style = ShapeStyle.Decode(spec.Format);
+            double scale = ShapeStyle.PageScale(geometry.DisplayWidth);
+            float lw = (float)(style.Width * scale);
+            float width = (float)((spec.U2 - spec.U1) * geometry.DisplayWidth), height = (float)((spec.V2 - spec.V1) * geometry.DisplayHeight);
+            var (left, bottom, right, top) = geometry.DisplayRectToUser(spec.U1, spec.V1, spec.U2, spec.V2);
+            var rect = new Rectangle((float)left, (float)bottom, (float)(right - left), (float)(top - bottom));
+            var color = ParseColor(style.Color);
+
+            // Inner corners (line ends), in the AP's own coordinates (origin bottom-left, display orientation).
+            float pad = style.IsLine ? (float)ShapeStyle.LinePad(lw) : 0;
+            (float X, float Y)[] corners = { (pad, height - pad), (width - pad, height - pad), (pad, pad), (width - pad, pad) }; // TL, TR, BL, BR
+            var start = corners[style.Corner];
+            var end = corners[3 - style.Corner];
+
+            PdfMarkupAnnotation annot;
+            if (style.IsLine)
+            {
+                (double U, double V) ToDisplay((float X, float Y) p) => (spec.U1 + p.X / geometry.DisplayWidth, spec.V1 + (height - p.Y) / geometry.DisplayHeight);
+                var (su, sv) = ToDisplay(start);
+                var (eu, ev) = ToDisplay(end);
+                var (sx, sy, _, _) = geometry.DisplayRectToUser(su, sv, su, sv);
+                var (ex, ey, _, _) = geometry.DisplayRectToUser(eu, ev, eu, ev);
+                var line = new PdfLineAnnotation(rect, new[] { (float)sx, (float)sy, (float)ex, (float)ey });
+                if (style.Type == ShapeStyle.Arrow) line.SetLineEndingStyles(new PdfArray(new PdfObject[] { new PdfName("None"), new PdfName("OpenArrow") }));
+                annot = line;
+            }
+            else if (style.Type == ShapeStyle.Oval) annot = new PdfCircleAnnotation(rect);
+            else annot = new PdfSquareAnnotation(rect);
+            annot.SetColor(color);
+            annot.GetPdfObject().Put(PdfName.BS, new PdfDictionary(new Dictionary<PdfName, PdfObject> { [PdfName.W] = new PdfNumber(lw) }));
+            annot.GetPdfObject().Put(ShapeKey, new PdfString(spec.Format, PdfEncodings.UNICODE_BIG));
+            if (style.Type == ShapeStyle.Cloud)
+                annot.GetPdfObject().Put(new PdfName("BE"), new PdfDictionary(new Dictionary<PdfName, PdfObject> { [PdfName.S] = new PdfName("C"), [new PdfName("I")] = new PdfNumber(2) }));
+            StampCommon(annot, spec);
+
+            var form = new PdfFormXObject(new Rectangle(0, 0, width, height));
+            SetRotationMatrix(form, geometry.Rotation);
+            var canvas = new PdfCanvas(form, doc);
+            canvas.SetStrokeColor(color).SetFillColor(color).SetLineWidth(lw).SetLineCapStyle(PdfCanvasConstants.LineCapStyle.ROUND).SetLineJoinStyle(PdfCanvasConstants.LineJoinStyle.ROUND);
+            switch (style.Type)
+            {
+                case ShapeStyle.Oval:
+                    canvas.Ellipse(lw / 2, lw / 2, width - lw / 2, height - lw / 2).Stroke();
+                    break;
+                case ShapeStyle.Cloud:
+                    DrawCloud(canvas, width, height, lw, scale);
+                    break;
+                case ShapeStyle.Line:
+                    canvas.MoveTo(start.X, start.Y).LineTo(end.X, end.Y).Stroke();
+                    break;
+                case ShapeStyle.Arrow:
+                {
+                    double dx = end.X - start.X, dy = end.Y - start.Y, len = Math.Sqrt(dx * dx + dy * dy);
+                    if (len < 1) break;
+                    double ux = dx / len, uy = dy / len, head = Math.Min(Math.Max(10 * scale, 5 * lw), len * 0.6), half = head * 0.4;
+                    double bx = end.X - ux * head, by = end.Y - uy * head;
+                    canvas.MoveTo(start.X, start.Y).LineTo(bx + ux * 1, by + uy * 1).Stroke();
+                    canvas.MoveTo(end.X, end.Y).LineTo(bx - uy * half, by + ux * half).LineTo(bx + uy * half, by - ux * half).ClosePath().Fill();
+                    break;
+                }
+                default:
+                    canvas.Rectangle(lw / 2, lw / 2, width - lw, height - lw).Stroke();
+                    break;
+            }
+            canvas.Release();
+            annot.SetNormalAppearance(form.GetPdfObject());
+            page.AddAnnotation(annot);
+        }
+
+        /// <summary>Revision cloud: a row of outward semicircles along each edge of the (inset) rectangle.</summary>
+        private static void DrawCloud(PdfCanvas canvas, float width, float height, float lw, double scale)
+        {
+            float r = (float)Math.Clamp(Math.Min(width, height) / 7, 3, 14 * scale);
+            float x1 = r + lw / 2, y1 = r + lw / 2, x2 = width - r - lw / 2, y2 = height - r - lw / 2;
+            if (x2 - x1 < 4 || y2 - y1 < 4) { canvas.Rectangle(lw / 2, lw / 2, width - lw, height - lw).Stroke(); return; }
+
+            void Edge(float from, float to, Action<float, float> bump)
+            {
+                float length = to - from;
+                int n = Math.Max(1, (int)Math.Round(length / (2 * r)));
+                float step = length / n;
+                for (int i = 0; i < n; i++) bump(from + step * i + step / 2, step / 2);
+            }
+            Edge(x1, x2, (c, rr) => canvas.Arc(c - rr, y2 - rr, c + rr, y2 + rr, 0, 180));       // top: bulge up
+            Edge(y1, y2, (c, rr) => canvas.Arc(x1 - rr, c - rr, x1 + rr, c + rr, 90, 180));      // left: bulge left (walking downwards)
+            Edge(x1, x2, (c, rr) => canvas.Arc(c - rr, y1 - rr, c + rr, y1 + rr, 180, 180));     // bottom: bulge down
+            Edge(y1, y2, (c, rr) => canvas.Arc(x2 - rr, c - rr, x2 + rr, c + rr, -90, 180));     // right: bulge right
+            canvas.Stroke();
+        }
+
         // ── Comment (sticky note: chỉ hiện icon, nội dung trong popup) ──
 
         private static void AddComment(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec)
@@ -353,7 +469,10 @@ namespace XTPdfMergeApp.Services
             var geometry = GetGeometry(page);
             var (left, bottom, right, top) = geometry.DisplayRectToUser(spec.U1, spec.V1, spec.U2, spec.V2);
             var rect = new Rectangle((float)left, (float)bottom, (float)(right - left), (float)(top - bottom));
-            float[] quad = { (float)left, (float)top, (float)right, (float)top, (float)left, (float)bottom, (float)right, (float)bottom };
+            // "Highlight text": one rectangle per text line, encoded as "T|u1,v1,u2,v2;…" (display coordinates).
+            var parts = TextHighlightRects(spec.Format).Select(r => geometry.DisplayRectToUser(r.U1, r.V1, r.U2, r.V2)).ToList();
+            if (parts.Count == 0) parts.Add((left, bottom, right, top));
+            var quad = parts.SelectMany(p => new[] { (float)p.Left, (float)p.Top, (float)p.Right, (float)p.Top, (float)p.Left, (float)p.Bottom, (float)p.Right, (float)p.Bottom }).ToArray();
             var annot = PdfTextMarkupAnnotation.CreateHighLight(rect, quad);
             annot.SetColor(new DeviceRgb(1f, 0.92f, 0f));
             if (!string.IsNullOrEmpty(spec.Text)) annot.SetContents(new PdfString(spec.Text, PdfEncodings.UNICODE_BIG));
@@ -363,11 +482,33 @@ namespace XTPdfMergeApp.Services
             var form = new PdfFormXObject(new Rectangle(0, 0, rect.GetWidth(), rect.GetHeight()));
             var canvas = new PdfCanvas(form, doc);
             canvas.SaveState().SetExtGState(new PdfExtGState().SetBlendMode(PdfExtGState.BM_MULTIPLY).SetFillOpacity(0.85f))
-                .SetFillColor(new DeviceRgb(1f, 0.92f, 0f))
-                .Rectangle(0, 0, rect.GetWidth(), rect.GetHeight()).Fill().RestoreState().Release();
+                .SetFillColor(new DeviceRgb(1f, 0.92f, 0f));
+            foreach (var p in parts)
+                canvas.Rectangle((float)(p.Left - left), (float)(p.Bottom - bottom), (float)(p.Right - p.Left), (float)(p.Top - p.Bottom));
+            canvas.Fill().RestoreState().Release();
             annot.SetNormalAppearance(form.GetPdfObject());
             page.AddAnnotation(annot);
         }
+
+        /// <summary>Text-highlight rectangles (display coordinates) from a spec's Format; empty for an area highlight.</summary>
+        internal static System.Collections.Generic.List<(double U1, double V1, double U2, double V2)> TextHighlightRects(string format)
+        {
+            var list = new System.Collections.Generic.List<(double, double, double, double)>();
+            if (!format.StartsWith("T|", StringComparison.Ordinal)) return list;
+            foreach (string part in format.Substring(2).Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var v = part.Split(',');
+                if (v.Length == 4 && v.All(x => double.TryParse(x, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _)))
+                {
+                    double P(int i) => double.Parse(v[i], System.Globalization.CultureInfo.InvariantCulture);
+                    list.Add((P(0), P(1), P(2), P(3)));
+                }
+            }
+            return list;
+        }
+
+        public static string EncodeTextHighlight(System.Collections.Generic.IEnumerable<(double U1, double V1, double U2, double V2)> rects)
+            => "T|" + string.Join(";", rects.Select(r => string.Join(",", new[] { r.U1, r.V1, r.U2, r.V2 }.Select(x => x.ToString("0.#####", System.Globalization.CultureInfo.InvariantCulture)))));
 
         // ── Dùng chung ──────────────────────────────────────────────────
 

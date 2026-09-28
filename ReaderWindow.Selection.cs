@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -31,10 +32,6 @@ namespace XTPdfMergeApp
 
         private AnnotationMove? _annMove;
 
-        /// <summary>The smallest annotation under the point wins, so a note or stamp on top of a big highlight can still be picked.</summary>
-        private static QuickAnnotationSpec? PickAnnotation(PageAnnotations? page, PageHit hit)
-            => page?.Annotations.Where(a => a.Contains(hit.U, hit.V)).OrderBy(a => (a.U2 - a.U1) * (a.V2 - a.V1)).FirstOrDefault();
-
         private static bool IsInside(DependencyObject? node, DependencyObject ancestor)
         {
             while (node != null)
@@ -53,6 +50,12 @@ namespace XTPdfMergeApp
             {
                 _textFormat = TextFormat.Decode(spec.Format);
                 LoadFormatBar();
+            }
+            else if (spec is { Kind: QuickAnnotationKind.Shape })
+            {
+                var style = ShapeStyle.Decode(spec.Format);
+                _shapeStyle = _shapeStyle with { Color = style.Color, Width = style.Width };
+                LoadShapeBar();
             }
             UpdateFormatBarVisibility();
             UpdateSelectionVisual();
@@ -153,7 +156,7 @@ namespace XTPdfMergeApp
 
         private void ReaderContent_AnnotationContextMenu(object sender, MouseButtonEventArgs e)
         {
-            if (_annotationEditor != null || IsInside(e.OriginalSource as DependencyObject, FindBar) || IsInside(e.OriginalSource as DependencyObject, TextFormatBar)) return;
+            if (_annotationEditor != null || IsInside(e.OriginalSource as DependencyObject, FindBar) || IsInside(e.OriginalSource as DependencyObject, TextFormatBar) || IsInside(e.OriginalSource as DependencyObject, ShapeBar) || IsInside(e.OriginalSource as DependencyObject, HighlightBar)) return;
             if (!TryHitPage(e.GetPosition(ReaderContentHost), out var hit)) return;
             var picked = PickAnnotation(GetCachedPageAnnotations(hit.Row), hit);
             if (picked == null) return;
@@ -171,6 +174,33 @@ namespace XTPdfMergeApp
             delete.Click += (_, _) => DeleteSelectedAnnotation();
             menu.Items.Add(delete);
             menu.IsOpen = true;
+        }
+
+        private bool _highlightModeLoading;
+
+        private void HighlightMode_Checked(object sender, RoutedEventArgs e)
+        {
+            if (_highlightModeLoading) return;
+            AppSettings.HighlightMode = ReferenceEquals(sender, HlModeArea) ? "Area" : "Text";
+        }
+
+        /// <summary>"Highlight text": the words between the press and the release points, one rectangle per line.</summary>
+        private async Task CommitTextHighlightAsync(HighlightDrag drag, double endU, double endV)
+        {
+            var page = await LoadPageAnnotationsAsync(drag.Row);
+            if (page == null) return;
+            var geometry = page.Geometry;
+            var (ax, ay, _, _) = geometry.DisplayRectToUser(drag.StartU, drag.StartV, drag.StartU, drag.StartV);
+            var (bx, by, _, _) = geometry.DisplayRectToUser(endU, endV, endU, endV);
+            var rects = await PdfThumbnailService.SelectTextAsync(drag.Row.SourcePath, drag.Row.PageNumber, ax, ay, bx, by);
+            if (rects == null || rects.Count == 0)
+            {
+                XTStyle.Controls.XTGrowl.Info("No selectable text there. Use Area mode for drawings and scanned pages.", this);
+                return;
+            }
+            var spec = new QuickAnnotationSpec(NewAnnotationName(), QuickAnnotationKind.Highlight, drag.Row.PageNumber,
+                rects.Min(r => r.U1), rects.Min(r => r.V1), rects.Max(r => r.U2), rects.Max(r => r.V2), "") { Format = PdfQuickAnnotationService.EncodeTextHighlight(rects) };
+            CommitAnnotationChange(drag.Row, new QuickAnnotationChange(null, spec), "Highlight text");
         }
 
         // ── Typewriter format bar ─────────────────────────────────────
@@ -246,6 +276,18 @@ namespace XTPdfMergeApp
             bool show = _readerTool == ReaderTool.Typewriter || _annotationEditor is { Kind: QuickAnnotationKind.Typewriter } || _selAnn is { Kind: QuickAnnotationKind.Typewriter };
             if (show && TextFormatBar.Visibility != Visibility.Visible) LoadFormatBar();
             TextFormatBar.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+
+            if (_readerTool == ReaderTool.Highlight && HighlightBar.Visibility != Visibility.Visible)
+            {
+                _highlightModeLoading = true;
+                (AppSettings.HighlightMode == "Area" ? HlModeArea : HlModeText).IsChecked = true;
+                _highlightModeLoading = false;
+            }
+            HighlightBar.Visibility = _readerTool == ReaderTool.Highlight ? Visibility.Visible : Visibility.Collapsed;
+
+            bool shapes = _readerTool == ReaderTool.Shape || _selAnn is { Kind: QuickAnnotationKind.Shape };
+            if (shapes && ShapeBar.Visibility != Visibility.Visible) LoadShapeBar();
+            ShapeBar.Visibility = shapes ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void FmtControl_Changed(object sender, RoutedEventArgs e)

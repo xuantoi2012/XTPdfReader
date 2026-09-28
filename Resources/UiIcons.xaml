@@ -9,6 +9,12 @@
     <Geometry x:Key="Ui.Icon.chevd">M6,9 l6 6 6-6</Geometry>
     <Geometry x:Key="Ui.Icon.chevl">M15,6 l-6 6 6 6</Geometry>
     <Geometry x:Key="Ui.Icon.chevr">M9,6 l6 6-6 6</Geometry>
+    <Geometry x:Key="Ui.Icon.shapes">M4 4h9v9H4Z M15.5,15.5 m-4.5,0 a4.5,4.5 0 1 0 9,0 a4.5,4.5 0 1 0 -9,0</Geometry>
+    <Geometry x:Key="Ui.Icon.shape_rect">M4 6h16v12H4Z</Geometry>
+    <Geometry x:Key="Ui.Icon.shape_oval">M12 6c4.4 0 8 2.7 8 6s-3.6 6-8 6-8-2.7-8-6 3.6-6 8-6Z</Geometry>
+    <Geometry x:Key="Ui.Icon.shape_cloud">M7 18a4 4 0 0 1-.6-7.95A5.5 5.5 0 0 1 17 8.5a4.75 4.75 0 0 1 .5 9.5Z</Geometry>
+    <Geometry x:Key="Ui.Icon.shape_arrow">M5 19 19 5M10 5h9v9</Geometry>
+    <Geometry x:Key="Ui.Icon.shape_line">M5 19 19 5</Geometry>
     <Geometry x:Key="Ui.Icon.home">M4 11l8-7 8 7M6 9.5V20h12V9.5M10 20v-6h4v6</Geometry>
     <Geometry x:Key="Ui.Icon.newdoc">M7 3h7l4 4v14H7Z M14 3v4h4 M12 11v6M9 14h6</Geometry>
     <Geometry x:Key="Ui.Icon.saveas">M5 4h11l3 3v5M5 4v16h7M8 4v5h7V4M8 20v-5h4M15 19l4-4 2 2-4 4h-2z</Geometry>

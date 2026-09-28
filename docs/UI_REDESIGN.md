@@ -165,3 +165,12 @@ zoom vào ~1,0 s, cuộn 40 nấc ~0,05 s, RAM khi dùng 620–660 MB private WS
 - Settings shows one section at a time.
 - Annotations can be selected with the Hand tool (Typewriter text, Note, Highlight, Stamp): click = select, drag = move, double-click = edit text, Delete / right-click menu = delete (`ReaderWindow.Selection.cs`).
 - Typewriter format bar (font, size, bold, italic, colour), stored in the annotation as /XTFormat and remembered as the default; changing it on a selected text rewrites that annotation.
+
+## Round 4 feedback (28/09)
+
+- Side panel: title "Pages (158)" with a � button at the top right that collapses the panel to its icon rail (click a rail tab to bring it back). Icons drawn at 24 px (the 24-unit grid) so strokes are crisp; title bar 42 px, quick-access icons 24 px.
+- View: separate **Single page** and **Continuous** buttons, the active one highlighted.
+- Print dialog laid out like Foxit's: printer + **Properties�** (the driver's own dialog via `DocumentProperties`, DEVMODE applied to the job), copies/collate, grayscale / black-lines, range + subset + reverse, handling (none / fit / reduce / custom %), paper, orientation, auto-center, preview with zoom/document/paper sizes. Booklet, tiling, bleed marks, print-as-image were left out.
+- Merge: the "Temp window" button is gone; drop pages on the dock or the empty area and the Temp window appears.
+- Shapes (Foxit style): rectangle, cloud, oval, arrow, line (`ReaderWindow.Shapes.cs`, `ShapeStyle`), colour + width bar, selectable/movable like other annotations (outline hit-test).
+- Highlight has **Text** (drag across words, one rectangle per line, PDFium text API) and **Area** modes.

@@ -14,6 +14,42 @@ namespace XTPdfMergeApp.Services
 
     public static partial class PdfThumbnailService
     {
+        /// <summary>Text between two points of 1 page (points in the page's user space) → rectangles on the DISPLAY page (normalised 0..1, top-left origin). null = could not read.</summary>
+        public static async Task<IReadOnlyList<(double U1, double V1, double U2, double V2)>?> SelectTextAsync(string pdfPath, int pageNumber, double ax, double ay, double bx, double by)
+        {
+            if (_shuttingDown) return null;
+            Interlocked.Increment(ref _inFlightPublicCalls);
+            PdfiumInstance? pdfium = null;
+            try
+            {
+                string normalized = NormalizePath(pdfPath);
+                pdfium = ChooseInstance(normalized, pageNumber - 1);
+                pdfium.AddLoad(1);
+                using var usage = await AcquireDocumentAsync(normalized, pdfium, CancellationToken.None).ConfigureAwait(false);
+                if (usage == null) return null;
+                var lease = usage.Lease;
+                using var native = await EnterPdfiumGateAsync(lease.Pdfium, PdfRenderPriority.Visible, lease.RetiredToken).ConfigureAwait(false);
+                return await Task.Run(() =>
+                {
+                    IntPtr page = lease.Pdfium.LoadPage(lease.Document, pageNumber - 1);
+                    if (page == IntPtr.Zero) return null;
+                    try
+                    {
+                        var geometry = lease.Pdfium.GetPageGeometry(page);
+                        var rects = lease.Pdfium.SelectTextRects(page, ax, ay, bx, by);
+                        return (IReadOnlyList<(double, double, double, double)>?)rects.Select(r => geometry.UserRectToDisplay(r.L, r.B, r.R, r.T)).ToList();
+                    }
+                    finally { lease.Pdfium.ClosePage(page); }
+                }).ConfigureAwait(false);
+            }
+            catch { return null; }
+            finally
+            {
+                pdfium?.AddLoad(-1);
+                Interlocked.Decrement(ref _inFlightPublicCalls);
+            }
+        }
+
         private const int SearchPagesPerGate = 12;
         private const int MaxMatchesPerPage = 200;
 
