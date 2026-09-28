@@ -21,6 +21,7 @@
     <xt:XTWindow.Resources>
         <ResourceDictionary>
             <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+            <GridLength x:Key="XTTitleBarHeight">42</GridLength>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/XTPdfMergeApp;component/Resources/ReaderResources.xaml"/>
             </ResourceDictionary.MergedDictionaries>
@@ -30,16 +31,13 @@
 
     <xt:XTWindow.TitleBarLeftContent>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0">
-            <xt:XTButton x:Name="PanelToggleButton" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.dleft}" Width="28" Height="26" IconSize="16"
-                         ToolTip="Hide the side panel" Click="PanelToggle_Click"/>
-            <Border Width="1" Height="16" Margin="4,0" Background="{DynamicResource Ui.Border}"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.newdoc}" Width="28" Height="26" IconSize="16" ToolTip="New blank PDF (Ctrl+N)" Click="ReaderNew_Click"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.folder}" Width="28" Height="26" IconSize="16" ToolTip="Open (Ctrl+O)" Click="ReaderOpenFiles_Click"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.save}" Width="28" Height="26" IconSize="16" ToolTip="Save (Ctrl+S)" Click="ReaderTabSave_Click"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.saveas}" Width="28" Height="26" IconSize="16" ToolTip="Save as… (Ctrl+Shift+S)" Click="ReaderTabSaveAs_Click"/>
-            <Border Width="1" Height="16" Margin="4,0" Background="{DynamicResource Ui.Border}"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.undo}" Width="28" Height="26" IconSize="16" ToolTip="Undo (Ctrl+Z)" Click="ReaderUndo_Click"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.redo}" Width="28" Height="26" IconSize="16" ToolTip="Redo (Ctrl+Y)" Click="ReaderRedo_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.newdoc}" Width="36" Height="34" IconSize="24" ToolTip="New blank PDF (Ctrl+N)" Click="ReaderNew_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.folder}" Width="36" Height="34" IconSize="24" ToolTip="Open (Ctrl+O)" Click="ReaderOpenFiles_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.save}" Width="36" Height="34" IconSize="24" ToolTip="Save (Ctrl+S)" Click="ReaderTabSave_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.saveas}" Width="36" Height="34" IconSize="24" ToolTip="Save as… (Ctrl+Shift+S)" Click="ReaderTabSaveAs_Click"/>
+            <Border Width="1" Height="20" Margin="6,0" Background="{DynamicResource Ui.Border}"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.undo}" Width="36" Height="34" IconSize="24" ToolTip="Undo (Ctrl+Z)" Click="ReaderUndo_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.redo}" Width="36" Height="34" IconSize="24" ToolTip="Redo (Ctrl+Y)" Click="ReaderRedo_Click"/>
         </StackPanel>
     </xt:XTWindow.TitleBarLeftContent>
 
@@ -85,8 +83,10 @@
                             <Border Style="{StaticResource UiToolbarSeparator}"/>
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal">
+                                    <xt:XTButton x:Name="ReaderSingleViewButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.file}" Text="Single page"
+                                                 ToolTip="Show one page at a time" Click="ReaderViewSingle_Click"/>
                                     <xt:XTButton x:Name="ReaderContinuousToggle" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.scroll}" Text="Continuous"
-                                                 ToolTip="Continuous scrolling (mouse wheel scrolls across pages, Ctrl+wheel zooms)" Click="ReaderContinuousToggle_Click"/>
+                                                 ToolTip="Continuous scrolling (mouse wheel scrolls across pages, Ctrl+wheel zooms)" Click="ReaderViewContinuous_Click"/>
                                     <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.fitp}" Text="Fit page"
                                                  ToolTip="Fit page" Click="ReaderFitPage_Click"/>
                                     <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.fitw}" Text="Fit width"

@@ -70,13 +70,12 @@
             </DockPanel>
         </Border>
 
-        <DockPanel Grid.Column="1">
-            <Grid DockPanel.Dock="Top" Height="40" Margin="14,0">
+        <DockPanel x:Name="PanelContent" Grid.Column="1">
+            <Grid DockPanel.Dock="Top" Height="40" Margin="14,0,8,0">
                 <TextBlock x:Name="PanelTitleText" Text="Pages" FontWeight="SemiBold" FontSize="13"
                            VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
-                <Border x:Name="PanelCountChip" Style="{StaticResource UiCountChip}" HorizontalAlignment="Right">
-                    <TextBlock x:Name="PanelCountText" FontSize="11.5" Foreground="{DynamicResource Ui.Muted}"/>
-                </Border>
+                <xt:XTButton x:Name="PanelCollapseButton" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.dleft}" Width="30" Height="30" IconSize="22"
+                             HorizontalAlignment="Right" ToolTip="Hide the panel" Click="CollapsePanel_Click"/>
             </Grid>
 
             <TextBlock x:Name="PanelSourceText" DockPanel.Dock="Top" Margin="14,0,14,8" FontSize="11"

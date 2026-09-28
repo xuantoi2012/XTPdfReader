@@ -41,7 +41,7 @@
         <Setter Property="Padding" Value="6,0"/>
         <Setter Property="Margin" Value="1,0"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
-        <Setter Property="IconSize" Value="26"/>
+        <Setter Property="IconSize" Value="24"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
         <Setter Property="IconBrush" Value="{DynamicResource Ui.Text}"/>
@@ -101,7 +101,7 @@
         <Setter Property="Width" Value="56"/>
         <Setter Property="MinWidth" Value="56"/>
         <Setter Property="Height" Value="58"/>
-        <Setter Property="IconSize" Value="22"/>
+        <Setter Property="IconSize" Value="24"/>
         <Setter Property="Padding" Value="0"/>
         <Setter Property="Margin" Value="0,1"/>
         <Setter Property="HorizontalAlignment" Value="Center"/>
@@ -130,7 +130,7 @@
         <Setter Property="Height" Value="46"/>
         <Setter Property="HorizontalAlignment" Value="Stretch"/>
         <Setter Property="Padding" Value="2,0"/>
-        <Setter Property="IconSize" Value="21"/>
+        <Setter Property="IconSize" Value="24"/>
     </Style>
 
     <!-- ══ Nút icon nhỏ (thanh trạng thái, đóng tab…) ══ -->

@@ -10,13 +10,87 @@ using System.Windows.Media.Imaging;
 
 namespace XTPdfMergeApp.Services
 {
-    public enum PrintScale { FitToPaper, ActualSize, Custom }
+    public enum PrintScale { FitToPaper, ActualSize, Custom, ReduceToPaper }
+    public enum PrintOrientation { Auto, Portrait, Landscape }
     public enum PrintColor { Color, Grayscale, BlackLines }
 
     /// <summary>Yêu cầu in: các trang (theo thứ tự in), máy in, khổ giấy, số bản, tỉ lệ, màu.</summary>
     public sealed record PrintRequest(
         IReadOnlyList<(string SourcePath, int PageNumber)> Pages, string Printer, PaperSize Paper, int Copies,
-        PrintScale Scale, int CustomPercent, PrintColor Color, bool AutoRotate);
+        PrintScale Scale, int CustomPercent, PrintColor Color, PrintOrientation Orientation, bool Center, bool Collate, byte[]? DevMode);
+
+    /// <summary>The printer driver's own settings dialog (paper tray, quality, duplex, plotter options…) through Win32 DocumentProperties. The result is a DEVMODE blob that is applied to the print job.</summary>
+    public static class PrinterDriver
+    {
+        private const int DM_OUT_BUFFER = 2, DM_IN_BUFFER = 8, DM_IN_PROMPT = 4, IDOK = 1;
+        private const uint GMEM_MOVEABLE = 0x2;
+
+        [System.Runtime.InteropServices.DllImport("winspool.drv", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+        private static extern bool OpenPrinter(string name, out IntPtr handle, IntPtr defaults);
+        [System.Runtime.InteropServices.DllImport("winspool.drv", SetLastError = true)]
+        private static extern bool ClosePrinter(IntPtr handle);
+        [System.Runtime.InteropServices.DllImport("winspool.drv", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+        private static extern int DocumentProperties(IntPtr hwnd, IntPtr printer, string device, IntPtr output, IntPtr input, int mode);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern IntPtr GlobalAlloc(uint flags, UIntPtr bytes);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern IntPtr GlobalLock(IntPtr handle);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern bool GlobalUnlock(IntPtr handle);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern IntPtr GlobalFree(IntPtr handle);
+
+        /// <summary>Shows the driver dialog; returns the new DEVMODE, or null when cancelled / not available.</summary>
+        public static byte[]? ShowDialog(IntPtr owner, string printerName, byte[]? current)
+        {
+            if (!OpenPrinter(printerName, out var printer, IntPtr.Zero)) return null;
+            IntPtr input = IntPtr.Zero, output = IntPtr.Zero;
+            try
+            {
+                int size = DocumentProperties(owner, printer, printerName, IntPtr.Zero, IntPtr.Zero, 0);
+                if (size <= 0) return null;
+                output = System.Runtime.InteropServices.Marshal.AllocHGlobal(size);
+                int mode = DM_IN_PROMPT | DM_OUT_BUFFER;
+                if (current != null && current.Length >= size)
+                {
+                    input = System.Runtime.InteropServices.Marshal.AllocHGlobal(current.Length);
+                    System.Runtime.InteropServices.Marshal.Copy(current, 0, input, current.Length);
+                    mode |= DM_IN_BUFFER;
+                }
+                if (DocumentProperties(owner, printer, printerName, output, input, mode) != IDOK) return null;
+                var result = new byte[size];
+                System.Runtime.InteropServices.Marshal.Copy(output, result, 0, size);
+                return result;
+            }
+            finally
+            {
+                if (input != IntPtr.Zero) System.Runtime.InteropServices.Marshal.FreeHGlobal(input);
+                if (output != IntPtr.Zero) System.Runtime.InteropServices.Marshal.FreeHGlobal(output);
+                ClosePrinter(printer);
+            }
+        }
+
+        /// <summary>Applies a DEVMODE from <see cref="ShowDialog"/> to the printer settings of a document.</summary>
+        public static void Apply(PrintDocument document, byte[] devMode)
+        {
+            IntPtr handle = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)devMode.Length);
+            if (handle == IntPtr.Zero) return;
+            try
+            {
+                IntPtr locked = GlobalLock(handle);
+                System.Runtime.InteropServices.Marshal.Copy(devMode, 0, locked, devMode.Length);
+                GlobalUnlock(handle);
+                document.PrinterSettings.SetHdevmode(handle);
+                document.DefaultPageSettings.SetHdevmode(handle);
+            }
+            finally { GlobalFree(handle); }
+        }
+
+        /// <summary>Paper size and copies chosen in the driver dialog (so our own controls can follow it).</summary>
+        public static (PaperSize? Paper, short Copies) Read(string printerName, byte[] devMode)
+        {
+            var document = new PrintDocument();
+            document.PrinterSettings.PrinterName = printerName;
+            Apply(document, devMode);
+            return (document.DefaultPageSettings.PaperSize, document.PrinterSettings.Copies);
+        }
+    }
 
     /// <summary>In PDF: vẽ từng trang bằng PDFium ở ~300 dpi (theo trạng thái layer đang xem) rồi gửi qua System.Drawing.Printing.</summary>
     public static class PdfPrintService
@@ -36,7 +110,9 @@ namespace XTPdfMergeApp.Services
             var document = new PrintDocument();
             document.PrinterSettings.PrinterName = request.Printer;
             if (!document.PrinterSettings.IsValid) return false;
+            if (request.DevMode != null) PrinterDriver.Apply(document, request.DevMode);
             document.PrinterSettings.Copies = (short)Math.Clamp(request.Copies, 1, 99);
+            document.PrinterSettings.Collate = request.Collate;
             document.DefaultPageSettings.PaperSize = request.Paper;
             document.DefaultPageSettings.Margins = new Margins(0, 0, 0, 0);
             document.DocumentName = "PDF Reader Pro";
@@ -56,7 +132,7 @@ namespace XTPdfMergeApp.Services
             {
                 if (index >= request.Pages.Count) return;
                 var (w, h) = SizeOf(index);
-                if (request.AutoRotate) e.PageSettings.Landscape = w > h;
+                e.PageSettings.Landscape = request.Orientation switch { PrintOrientation.Landscape => true, PrintOrientation.Portrait => false, _ => w > h };
             };
             document.PrintPage += (_, e) =>
             {
@@ -68,6 +144,7 @@ namespace XTPdfMergeApp.Services
                 {
                     PrintScale.ActualSize => 1.0,
                     PrintScale.Custom => Math.Clamp(request.CustomPercent, 5, 1000) / 100.0,
+                    PrintScale.ReduceToPaper => Math.Min(1.0, Math.Min(area.Width / pageW, area.Height / pageH)),
                     _ => Math.Min(area.Width / pageW, area.Height / pageH)
                 };
                 double drawW = pageW * scale, drawH = pageH * scale;
@@ -81,7 +158,8 @@ namespace XTPdfMergeApp.Services
                     var g = e.Graphics!;
                     g.InterpolationMode = InterpolationMode.HighQualityBicubic;
                     g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                    float x = area.Left + (float)((area.Width - drawW) / 2), y = area.Top + (float)((area.Height - drawH) / 2);
+                    float x = request.Center ? area.Left + (float)((area.Width - drawW) / 2) : area.Left;
+                    float y = request.Center ? area.Top + (float)((area.Height - drawH) / 2) : area.Top;
                     g.DrawImage(bitmap, x, y, (float)drawW, (float)drawH);
                 }
                 index++;

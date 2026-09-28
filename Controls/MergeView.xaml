@@ -121,8 +121,6 @@
         <Border Height="64" Background="{DynamicResource Ui.Surface}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="12,0,16,0">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                    <xt:XTButton Style="{StaticResource UiGhostButton}" Icon="{StaticResource Ui.Icon.plus}" Text="Temp window" Margin="0,0,12,0" Click="NewTemp_Click"
-                                 ToolTip="Add an empty window to collect pages from several files, then save it as a new file"/>
                     <xt:XTButton Style="{StaticResource UiPrimaryButton}" Icon="{StaticResource Ui.Icon.merge}" Text="Merge into one file…" Click="MergeAll_Click"
                                  ToolTip="Save all windows, in this order, as a single PDF (same-name layers are merged)"/>
                     <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Done" Margin="8,0,0,0" Click="Done_Click" ToolTip="Back to the reader"/>

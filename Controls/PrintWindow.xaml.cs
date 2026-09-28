@@ -12,7 +12,7 @@ using XTStyle.Controls;
 
 namespace XTPdfMergeApp.Controls
 {
-    /// <summary>Hộp thoại In (docs/UI_REDESIGN.md, mockup 14): máy in, khoảng trang, khổ giấy, số bản, tỉ lệ, màu, xem trước từng trang.</summary>
+    /// <summary>Print dialog laid out like Foxit's (printer + driver Properties, range/subset, handling, paper/orientation, preview). Rare options (booklet, tiling, bleed marks) are left out.</summary>
     public partial class PrintWindow : XTWindow
     {
         private readonly IReadOnlyList<(string SourcePath, int PageNumber)> _pages;
@@ -20,6 +20,7 @@ namespace XTPdfMergeApp.Controls
         private int _previewPosition;
         private int _previewVersion;
         private bool _ready;
+        private byte[]? _devMode;
         private readonly Dictionary<string, (double W, double H)> _sizes = new();
 
         internal PrintWindow(IReadOnlyList<(string SourcePath, int PageNumber)> pages, int currentIndex)
@@ -30,6 +31,7 @@ namespace XTPdfMergeApp.Controls
 
             PagesAll.Content = $"All pages ({pages.Count})";
             PagesCurrent.Content = $"Current page ({_currentIndex + 1})";
+            RangeTotal.Text = "/ " + pages.Count;
             PagesAll.IsChecked = true;
 
             foreach (string printer in PrinterSettings.InstalledPrinters) PrinterBox.Items.Add(printer);
@@ -38,6 +40,7 @@ namespace XTPdfMergeApp.Controls
             if (PrinterBox.Items.Count == 0)
             {
                 PrintButton.IsEnabled = false;
+                PropertiesButton.IsEnabled = false;
                 SummaryText.Text = "No printer is installed.";
             }
             LayerNote.Text = pages.Select(p => p.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase).Any(p => PdfLayerStateStore.GetToken(p).Length > 0)
@@ -48,18 +51,23 @@ namespace XTPdfMergeApp.Controls
 
         private List<int>? SelectedIndices()
         {
-            if (PagesCurrent.IsChecked == true) return new List<int> { _currentIndex };
-            if (PagesRange.IsChecked == true)
-            {
-                var numbers = PdfPrintService.ParseRange(RangeBox.Text, _pages.Count);
-                return numbers?.Select(n => n - 1).ToList();
-            }
-            return Enumerable.Range(0, _pages.Count).ToList();
+            List<int>? list;
+            if (PagesCurrent.IsChecked == true) list = new List<int> { _currentIndex };
+            else if (PagesRange.IsChecked == true) list = PdfPrintService.ParseRange(RangeBox.Text, _pages.Count)?.Select(n => n - 1).ToList();
+            else list = Enumerable.Range(0, _pages.Count).ToList();
+            if (list == null) return null;
+            // Subset is by page NUMBER in the document (1-based).
+            if (SubsetBox.SelectedIndex == 1) list = list.Where(i => (i + 1) % 2 == 1).ToList();
+            else if (SubsetBox.SelectedIndex == 2) list = list.Where(i => (i + 1) % 2 == 0).ToList();
+            if (ReverseBox.IsChecked == true) list.Reverse();
+            return list;
         }
 
         private PaperSize? SelectedPaper => (PaperBox.SelectedItem as ComboBoxItem)?.Tag as PaperSize;
-        private PrintScale Scale => ScaleActual.IsChecked == true ? PrintScale.ActualSize : ScaleCustom.IsChecked == true ? PrintScale.Custom : PrintScale.FitToPaper;
-        private PrintColor Color => ColorGray.IsChecked == true ? PrintColor.Grayscale : ColorLines.IsChecked == true ? PrintColor.BlackLines : PrintColor.Color;
+        private PrintScale Scale => ScaleActual.IsChecked == true ? PrintScale.ActualSize : ScaleCustom.IsChecked == true ? PrintScale.Custom
+            : ScaleReduce.IsChecked == true ? PrintScale.ReduceToPaper : PrintScale.FitToPaper;
+        private PrintColor Color => LinesBox.IsChecked == true ? PrintColor.BlackLines : GrayBox.IsChecked == true ? PrintColor.Grayscale : PrintColor.Color;
+        private PrintOrientation Orientation => OrientBox.SelectedIndex switch { 1 => PrintOrientation.Portrait, 2 => PrintOrientation.Landscape, _ => PrintOrientation.Auto };
         private int Percent => int.TryParse(PercentBox.Text, out int p) ? Math.Clamp(p, 5, 1000) : 100;
 
         // ── Cài đặt ───────────────────────────────────────────────────
@@ -67,8 +75,10 @@ namespace XTPdfMergeApp.Controls
         private void Printer_Changed(object sender, SelectionChangedEventArgs e)
         {
             PaperBox.Items.Clear();
+            _devMode = null; // driver settings belong to one printer
             if (PrinterBox.SelectedItem is not string name) return;
             var settings = new PrinterSettings { PrinterName = name };
+            PrinterStatus.Text = settings.IsValid ? (settings.IsDefaultPrinter ? "Default printer" : "") : "Printer not available";
             if (!settings.IsValid) return;
             ComboBoxItem? selected = null;
             string defaultPaper = settings.DefaultPageSettings.PaperSize.PaperName;
@@ -82,6 +92,23 @@ namespace XTPdfMergeApp.Controls
             PaperBox.SelectedItem = selected ?? (PaperBox.Items.Count > 0 ? PaperBox.Items[0] : null);
         }
 
+        private void Properties_Click(object sender, RoutedEventArgs e)
+        {
+            if (PrinterBox.SelectedItem is not string name) return;
+            var devMode = PrinterDriver.ShowDialog(new System.Windows.Interop.WindowInteropHelper(this).Handle, name, _devMode);
+            if (devMode == null) return;
+            _devMode = devMode;
+            try
+            {
+                var (paper, copies) = PrinterDriver.Read(name, devMode);
+                if (paper != null)
+                    foreach (ComboBoxItem item in PaperBox.Items)
+                        if ((item.Tag as PaperSize)?.PaperName == paper.PaperName) { PaperBox.SelectedItem = item; break; }
+                if (copies > 1) CopiesBox.Text = copies.ToString();
+            }
+            catch { /* the driver settings are still applied when printing */ }
+        }
+
         private void Paper_Changed(object sender, SelectionChangedEventArgs e) { if (_ready) LayoutPaper(); }
 
         private void Setting_Changed(object sender, RoutedEventArgs e)
@@ -91,6 +118,18 @@ namespace XTPdfMergeApp.Controls
             PercentBox.IsEnabled = ScaleCustom.IsChecked == true;
             _previewPosition = 0;
             UpdateSummary();
+            _ = RefreshPreviewAsync();
+        }
+
+        private void Subset_Changed(object sender, SelectionChangedEventArgs e) { if (_ready) Setting_Changed(sender, e); }
+
+        private void ColorBox_Changed(object sender, RoutedEventArgs e)
+        {
+            if (!_ready) return;
+            _ready = false; // Black lines and grayscale exclude each other.
+            if (ReferenceEquals(sender, LinesBox) && LinesBox.IsChecked == true) GrayBox.IsChecked = false;
+            else if (ReferenceEquals(sender, GrayBox) && GrayBox.IsChecked == true) LinesBox.IsChecked = false;
+            _ready = true;
             _ = RefreshPreviewAsync();
         }
 
@@ -140,14 +179,13 @@ namespace XTPdfMergeApp.Controls
             if (version != _previewVersion) return;
             _sizes[path + "|" + number] = sizes != null && number - 1 < sizes.Length && sizes[number - 1].Width > 0 ? sizes[number - 1] : (595, 842);
             PreviewImage.Source = bitmap == null ? null : Color == PrintColor.Color ? bitmap : new FormatConvertedBitmap(bitmap, PixelFormats.Gray8, null, 0);
-            var paper = SelectedPaper;
-            PreviewCaption.Text = $"Page {pageIndex + 1} of {_pages.Count}" + (paper != null ? " · " + paper.PaperName + (IsLandscape(pageIndex) ? " landscape" : " portrait") : "");
+            PreviewCaption.Text = $"Page {_previewPosition + 1} of {indices.Count}";
             LayoutPaper();
         }
 
         private bool IsLandscape(int pageIndex)
         {
-            if (AutoRotateBox.IsChecked != true) return false;
+            if (Orientation != PrintOrientation.Auto) return Orientation == PrintOrientation.Landscape;
             var (path, number) = _pages[pageIndex];
             return _sizes.TryGetValue(path + "|" + number, out var s) && s.W > s.H;
         }
@@ -170,16 +208,22 @@ namespace XTPdfMergeApp.Controls
             var (path, number) = _pages[pageIndex];
             if (!_sizes.TryGetValue(path + "|" + number, out var size)) size = (595, 842);
             double pageW = size.W / 72 * 100, pageH = size.H / 72 * 100; // trăm inch
+            double fit = Math.Min(pw / pageW, ph / pageH);
             double scale = Scale switch
             {
                 PrintScale.ActualSize => 1.0,
                 PrintScale.Custom => Percent / 100.0,
-                _ => Math.Min(pw / pageW, ph / pageH)
+                PrintScale.ReduceToPaper => Math.Min(1.0, fit),
+                _ => fit
             };
             PreviewImage.Width = pageW * scale * k;
             PreviewImage.Height = pageH * scale * k;
-            PreviewImage.HorizontalAlignment = HorizontalAlignment.Center;
-            PreviewImage.VerticalAlignment = VerticalAlignment.Center;
+            PreviewImage.HorizontalAlignment = AutoCenterBox.IsChecked == true ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+            PreviewImage.VerticalAlignment = AutoCenterBox.IsChecked == true ? VerticalAlignment.Center : VerticalAlignment.Top;
+
+            ZoomText.Text = $"{scale * 100:0.##}%";
+            DocText.Text = $"{pageW / 100:0.0} x {pageH / 100:0.0} inch";
+            PaperText.Text = $"{pw / 100:0.0} x {ph / 100:0.0} inch";
         }
 
         // ── Nút ───────────────────────────────────────────────────────
@@ -192,7 +236,8 @@ namespace XTPdfMergeApp.Controls
             var paper = SelectedPaper;
             if (indices is not { Count: > 0 } || paper == null || PrinterBox.SelectedItem is not string printer) return;
             int copies = int.TryParse(CopiesBox.Text, out int c) ? Math.Clamp(c, 1, 99) : 1;
-            var request = new PrintRequest(indices.Select(i => _pages[i]).ToList(), printer, paper, copies, Scale, Percent, Color, AutoRotateBox.IsChecked == true);
+            var request = new PrintRequest(indices.Select(i => _pages[i]).ToList(), printer, paper, copies, Scale, Percent, Color, Orientation,
+                AutoCenterBox.IsChecked == true, CollateBox.IsChecked == true, _devMode);
 
             PrintButton.IsEnabled = false;
             bool ok;

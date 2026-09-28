@@ -1401,6 +1401,15 @@ namespace XTPdfMergeApp
             _readerTileCoordSpace = default;
         }
 
+        private void ReaderViewSingle_Click(object sender, RoutedEventArgs e) { if (_readerContinuousMode) ReaderContinuousToggle_Click(sender, e); else UpdateViewModeButtons(); }
+        private void ReaderViewContinuous_Click(object sender, RoutedEventArgs e) { if (!_readerContinuousMode) ReaderContinuousToggle_Click(sender, e); else UpdateViewModeButtons(); }
+
+        private void UpdateViewModeButtons()
+        {
+            ReaderContinuousToggle.Tag = _readerContinuousMode ? "Active" : null;
+            ReaderSingleViewButton.Tag = _readerContinuousMode ? null : "Active";
+        }
+
         private void ReaderContinuousToggle_Click(object sender, RoutedEventArgs e)
         {
             Interlocked.Increment(ref _readerRequestId);
@@ -1423,6 +1432,7 @@ namespace XTPdfMergeApp
                 if (_readerGroup != null && _readerPage != null)
                     _ = ShowPageAsync(_readerGroup, _readerPage, preserveZoomMode: true);
             }
+            UpdateViewModeButtons();
         }
 
         // ── Chế độ Cuộn liên tục: ContinuousPdfView (1 vùng vẽ kiểu Foxit) ──────────────────────────────────

@@ -328,11 +328,17 @@ namespace XTPdfMergeApp.Controls
 
         private void UpdateCount()
         {
-            PanelCountText.Text = _tab == Tab.Layers ? _layerCount?.ToString() ?? "" : _tab == Tab.Comments ? _commentCount?.ToString() ?? ""
-                : _group == null ? "" : _group.Pages.Count.ToString();
-            PanelCountChip.Visibility = _tab == Tab.Thumbnails || (_tab == Tab.Layers && _layerCount != null) || (_tab == Tab.Comments && _commentCount != null)
-                ? Visibility.Visible : Visibility.Collapsed;
+            string count = _tab == Tab.Layers ? _layerCount?.ToString() ?? "" : _tab == Tab.Comments ? _commentCount?.ToString() ?? ""
+                : _tab == Tab.Thumbnails && _group != null ? _group.Pages.Count.ToString() : "";
+            string title = _tab switch { Tab.Bookmarks => "Bookmarks", Tab.Layers => "Layers", Tab.Find => "Find", Tab.Comments => "Comments", _ => "Pages" };
+            PanelTitleText.Text = count.Length > 0 ? $"{title} ({count})" : title;
         }
+
+        internal event Action? CollapseRequested;
+        private void CollapsePanel_Click(object sender, RoutedEventArgs e) => CollapseRequested?.Invoke();
+
+        /// <summary>Hides the list part and keeps only the icon rail (Foxit style); a click on a rail tab brings it back.</summary>
+        internal void SetCollapsed(bool collapsed) => PanelContent.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
 
         /// <summary>Thanh "N pages selected" chỉ hiện khi chọn từ 2 trang (1 trang luôn được chọn = trang đang xem).</summary>
         private void UpdateSelectionBar()
@@ -427,7 +433,6 @@ namespace XTPdfMergeApp.Controls
             FindView.Visibility = tab == Tab.Find ? Visibility.Visible : Visibility.Collapsed;
             CommentsTabButton.Tag = tab == Tab.Comments ? "Active" : null;
             CommentsView.Visibility = tab == Tab.Comments ? Visibility.Visible : Visibility.Collapsed;
-            PanelTitleText.Text = tab switch { Tab.Bookmarks => "Bookmarks", Tab.Layers => "Layers", Tab.Find => "Find", Tab.Comments => "Comments", _ => "Pages" };
             PageActionsBar.Visibility = tab == Tab.Thumbnails ? Visibility.Visible : Visibility.Collapsed;
             UpdateSelectionBar();
             ThumbnailList.Visibility = tab == Tab.Thumbnails ? Visibility.Visible : Visibility.Collapsed;

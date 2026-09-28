@@ -546,8 +546,11 @@ namespace XTPdfMergeApp
         private void InitializeSettings()
         {
             ReaderSidePanel.SettingsRequested += () => ShowSettings(true);
+            ReaderSidePanel.CollapseRequested += () => SetPanelCollapsed(true);
+            ReaderSidePanel.RailTabChosen += () => SetPanelCollapsed(false);
             Loaded += (_, _) =>
             {
+                UpdateViewModeButtons();
                 // Chế độ xem mặc định (Settings → Display): cuộn liên tục mặc định; nút Continuous vẫn chuyển qua lại.
                 // Đợi bố cục xong (vùng xem có kích thước thật) rồi mới bật, nếu không vùng cuộn liên tục tính zoom trên viewport 0.
                 if (AppSettings.ContinuousByDefault)
@@ -576,16 +579,30 @@ namespace XTPdfMergeApp
         // ── Title-bar quick access: hide panel, New ───────────────────
 
         private double _panelWidthBeforeHide = 364;
+        private bool _panelCollapsed;
 
-        private void PanelToggle_Click(object sender, RoutedEventArgs e)
+        /// <summary>Collapses the side panel to its icon rail (or restores it).</summary>
+        private void SetPanelCollapsed(bool collapse)
         {
-            bool hide = ReaderSidePanel.Visibility == Visibility.Visible;
-            if (hide) _panelWidthBeforeHide = ReaderSidePanelColumn.Width.Value;
-            ReaderSidePanel.Visibility = ReaderPanelSplitter.Visibility = hide ? Visibility.Collapsed : Visibility.Visible;
-            ReaderSidePanelColumn.MinWidth = hide ? 0 : 304;
-            ReaderSidePanelColumn.Width = new GridLength(hide ? 0 : _panelWidthBeforeHide);
-            PanelToggleButton.Icon = (System.Windows.Media.Geometry)FindResource(hide ? "Ui.Icon.dright" : "Ui.Icon.dleft");
-            PanelToggleButton.ToolTip = hide ? "Show the side panel" : "Hide the side panel";
+            if (collapse == _panelCollapsed) return;
+            _panelCollapsed = collapse;
+            if (collapse)
+            {
+                _panelWidthBeforeHide = ReaderSidePanelColumn.Width.Value;
+                ReaderSidePanel.SetCollapsed(true);
+                ReaderPanelSplitter.Visibility = Visibility.Collapsed;
+                ReaderSidePanelColumn.MinWidth = 64;
+                ReaderSidePanelColumn.MaxWidth = 64;
+                ReaderSidePanelColumn.Width = new GridLength(64);
+            }
+            else
+            {
+                ReaderSidePanel.SetCollapsed(false);
+                ReaderPanelSplitter.Visibility = Visibility.Visible;
+                ReaderSidePanelColumn.MaxWidth = 640;
+                ReaderSidePanelColumn.MinWidth = 304;
+                ReaderSidePanelColumn.Width = new GridLength(Math.Max(304, _panelWidthBeforeHide));
+            }
         }
 
         private async void ReaderNew_Click(object sender, RoutedEventArgs e)

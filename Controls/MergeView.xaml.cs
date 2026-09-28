@@ -394,7 +394,7 @@ namespace XTPdfMergeApp.Controls
         }
 
         private void Workspace_Drop(object sender, DragEventArgs e) => DropIntoNewTemp(e, minimize: false);
-        private void Dock_Drop(object sender, DragEventArgs e) => DropIntoNewTemp(e, minimize: true);
+        private void Dock_Drop(object sender, DragEventArgs e) => DropIntoNewTemp(e, minimize: false);
 
         private void DropIntoNewTemp(DragEventArgs e, bool minimize)
         {
