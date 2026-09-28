@@ -538,9 +538,7 @@ namespace XTPdfMergeApp
 
         private void InitializeSettings()
         {
-            ReaderSidePanel.SettingsRequested += () => ShowSettings(SettingsPage.Visibility != Visibility.Visible);
-            ReaderSidePanel.RailTabChosen += () => ShowSettings(false);
-            SettingsPage.ClearCacheRequested = ClearFileCachesAsync;
+            ReaderSidePanel.SettingsRequested += () => ShowSettings(true);
             Loaded += (_, _) =>
             {
                 // Chế độ xem mặc định (Settings → Display): cuộn liên tục mặc định; nút Continuous vẫn chuyển qua lại.
@@ -555,15 +553,52 @@ namespace XTPdfMergeApp
 
         private void ShowSettings(bool show)
         {
-            if (show == (SettingsPage.Visibility == Visibility.Visible)) return;
-            if (show)
+            if (!show) return;
+            if (_settingsWindow is { IsLoaded: true })
             {
-                SettingsPage.Reload();
-                ShowStart(false);
-                ShowMerge(false);
+                if (_settingsWindow.WindowState == WindowState.Minimized) _settingsWindow.WindowState = WindowState.Normal;
+                _settingsWindow.Activate();
+                return;
             }
-            SettingsPage.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-            ReaderSidePanel.SetSettingsActive(show);
+            _settingsWindow = new Controls.SettingsWindow(ClearFileCachesAsync) { Owner = this };
+            _settingsWindow.Show();
+        }
+
+        private Controls.SettingsWindow? _settingsWindow;
+
+        // ── Title-bar quick access: hide panel, New ───────────────────
+
+        private double _panelWidthBeforeHide = 364;
+
+        private void PanelToggle_Click(object sender, RoutedEventArgs e)
+        {
+            bool hide = ReaderSidePanel.Visibility == Visibility.Visible;
+            if (hide) _panelWidthBeforeHide = ReaderSidePanelColumn.Width.Value;
+            ReaderSidePanel.Visibility = ReaderPanelSplitter.Visibility = hide ? Visibility.Collapsed : Visibility.Visible;
+            ReaderSidePanelColumn.MinWidth = hide ? 0 : 304;
+            ReaderSidePanelColumn.Width = new GridLength(hide ? 0 : _panelWidthBeforeHide);
+            PanelToggleButton.Icon = (System.Windows.Media.Geometry)FindResource(hide ? "Ui.Icon.dright" : "Ui.Icon.dleft");
+            PanelToggleButton.ToolTip = hide ? "Show the side panel" : "Hide the side panel";
+        }
+
+        private async void ReaderNew_Click(object sender, RoutedEventArgs e)
+        {
+            if (EditHost == null) return;
+            using var dialog = new System.Windows.Forms.SaveFileDialog { Title = "New PDF", Filter = "PDF (*.pdf)|*.pdf", FileName = "Untitled.pdf", OverwritePrompt = true };
+            if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+            try
+            {
+                using (var writer = new iText.Kernel.Pdf.PdfWriter(dialog.FileName))
+                using (var pdf = new iText.Kernel.Pdf.PdfDocument(writer))
+                    pdf.AddNewPage(iText.Kernel.Geom.PageSize.A4);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not create the file:\n" + ex.Message, "New PDF", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            ShowStart(false);
+            await EditHost.OpenPathsAsync(new[] { dialog.FileName });
         }
 
         /// <summary>"Clear cache": đóng document PDFium đang giữ và bỏ bộ đệm file của các file KHÔNG nằm trên màn hình (đọc lại khi cần).</summary>

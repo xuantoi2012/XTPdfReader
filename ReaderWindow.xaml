@@ -28,6 +28,21 @@
         </ResourceDictionary>
     </xt:XTWindow.Resources>
 
+    <xt:XTWindow.TitleBarLeftContent>
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0">
+            <xt:XTButton x:Name="PanelToggleButton" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.dleft}" Width="28" Height="26" IconSize="16"
+                         ToolTip="Hide the side panel" Click="PanelToggle_Click"/>
+            <Border Width="1" Height="16" Margin="4,0" Background="{DynamicResource Ui.Border}"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.newdoc}" Width="28" Height="26" IconSize="16" ToolTip="New blank PDF (Ctrl+N)" Click="ReaderNew_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.folder}" Width="28" Height="26" IconSize="16" ToolTip="Open (Ctrl+O)" Click="ReaderOpenFiles_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.save}" Width="28" Height="26" IconSize="16" ToolTip="Save (Ctrl+S)" Click="ReaderTabSave_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.saveas}" Width="28" Height="26" IconSize="16" ToolTip="Save as… (Ctrl+Shift+S)" Click="ReaderTabSaveAs_Click"/>
+            <Border Width="1" Height="16" Margin="4,0" Background="{DynamicResource Ui.Border}"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.undo}" Width="28" Height="26" IconSize="16" ToolTip="Undo (Ctrl+Z)" Click="ReaderUndo_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.redo}" Width="28" Height="26" IconSize="16" ToolTip="Redo (Ctrl+Y)" Click="ReaderRedo_Click"/>
+        </StackPanel>
+    </xt:XTWindow.TitleBarLeftContent>
+
     <!-- Toàn bộ nội dung dưới đây chuyển nguyên trạng từ MainWindow.xaml (Border "ReaderPanel",
          trước đó là panel nhúng cột 2 của MainContentGrid) — giữ NGUYÊN mọi x:Name/wiring sự
          kiện để phần code-behind (chuyển sang ReaderWindow.xaml.cs ở bước kế) không cần sửa gì
@@ -42,45 +57,61 @@
 
             <!-- ══ Toolbar (docs/UI_REDESIGN.md): icon + chữ 11 px, nhóm bằng vạch; nút chính "Merge files" bên phải.
                  Chỉ hiện nút đã có chức năng. Xoay ở đây là xoay KHUNG NHÌN; xoay THẬT nằm ở panel Pages. Tag="Active" = công cụ đang bật. ══ -->
-            <Border x:Name="ReaderToolbarBar" Grid.Row="0" Height="72" Background="{DynamicResource Ui.Surface}"
+            <Border x:Name="ReaderToolbarBar" Grid.Row="0" Height="86" Background="{DynamicResource Ui.Surface}"
                     BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1">
                 <DockPanel Margin="12,0">
                     <xt:XTButton x:Name="ReaderMergeButton" DockPanel.Dock="Right" Style="{StaticResource UiPrimaryButton}"
-                                 Icon="{StaticResource Ui.Icon.merge}" Text="Merge files" Margin="6,0,0,0"
+                                 Icon="{StaticResource Ui.Icon.merge}" Text="Merge files" Margin="10,0,0,10" VerticalAlignment="Center"
                                  ToolTip="Open the Merge window: move or copy pages between files, merge, split and save"
                                  Click="ReaderShowMergeWindow_Click"/>
-                    <xt:XTButton x:Name="ReaderPrintButton" DockPanel.Dock="Right" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.print}" Text="Print"
-                                 ToolTip="Print (Ctrl+P)" Click="ReaderPrint_Click"/>
-                    <xt:XTButton x:Name="ReaderFindButton" DockPanel.Dock="Right" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.search}" Text="Find"
-                                 ToolTip="Find in document (Ctrl+F)" Click="ReaderFind_Click"/>
+                    <StackPanel DockPanel.Dock="Right" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <xt:XTButton x:Name="ReaderFindButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.search}" Text="Find"
+                                         ToolTip="Find in document (Ctrl+F)" Click="ReaderFind_Click"/>
+                            <xt:XTButton x:Name="ReaderPrintButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.print}" Text="Print"
+                                         ToolTip="Print (Ctrl+P)" Click="ReaderPrint_Click"/>
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource UiGroupCaption}" Text="Find &amp; print"/>
+                    </StackPanel>
                     <ScrollViewer x:Name="ReaderToolsScroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Focusable="False">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <xt:XTButton x:Name="ReaderHandToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hand}" Text="Hand"
-                                     ToolTip="Drag to scroll the page (Esc returns to this tool)" Click="ReaderHandTool_Click" Tag="Active"/>
-                        <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.undo}" Text="Undo"
-                                     ToolTip="Undo (Ctrl+Z)" Click="ReaderUndo_Click"/>
-                        <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.redo}" Text="Redo"
-                                     ToolTip="Redo (Ctrl+Y)" Click="ReaderRedo_Click"/>
-                        <Border Style="{StaticResource UiToolbarSeparator}"/>
-                        <xt:XTButton x:Name="ReaderContinuousToggle" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.scroll}" Text="Continuous"
-                                     ToolTip="Continuous scrolling (mouse wheel scrolls across pages, Ctrl+wheel zooms)" Click="ReaderContinuousToggle_Click"/>
-                        <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.fitp}" Text="Fit page"
-                                     ToolTip="Fit page" Click="ReaderFitPage_Click"/>
-                        <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.fitw}" Text="Fit width"
-                                     ToolTip="Fit width" Click="ReaderFitWidth_Click"/>
-                        <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.rotl}" Text="Rotate left"
-                                     ToolTip="Rotate the view left (view only, the file is not changed)" Click="ReaderRotateLeft_Click"/>
-                        <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.rotr}" Text="Rotate right"
-                                     ToolTip="Rotate the view right (view only, the file is not changed)" Click="ReaderRotateRight_Click"/>
-                        <Border Style="{StaticResource UiToolbarSeparator}"/>
-                        <xt:XTButton x:Name="ReaderTypewriterToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.type}" Text="Typewriter"
-                                     ToolTip="Type text on the page: click where it goes, type, then Enter (Shift+Enter for a new line). Click existing text to edit." Click="ReaderTypewriterTool_Click"/>
-                        <xt:XTButton x:Name="ReaderCommentToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.note}" Text="Note"
-                                     ToolTip="Sticky note: click the page, type, then Enter. Hover the icon to read it, click to edit." Click="ReaderCommentTool_Click"/>
-                        <xt:XTButton x:Name="ReaderHighlightToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl}" Text="Highlight"
-                                     ToolTip="Drag a rectangle to highlight in yellow" Click="ReaderHighlightTool_Click"/>
-                        <xt:XTButton x:Name="ReaderStampToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.stamp}" Text="Stamp"
-                                     ToolTip="Stamps: approved, reviewed, your own text or image" Click="ReaderStampTool_Click"/>
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <xt:XTButton x:Name="ReaderHandToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hand}" Text="Hand"
+                                                 ToolTip="Drag to scroll the page (Esc returns to this tool)" Click="ReaderHandTool_Click" Tag="Active"/>
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource UiGroupCaption}" Text="Tools"/>
+                            </StackPanel>
+                            <Border Style="{StaticResource UiToolbarSeparator}"/>
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <xt:XTButton x:Name="ReaderContinuousToggle" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.scroll}" Text="Continuous"
+                                                 ToolTip="Continuous scrolling (mouse wheel scrolls across pages, Ctrl+wheel zooms)" Click="ReaderContinuousToggle_Click"/>
+                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.fitp}" Text="Fit page"
+                                                 ToolTip="Fit page" Click="ReaderFitPage_Click"/>
+                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.fitw}" Text="Fit width"
+                                                 ToolTip="Fit width" Click="ReaderFitWidth_Click"/>
+                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.rotl}" Text="Rotate left"
+                                                 ToolTip="Rotate the view left (view only, the file is not changed)" Click="ReaderRotateLeft_Click"/>
+                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.rotr}" Text="Rotate right"
+                                                 ToolTip="Rotate the view right (view only, the file is not changed)" Click="ReaderRotateRight_Click"/>
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource UiGroupCaption}" Text="View"/>
+                            </StackPanel>
+                            <Border Style="{StaticResource UiToolbarSeparator}"/>
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <xt:XTButton x:Name="ReaderTypewriterToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.type}" Text="Typewriter"
+                                                 ToolTip="Type text on the page: click where it goes, type, then Enter (Shift+Enter for a new line). Click existing text to edit." Click="ReaderTypewriterTool_Click"/>
+                                    <xt:XTButton x:Name="ReaderCommentToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.note}" Text="Note"
+                                                 ToolTip="Sticky note: click the page, type, then Enter. Hover the icon to read it, click to edit." Click="ReaderCommentTool_Click"/>
+                                    <xt:XTButton x:Name="ReaderHighlightToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl}" Text="Highlight"
+                                                 ToolTip="Drag a rectangle to highlight in yellow" Click="ReaderHighlightTool_Click"/>
+                                    <xt:XTButton x:Name="ReaderStampToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.stamp}" Text="Stamp"
+                                                 ToolTip="Stamps: approved, reviewed, your own text or image" Click="ReaderStampTool_Click"/>
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource UiGroupCaption}" Text="Comment"/>
+                            </StackPanel>
                         </StackPanel>
                     </ScrollViewer>
                 </DockPanel>
@@ -89,7 +120,7 @@
             <!-- Tab các file đang mở, dưới toolbar. Bấm tab = chuyển file, × = đóng file, + = mở thêm file. -->
             <StackPanel Grid.Row="1">
             <ListBox x:Name="ReaderDocumentTabs" Height="36" BorderThickness="0,0,0,1" Padding="8,0,8,0"
-                     BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Panel}"
+                     BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Chip}"
                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
                      ItemContainerStyle="{StaticResource UiTabItem}"
                      SelectionChanged="ReaderDocumentTabs_SelectionChanged"
@@ -100,8 +131,8 @@
                                 BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
                             <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Focusable="False">
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
-                                    <xt:XTButton x:Name="StartButton" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.clock}" IconSize="16"
-                                                 VerticalAlignment="Center" Margin="0,0,6,0" ToolTip="Start: recent files and workspaces"
+                                    <xt:XTButton x:Name="StartButton" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.home}" IconSize="18"
+                                                 VerticalAlignment="Center" Margin="0,0,6,0" ToolTip="Home: recent files and workspaces"
                                                  Click="StartButton_Click"/>
                                     <ItemsPresenter/>
                                     <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.plus}" IconSize="16"
@@ -170,7 +201,7 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <ctl:ReaderSidePanel x:Name="ReaderSidePanel" Grid.Column="0"/>
-                <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                <GridSplitter x:Name="ReaderPanelSplitter" Grid.Column="1" Width="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                               ResizeBehavior="PreviousAndNext" Background="{DynamicResource Ui.Border}"/>
 
             <!-- Vùng xem trang + lớp tương tác (ReaderInteractionLayer) phủ trên cả 2 chế độ xem. -->
@@ -269,23 +300,73 @@
                              LostKeyboardFocus="ReaderAnnotationEditor_LostKeyboardFocus"/>
                 </Canvas>
 
-                <!-- Thanh Find nổi (Ctrl+F / khi có kết quả): từ khoá, k / N, trước, sau, đóng. -->
+                <!-- Popup Find kiểu Visual Studio (Ctrl+F): ô tìm, trước/sau, đóng; hàng 2: khớp hoa/thường, nguyên từ, phạm vi. -->
                 <Border x:Name="FindBar" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,14,26,0" Panel.ZIndex="20"
-                        Padding="12,5,6,5" CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}">
+                        Padding="4,6,8,6" CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}">
                     <Border.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="3" Opacity="0.2" Direction="270"/></Border.Effect>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock x:Name="FindBarQuery" MinWidth="90" MaxWidth="220" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
-                        <TextBlock x:Name="FindBarCount" Margin="10,0,6,0" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>
-                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.up2}" Width="28" Height="28" ToolTip="Previous match (Shift+F3)" Click="FindPrev_Click"/>
-                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.down2}" Width="28" Height="28" ToolTip="Next match (F3)" Click="FindNext_Click"/>
-                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.close}" Width="28" Height="28" ToolTip="Close find" Click="FindClose_Click"/>
-                    </StackPanel>
+                    <Border.Resources>
+                        <Style x:Key="FindToggle" TargetType="ToggleButton">
+                            <Setter Property="Cursor" Value="Hand"/>
+                            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="Bd" Width="32" Height="28" CornerRadius="5" BorderThickness="1" BorderBrush="Transparent" Background="Transparent">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/>
+                                            </Trigger>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Border.Resources>
+                    <DockPanel>
+                        <xt:XTButton x:Name="FindBarExpand" DockPanel.Dock="Left" VerticalAlignment="Top" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.chevd}"
+                                     Width="24" Height="28" IconSize="14" ToolTip="Show / hide the search options" Click="FindBarExpand_Click"/>
+                        <StackPanel>
+                            <DockPanel>
+                                <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.close}" Width="28" Height="28" ToolTip="Close (Esc)" Click="FindClose_Click"/>
+                                <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.down2}" Width="28" Height="28" ToolTip="Next match (Enter / F3)" Click="FindNext_Click"/>
+                                <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.up2}" Width="28" Height="28" ToolTip="Previous match (Shift+Enter / Shift+F3)" Click="FindPrev_Click"/>
+                                <Border Width="250" Height="28" CornerRadius="5" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Bg}" Margin="0,0,4,0">
+                                    <DockPanel>
+                                        <Viewbox DockPanel.Dock="Right" Width="15" Height="15" Margin="0,0,8,0">
+                                            <Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.search}" Stroke="{DynamicResource Ui.Muted}" Style="{StaticResource UiLineIconPath}"/></Canvas>
+                                        </Viewbox>
+                                        <TextBlock x:Name="FindBarCount" DockPanel.Dock="Right" Margin="6,0,6,0" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>
+                                        <Grid>
+                                            <TextBox x:Name="FindBarQuery" BorderThickness="0" Background="Transparent" Padding="8,0,0,0" VerticalContentAlignment="Center"
+                                                     Foreground="{DynamicResource Ui.Text}" TextChanged="FindBarQuery_TextChanged" PreviewKeyDown="FindBarQuery_PreviewKeyDown"/>
+                                            <TextBlock x:Name="FindBarHint" Text="Find…" Margin="9,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False" Foreground="{DynamicResource Ui.Muted}"/>
+                                        </Grid>
+                                    </DockPanel>
+                                </Border>
+                            </DockPanel>
+                            <StackPanel x:Name="FindBarOptions" Orientation="Horizontal" Margin="0,6,0,0">
+                                <ToggleButton x:Name="FindBarCase" Style="{StaticResource FindToggle}" ToolTip="Match case" Click="FindBarOption_Click">
+                                    <TextBlock Text="Ab" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
+                                </ToggleButton>
+                                <ToggleButton x:Name="FindBarWord" Style="{StaticResource FindToggle}" Margin="4,0,8,0" ToolTip="Whole word" Click="FindBarOption_Click">
+                                    <TextBlock Text="ab" FontWeight="SemiBold" TextDecorations="Underline" Foreground="{DynamicResource Ui.Text}"/>
+                                </ToggleButton>
+                                <ComboBox x:Name="FindBarScope" Width="176" Height="28" SelectedIndex="0" SelectionChanged="FindBarOption_Click">
+                                    <ComboBoxItem Content="This document"/>
+                                    <ComboBoxItem Content="All open documents"/>
+                                </ComboBox>
+                            </StackPanel>
+                        </StackPanel>
+                    </DockPanel>
                 </Border>
             </Grid>
             </Grid>
-
-            <!-- Trang Settings phủ lên panel + vùng xem (chừa thanh trái để đổi tab). Mở bằng nút Settings trên thanh trái. -->
-            <ctl:SettingsPage x:Name="SettingsPage" Grid.Row="2" Margin="64,0,0,0" Visibility="Collapsed"/>
 
             <!-- Màn hình Start (Recent, Quick locations, Workspaces): tự hiện khi chưa mở file nào, hoặc bấm nút đồng hồ ở dải tab. -->
             <ctl:StartPage x:Name="StartPage" Grid.Row="2" Visibility="Collapsed"/>

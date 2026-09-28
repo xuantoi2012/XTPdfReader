@@ -36,9 +36,9 @@ namespace XTPdfMergeApp
             {
                 _findHits = hits;
                 _findCurrent = current;
-                FindBarQuery.Text = find.Query;
-                FindBarCount.Text = hits.Count == 0 ? "0" : $"{Math.Max(1, index)} / {hits.Count}";
-                FindBar.Visibility = hits.Count > 0 || find.Query.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+                if (FindBarQuery.Text != find.Query) { _syncingFindBar = true; FindBarQuery.Text = find.Query; _syncingFindBar = false; }
+                FindBarCount.Text = find.Query.Length == 0 ? "" : hits.Count == 0 ? "0" : $"{Math.Max(1, index)} / {hits.Count}";
+                if (find.Query.Length > 0) FindBar.Visibility = Visibility.Visible;
                 ScheduleFindRefresh();
             };
             _groups.CollectionChanged += (_, _) => find.UpdateScopeLabel(_groups.Count);
@@ -50,9 +50,46 @@ namespace XTPdfMergeApp
         {
             ShowStart(false);
             ShowMerge(false);
-            ShowSettings(false);
-            ReaderSidePanel.ShowPanel("Find");
-            ReaderSidePanel.Find.FocusQuery();
+            var find = ReaderSidePanel.Find;
+            FindBar.Visibility = Visibility.Visible;
+            _syncingFindBar = true;
+            FindBarQuery.Text = find.Query;
+            FindBarCase.IsChecked = find.MatchCase;
+            FindBarWord.IsChecked = find.WholeWord;
+            FindBarScope.SelectedIndex = find.AllOpenFiles ? 1 : 0;
+            _syncingFindBar = false;
+            Dispatcher.BeginInvoke(new Action(() => { FindBarQuery.Focus(); FindBarQuery.SelectAll(); }), DispatcherPriority.Input);
+        }
+
+        private bool _syncingFindBar;
+
+        private void FindBarQuery_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            FindBarHint.Visibility = FindBarQuery.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (_syncingFindBar) return;
+            ReaderSidePanel.Find.SetQuery(FindBarQuery.Text);
+        }
+
+        private void FindBarQuery_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter) { ReaderSidePanel.Find.Submit((Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? -1 : 1); e.Handled = true; }
+            else if (e.Key == Key.Escape) { FindClose_Click(this, new RoutedEventArgs()); e.Handled = true; }
+        }
+
+        private void FindBarOption_Click(object sender, RoutedEventArgs e)
+        {
+            if (_syncingFindBar) return;
+            var find = ReaderSidePanel.Find;
+            find.MatchCase = FindBarCase.IsChecked == true;
+            find.WholeWord = FindBarWord.IsChecked == true;
+            find.AllOpenFiles = FindBarScope.SelectedIndex == 1;
+        }
+
+        private void FindBarExpand_Click(object sender, RoutedEventArgs e)
+        {
+            bool show = FindBarOptions.Visibility != Visibility.Visible;
+            FindBarOptions.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            FindBarExpand.Icon = (Geometry)FindResource(show ? "Ui.Icon.chevd" : "Ui.Icon.chevr");
         }
 
         private void ReaderFind_Click(object sender, RoutedEventArgs e) => OpenFind();
@@ -74,6 +111,9 @@ namespace XTPdfMergeApp
         {
             ReaderSidePanel.Find.Clear();
             FindBar.Visibility = Visibility.Collapsed;
+            _findHits = Array.Empty<SearchHit>();
+            _findCurrent = null;
+            ScheduleFindRefresh();
         }
 
         private void OnFindHitActivated(SearchHit hit)

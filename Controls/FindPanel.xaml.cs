@@ -44,6 +44,17 @@ namespace XTPdfMergeApp.Controls
 
         internal string Query => QueryBox.Text;
 
+        internal bool MatchCase { get => MatchCaseBox.IsChecked == true; set => MatchCaseBox.IsChecked = value; }
+        internal bool WholeWord { get => WholeWordBox.IsChecked == true; set => WholeWordBox.IsChecked = value; }
+        internal bool AllOpenFiles { get => ScopeAll.IsChecked == true; set { if (value) ScopeAll.IsChecked = true; else ScopeThis.IsChecked = true; } }
+
+        /// <summary>Enter trong ô tìm của thanh Find nổi: chạy tìm nếu đang chờ, không thì sang kết quả kế / trước.</summary>
+        internal void Submit(int delta)
+        {
+            if (_debounce.IsEnabled) { _debounce.Stop(); _ = SearchAsync(); }
+            else Step(delta);
+        }
+
         internal void FocusQuery()
         {
             Dispatcher.BeginInvoke(new Action(() =>

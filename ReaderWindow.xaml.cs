@@ -119,6 +119,12 @@ namespace XTPdfMergeApp
                 e.Handled = true;
                 return;
             }
+            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.N)
+            {
+                ReaderNew_Click(this, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
             if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.F)
             {
                 OpenFind();

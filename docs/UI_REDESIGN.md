@@ -150,3 +150,11 @@ zoom vào ~1,0 s, cuộn 40 nấc ~0,05 s, RAM khi dùng 620–660 MB private WS
 - Review fixes: toolbar icons 26 px (bar 72 px), rail order Pages/Bookmarks/Layers/Comments/Find with Settings pinned at the bottom, panel 300 px (Pages) / 340 px (others), thumbnail selection = dark outline, selection bar with copy/paste hint, "Insert ▾", page menu icons, Comments filter full width.
 - Merge screen: own header (Undo/Redo, layout icons, Page size slider, "Merge same-name layers" chip), window header with grip + count chip + "Go to…", Dock info line. Reader toolbar hidden in Merge and Start; Start has "Open folder…" and no status bar.
 - Still missing vs mockup: Recent thumbnails + "network" tag on Start, "Send to Merge window", drag ghost with "Move N pages · hold Ctrl to copy" hint, tab hover hint, Print "Page setup…".
+
+## Round 2 feedback (28/09)
+
+- Settings is now its own window (`Controls/SettingsWindow.cs`, hosts `SettingsPage`), not a pane.
+- Find popup is Visual Studio style (Ctrl+F / Find button): editable box, prev/next/close, options row (match case, whole word, scope) via the chevron. It is two-way synced with the Find panel. No regex option: PDFium text search has none.
+- Title bar (left): hide/show side panel «, New (blank A4 PDF, asks where to save), Open, Save, Save as, Undo, Redo.
+- Start icon is a house ("Home"); the active tab is white + bold + 3 px accent underline on a darker strip.
+- Toolbar grouped like Foxit with captions: Tools · View · Comment · Find & print (Undo/Redo moved to the title bar).

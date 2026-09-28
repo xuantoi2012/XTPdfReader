@@ -1,0 +1,29 @@
+using System;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Media;
+using XTStyle.Controls;
+
+namespace XTPdfMergeApp.Controls;
+
+/// <summary>Settings in its own window (there are only a few options, so a pane is not needed). Changes apply immediately.</summary>
+internal sealed class SettingsWindow : XTWindow
+{
+    public SettingsWindow(Func<Task> clearCache)
+    {
+        Title = "Settings";
+        TitleBarMode = TitleBarMode.Dialog;
+        Width = 940;
+        Height = 780;
+        MinWidth = 720;
+        MinHeight = 480;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        FontFamily = new FontFamily("Segoe UI");
+        FontSize = 13;
+        UseLayoutRounding = true;
+        var page = new SettingsPage { ClearCacheRequested = clearCache };
+        page.Reload();
+        Content = page;
+        Background = (Brush)Application.Current.FindResource("Ui.Bg");
+    }
+}

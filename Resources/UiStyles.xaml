@@ -179,8 +179,8 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ListBoxItem">
-                    <Border x:Name="Bd" Padding="12,0,6,0" BorderThickness="0,0,0,2" BorderBrush="Transparent" Background="Transparent" SnapsToDevicePixels="True">
-                        <ContentPresenter VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}"/>
+                    <Border x:Name="Bd" Padding="12,0,6,0" BorderThickness="0,0,0,3" BorderBrush="Transparent" Background="Transparent" SnapsToDevicePixels="True">
+                        <ContentPresenter VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" TextElement.FontWeight="{TemplateBinding FontWeight}"/>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
@@ -190,6 +190,7 @@
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Surface}"/>
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
                             <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+                            <Setter Property="FontWeight" Value="SemiBold"/>
                         </Trigger>
                         <!-- Kéo trang lên tab: tab sáng lên (giữ ~0,5 s thì chuyển sang tab đó, thả lên tab = thêm vào cuối). -->
                         <Trigger Property="Tag" Value="DropHover">
@@ -359,9 +360,16 @@
         <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
 
+    <Style x:Key="UiGroupCaption" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="10.5"/>
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="0,0,0,4"/>
+        <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
+    </Style>
+
     <Style x:Key="UiToolbarSeparator" TargetType="Border">
         <Setter Property="Width" Value="1"/>
-        <Setter Property="Margin" Value="6,10"/>
+        <Setter Property="Margin" Value="8,6,8,16"/>
         <Setter Property="Background" Value="{DynamicResource Ui.Border}"/>
     </Style>
 </ResourceDictionary>
