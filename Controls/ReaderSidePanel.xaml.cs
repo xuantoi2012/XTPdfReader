@@ -23,7 +23,7 @@ namespace XTPdfMergeApp.Controls
     /// </summary>
     public partial class ReaderSidePanel : UserControl
     {
-        private enum Tab { Thumbnails, Bookmarks, Layers }
+        private enum Tab { Thumbnails, Bookmarks, Layers, Find }
 
         private Tab _tab = Tab.Thumbnails;
         private DocumentGroup? _group;
@@ -359,7 +359,12 @@ namespace XTPdfMergeApp.Controls
 
         /// <summary>Chuyển tab theo tên ("Pages", "Bookmarks", "Layers") — cho bảng lệnh.</summary>
         internal void ShowPanel(string name)
-            => SetTab(name switch { "Bookmarks" => Tab.Bookmarks, "Layers" => Tab.Layers, _ => Tab.Thumbnails });
+            => SetTab(name switch { "Bookmarks" => Tab.Bookmarks, "Layers" => Tab.Layers, "Find" => Tab.Find, _ => Tab.Thumbnails });
+
+        private void FindTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Find);
+
+        /// <summary>Panel Find (ReaderWindow nối sự kiện / cấp danh sách file).</summary>
+        internal FindPanel Find => FindView;
 
         private void ThumbnailTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Thumbnails);
         private void BookmarkTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Bookmarks);
@@ -379,6 +384,7 @@ namespace XTPdfMergeApp.Controls
             ThumbnailTabButton.Tag = !active && _tab == Tab.Thumbnails ? "Active" : null;
             BookmarkTabButton.Tag = !active && _tab == Tab.Bookmarks ? "Active" : null;
             LayerTabButton.Tag = !active && _tab == Tab.Layers ? "Active" : null;
+            FindTabButton.Tag = !active && _tab == Tab.Find ? "Active" : null;
         }
 
         private void SetTab(Tab tab)
@@ -388,7 +394,9 @@ namespace XTPdfMergeApp.Controls
             ThumbnailTabButton.Tag = tab == Tab.Thumbnails ? "Active" : null;
             BookmarkTabButton.Tag = tab == Tab.Bookmarks ? "Active" : null;
             LayerTabButton.Tag = tab == Tab.Layers ? "Active" : null;
-            PanelTitleText.Text = tab switch { Tab.Bookmarks => "Bookmarks", Tab.Layers => "Layers", _ => "Pages" };
+            FindTabButton.Tag = tab == Tab.Find ? "Active" : null;
+            FindView.Visibility = tab == Tab.Find ? Visibility.Visible : Visibility.Collapsed;
+            PanelTitleText.Text = tab switch { Tab.Bookmarks => "Bookmarks", Tab.Layers => "Layers", Tab.Find => "Find", _ => "Pages" };
             PageActionsBar.Visibility = tab == Tab.Thumbnails ? Visibility.Visible : Visibility.Collapsed;
             UpdateSelectionBar();
             ThumbnailList.Visibility = tab == Tab.Thumbnails ? Visibility.Visible : Visibility.Collapsed;

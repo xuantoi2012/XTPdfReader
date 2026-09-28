@@ -26,6 +26,7 @@ namespace XTPdfMergeApp
             InitializeSettings();
             InitializeStart();
             InitializeMerge();
+            InitializeFind();
             Closing += ReaderWindow_Closing;
             ReaderDocumentTabs.ItemsSource = _groups;
             ReaderSidePanel.PageActivated += row =>

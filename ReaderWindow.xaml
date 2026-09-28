@@ -261,6 +261,19 @@
                              PreviewKeyDown="ReaderAnnotationEditor_PreviewKeyDown"
                              LostKeyboardFocus="ReaderAnnotationEditor_LostKeyboardFocus"/>
                 </Canvas>
+
+                <!-- Thanh Find nổi (Ctrl+F / khi có kết quả): từ khoá, k / N, trước, sau, đóng. -->
+                <Border x:Name="FindBar" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,14,26,0" Panel.ZIndex="20"
+                        Padding="12,5,6,5" CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}">
+                    <Border.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="3" Opacity="0.2" Direction="270"/></Border.Effect>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="FindBarQuery" MinWidth="90" MaxWidth="220" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
+                        <TextBlock x:Name="FindBarCount" Margin="10,0,6,0" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>
+                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.up2}" Width="28" Height="28" ToolTip="Previous match (Shift+F3)" Click="FindPrev_Click"/>
+                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.down2}" Width="28" Height="28" ToolTip="Next match (F3)" Click="FindNext_Click"/>
+                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.close}" Width="28" Height="28" ToolTip="Close find" Click="FindClose_Click"/>
+                    </StackPanel>
+                </Border>
             </Grid>
             </Grid>
 

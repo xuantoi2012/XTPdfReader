@@ -59,6 +59,8 @@
                              Icon="{StaticResource Ui.Icon.bookmark}" Text="Bookmarks" ToolTip="Bookmarks" Click="BookmarkTab_Click"/>
                 <xt:XTButton x:Name="LayerTabButton" Style="{StaticResource UiRailButton}"
                              Icon="{StaticResource Ui.Icon.layers}" Text="Layers" ToolTip="Layers" Click="LayerTab_Click"/>
+                <xt:XTButton x:Name="FindTabButton" Style="{StaticResource UiRailButton}"
+                             Icon="{StaticResource Ui.Icon.search}" Text="Find" ToolTip="Find in document (Ctrl+F)" Click="FindTab_Click"/>
                 <xt:XTButton x:Name="SettingsTabButton" Style="{StaticResource UiRailButton}"
                              Icon="{StaticResource Ui.Icon.settings}" Text="Settings" ToolTip="Settings" Click="SettingsTab_Click"/>
             </StackPanel>
@@ -166,6 +168,7 @@
                 </TreeView>
 
                 <local:LayersPanel x:Name="LayersView" Visibility="Collapsed"/>
+                <local:FindPanel x:Name="FindView" Visibility="Collapsed"/>
 
                 <TextBlock x:Name="PanelEmptyText" Visibility="Collapsed" Margin="14" TextWrapping="Wrap"
                            Foreground="{DynamicResource Ui.Muted}"/>

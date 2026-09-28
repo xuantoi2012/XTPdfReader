@@ -38,6 +38,21 @@ internal sealed unsafe class PdfiumInstance
     private readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, int, int, int, int, int, IntPtr, int> _renderPageBitmapStart;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int> _renderPageContinue;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, void> _renderPageClose;
+    // Văn bản trang (tìm kiếm)
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr> _textLoadPage;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, void> _textClosePage;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, int> _textCountChars;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, int, int, ushort*, int> _textGetText;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, ushort*, uint, int, IntPtr> _textFindStart;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, int> _textFindNext;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, int> _textGetSchResultIndex;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, int> _textGetSchCount;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, void> _textFindClose;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, int, int, int> _textCountRects;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, int, double*, double*, double*, double*, int> _textGetRect;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, int> _pageGetRotation;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, float*, float*, float*, float*, int> _pageGetCropBox;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, float*, float*, float*, float*, int> _pageGetMediaBox;
 
     private readonly Lazy<bool> _initialized;
 
@@ -65,6 +80,20 @@ internal sealed unsafe class PdfiumInstance
         _renderPageBitmapStart = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, int, int, int, int, int, IntPtr, int>)F("FPDF_RenderPageBitmap_Start");
         _renderPageContinue = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int>)F("FPDF_RenderPage_Continue");
         _renderPageClose = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("FPDF_RenderPage_Close");
+        _textLoadPage = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr>)F("FPDFText_LoadPage");
+        _textClosePage = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("FPDFText_ClosePage");
+        _textCountChars = (delegate* unmanaged[Cdecl]<IntPtr, int>)F("FPDFText_CountChars");
+        _textGetText = (delegate* unmanaged[Cdecl]<IntPtr, int, int, ushort*, int>)F("FPDFText_GetText");
+        _textFindStart = (delegate* unmanaged[Cdecl]<IntPtr, ushort*, uint, int, IntPtr>)F("FPDFText_FindStart");
+        _textFindNext = (delegate* unmanaged[Cdecl]<IntPtr, int>)F("FPDFText_FindNext");
+        _textGetSchResultIndex = (delegate* unmanaged[Cdecl]<IntPtr, int>)F("FPDFText_GetSchResultIndex");
+        _textGetSchCount = (delegate* unmanaged[Cdecl]<IntPtr, int>)F("FPDFText_GetSchCount");
+        _textFindClose = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("FPDFText_FindClose");
+        _textCountRects = (delegate* unmanaged[Cdecl]<IntPtr, int, int, int>)F("FPDFText_CountRects");
+        _textGetRect = (delegate* unmanaged[Cdecl]<IntPtr, int, double*, double*, double*, double*, int>)F("FPDFText_GetRect");
+        _pageGetRotation = (delegate* unmanaged[Cdecl]<IntPtr, int>)F("FPDFPage_GetRotation");
+        _pageGetCropBox = (delegate* unmanaged[Cdecl]<IntPtr, float*, float*, float*, float*, int>)F("FPDFPage_GetCropBox");
+        _pageGetMediaBox = (delegate* unmanaged[Cdecl]<IntPtr, float*, float*, float*, float*, int>)F("FPDFPage_GetMediaBox");
 
         _initialized = new Lazy<bool>(() =>
         {
@@ -188,6 +217,72 @@ internal sealed unsafe class PdfiumInstance
         => _renderPageBitmapStart(bitmap, page, x, y, width, height, rotation, flags, pause);
     public int RenderPageContinue(IntPtr page, IntPtr pause) => _renderPageContinue(page, pause);
     public void RenderPageClose(IntPtr page) => _renderPageClose(page);
+
+    /// <summary>1 kết quả tìm: vị trí ký tự, đoạn trích quanh nó và các hình chữ nhật (user space: Left, Bottom, Right, Top).</summary>
+    internal sealed record TextMatch(int Start, int Length, string Snippet, List<(double L, double B, double R, double T)> Rects);
+
+    /// <summary>Hình học trang (CropBox hoặc MediaBox, /Rotate) để đổi toạ độ user space → toạ độ trang hiển thị.</summary>
+    internal PdfPageGeometry GetPageGeometry(IntPtr page)
+    {
+        float l, b, r, t;
+        bool ok = _pageGetCropBox(page, &l, &b, &r, &t) != 0 || _pageGetMediaBox(page, &l, &b, &r, &t) != 0;
+        if (!ok || r <= l || t <= b) { l = 0; b = 0; r = (float)GetPageWidth(page); t = (float)GetPageHeight(page); }
+        int rotation = ((_pageGetRotation(page) % 4) + 4) % 4 * 90;
+        return new PdfPageGeometry(l, b, r - l, t - b, rotation);
+    }
+
+    /// <summary>Tìm <paramref name="query"/> trong văn bản của 1 trang (FPDF_MATCHCASE = 1, FPDF_MATCHWHOLEWORD = 2).
+    /// <paramref name="charCount"/> = số ký tự của trang (0 = trang không có văn bản tìm được).</summary>
+    internal List<TextMatch> FindText(IntPtr page, string query, uint flags, int maxMatches, out int charCount)
+    {
+        var result = new List<TextMatch>();
+        charCount = 0;
+        IntPtr text = _textLoadPage(page);
+        if (text == IntPtr.Zero) return result;
+        try
+        {
+            charCount = _textCountChars(text);
+            if (charCount <= 0 || string.IsNullOrEmpty(query)) return result;
+            var pattern = new ushort[query.Length + 1];
+            for (int i = 0; i < query.Length; i++) pattern[i] = query[i];
+            fixed (ushort* p = pattern)
+            {
+                IntPtr search = _textFindStart(text, p, flags, 0);
+                if (search == IntPtr.Zero) return result;
+                try
+                {
+                    while (result.Count < maxMatches && _textFindNext(search) != 0)
+                    {
+                        int start = _textGetSchResultIndex(search), length = _textGetSchCount(search);
+                        var rects = new List<(double, double, double, double)>();
+                        int rectCount = _textCountRects(text, start, length);
+                        for (int r = 0; r < rectCount; r++)
+                        {
+                            double left, top, right, bottom;
+                            if (_textGetRect(text, r, &left, &top, &right, &bottom) != 0)
+                                rects.Add((left, Math.Min(top, bottom), right, Math.Max(top, bottom)));
+                        }
+                        result.Add(new TextMatch(start, length, Snippet(text, start, length, charCount), rects));
+                    }
+                }
+                finally { _textFindClose(search); }
+            }
+        }
+        finally { _textClosePage(text); }
+        return result;
+    }
+
+    private string Snippet(IntPtr text, int start, int length, int total)
+    {
+        int from = Math.Max(0, start - 28), to = Math.Min(total, start + length + 40);
+        var buffer = new ushort[to - from + 1];
+        int got;
+        fixed (ushort* p = buffer) got = _textGetText(text, from, to - from, p);
+        var chars = new char[Math.Max(0, got - 1)];
+        for (int i = 0; i < chars.Length; i++) chars[i] = buffer[i] is 10 or 13 or 9 ? ' ' : (char)buffer[i];
+        string s = new string(chars).Trim();
+        return (from > 0 ? "…" : "") + s + (to < total ? "…" : "");
+    }
 
     private static byte[] Utf8(string value)
     {

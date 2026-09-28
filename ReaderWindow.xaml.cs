@@ -107,6 +107,18 @@ namespace XTPdfMergeApp
         /// nào đang focus, phím tắt ở đây chỉ bao giờ tới tay khi Viewer thật sự đang active.</summary>
         private void ReaderWindow_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.F)
+            {
+                OpenFind();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.F3 && _findHits.Count > 0)
+            {
+                ReaderSidePanel.Find.Step((Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? -1 : 1);
+                e.Handled = true;
+                return;
+            }
             if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.K)
             {
                 if (Palette.IsOpen) Palette.Close(); else OpenPalette();
@@ -785,6 +797,7 @@ namespace XTPdfMergeApp
             _readerZoom = newZoom;
             ApplyReaderLayout();
             ReaderZoomText.Text = $"{_readerZoom * 100:0}%";
+            if (_findHits.Count > 0) ScheduleFindRefresh();
 
             if (_readerGroup != null)
                 _readerZoomByGroup[_readerGroup] = (_readerZoomMode, _readerZoom);
@@ -1408,7 +1421,7 @@ namespace XTPdfMergeApp
             view.UserZoomed += () => OnContinuousZoomChanged(ReaderZoomMode.Manual);
             view.UserInteraction += PdfThumbnailService.NoteInteraction; // thumbnail/tải trước nhường PDFium cho trang đang xem
             view.ScrollSettled += SyncSidePanelAfterScroll;
-            view.ViewChanged += () => { if (_annotationEditor != null) PositionAnnotationEditor(); };
+            view.ViewChanged += () => { if (_annotationEditor != null) PositionAnnotationEditor(); if (_findHits.Count > 0) ScheduleFindRefresh(); };
             // Như Chromium Viewport.resize_(): đang "vừa chiều rộng" thì đổi cỡ cửa sổ / kéo panel trái → khớp lại zoom.
             view.ViewportResized += () =>
             {
@@ -1819,7 +1832,10 @@ namespace XTPdfMergeApp
         }
 
         private void ReaderScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
-            => ScheduleReaderTileRefresh();
+        {
+            ScheduleReaderTileRefresh();
+            if (_findHits.Count > 0) ScheduleFindRefresh();
+        }
 
         private void ReaderImage_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {

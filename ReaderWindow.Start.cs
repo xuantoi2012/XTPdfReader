@@ -162,6 +162,7 @@ namespace XTPdfMergeApp
                 Cmd("Show bookmarks panel", "", "bookmark", () => { ShowStart(false); ReaderSidePanel.ShowPanel("Bookmarks"); });
                 Cmd("Show layers panel", "", "layers", () => { ShowStart(false); ReaderSidePanel.ShowPanel("Layers"); });
             }
+            Cmd("Find in document…", "Ctrl+F", "search", OpenFind);
             Cmd("Undo", "Ctrl+Z", "undo", () => EditHost?.Undo());
             Cmd("Redo", "Ctrl+Y", "redo", () => EditHost?.Redo());
             Cmd("Settings", "", "settings", () => { ShowStart(false); ShowSettings(true); });
