@@ -1,0 +1,130 @@
+<xt:XTWindow x:Class="XTPdfMergeApp.Controls.PrintWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
+        Title="Print" Width="1000" Height="640" MinWidth="820" MinHeight="520"
+        TitleBarMode="Dialog" WindowStartupLocation="CenterOwner" FontFamily="Segoe UI" FontSize="13"
+        UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <xt:XTWindow.Resources>
+        <Style x:Key="SegChoice" TargetType="RadioButton">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bd" Height="28" Padding="12,0" CornerRadius="5" Background="Transparent">
+                            <TextBlock x:Name="Tx" Text="{TemplateBinding Content}" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource XTPrimaryButtonBackground}"/>
+                                <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.OnAccent}"/>
+                                <Setter TargetName="Tx" Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+            <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
+        </Style>
+    </xt:XTWindow.Resources>
+
+    <Grid Background="{DynamicResource Ui.Surface}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="420"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="20,18,20,12">
+                <TextBlock Text="Printer" Style="{StaticResource FieldLabel}"/>
+                <ComboBox x:Name="PrinterBox" Height="32" Margin="0,0,0,14" SelectionChanged="Printer_Changed"/>
+
+                <TextBlock Text="Pages" Style="{StaticResource FieldLabel}"/>
+                <RadioButton x:Name="PagesAll" GroupName="PrintPages" Margin="0,0,0,6" Checked="Setting_Changed"/>
+                <RadioButton x:Name="PagesCurrent" GroupName="PrintPages" Margin="0,0,0,6" Checked="Setting_Changed"/>
+                <RadioButton x:Name="PagesRange" GroupName="PrintPages" Content="Range" Checked="Setting_Changed"/>
+                <TextBox x:Name="RangeBox" Height="30" Margin="26,4,0,14" VerticalContentAlignment="Center" IsEnabled="False" TextChanged="Range_TextChanged"
+                         ToolTip="For example 1-12, 40, 55-60"/>
+
+                <Grid Margin="0,0,0,14">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="70"/></Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Paper" Style="{StaticResource FieldLabel}"/>
+                        <ComboBox x:Name="PaperBox" Height="32" SelectionChanged="Paper_Changed"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Copies" Style="{StaticResource FieldLabel}"/>
+                        <TextBox x:Name="CopiesBox" Height="32" Text="1" VerticalContentAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Text="Scale" Style="{StaticResource FieldLabel}"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                    <Border CornerRadius="7" Background="{DynamicResource Ui.Chip}" Padding="2">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton x:Name="ScaleFit" Style="{StaticResource SegChoice}" GroupName="PrintScale" Content="Fit to paper" IsChecked="True" Checked="Setting_Changed"/>
+                            <RadioButton x:Name="ScaleActual" Style="{StaticResource SegChoice}" GroupName="PrintScale" Content="Actual size" Checked="Setting_Changed"/>
+                            <RadioButton x:Name="ScaleCustom" Style="{StaticResource SegChoice}" GroupName="PrintScale" Content="Custom %" Checked="Setting_Changed"/>
+                        </StackPanel>
+                    </Border>
+                    <TextBox x:Name="PercentBox" Width="60" Height="28" Margin="8,0,0,0" Text="100" VerticalContentAlignment="Center" IsEnabled="False" TextChanged="Percent_TextChanged"/>
+                </StackPanel>
+
+                <TextBlock Text="Color" Style="{StaticResource FieldLabel}"/>
+                <Border CornerRadius="7" Background="{DynamicResource Ui.Chip}" Padding="2" HorizontalAlignment="Left" Margin="0,0,0,14">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="ColorColor" Style="{StaticResource SegChoice}" GroupName="PrintColor" Content="Color" IsChecked="True" Checked="Setting_Changed"/>
+                        <RadioButton x:Name="ColorGray" Style="{StaticResource SegChoice}" GroupName="PrintColor" Content="Grayscale" Checked="Setting_Changed"/>
+                        <RadioButton x:Name="ColorLines" Style="{StaticResource SegChoice}" GroupName="PrintColor" Content="Black lines" Checked="Setting_Changed"
+                                     ToolTip="Everything darker than light gray prints black — crisp CAD lines, no gray fill"/>
+                    </StackPanel>
+                </Border>
+
+                <CheckBox x:Name="AutoRotateBox" Content="Auto-rotate each page to fit the paper" IsChecked="True" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                <TextBlock x:Name="LayerNote" Margin="0,10,0,0" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource Ui.Muted}"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Column="1" Background="{DynamicResource Ui.View}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="1,0,0,0" Padding="20">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,14,0,0">
+                    <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.chevl}" Width="28" Height="28" Click="PrevPreview_Click"/>
+                    <TextBlock x:Name="PreviewCaption" Margin="10,0" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>
+                    <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.chevr}" Width="28" Height="28" Click="NextPreview_Click"/>
+                </StackPanel>
+                <Grid x:Name="PreviewHost" SizeChanged="PreviewHost_SizeChanged">
+                    <Border x:Name="Paper" Background="White" HorizontalAlignment="Center" VerticalAlignment="Center" SnapsToDevicePixels="True">
+                        <Border.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.3" Direction="270"/></Border.Effect>
+                        <Grid>
+                            <Border Margin="10" BorderBrush="#B8C0CB" BorderThickness="1" >
+                                <Border.OpacityMask><SolidColorBrush Color="Black"/></Border.OpacityMask>
+                            </Border>
+                            <Image x:Name="PreviewImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </DockPanel>
+        </Border>
+
+        <Border Grid.Row="1" Grid.ColumnSpan="2" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" Background="{DynamicResource Ui.Panel}" Padding="20,12">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Cancel" Width="90" Height="34" Margin="0,0,8,0" IsCancel="True" Click="Cancel_Click"/>
+                    <xt:XTButton x:Name="PrintButton" Style="{StaticResource UiPrimaryButton}" Icon="{StaticResource Ui.Icon.print}" Text="Print" Height="34" IsDefault="True" Click="Print_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="SummaryText" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource Ui.Muted}"/>
+            </DockPanel>
+        </Border>
+    </Grid>
+</xt:XTWindow>

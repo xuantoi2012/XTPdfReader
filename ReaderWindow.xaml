@@ -49,6 +49,10 @@
                                  Icon="{StaticResource Ui.Icon.merge}" Text="Merge files" Margin="6,0,0,0"
                                  ToolTip="Open the Merge window: move or copy pages between files, merge, split and save"
                                  Click="ReaderShowMergeWindow_Click"/>
+                    <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.print}" Text="Print"
+                                 ToolTip="Print (Ctrl+P)" Click="ReaderPrint_Click"/>
+                    <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.search}" Text="Find"
+                                 ToolTip="Find in document (Ctrl+F)" Click="ReaderFind_Click"/>
                     <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Focusable="False">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <xt:XTButton x:Name="ReaderHandToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hand}" Text="Hand"

@@ -163,6 +163,7 @@ namespace XTPdfMergeApp
                 Cmd("Show layers panel", "", "layers", () => { ShowStart(false); ReaderSidePanel.ShowPanel("Layers"); });
             }
             Cmd("Find in document…", "Ctrl+F", "search", OpenFind);
+            if (_readerGroup != null) Cmd("Print…", "Ctrl+P", "print", () => ReaderPrint_Click(this, new RoutedEventArgs()));
             Cmd("Undo", "Ctrl+Z", "undo", () => EditHost?.Undo());
             Cmd("Redo", "Ctrl+Y", "redo", () => EditHost?.Redo());
             Cmd("Settings", "", "settings", () => { ShowStart(false); ShowSettings(true); });

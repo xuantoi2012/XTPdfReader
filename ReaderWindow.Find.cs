@@ -55,6 +55,18 @@ namespace XTPdfMergeApp
             ReaderSidePanel.Find.FocusQuery();
         }
 
+        private void ReaderFind_Click(object sender, RoutedEventArgs e) => OpenFind();
+
+        /// <summary>In các trang của window đang xem (hộp thoại Print).</summary>
+        private void ReaderPrint_Click(object sender, RoutedEventArgs e)
+        {
+            if (_readerGroup == null || _readerGroup.Pages.Count == 0) return;
+            var pages = _readerGroup.Pages.Select(p => (p.SourcePath, p.PageNumber)).ToList();
+            int current = _readerPage == null ? 0 : Math.Max(0, _readerGroup.Pages.IndexOf(_readerPage));
+            var dialog = new Controls.PrintWindow(pages, current) { Owner = this };
+            if (dialog.ShowDialog() == true) XTStyle.Controls.XTGrowl.Success("Sent to the printer", this);
+        }
+
         private void FindNext_Click(object sender, RoutedEventArgs e) => ReaderSidePanel.Find.Step(1);
         private void FindPrev_Click(object sender, RoutedEventArgs e) => ReaderSidePanel.Find.Step(-1);
 
