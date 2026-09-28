@@ -56,6 +56,28 @@ namespace XTPdfMergeApp.Services
             set => Set("WarmFiles", Math.Clamp(value, 0, 8));
         }
 
+        // ── Ghép file (hộp thoại Save merged file) ────────────────────
+
+        public static MergeOptions MergeOptionsSaved
+        {
+            get => new(GetInt("MergeFileBookmarks", 1) == 1, GetInt("MergeKeepBookmarks", 1) == 1, GetInt("MergeLayers", 1) == 1,
+                       GetInt("MergePageNumbers", 0) == 1, GetInt("MergeOptimize", 1) == 1);
+            set
+            {
+                Set("MergeFileBookmarks", value.FileBookmarks ? 1 : 0);
+                Set("MergeKeepBookmarks", value.KeepBookmarks ? 1 : 0);
+                Set("MergeLayers", value.MergeLayers ? 1 : 0);
+                Set("MergePageNumbers", value.PageNumbers ? 1 : 0);
+                Set("MergeOptimize", value.Optimize ? 1 : 0);
+            }
+        }
+
+        public static string LastMergeFolder
+        {
+            get => GetString("LastMergeFolder", "");
+            set => Set("LastMergeFolder", value);
+        }
+
         // ── Nền tảng ──────────────────────────────────────────────────
 
         /// <summary>Windows đang dùng giao diện tối cho ứng dụng?</summary>

@@ -150,7 +150,8 @@ namespace XTPdfMergeApp.Services
             string mergeLayersNamePrefix = "",
             string collapseOtherLayersTo = "",
             IProgress<(int Done, int Total)>? progress = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            MergeOptions? options = null)
         {
             errorMessage = "";
 
@@ -172,12 +173,13 @@ namespace XTPdfMergeApp.Services
                 }
 
                 var writerProps = new WriterProperties().SetPdfVersion(PdfVersion.PDF_1_7);
+                if (options?.Optimize == true) writerProps.SetFullCompressionMode(true).SetCompressionLevel(9);
                 // using block RIÊNG (không phải "using var" tới hết method) — cần writer/outDoc đóng
                 // HẲN (flush, nhả file lock) TRƯỚC khi có thể xoá file dở dang lúc bị huỷ giữa chừng.
                 using (var writer = new PdfWriter(outputPath, writerProps))
                 using (var outDoc = new PdfDocument(writer))
                 {
-                    var merger = new PdfMerger(outDoc);
+                    var merger = options == null ? new PdfMerger(outDoc) : new PdfMerger(outDoc, new PdfMergerProperties().SetMergeOutlines(false)); // bookmark do MergeOutlinePlanner dựng
 
                     var canonicalByName = new Dictionary<string, PdfDictionary>(StringComparer.Ordinal);
                     var replace = new Dictionary<PdfDictionary, PdfDictionary>();
@@ -221,6 +223,12 @@ namespace XTPdfMergeApp.Services
                         ApplyOcgDedup(outDoc, replace);
                         log?.Invoke($"\n[Merge] Đã gộp {replace.Count} layer trùng tên giữa các trang.");
                     }
+
+                    if (!cancelled && options != null)
+                    {
+                        AddOutlines(outDoc, MergeOutlinePlanner.Build(pages, options));
+                        if (options.PageNumbers) AddPageNumbers(outDoc);
+                    }
                 }
 
                 if (cancelled)
@@ -256,6 +264,52 @@ namespace XTPdfMergeApp.Services
         {
             try { if (File.Exists(path)) File.Delete(path); }
             catch { /* best effort — file dở dang, không quan trọng nếu không xoá được ngay */ }
+        }
+
+        private static void AddOutlines(PdfDocument doc, IReadOnlyList<MergeOutlineNode> nodes)
+        {
+            if (nodes.Count == 0) return;
+            var root = doc.GetOutlines(false);
+            void Add(iText.Kernel.Pdf.PdfOutline parent, MergeOutlineNode node)
+            {
+                var outline = parent.AddOutline(node.Title);
+                outline.AddDestination(iText.Kernel.Pdf.Navigation.PdfExplicitDestination.CreateFit(doc.GetPage(node.OutPage)));
+                foreach (var child in node.Children) Add(outline, child);
+            }
+            foreach (var node in nodes) Add(root, node);
+        }
+
+        /// <summary>Số trang nhỏ ở giữa mép dưới (theo chiều nhìn thấy, tính cả /Rotate).</summary>
+        private static void AddPageNumbers(PdfDocument doc)
+        {
+            var font = iText.Kernel.Font.PdfFontFactory.CreateFont(iText.IO.Font.Constants.StandardFonts.HELVETICA);
+            for (int i = 1; i <= doc.GetNumberOfPages(); i++)
+            {
+                var page = doc.GetPage(i);
+                var box = page.GetPageSize();
+                int rotation = ((page.GetRotation() % 360) + 360) % 360;
+                string text = i.ToString();
+                float visualW = rotation is 90 or 270 ? box.GetHeight() : box.GetWidth();
+                float size = Math.Clamp(visualW / 100f, 9f, 24f); // khổ lớn (A1…) thì số to hơn để còn đọc được
+                float textWidth = font.GetWidth(text, size);
+                float vx = visualW / 2 - textWidth / 2, vy = 14;
+                double ux, uy, angle;
+                switch (rotation)
+                {
+                    case 90: ux = box.GetWidth() - vy; uy = vx; angle = Math.PI / 2; break;
+                    case 180: ux = box.GetWidth() - vx; uy = box.GetHeight() - vy; angle = Math.PI; break;
+                    case 270: ux = vy; uy = box.GetHeight() - vx; angle = -Math.PI / 2; break;
+                    default: ux = vx; uy = vy; angle = 0; break;
+                }
+                float cos = (float)Math.Cos(angle), sin = (float)Math.Sin(angle);
+                // Vẽ TRƯỚC nội dung gốc, trong q…Q riêng: file CAD hay để "q"/clip chưa đóng, vẽ sau sẽ bị cắt mất.
+                var canvas = new iText.Kernel.Pdf.Canvas.PdfCanvas(page.NewContentStreamBefore(), page.GetResources(), doc);
+                canvas.SaveState();
+                canvas.BeginText().SetFontAndSize(font, size).SetFillColor(iText.Kernel.Colors.ColorConstants.DARK_GRAY)
+                    .SetTextMatrix(cos, sin, -sin, cos, (float)ux + box.GetX(), (float)uy + box.GetY())
+                    .ShowText(text).EndText();
+                canvas.RestoreState();
+            }
         }
 
         // ── OCG (layer) dedup — xem ghi chú ở TryMerge ──────────────────────────

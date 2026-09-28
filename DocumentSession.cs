@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using XTPdfMergeApp.Services;
@@ -442,31 +443,26 @@ namespace XTPdfMergeApp
         {
             var pageList = _groups.SelectMany(g => g.Pages).Select(p => (p.SourcePath, p.PageNumber)).ToList();
             if (pageList.Count == 0) return;
-            string dir = Path.GetDirectoryName(_groups[0].SourcePath) ?? "";
-            using var dlg = new System.Windows.Forms.SaveFileDialog
-            {
-                Title = "Merge into one file",
-                Filter = "PDF (*.pdf)|*.pdf",
-                DefaultExt = "pdf",
-                FileName = "Merged.pdf",
-                InitialDirectory = Directory.Exists(dir) ? dir : ""
-            };
-            if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
-            string output;
-            try { output = Path.GetFullPath(dlg.FileName); }
-            catch { return; }
-            if (pageList.Any(p => string.Equals(p.SourcePath, output, StringComparison.OrdinalIgnoreCase)))
-            {
-                MessageBox.Show(OwnerWindow, "That file is one of the open files. Choose a different name.", "Merge", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
+            string folder = AppSettings.LastMergeFolder;
+            if (!Directory.Exists(folder)) folder = Path.GetDirectoryName(pageList[0].SourcePath) ?? "";
+            var dialog = new Controls.MergeSaveWindow(pageList, folder) { Owner = OwnerWindow };
+            if (dialog.ShowDialog() != true) return;
+
+            string output = dialog.OutputPath;
+            var options = dialog.Options;
             string error = "";
-            bool ok = await Task.Run(() =>
+            Mouse.OverrideCursor = Cursors.Wait;
+            bool ok;
+            try
             {
-                bool r = XTPdfMerger.TryMergePages(pageList, output, out var e, null, mergeLayersByName: true);
-                error = e;
-                return r;
-            });
+                ok = await Task.Run(() =>
+                {
+                    bool r = XTPdfMerger.TryMergePages(pageList, output, out var e, null, mergeLayersByName: options.MergeLayers, options: options);
+                    error = e;
+                    return r;
+                });
+            }
+            finally { Mouse.OverrideCursor = null; }
             if (!ok)
             {
                 TryDelete(output);

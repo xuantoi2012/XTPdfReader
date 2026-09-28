@@ -81,7 +81,12 @@ ecent.json`, file
   Undo/Redo dùng chung lịch sử. **Temp window**: nút "Temp window" tạo cửa sổ trống "Temp N" để gom trang từ nhiều file, Save luôn là Save as và cửa sổ tạm đóng sau khi lưu.
   "Merge into one file…" ghép mọi cửa sổ theo thứ tự thành 1 PDF (layer cùng tên gộp) — hộp thoại tuỳ chọn ở P7. Chưa có: xem trước vùng snap khi kéo, "Send to Merge window" trong
   menu trang, layout Merge trong Workspace, kéo trang ra vùng trống để tạo Temp (hiện dùng nút).
-- [ ] **P7 — Merge save options** (mockup 17): tên file, thư mục, bookmark theo file nguồn, giữ bookmark cũ, gộp layer, số trang, tối ưu dung lượng.
+- [x] **P7 — Merge save options** (mockup 17) — **xong 28/09**. "Merge into one file…" mở `Controls/MergeSaveWindow.*`: File name, Save to (+ Browse…), danh sách file nguồn (số trang, khoảng trang), tuỳ chọn
+  (nhớ lần chọn trước): **Add a bookmark for each source file**, **Keep bookmarks from the source files** (lồng dưới bookmark của file, trỏ tới trang mới), **Merge same-name layers** (hiện
+  "N layers instead of M"), **Add page numbers**, **Optimize file size** (nén đầy đủ); bên phải xem trước cây bookmark của kết quả + "N pages · about X MB". Logic: `Services/MergeOptions.cs`
+  (`MergeOutlinePlanner` dùng chung cho xem trước và ghi thật), `XTPdfMerger.TryMergePages(..., options)`. Số trang vẽ TRƯỚC nội dung gốc trong q…Q riêng (file CAD hay để lại q/clip chưa đóng nên vẽ
+  sau sẽ bị cắt), đặt giữa mép dưới theo chiều nhìn thấy (tính cả /Rotate), cỡ chữ theo khổ giấy. Lưu từng cửa sổ (Save / Save as) vẫn giữ bookmark nguồn như trước (không dùng options).
+  Chưa kiểm tra: số trang trên trang xoay 0/90/180 (đã thử 270), Optimize tắt.
 - [ ] **P8 — Print và Export/Split** (mockup 14, 15): in (khoảng trang, khổ giấy, tỉ lệ, màu, theo View), Export (flatten theo View, tối ưu dung lượng,
   tách theo khổ giấy / N trang / bookmark).
 - [ ] **P9 — Comments, Find, Stamps** (mockup 8, 11, 12).
