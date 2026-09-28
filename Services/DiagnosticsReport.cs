@@ -108,7 +108,7 @@ internal static class DiagnosticsReport
         Row(sb, "Doc / page handle trong cache", $"{PdfThumbnailService.CachedDocumentCount} / {PdfThumbnailService.CachedNativePageCount}");
         Row(sb, "Page cache hit / load", $"{PdfThumbnailService.NativePageCacheHits} / {PdfThumbnailService.NativePageLoads}");
         Row(sb, "Progressive yield / slice max", $"{PdfThumbnailService.ProgressiveYields} / {PdfThumbnailService.MaxNativeRenderSliceMilliseconds:0.0} ms");
-        Row(sb, "Thu hồi document (tái chế/rảnh)", $"{PdfThumbnailService.PolicyTrims} lần (sau {PdfThumbnailService.RecycleAfterPages} trang, rảnh {PdfThumbnailService.IdleTrimSeconds}/{PdfThumbnailService.IdleTrimAllSeconds} s)");
+        Row(sb, "Thu hồi document (tái chế/rảnh)", $"{PdfThumbnailService.PolicyTrims} lần (≤{PdfThumbnailService.WarmFiles} file ấm, cũ {PdfThumbnailService.DocumentIdleSeconds} s, sau {PdfThumbnailService.RecycleAfterPages} trang, rảnh {PdfThumbnailService.IdleTrimSeconds}/{PdfThumbnailService.IdleTrimAllSeconds} s)");
         Row(sb, "Nhường khi zoom/pan", $"{PdfThumbnailService.InteractionDeferrals}");
         sb.AppendLine();
 

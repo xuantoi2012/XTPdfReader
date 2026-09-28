@@ -48,6 +48,27 @@ internal static class MemoryProbe
         catch { /* best effort */ }
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MemoryStatusEx
+    {
+        public uint Length, MemoryLoad;
+        public ulong TotalPhys, AvailPhys, TotalPageFile, AvailPageFile, TotalVirtual, AvailVirtual, AvailExtendedVirtual;
+    }
+
+    [DllImport("kernel32.dll")] private static extern bool GlobalMemoryStatusEx(ref MemoryStatusEx status);
+
+    /// <summary>% RAM vật lý của máy đang dùng (0–100); 0 nếu không đọc được.</summary>
+    public static int SystemMemoryLoadPercent()
+    {
+        if (!OperatingSystem.IsWindows()) return 0;
+        try
+        {
+            var status = new MemoryStatusEx { Length = (uint)Marshal.SizeOf<MemoryStatusEx>() };
+            return GlobalMemoryStatusEx(ref status) ? (int)status.MemoryLoad : 0;
+        }
+        catch { return 0; }
+    }
+
     private const uint MemCommit = 0x1000, MemPrivate = 0x20000, MemMapped = 0x40000, MemImage = 0x1000000;
     private static double Mb(ulong bytes) => bytes / 1048576.0;
 

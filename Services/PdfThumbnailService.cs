@@ -345,12 +345,15 @@ namespace XTPdfMergeApp.Services
         public static Task TrimDocumentsAsync(bool includePrimary)
             => TrimDocumentsAsync(index => includePrimary || index != 0);
 
-        internal static Task TrimDocumentsAsync(Func<int, bool> instanceFilter)
+        private static Task TrimDocumentsAsync(Func<int, bool> instanceFilter)
+            => TrimDocumentsAsync(key => instanceFilter(key.Instance));
+
+        private static Task TrimDocumentsAsync(Func<DocumentKey, bool> keyFilter)
         {
             var closing = new List<Task>();
             foreach (var key in _documentCache.Keys)
             {
-                if (!instanceFilter(key.Instance)) continue;
+                if (!keyFilter(key)) continue;
                 if (!_documentCache.TryRemove(key, out var lazy) || !lazy.IsValueCreated) continue;
                 closing.Add(Task.Run(async () =>
                 {
@@ -616,7 +619,11 @@ namespace XTPdfMergeApp.Services
                 if (expectedLayerToken != null && !string.Equals(expectedLayerToken, currentLayers, StringComparison.Ordinal))
                     return null;
 
-                if (lease.TryAcquire(out var usage)) return usage;
+                if (lease.TryAcquire(out var usage))
+                {
+                    _docLastUse[key] = Stopwatch.GetTimestamp();
+                    return usage;
+                }
 
                 // Closing the document invalidates this request. A subsequent explicit open
                 // obtains a fresh lease; stale work must not reopen the file in the background.

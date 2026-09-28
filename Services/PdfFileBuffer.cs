@@ -30,8 +30,18 @@ namespace XTPdfMergeApp.Services
         /// <summary>File lớn hơn mức này không đệm vào RAM.</summary>
         public const long MaxFileBytes = 2L * 1024 * 1024 * 1024;
 
-        /// <summary>Tổng dung lượng file tạm tối đa cho mọi file đang đệm (bộ đệm nằm trên đĩa cục bộ, không chiếm RAM riêng).</summary>
-        public static readonly long TotalBudgetBytes = 4L * 1024 * 1024 * 1024;
+        /// <summary>Tổng dung lượng file tạm tối đa cho mọi file đang đệm: 1/3 chỗ trống của ổ chứa thư mục tạm, 2–16 GB (bộ đệm nằm trên đĩa cục bộ, không chiếm RAM riêng).</summary>
+        public static readonly long TotalBudgetBytes = ComputeDiskBudget();
+
+        private static long ComputeDiskBudget()
+        {
+            try
+            {
+                var drive = new DriveInfo(Path.GetPathRoot(Path.GetTempPath())!);
+                return Math.Clamp(drive.AvailableFreeSpace / 3, 2L * 1024 * 1024 * 1024, 16L * 1024 * 1024 * 1024);
+            }
+            catch { return 4L * 1024 * 1024 * 1024; }
+        }
 
         private static readonly bool DirectLocalDisks = Environment.GetEnvironmentVariable("XTPDF_DIRECT_LOCAL") == "1";
         private static readonly ConcurrentDictionary<string, bool> _localRoots = new(StringComparer.OrdinalIgnoreCase);
