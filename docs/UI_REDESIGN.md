@@ -57,8 +57,13 @@ Trạng thái: `[ ]` chưa · `[~]` đang · `[x]` xong. Số theo mockup.
   **Sửa lỗi có sẵn:** file có `/OCProperties` và `/D` là từ điển TRỰC TIẾP trong Catalog (file AutoCAD/pdfFactory, vd ACAD-991ND…) thì bật/tắt layer không có tác dụng
   vì iText không ghi Catalog trong phần nối thêm — nay đánh dấu Catalog đã sửa (`PdfLayerService.BuildVisibilityTail`); có test hồi quy trong `Tests/PoolTest`.
   Chưa có (để P8): xuất **flatten** thật (xoá hẳn nội dung layer ẩn khỏi file). Khác mockup: menu View chưa có icon/dòng phụ 2 tầng (dùng "N visible" bên phải).
-- [ ] **P4 — Settings** (mockup 4): Appearance (Theme Light/Dark/System, accent 4 màu), Display (view mode mặc định, zoom khi mở),
-  Performance & memory (files kept warm, file cache: dung lượng + Clear cache), Integration (pdfFactory).
+- [x] **P4 — Settings + nhận diện app** (mockup 4) — **xong 28/09**. Nút Settings ở thanh trái mở trang phủ lên panel + vùng xem (`Controls/SettingsPage.*`, lưu bằng
+  `Services/AppSettings.cs`, áp dụng ngay): **Appearance** Theme Light/Dark/System (System theo Windows, tự đổi khi Windows đổi) + Accent 4 màu (Blue/Green/Purple/Red;
+  `ThemeService` ghi đè brush accent sau token sáng/tối); **Display** chế độ xem mặc định (Continuous — mặc định — hoặc Single page, áp lúc khởi động) và zoom khi mở file
+  (Fit width/Fit page); **Performance & memory** số file giữ ấm (0–8, `PdfThumbnailService.WarmFiles`, biến môi trường XTPDF_WARM_FILES vẫn thắng khi đo) và
+  "Clear cache" (đóng document PDFium + bỏ bộ đệm file không nằm trên màn hình; hiện dung lượng đang dùng); **Integration** pdfFactory "View PDF". Nút Light/Dark ở thanh tiêu đề đã bỏ.
+  App đổi tên hiển thị **PDF Reader Pro** (`AppInfo.DisplayName`), icon mới (`PDF icon.ico` + `Resources/AppIcon.png`, sinh bằng script; hình trang giấy + dải PDF, gradient cam→đỏ, không giống logo hãng nào).
+  Thêm trạng thái nhấn `Ui.Pressed` cho nút toolbar/rail/icon/ghost (hover + pressed đều theo theme). Bỏ "Actual size" vì mức % của app tính trên bản vẽ nền 2200 px, không phải kích thước thật.
 - [ ] **P5 — Start screen, thông báo, Command palette** (mockup 13, 16): Recent (ghim), Quick locations, Workspaces (lưu/khôi phục bộ file + layout Merge),
   thanh vàng "file changed on disk" (Reload / Ignore), Ctrl+K.
 - [ ] **P6 — Merge window mới** (mockup 6, 7): cửa sổ con mỗi file, layout + snap + giới hạn, Dock, cửa sổ tạm, kéo header chèn cả file,

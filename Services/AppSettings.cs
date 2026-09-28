@@ -1,0 +1,118 @@
+using System;
+using Microsoft.Win32;
+
+namespace XTPdfMergeApp.Services
+{
+    /// <summary>Cách hiện trang khi mở file lần đầu.</summary>
+    public enum DefaultZoom { FitWidth, FitPage }
+
+    /// <summary>
+    /// Cài đặt của người dùng (trang Settings), lưu ở HKCU\Software\XTStyle\XTPdfMergeApp cùng các giá trị cũ của <see cref="MergeAppSettingsStore"/>.
+    /// Mỗi thay đổi ghi ngay và báo <see cref="Changed"/> (tên cài đặt) để nơi dùng áp dụng tức thì.
+    /// </summary>
+    internal static class AppSettings
+    {
+        private const string RegKey = @"Software\XTStyle\XTPdfMergeApp";
+
+        public static event Action<string>? Changed;
+
+        // ── Appearance ────────────────────────────────────────────────
+
+        /// <summary>"Light" (mặc định) | "Dark" | "System" (theo Windows).</summary>
+        public static string Theme
+        {
+            get => Pick(GetString("Theme", "Light"), "Light", "Dark", "System");
+            set => Set("Theme", Pick(value, "Light", "Dark", "System"));
+        }
+
+        /// <summary>Màu nhấn: "Blue" (mặc định) | "Green" | "Purple" | "Red".</summary>
+        public static string Accent
+        {
+            get => Pick(GetString("Accent", "Blue"), "Blue", "Green", "Purple", "Red");
+            set => Set("Accent", Pick(value, "Blue", "Green", "Purple", "Red"));
+        }
+
+        // ── Display ───────────────────────────────────────────────────
+
+        /// <summary>true = cuộn liên tục (mặc định), false = từng trang.</summary>
+        public static bool ContinuousByDefault
+        {
+            get => GetInt("ContinuousByDefault", 1) == 1;
+            set => Set("ContinuousByDefault", value ? 1 : 0);
+        }
+
+        public static DefaultZoom ZoomOnOpen
+        {
+            get => Enum.TryParse<DefaultZoom>(GetString("ZoomOnOpen", nameof(DefaultZoom.FitWidth)), out var z) ? z : DefaultZoom.FitWidth;
+            set => Set("ZoomOnOpen", value.ToString());
+        }
+
+        // ── Performance & memory ──────────────────────────────────────
+
+        /// <summary>Số file dùng gần nhất được giữ document PDFium trong RAM (0 = không giữ).</summary>
+        public static int WarmFiles
+        {
+            get => Math.Clamp(GetInt("WarmFiles", 2), 0, 8);
+            set => Set("WarmFiles", Math.Clamp(value, 0, 8));
+        }
+
+        // ── Nền tảng ──────────────────────────────────────────────────
+
+        /// <summary>Windows đang dùng giao diện tối cho ứng dụng?</summary>
+        public static bool SystemPrefersDark()
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+                return (key?.GetValue("AppsUseLightTheme") as int?) == 0;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Áp các cài đặt có hiệu lực toàn app lúc khởi động (số file ấm…). Biến môi trường XTPDF_* (dùng khi đo) thắng cài đặt.</summary>
+        public static void ApplyRuntime()
+        {
+            if (Environment.GetEnvironmentVariable("XTPDF_WARM_FILES") == null) PdfThumbnailService.WarmFiles = WarmFiles;
+        }
+
+        // ── Registry ──────────────────────────────────────────────────
+
+        private static string Pick(string value, params string[] allowed)
+        {
+            foreach (string a in allowed)
+                if (string.Equals(a, value, StringComparison.OrdinalIgnoreCase)) return a;
+            return allowed[0];
+        }
+
+        private static string GetString(string name, string fallback)
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(RegKey);
+                return key?.GetValue(name) as string ?? fallback;
+            }
+            catch { return fallback; }
+        }
+
+        private static int GetInt(string name, int fallback)
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(RegKey);
+                return key?.GetValue(name) as int? ?? fallback;
+            }
+            catch { return fallback; }
+        }
+
+        private static void Set(string name, object value)
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.CreateSubKey(RegKey, writable: true);
+                key?.SetValue(name, value);
+            }
+            catch { /* không ghi được: cài đặt chỉ có hiệu lực trong phiên này */ }
+            Changed?.Invoke(name);
+        }
+    }
+}

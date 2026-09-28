@@ -59,6 +59,8 @@
                              Icon="{StaticResource Ui.Icon.bookmark}" Text="Bookmarks" ToolTip="Bookmarks" Click="BookmarkTab_Click"/>
                 <xt:XTButton x:Name="LayerTabButton" Style="{StaticResource UiRailButton}"
                              Icon="{StaticResource Ui.Icon.layers}" Text="Layers" ToolTip="Layers" Click="LayerTab_Click"/>
+                <xt:XTButton x:Name="SettingsTabButton" Style="{StaticResource UiRailButton}"
+                             Icon="{StaticResource Ui.Icon.settings}" Text="Settings" ToolTip="Settings" Click="SettingsTab_Click"/>
             </StackPanel>
         </Border>
 

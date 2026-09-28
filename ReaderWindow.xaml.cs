@@ -550,7 +550,7 @@ namespace XTPdfMergeApp
 
             if (!preserveZoomMode)
             {
-                _readerZoomMode = ReaderZoomMode.FitWidth;
+                _readerZoomMode = DefaultReaderZoomMode();
             }
             else if (groupChanged)
             {
@@ -563,7 +563,7 @@ namespace XTPdfMergeApp
                 }
                 else
                 {
-                    _readerZoomMode = ReaderZoomMode.FitWidth;
+                    _readerZoomMode = DefaultReaderZoomMode();
                 }
             }
 
@@ -713,6 +713,10 @@ namespace XTPdfMergeApp
 
             await ShowPageAsync(_readerGroup, target, preserveZoomMode: true);
         }
+
+        /// <summary>Cách hiện trang khi mở file lần đầu (Settings → Display → Zoom when opening a file).</summary>
+        private static ReaderZoomMode DefaultReaderZoomMode()
+            => AppSettings.ZoomOnOpen == DefaultZoom.FitPage ? ReaderZoomMode.FitPage : ReaderZoomMode.FitWidth;
 
         private void ApplyReaderZoomMode(bool resetScroll = false)
         {
@@ -1412,7 +1416,7 @@ namespace XTPdfMergeApp
             {
                 // Quay lại file đã xem → đúng mức zoom của riêng file đó (như chế độ 1 trang).
                 if (_readerZoomByGroup.TryGetValue(group, out var saved)) (_readerZoomMode, _readerZoom) = saved;
-                else _readerZoomMode = ReaderZoomMode.FitWidth;
+                else _readerZoomMode = DefaultReaderZoomMode();
             }
             _readerGroup = group;
             _readerPage = row;

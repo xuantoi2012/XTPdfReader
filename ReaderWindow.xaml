@@ -8,24 +8,14 @@
         xmlns:conv="clr-namespace:XTPdfMergeApp.Converters"
         xmlns:local="clr-namespace:XTPdfMergeApp"
         xmlns:ctl="clr-namespace:XTPdfMergeApp.Controls"
-        Title="XT PDF Reader" Width="1280" Height="820"
+        Title="PDF Reader Pro" Width="1280" Height="820"
         MinWidth="760" MinHeight="520" TitleBarMode="Full"
         WindowStartupLocation="CenterScreen"
-        TitleIcon="{DynamicResource Mat.FilePdfBox}" TitleIconBrush="{DynamicResource DangerBrush}"
         FontFamily="Segoe UI" FontSize="13"
         UseLayoutRounding="True" SnapsToDevicePixels="True"
         Focusable="True"
         AllowDrop="True" DragOver="ReaderWindow_DragOver" Drop="ReaderWindow_Drop"
         PreviewKeyDown="ReaderWindow_PreviewKeyDown">
-
-    <xt:XTWindow.TitleBarRightContent>
-        <xt:XTToggleButton x:Name="ThemeToggleButton"
-                           UncheckedText="Light" CheckedText="Dark"
-                           VerticalAlignment="Center" Margin="0,0,8,0"
-                           ToolTip="Switch between Light and Dark"
-                           Checked="ThemeToggleButton_Changed"
-                           Unchecked="ThemeToggleButton_Changed"/>
-    </xt:XTWindow.TitleBarRightContent>
 
     <xt:XTWindow.Resources>
         <ResourceDictionary>
@@ -252,6 +242,9 @@
                 </Canvas>
             </Grid>
             </Grid>
+
+            <!-- Trang Settings phủ lên panel + vùng xem (chừa thanh trái để đổi tab). Mở bằng nút Settings trên thanh trái. -->
+            <ctl:SettingsPage x:Name="SettingsPage" Grid.Row="2" Margin="64,0,0,0" Visibility="Collapsed"/>
 
             <!-- Thanh trạng thái: đường dẫn · điều hướng trang (giữa) · zoom (phải) -->
             <Grid Grid.Row="3" Background="{DynamicResource Ui.Panel}" Height="30"

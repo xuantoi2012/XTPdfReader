@@ -31,7 +31,7 @@ public static partial class PdfThumbnailService
     internal static readonly int IdleTrimSeconds = EnvInt("XTPDF_IDLE_TRIM_S", 20, 0, 3600);
     internal static readonly int IdleTrimAllSeconds = Math.Max(IdleTrimSeconds, EnvInt("XTPDF_IDLE_TRIM_ALL_S", 90, 0, 3600));
     internal static readonly int DocumentIdleSeconds = EnvInt("XTPDF_DOC_IDLE_S", 15, 0, 3600);
-    internal static readonly int WarmFiles = EnvInt("XTPDF_WARM_FILES", 2, 0, 64);
+    internal static volatile int WarmFiles = EnvInt("XTPDF_WARM_FILES", 2, 0, 64); // Settings đổi được lúc chạy (AppSettings.ApplyRuntime)
     internal static readonly int PrivateBudgetMb = EnvInt("XTPDF_PRIVATE_BUDGET_MB", 1500, 0, 1 << 20);
     internal static readonly int SystemLoadPercent = EnvInt("XTPDF_SYSTEM_LOAD_PCT", 80, 0, 100);
     internal const double RecycleQuietSeconds = 15;

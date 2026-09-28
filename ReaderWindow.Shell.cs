@@ -22,7 +22,9 @@ namespace XTPdfMergeApp
 
         private void InitializeShellParts()
         {
-            ThemeToggleButton.IsChecked = ThemeService.IsDark;
+            Title = AppInfo.DisplayName;
+            TitleIcon = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/XTPdfMergeApp;component/Resources/AppIcon.png"));
+            InitializeSettings();
             Closing += ReaderWindow_Closing;
             ReaderDocumentTabs.ItemsSource = _groups;
             ReaderSidePanel.PageActivated += row =>
@@ -503,14 +505,41 @@ namespace XTPdfMergeApp
             ShutdownReader();
         }
 
-        // ── Theme ─────────────────────────────────────────────────────
+        // ── Settings ──────────────────────────────────────────────────
 
-        private void ThemeToggleButton_Changed(object sender, RoutedEventArgs e)
+        private void InitializeSettings()
         {
-            bool dark = ThemeToggleButton.IsChecked == true;
-            if (dark == ThemeService.IsDark) return;
-            ThemeService.Apply(dark);
-            MergeAppSettingsStore.SetTheme(dark ? "Dark" : "Light");
+            ReaderSidePanel.SettingsRequested += () => ShowSettings(SettingsPage.Visibility != Visibility.Visible);
+            ReaderSidePanel.RailTabChosen += () => ShowSettings(false);
+            SettingsPage.ClearCacheRequested = ClearFileCachesAsync;
+            Loaded += (_, _) =>
+            {
+                // Chế độ xem mặc định (Settings → Display): cuộn liên tục mặc định; nút Continuous vẫn chuyển qua lại.
+                // Đợi bố cục xong (vùng xem có kích thước thật) rồi mới bật, nếu không vùng cuộn liên tục tính zoom trên viewport 0.
+                if (AppSettings.ContinuousByDefault)
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (!_readerContinuousMode) ReaderContinuousToggle_Click(this, new RoutedEventArgs());
+                    }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            };
+        }
+
+        private void ShowSettings(bool show)
+        {
+            if (show == (SettingsPage.Visibility == Visibility.Visible)) return;
+            if (show) SettingsPage.Reload();
+            SettingsPage.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            ReaderSidePanel.SetSettingsActive(show);
+        }
+
+        /// <summary>"Clear cache": đóng document PDFium đang giữ và bỏ bộ đệm file của các file KHÔNG nằm trên màn hình (đọc lại khi cần).</summary>
+        private async System.Threading.Tasks.Task ClearFileCachesAsync()
+        {
+            var onScreen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (_readerGroup != null)
+                foreach (var page in _readerGroup.Pages) onScreen.Add(System.IO.Path.GetFullPath(page.SourcePath));
+            await PdfThumbnailService.TrimDocumentsAsync(includePrimary: true);
+            PdfFileBuffer.ReleaseExcept(path => onScreen.Contains(path));
         }
 
         // ── Kéo-thả file PDF vào cửa sổ để mở ────────────────────────────

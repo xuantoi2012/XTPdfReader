@@ -361,8 +361,25 @@ namespace XTPdfMergeApp.Controls
         private void BookmarkTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Bookmarks);
         private void LayerTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Layers);
 
+        /// <summary>Bấm nút Settings trên thanh trái (ReaderWindow hiện/ẩn trang Settings phủ lên panel + vùng xem).</summary>
+        internal event Action? SettingsRequested;
+        /// <summary>Chọn 1 tab khác (Pages/Bookmarks/Layers) — ReaderWindow đóng trang Settings nếu đang mở.</summary>
+        internal event Action? RailTabChosen;
+
+        private void SettingsTab_Click(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
+
+        /// <summary>Đánh dấu nút Settings đang bật (và tắt nút tab hiện tại) khi trang Settings mở.</summary>
+        internal void SetSettingsActive(bool active)
+        {
+            SettingsTabButton.Tag = active ? "Active" : null;
+            ThumbnailTabButton.Tag = !active && _tab == Tab.Thumbnails ? "Active" : null;
+            BookmarkTabButton.Tag = !active && _tab == Tab.Bookmarks ? "Active" : null;
+            LayerTabButton.Tag = !active && _tab == Tab.Layers ? "Active" : null;
+        }
+
         private void SetTab(Tab tab)
         {
+            RailTabChosen?.Invoke();
             _tab = tab;
             ThumbnailTabButton.Tag = tab == Tab.Thumbnails ? "Active" : null;
             BookmarkTabButton.Tag = tab == Tab.Bookmarks ? "Active" : null;

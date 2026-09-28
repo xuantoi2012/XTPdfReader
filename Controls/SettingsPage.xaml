@@ -1,0 +1,220 @@
+<UserControl x:Class="XTPdfMergeApp.Controls.SettingsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
+             FontFamily="Segoe UI" FontSize="13">
+    <UserControl.Resources>
+        <!-- Nút phân đoạn (Light | Dark | System): nền chip, mục chọn nền accent chữ trắng. -->
+        <Style x:Key="SegItem" TargetType="RadioButton">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bd" Height="30" Padding="14,0" CornerRadius="5" Background="Transparent" SnapsToDevicePixels="True">
+                            <TextBlock x:Name="Tx" Text="{TemplateBinding Content}" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/>
+                                <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource XTPrimaryButtonBackground}"/>
+                                <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.OnAccent}"/>
+                                <Setter TargetName="Tx" Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Ô màu nhấn: chấm tròn, đang chọn có vòng ngoài. Màu = Background của RadioButton. -->
+        <Style x:Key="SwatchItem" TargetType="RadioButton">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Grid Width="34" Height="34" Background="Transparent">
+                            <Ellipse x:Name="Ring" Stroke="Transparent" StrokeThickness="2"/>
+                            <Ellipse x:Name="Dot" Width="24" Height="24" Fill="{TemplateBinding Background}" RenderTransformOrigin="0.5,0.5">
+                                <Ellipse.RenderTransform><ScaleTransform x:Name="Scale" ScaleX="1" ScaleY="1"/></Ellipse.RenderTransform>
+                            </Ellipse>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Ring" Property="Stroke" Value="{DynamicResource Ui.Border}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Ring" Property="Stroke" Value="{DynamicResource Ui.Text}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Mục điều hướng bên trái. -->
+        <Style x:Key="NavItem" TargetType="RadioButton">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Margin" Value="0,1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bd" Height="36" Padding="12,0" CornerRadius="6" Background="Transparent">
+                            <TextBlock x:Name="Tx" Text="{TemplateBinding Content}" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                                <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.Accent}"/>
+                                <Setter TargetName="Tx" Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,26,0,2"/>
+            <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+        </Style>
+        <Style x:Key="RowHint" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Background="{DynamicResource Ui.Surface}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="236"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <Border Background="{DynamicResource Ui.Panel}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,1,0" Padding="12,16">
+            <StackPanel>
+                <RadioButton x:Name="NavAppearance" Style="{StaticResource NavItem}" GroupName="SettingsNav" Content="Appearance" IsChecked="True" Checked="Nav_Checked"/>
+                <RadioButton x:Name="NavDisplay" Style="{StaticResource NavItem}" GroupName="SettingsNav" Content="Display" Checked="Nav_Checked"/>
+                <RadioButton x:Name="NavPerformance" Style="{StaticResource NavItem}" GroupName="SettingsNav" Content="Performance &amp; memory" Checked="Nav_Checked"/>
+                <RadioButton x:Name="NavIntegration" Style="{StaticResource NavItem}" GroupName="SettingsNav" Content="Integration" Checked="Nav_Checked"/>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer x:Name="Scroll" Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="48,20,48,40" MaxWidth="760" HorizontalAlignment="Left">
+                <TextBlock Text="Settings" FontSize="20" FontWeight="SemiBold" Margin="0,6,0,0" Foreground="{DynamicResource Ui.Text}"/>
+
+                <!-- Appearance -->
+                <TextBlock x:Name="SecAppearance" Text="Appearance" Style="{StaticResource SectionTitle}"/>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Theme" Foreground="{DynamicResource Ui.Text}"/>
+                            <TextBlock Style="{StaticResource RowHint}" Text="Light is the default. Dark is easier on the eyes for drawings with dark backgrounds. System follows Windows."/>
+                        </StackPanel>
+                        <Border Grid.Column="1" CornerRadius="7" Background="{DynamicResource Ui.Chip}" Padding="2" VerticalAlignment="Center" Margin="24,0,0,0">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="ThemeLight" Style="{StaticResource SegItem}" GroupName="Theme" Content="Light" Tag="Light" Checked="Theme_Checked"/>
+                                <RadioButton x:Name="ThemeDark" Style="{StaticResource SegItem}" GroupName="Theme" Content="Dark" Tag="Dark" Checked="Theme_Checked"/>
+                                <RadioButton x:Name="ThemeSystem" Style="{StaticResource SegItem}" GroupName="Theme" Content="System" Tag="System" Checked="Theme_Checked"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Border>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Accent color" Foreground="{DynamicResource Ui.Text}"/>
+                            <TextBlock Style="{StaticResource RowHint}" Text="Used for the main button, the selected item and the drop marker."/>
+                        </StackPanel>
+                        <StackPanel x:Name="SwatchHost" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="24,0,0,0"/>
+                    </Grid>
+                </Border>
+
+                <!-- Display -->
+                <TextBlock x:Name="SecDisplay" Text="Display" Style="{StaticResource SectionTitle}"/>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Default view mode" Foreground="{DynamicResource Ui.Text}"/>
+                            <TextBlock Style="{StaticResource RowHint}" Text="Applies the next time the app starts."/>
+                        </StackPanel>
+                        <ComboBox x:Name="ViewModeBox" Grid.Column="1" Width="180" Height="30" Margin="24,0,0,0" VerticalAlignment="Center" SelectionChanged="ViewMode_Changed">
+                            <ComboBoxItem Content="Continuous scroll" Tag="continuous"/>
+                            <ComboBoxItem Content="Single page" Tag="single"/>
+                        </ComboBox>
+                    </Grid>
+                </Border>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Zoom when opening a file" Foreground="{DynamicResource Ui.Text}"/>
+                            <TextBlock Style="{StaticResource RowHint}" Text="Applies to files opened for the first time."/>
+                        </StackPanel>
+                        <ComboBox x:Name="ZoomBox" Grid.Column="1" Width="180" Height="30" Margin="24,0,0,0" VerticalAlignment="Center" SelectionChanged="Zoom_Changed">
+                            <ComboBoxItem Content="Fit width" Tag="FitWidth"/>
+                            <ComboBoxItem Content="Fit page" Tag="FitPage"/>
+                        </ComboBox>
+                    </Grid>
+                </Border>
+
+                <!-- Performance & memory -->
+                <TextBlock x:Name="SecPerformance" Text="Performance &amp; memory" Style="{StaticResource SectionTitle}"/>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Files kept warm" Foreground="{DynamicResource Ui.Text}"/>
+                            <TextBlock Style="{StaticResource RowHint}" Text="Recently used files keep their memory for fast scrolling and zoom. Older files are released; reopening stays fast thanks to the disk cache."/>
+                        </StackPanel>
+                        <ComboBox x:Name="WarmBox" Grid.Column="1" Width="110" Height="30" Margin="24,0,0,0" VerticalAlignment="Center" SelectionChanged="Warm_Changed"/>
+                    </Grid>
+                </Border>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="File cache on disk" Foreground="{DynamicResource Ui.Text}"/>
+                            <TextBlock x:Name="CacheHint" Style="{StaticResource RowHint}"/>
+                        </StackPanel>
+                        <xt:XTButton x:Name="ClearCacheButton" Grid.Column="1" Style="{StaticResource UiGhostButton}" Text="Clear cache" Margin="24,0,0,0"
+                                     VerticalAlignment="Center" Click="ClearCache_Click"
+                                     ToolTip="Release the cached copies of files that are not on screen. They are read again when needed."/>
+                    </Grid>
+                </Border>
+
+                <!-- Integration -->
+                <TextBlock x:Name="SecIntegration" Text="Integration" Style="{StaticResource SectionTitle}"/>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Use this app when “View PDF” is pressed in pdfFactory" Foreground="{DynamicResource Ui.Text}" TextWrapping="Wrap"/>
+                            <TextBlock x:Name="PdfFactoryHint" Style="{StaticResource RowHint}"/>
+                        </StackPanel>
+                        <CheckBox x:Name="PdfFactoryToggle" Grid.Column="1" Style="{StaticResource XTToggleSwitch}" Margin="24,0,0,0" VerticalAlignment="Top"
+                                  Checked="PdfFactory_Changed" Unchecked="PdfFactory_Changed"/>
+                    </Grid>
+                </Border>
+
+                <TextBlock x:Name="AboutText" Style="{StaticResource RowHint}" Margin="0,30,0,0"/>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

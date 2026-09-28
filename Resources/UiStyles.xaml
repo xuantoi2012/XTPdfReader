@@ -49,6 +49,9 @@
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Ui.Hover}"/>
             </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Ui.Pressed}"/>
+            </Trigger>
             <Trigger Property="Tag" Value="Active">
                 <Setter Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
                 <Setter Property="Foreground" Value="{DynamicResource Ui.Accent}"/>
@@ -109,6 +112,9 @@
                 <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
                 <Setter Property="IconBrush" Value="{DynamicResource Ui.Text}"/>
             </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Ui.Pressed}"/>
+            </Trigger>
             <Trigger Property="Tag" Value="Active">
                 <Setter Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
                 <Setter Property="Foreground" Value="{DynamicResource Ui.Accent}"/>
@@ -156,6 +162,9 @@
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Ui.Hover}"/>
                 <Setter Property="IconBrush" Value="{DynamicResource Ui.Text}"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Ui.Pressed}"/>
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -253,6 +262,9 @@
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Ui.Hover}"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Ui.Pressed}"/>
             </Trigger>
         </Style.Triggers>
     </Style>

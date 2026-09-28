@@ -29,6 +29,7 @@
     <Compile Remove="Tests\**\*.cs" />
     <EmbeddedResource Remove="Tests\**\*" />
     <None Remove="Tests\**\*" />
+    <Resource Include="Resources\AppIcon.png" />
     <InternalsVisibleTo Include="XTPdfMergeApp.PerformanceTests" />
   </ItemGroup>
 
