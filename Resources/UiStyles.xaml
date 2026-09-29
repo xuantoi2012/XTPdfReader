@@ -34,7 +34,7 @@
                     </Canvas>
                 </Viewbox>
                 <TextBlock Text="{TemplateBinding Text}" Foreground="{TemplateBinding Foreground}" FontSize="11"
-                           TextAlignment="Center" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                           TextAlignment="Center" HorizontalAlignment="Center" TextWrapping="Wrap" Margin="0,4,0,0"/>
             </StackPanel>
         </Border>
         <ControlTemplate.Triggers>
@@ -47,16 +47,18 @@
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
+    <!-- Width cố định (không Auto theo chữ) + TextWrapping ở template: tên dài như "Highlight text"/"Highlight area"
+         xuống 2 dòng thay vì kéo giãn bề ngang nút đó, để mọi nút trong hàng đều nhau, ribbon không bị so le. -->
     <Style x:Key="UiToolbarButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
         <Setter Property="Template" Value="{StaticResource UiToolbarButtonTemplate}"/>
-        <Setter Property="Width" Value="Auto"/>
-        <Setter Property="MinWidth" Value="60"/>
-        <Setter Property="Height" Value="56"/>
-        <Setter Property="Padding" Value="6,0"/>
+        <Setter Property="Width" Value="66"/>
+        <Setter Property="MinWidth" Value="0"/>
+        <Setter Property="Height" Value="62"/>
+        <Setter Property="Padding" Value="4,0"/>
         <Setter Property="Margin" Value="1,0"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
         <!-- Bậc icon lớn nhất trong app (giống ribbon Foxit): ribbon > thanh trái > quick access title bar > icon trong trang panel. -->
-        <Setter Property="IconSize" Value="26"/>
+        <Setter Property="IconSize" Value="27"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
         <Setter Property="IconBrush" Value="{DynamicResource Ui.Icon}"/>
@@ -208,18 +210,18 @@
          Icon neo cố định bên trái (không center theo nội dung) để cột icon thẳng hàng dù chữ dài ngắn khác nhau
          (Rect/Cloud/Oval/Arrow/Line/Stamp) — center theo cả cụm icon+chữ làm icon bị xê dịch theo độ dài chữ. ══ -->
     <ControlTemplate x:Key="UiMiniLabeledButtonTemplate" TargetType="{x:Type xt:XTButton}">
-        <Border x:Name="Bd" CornerRadius="3" Background="{TemplateBinding Background}"
+        <Border x:Name="Bd" CornerRadius="4" Background="{TemplateBinding Background}"
                 BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
                 SnapsToDevicePixels="True">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="6,0,4,0">
-                <Viewbox Width="13" Height="13">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="7,0,4,0">
+                <Viewbox Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}">
                     <Canvas Width="24" Height="24">
                         <Path x:Name="Tint" Fill="{DynamicResource Ui.Accent}" Opacity="0.3" Visibility="Collapsed"
                               Data="{Binding IconData, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource UiIconTint}}"/>
                         <Path Data="{TemplateBinding IconData}" Fill="{TemplateBinding IconBrush}"/>
                     </Canvas>
                 </Viewbox>
-                <TextBlock Text="{TemplateBinding Text}" Margin="4,0,0,0" FontSize="10" TextTrimming="CharacterEllipsis"
+                <TextBlock Text="{TemplateBinding Text}" Margin="5,0,0,0" FontSize="11.5" TextTrimming="CharacterEllipsis"
                            Foreground="{TemplateBinding Foreground}" VerticalAlignment="Center"/>
             </StackPanel>
         </Border>
@@ -229,17 +231,17 @@
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
+    <!-- Không viền: chỉ đổi nền khi hover/active (giống mọi nút khác trong ribbon), viền cố định nhìn rối và lạc tông. -->
     <Style x:Key="UiMiniIconButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
         <Setter Property="Template" Value="{StaticResource UiMiniLabeledButtonTemplate}"/>
-        <Setter Property="Width" Value="64"/>
-        <Setter Property="Height" Value="19"/>
+        <Setter Property="Width" Value="76"/>
+        <Setter Property="Height" Value="24"/>
         <Setter Property="Margin" Value="0,0,3,3"/>
         <Setter Property="MinWidth" Value="0"/>
         <Setter Property="Padding" Value="0"/>
-        <Setter Property="IconSize" Value="13"/>
+        <Setter Property="IconSize" Value="16"/>
         <Setter Property="Background" Value="Transparent"/>
-        <Setter Property="BorderBrush" Value="{DynamicResource Ui.Border}"/>
-        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
         <Setter Property="IconBrush" Value="{DynamicResource Ui.Icon}"/>
         <Style.Triggers>
@@ -565,7 +567,7 @@
     <Style x:Key="UiGroupCaption" TargetType="TextBlock">
         <Setter Property="FontSize" Value="10.5"/>
         <Setter Property="HorizontalAlignment" Value="Center"/>
-        <Setter Property="Margin" Value="0,0,0,4"/>
+        <Setter Property="Margin" Value="0,3,0,4"/>
         <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
     </Style>
 

@@ -68,7 +68,7 @@
                  không có tab để bấm chuyển — theo yêu cầu dùng gộp lại 1 hàng thay vì nhiều tab ribbon. Nhóm Document đi ngay
                  sau các nhóm khác, để vùng trống bên phải tự co giãn. Xoay ở nhóm "Rotate view" là xoay KHUNG NHÌN; xoay THẬT nằm ở nhóm Organize.
                  Tag="Active" = công cụ đang bật. ══ -->
-            <Border x:Name="ReaderToolbarBar" Grid.Row="0" Height="86" Background="{DynamicResource Ui.Surface}"
+            <Border x:Name="ReaderToolbarBar" Grid.Row="0" Height="108" Background="{DynamicResource Ui.Surface}"
                     BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1">
                 <DockPanel Margin="12,0">
                     <ScrollViewer x:Name="ReaderToolsScroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Focusable="False">
@@ -92,9 +92,9 @@
                                     <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.actual}" Text="Actual size"
                                                  ToolTip="Actual size (100%)" Click="ReaderActualSize_Click"/>
                                     <StackPanel VerticalAlignment="Center">
-                                        <xt:XTButton Style="{StaticResource UiMiniIconButton}" Width="76" Icon="{StaticResource Ui.Icon.fitp}" Text="Fit page"
+                                        <xt:XTButton Style="{StaticResource UiMiniIconButton}" Width="100" Icon="{StaticResource Ui.Icon.fitp}" Text="Fit page"
                                                      ToolTip="Fit page" Click="ReaderFitPage_Click"/>
-                                        <xt:XTButton Style="{StaticResource UiMiniIconButton}" Width="76" Icon="{StaticResource Ui.Icon.fitw}" Text="Fit width"
+                                        <xt:XTButton Style="{StaticResource UiMiniIconButton}" Width="100" Icon="{StaticResource Ui.Icon.fitw}" Text="Fit width"
                                                      ToolTip="Fit width" Click="ReaderFitWidth_Click"/>
                                     </StackPanel>
                                 </StackPanel>
@@ -125,9 +125,9 @@
                                                  ToolTip="Drag a rectangle to highlight an area (also works on scanned pages and drawings)" Click="ReaderHighlightArea_Click"/>
                                     <!-- Underline/Strikethrough: dùng ít hơn Highlight, gom vào 1 cột 2 ô nhỏ (kiểu Foxit) thay vì mỗi cái 1 nút to riêng. -->
                                     <StackPanel VerticalAlignment="Center">
-                                        <xt:XTButton x:Name="ReaderUnderlineToolButton" Style="{StaticResource UiMiniIconButton}" Width="80" Icon="{StaticResource Ui.Icon.underline}" Text="Underline"
+                                        <xt:XTButton x:Name="ReaderUnderlineToolButton" Style="{StaticResource UiMiniIconButton}" Width="100" Icon="{StaticResource Ui.Icon.underline}" Text="Underline"
                                                      ToolTip="Underline: drag across text" Click="ReaderUnderlineTool_Click"/>
-                                        <xt:XTButton x:Name="ReaderStrikethroughToolButton" Style="{StaticResource UiMiniIconButton}" Width="80" Icon="{StaticResource Ui.Icon.strike}" Text="Strike"
+                                        <xt:XTButton x:Name="ReaderStrikethroughToolButton" Style="{StaticResource UiMiniIconButton}" Width="100" Icon="{StaticResource Ui.Icon.strike}" Text="Strike"
                                                      ToolTip="Strikethrough: drag across text" Click="ReaderStrikethroughTool_Click"/>
                                     </StackPanel>
                                 </StackPanel>
@@ -138,7 +138,7 @@
                             <StackPanel>
                                 <Grid VerticalAlignment="Center">
                                     <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="64"/><ColumnDefinition Width="64"/></Grid.ColumnDefinitions>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="76"/><ColumnDefinition Width="76"/></Grid.ColumnDefinitions>
                                     <xt:XTButton x:Name="ReaderShapeRectButton" Grid.Row="0" Grid.Column="0" Style="{StaticResource UiMiniIconButton}"
                                                  Icon="{StaticResource Ui.Icon.shape_rect}" Text="Rect" ToolTip="Rectangle" Click="ReaderShapeRect_Click"/>
                                     <xt:XTButton x:Name="ReaderShapeCloudButton" Grid.Row="0" Grid.Column="1" Style="{StaticResource UiMiniIconButton}"
