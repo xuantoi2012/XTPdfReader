@@ -34,6 +34,7 @@
         </Style>
         <Geometry x:Key="Lay.One">M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z</Geometry>
         <Geometry x:Key="Lay.Two">M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM12 4v16</Geometry>
+        <Geometry x:Key="Lay.Vertical">M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM4 12h16</Geometry>
         <Geometry x:Key="Lay.Three">M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM9.3 4v16M14.7 4v16</Geometry>
         <Geometry x:Key="Lay.Grid">M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM12 4v16M4 12h16</Geometry>
         <Geometry x:Key="Lay.Free">M4 4h10v9H4zM10 11h10v9H10z</Geometry>
@@ -82,18 +83,18 @@
             <DockPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                     <xt:XTButton Style="{StaticResource UiPrimaryButton}" Icon="{StaticResource Ui.Icon.merge}" Text="Merge into one file…" Click="MergeAll_Click"
-                                 ToolTip="Save all windows, in this order, as a single PDF (same-name layers are merged)"/>
-                    <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Done" Margin="8,0,0,0" Click="Done_Click" ToolTip="Back to the reader"/>
+                                 ToolTip="Export this temporary arrangement, in this order, as a new PDF. Original tabs are not changed."/>
+                    <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Done" Margin="8,0,0,0" Click="Done_Click" ToolTip="Discard this merge draft and return to the reader"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.undo}" Text="Undo" ToolTip="Undo (Ctrl+Z)" Click="Undo_Click"/>
-                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.redo}" Text="Redo" ToolTip="Redo (Ctrl+Y)" Click="Redo_Click"/>
-                    <Border Width="1" Height="36" Margin="10,0" Background="{DynamicResource Ui.Border}"/>
+                    <xt:XTButton x:Name="WindowListButton" Style="{StaticResource UiGhostButton}" Text="0 windows" Margin="0,0,12,0"
+                                 ToolTip="Switch to a window outside the current layout" Click="WindowList_Click"/>
                     <TextBlock Text="Layout" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource Ui.Muted}"/>
                     <Border CornerRadius="8" Background="{DynamicResource Ui.Chip}" Padding="2" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal">
                             <RadioButton x:Name="LayoutOne" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.One}" Tag="One" ToolTip="One window" Checked="Layout_Checked"/>
                             <RadioButton x:Name="LayoutTwo" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Two}" Tag="Two" ToolTip="Two side by side" Checked="Layout_Checked"/>
+                            <RadioButton x:Name="LayoutVertical" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Vertical}" Tag="Vertical" ToolTip="Two windows stacked vertically" Checked="Layout_Checked"/>
                             <RadioButton x:Name="LayoutThree" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Three}" Tag="Three" ToolTip="Three columns" Checked="Layout_Checked"/>
                             <RadioButton x:Name="LayoutGrid" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Grid}" Tag="Grid" ToolTip="2 × 2 grid" Checked="Layout_Checked"/>
                             <RadioButton x:Name="LayoutFree" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Free}" Tag="Free" ToolTip="Move and resize windows freely" Checked="Layout_Checked"/>
@@ -107,7 +108,7 @@
                     <Slider x:Name="PageSizeSlider" Width="130" Minimum="64" Maximum="180" Value="100" VerticalAlignment="Center" ValueChanged="PageSize_Changed"
                             ToolTip="Thumbnail size"/>
                     <Border Width="1" Height="36" Margin="14,0,12,0" Background="{DynamicResource Ui.Border}"/>
-                    <ToggleButton x:Name="MergeLayersToggle" Style="{StaticResource ChipToggle}" Content="Merge same-name layers" Click="MergeLayersToggle_Click"
+                    <CheckBox x:Name="MergeLayersToggle" Content="Merge same-name layers" Click="MergeLayersToggle_Click" VerticalAlignment="Center"
                                   ToolTip="When saving the merged file, layers with the same name become one layer"/>
                 </StackPanel>
             </DockPanel>
@@ -117,21 +118,28 @@
                 AllowDrop="True" DragOver="EmptyArea_DragOver" Drop="Workspace_Drop"/>
         <StackPanel x:Name="EmptyHint" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
             <TextBlock Text="No files open" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
-            <TextBlock Text="Open PDF files to arrange and merge their pages here." Margin="0,6,0,14" Foreground="{DynamicResource Ui.Muted}"/>
+            <TextBlock Text="Open PDF files to arrange and merge their pages here. This is a temporary draft." Margin="0,6,0,14" Foreground="{DynamicResource Ui.Muted}"/>
             <xt:XTButton Style="{StaticResource UiPrimaryButton}" Icon="{StaticResource Ui.Icon.folder}" Text="Open file…" HorizontalAlignment="Center" Click="OpenFile_Click"/>
         </StackPanel>
 
-        <!-- Dock: cửa sổ đã thu nhỏ (hoặc vượt số cửa sổ tối đa). Bấm chip = mở lại; thả trang lên chip = nối vào cuối file đó. -->
-        <Border x:Name="DockBar" Grid.Row="2" Height="48" AllowDrop="True" DragOver="EmptyArea_DragOver" Drop="Dock_Drop" Background="{DynamicResource Ui.Panel}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" Padding="16,0">
-            <DockPanel>
-                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
-                    <Viewbox Width="16" Height="16" Margin="0,0,7,0"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.tray}" Fill="{DynamicResource Ui.Text}"/></Canvas></Viewbox>
-                    <TextBlock Text="Dock" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
-                </StackPanel>
-                <TextBlock x:Name="DockInfo" DockPanel.Dock="Right" VerticalAlignment="Center" FontSize="11.5" Foreground="{DynamicResource Ui.Muted}"
-                           Text="Drag = move · Ctrl+drag = copy"/>
-                <StackPanel x:Name="DockChips" Orientation="Horizontal" VerticalAlignment="Center"/>
-            </DockPanel>
+        <!-- Temp shelf: bãi giữ trang lớn, có preview; không được Merge all cho tới khi mở nhóm thành window. -->
+        <Border x:Name="DockBar" Grid.Row="2" Height="172" AllowDrop="True" DragOver="TempShelf_DragOver" DragLeave="TempShelf_DragLeave" Drop="Dock_Drop" Background="{DynamicResource Ui.Panel}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" Padding="16,10">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                <DockPanel Grid.Row="0" Margin="0,0,0,8">
+                    <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
+                        <Viewbox Width="16" Height="16" Margin="0,0,7,0"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.tray}" Fill="{DynamicResource Ui.Text}"/></Canvas></Viewbox>
+                        <TextBlock Text="Temp shelf" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
+                    </StackPanel>
+                    <TextBlock x:Name="DockInfo" VerticalAlignment="Center" FontSize="11.5" Foreground="{DynamicResource Ui.Muted}"
+                               Text="Drag = move · Ctrl+drag = copy"/>
+                </DockPanel>
+                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <WrapPanel x:Name="DockChips" VerticalAlignment="Center"/>
+                </ScrollViewer>
+                <!-- Chỉ nằm trong vùng nội dung (Row 1), không đè lên tiêu đề "Temp shelf" ở Row 0. -->
+                <Rectangle x:Name="TempDropHighlight" Grid.Row="1" Margin="-4" Stroke="{DynamicResource Ui.Accent}" StrokeThickness="1.5" StrokeDashArray="5,3" RadiusX="8" RadiusY="8" Visibility="Collapsed" IsHitTestVisible="False"/>
+            </Grid>
         </Border>
     </Grid>
 </UserControl>

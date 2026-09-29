@@ -57,8 +57,10 @@ internal sealed class DragGhost : IDisposable
         var source = PresentationSource.FromVisual(Application.Current.MainWindow!);
         var scale = source?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
         var position = scale.Transform(new Point(point.X, point.Y));
-        _window.Left = position.X + 16;
-        _window.Top = position.Y + 16;
+        // Neo ngay tại con trỏ (góc trên-trái thẻ trùng vị trí trỏ) thay vì lệch hẳn sang bên — cảm giác con trỏ đang
+        // thực sự cầm/kéo thẻ, giống Trello/Notion, thay vì 1 preview trôi nổi cạnh trỏ.
+        _window.Left = position.X - 6;
+        _window.Top = position.Y - 6;
     }
 
     public void Dispose() => _window.Close();
@@ -70,7 +72,9 @@ internal sealed class DragGhost : IDisposable
         void OnFeedback(object? s, GiveFeedbackEventArgs e)
         {
             ghost.Update((e.Effects & DragDropEffects.Copy) != 0 && (Keyboard.Modifiers & ModifierKeys.Control) != 0);
-            e.UseDefaultCursors = true;
+            // Tắt cursor preview mặc định của Windows (mũi tên + icon copy/move nhỏ) — chỉ còn 1 preview
+            // duy nhất là ghost thẻ của chúng ta theo con trỏ, tránh 2 preview chồng nhau gây rối mắt.
+            e.UseDefaultCursors = false;
             e.Handled = true;
         }
         var element = (IInputElement)source;

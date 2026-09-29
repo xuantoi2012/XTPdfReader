@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Collections.Specialized;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using XTPdfMergeApp.Services;
+using XTPdfMergeApp.Workspace;
 using PageRow = XTPdfMergeApp.Domain.PagePlacement;
 using DocumentGroup = XTPdfMergeApp.Domain.WorkspaceDocument;
 
@@ -19,7 +20,7 @@ namespace XTPdfMergeApp.Controls
     /// </summary>
     public partial class MergeView : UserControl
     {
-        private enum MergeLayout { One, Two, Three, Grid, Free }
+        private enum MergeLayout { One, Two, Vertical, Three, Grid, Free }
 
         private sealed class Entry
         {
@@ -33,11 +34,13 @@ namespace XTPdfMergeApp.Controls
         private const double MinWidth_ = 320, MinHeight_ = 240, Gap = 10;
 
         private readonly List<Entry> _entries = new();
-        private ObservableCollection<DocumentGroup>? _groups;
+        private MergeDraftSession? _draft;
+        private readonly Dictionary<PageRow, System.Threading.CancellationTokenSource> _tempThumbnailRequests = new();
         private long _tick;
         private MergeLayout _layout = MergeLayout.Two;
         private bool _layoutChosen; // false = tự chọn layout theo số cửa sổ
         private bool _updatingLayoutButtons;
+        private bool _isExporting;
 
         public MergeView()
         {
@@ -54,26 +57,32 @@ namespace XTPdfMergeApp.Controls
         private void MergeLayersToggle_Click(object sender, RoutedEventArgs e)
             => Services.AppSettings.MergeOptionsSaved = Services.AppSettings.MergeOptionsSaved with { MergeLayers = MergeLayersToggle.IsChecked == true };
 
-        /// <summary>Máy chủ chỉnh sửa (Move/Delete/Save/Undo…) — do ReaderWindow gắn.</summary>
-        internal Func<IReaderPageEditHost?>? HostProvider { get; set; }
-        private IReaderPageEditHost? Host => HostProvider?.Invoke();
-
         internal event Action? DoneRequested;
-        internal event Action? MergeAllRequested;
         internal event Action? OpenFileRequested;
+        internal event EventHandler? HistoryStateChanged;
 
-        /// <summary>Gắn danh sách file đang mở (cùng danh sách với các tab của cửa sổ đọc).</summary>
-        internal void Bind(ObservableCollection<DocumentGroup> groups)
+        internal bool CanUndo => _draft?.History.CanUndo == true;
+        internal bool CanRedo => _draft?.History.CanRedo == true;
+        internal string? UndoDescription => _draft?.History.UndoDescription;
+        internal string? RedoDescription => _draft?.History.RedoDescription;
+
+        /// <summary>Tạo lại bản nháp từ tab đang mở. Thao tác trong Merge chỉ sửa bản này.</summary>
+        internal void BeginSession(IEnumerable<DocumentGroup> groups)
         {
-            _groups = groups;
-            groups.CollectionChanged += (_, _) => Sync();
+            CancelTempThumbnailRequests();
+            _draft = new MergeDraftSession();
+            _draft.Begin(groups);
+            _draft.History.StateChanged += (_, _) => HistoryStateChanged?.Invoke(this, EventArgs.Empty);
             Sync();
+            HistoryStateChanged?.Invoke(this, EventArgs.Empty);
         }
 
         /// <summary>Đưa file này lên (mở lại nếu đang ở dock).</summary>
         internal void ShowGroup(DocumentGroup group)
         {
-            var entry = _entries.FirstOrDefault(e => ReferenceEquals(e.Window.Group, group));
+            var draftGroup = _draft?.GetDraftFor(group);
+            if (draftGroup == null) return;
+            var entry = _entries.FirstOrDefault(e => ReferenceEquals(e.Window.Group, draftGroup));
             if (entry == null) return;
             entry.Minimized = false;
             entry.LastActive = ++_tick;
@@ -84,13 +93,13 @@ namespace XTPdfMergeApp.Controls
 
         private void Sync()
         {
-            if (_groups == null) return;
-            foreach (var entry in _entries.Where(e => !_groups.Contains(e.Window.Group)).ToList())
+            if (_draft == null) return;
+            foreach (var entry in _entries.Where(e => !_draft.WindowDocuments.Contains(e.Window.Group)).ToList())
             {
                 Workspace.Children.Remove(entry.Window);
                 _entries.Remove(entry);
             }
-            foreach (var group in _groups)
+            foreach (var group in _draft.WindowDocuments)
             {
                 if (_entries.Any(e => ReferenceEquals(e.Window.Group, group))) continue;
                 var window = new MergeMiniWindow(group) { ThumbWidth = PageSizeSlider.Value };
@@ -98,7 +107,8 @@ namespace XTPdfMergeApp.Controls
                 Workspace.Children.Add(window);
                 _entries.Add(new Entry { Window = window, LastActive = ++_tick });
             }
-            _entries.Sort((a, b) => _groups.IndexOf(a.Window.Group).CompareTo(_groups.IndexOf(b.Window.Group)));
+            _entries.Sort((a, b) => _draft.Documents.IndexOf(a.Window.Group).CompareTo(_draft.Documents.IndexOf(b.Window.Group)));
+            WindowListButton.Text = _entries.Count == 1 ? "1 window" : $"{_entries.Count} windows";
             Relayout();
         }
 
@@ -108,33 +118,19 @@ namespace XTPdfMergeApp.Controls
             window.MoveDelta += OnMoveDelta;
             window.MoveFinished += OnMoveFinished;
             window.ResizeDelta += OnResizeDelta;
-            window.ToggleMaximizeRequested += w => { var e = EntryOf(w); e.Maximized = !e.Maximized; Relayout(); };
-            window.MinimizeRequested += w => { var e = EntryOf(w); e.Minimized = true; e.Maximized = false; Relayout(); };
-            window.CloseRequested += async w => await CloseAsync(w.Group);
-            window.SaveRequested += async w => { if (Host != null) await Host.SaveGroupAsync(w.Group, saveAs: false); };
+            window.ToggleMaximizeRequested += ToggleMaximize;
+            window.MinimizeRequested += w => { _draft?.MoveToTemporaryShelf(w.Group); Sync(); };
+            window.CloseRequested += w => { _draft?.RemoveDocument(w.Group); Sync(); };
+            window.SaveRequested += async w => await ExportAsync(w.Group);
             window.PagesDropped += OnPagesDropped;
-            window.DeleteRequested += (w, pages) => Host?.DeletePages(w.Group, pages);
+            window.DeleteRequested += (w, pages) => { _draft?.DeletePages(w.Group, pages); Sync(); };
         }
 
         private Entry EntryOf(MergeMiniWindow window) => _entries.First(e => ReferenceEquals(e.Window, window));
 
-        private async System.Threading.Tasks.Task CloseAsync(DocumentGroup group)
-        {
-            var host = Host;
-            if (host == null) return;
-            if (group.IsDirty)
-            {
-                var answer = MessageBox.Show(Window.GetWindow(this), $"Save changes to \"{group.FileName}\" before closing?", "Unsaved changes",
-                    MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
-                if (answer == MessageBoxResult.Cancel) return;
-                if (answer == MessageBoxResult.Yes && !await host.SaveGroupAsync(group, saveAs: false)) return;
-            }
-            host.CloseDocument(group);
-        }
-
         // ── Layout ────────────────────────────────────────────────────
 
-        private static int Capacity(MergeLayout layout) => layout switch { MergeLayout.One => 1, MergeLayout.Two => 2, MergeLayout.Three => 3, _ => 4 };
+        private static int Capacity(MergeLayout layout) => layout switch { MergeLayout.One => 1, MergeLayout.Two or MergeLayout.Vertical => 2, MergeLayout.Three => 3, _ => 4 };
 
         private MergeLayout EffectiveLayout()
         {
@@ -160,7 +156,7 @@ namespace XTPdfMergeApp.Controls
             try
             {
                 var layout = EffectiveLayout();
-                (layout switch { MergeLayout.One => LayoutOne, MergeLayout.Two => LayoutTwo, MergeLayout.Three => LayoutThree, MergeLayout.Grid => LayoutGrid, _ => LayoutFree }).IsChecked = true;
+                (layout switch { MergeLayout.One => LayoutOne, MergeLayout.Two => LayoutTwo, MergeLayout.Vertical => LayoutVertical, MergeLayout.Three => LayoutThree, MergeLayout.Grid => LayoutGrid, _ => LayoutFree }).IsChecked = true;
             }
             finally { _updatingLayoutButtons = false; }
         }
@@ -186,6 +182,7 @@ namespace XTPdfMergeApp.Controls
                 {
                     MergeLayout.One => area,
                     MergeLayout.Two => Column(area, i, Math.Max(2, ordered.Count)),
+                    MergeLayout.Vertical => Row(area, i, Math.Max(2, ordered.Count)),
                     MergeLayout.Three => Column(area, i, Math.Max(3, ordered.Count)),
                     MergeLayout.Grid => GridCell(area, i, ordered.Count),
                     _ => FreeRectOf(entry, i, area)
@@ -213,6 +210,12 @@ namespace XTPdfMergeApp.Controls
         {
             double width = (area.Width - Gap * (count - 1)) / count;
             return new Rect(area.X + index * (width + Gap), area.Y, width, area.Height);
+        }
+
+        private static Rect Row(Rect area, int index, int count)
+        {
+            double height = (area.Height - Gap * (count - 1)) / count;
+            return new Rect(area.X, area.Y + index * (height + Gap), area.Width, height);
         }
 
         private static Rect GridCell(Rect area, int index, int count)
@@ -301,9 +304,32 @@ namespace XTPdfMergeApp.Controls
             if (entry.Maximized || !(_layout == MergeLayout.Free && _layoutChosen)) return;
             var area = Area;
             const double edge = 8;
-            if (pointer.Y < edge) { entry.Maximized = true; }
+            if (pointer.Y < edge) { MaximizeEntry(entry); return; }
             else if (pointer.X < edge) entry.FreeRect = new Rect(area.X, area.Y, (area.Width - Gap) / 2, area.Height);
             else if (pointer.X > Workspace.ActualWidth - edge) entry.FreeRect = new Rect(area.X + (area.Width + Gap) / 2, area.Y, (area.Width - Gap) / 2, area.Height);
+            Relayout();
+        }
+
+        private void ToggleMaximize(MergeMiniWindow window)
+        {
+            var entry = EntryOf(window);
+            if (entry.Maximized)
+            {
+                entry.Maximized = false;
+                Relayout();
+                return;
+            }
+            MaximizeEntry(entry);
+        }
+
+        private void MaximizeEntry(Entry entry)
+        {
+            foreach (var item in _entries) item.Maximized = false;
+            entry.Maximized = true;
+            entry.Minimized = false;
+            entry.LastActive = ++_tick;
+            _layout = MergeLayout.One;
+            _layoutChosen = true;
             Relayout();
         }
 
@@ -322,9 +348,8 @@ namespace XTPdfMergeApp.Controls
 
         private void OnPagesDropped(MergeMiniWindow target, ReaderSidePanel.PageDragData data, int index, bool copy)
         {
-            var host = Host;
-            if (host == null) return;
-            var result = host.MovePages(data.Source, target.Group, data.Pages, index, copy);
+            var result = _draft?.MovePages(data.Source, target.Group, data.Pages, index, copy) ?? [];
+            Sync();
             if (result.Count > 0 && _entries.Any(e => ReferenceEquals(e.Window, target))) target.SelectPages(result);
         }
 
@@ -333,57 +358,166 @@ namespace XTPdfMergeApp.Controls
         private void RebuildDock(List<Entry> visible)
         {
             DockChips.Children.Clear();
-            var docked = _entries.Where(e => !visible.Contains(e)).ToList();
-            foreach (var entry in docked)
+            var temporaryGroups = _draft?.TemporaryDocuments.ToList() ?? [];
+            foreach (var group in temporaryGroups)
             {
-                var group = entry.Window.Group;
-                var text = new TextBlock { Text = $"{group.FileName}  ·  {group.Pages.Count}", MaxWidth = 240, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
-                text.SetResourceReference(TextBlock.ForegroundProperty, "Ui.Text");
-                var chip = new Border
+                var cardContent = new Grid();
+                cardContent.RowDefinitions.Add(new RowDefinition { Height = new GridLength(82) });
+                cardContent.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var firstPage = group.Pages.FirstOrDefault();
+                var preview = new PageThumbnailImage { Stretch = Stretch.Uniform, Margin = new Thickness(4) };
+                if (firstPage != null)
                 {
-                    Height = 28,
-                    Padding = new Thickness(12, 0, 12, 0),
-                    Margin = new Thickness(0, 0, 8, 0),
-                    CornerRadius = new CornerRadius(14),
+                    preview.DataContext = firstPage;
+                    preview.SetBinding(PageThumbnailImage.SourceProperty, new Binding(nameof(PageRow.Thumbnail)));
+                    RequestTempThumbnail(firstPage);
+                }
+                var previewFrame = new Border { Background = Brushes.White, BorderThickness = new Thickness(1), Child = preview };
+                previewFrame.SetResourceReference(Border.BorderBrushProperty, "Ui.Border");
+                cardContent.Children.Add(previewFrame);
+
+                // Hover: 2 nút nhỏ nổi trên preview — mở thành window riêng (giống click cả thẻ) hoặc
+                // trả các trang về đúng file nguồn của chúng (nếu file đó vẫn đang mở).
+                var canReturn = group.Pages.Any(p => _draft?.WindowDocuments.Any(d =>
+                    d != group && string.Equals(d.SourcePath, p.SourcePath, StringComparison.OrdinalIgnoreCase)) == true);
+                var hoverActions = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, 3, 3, 0), Visibility = Visibility.Collapsed
+                };
+                hoverActions.Children.Add(CreateChipActionButton("Ui.Icon.fullscreen", "Open as its own window", () =>
+                {
+                    _draft?.PromoteTemporaryDocument(group);
+                    Sync();
+                    ShowGroup(group);
+                }));
+                if (canReturn)
+                {
+                    hoverActions.Children.Add(CreateChipActionButton("Ui.Icon.undo", "Return pages to their source file", () =>
+                    {
+                        if (_draft?.ReturnPagesToSource(group) == true) Sync();
+                    }));
+                }
+                Grid.SetRow(hoverActions, 0);
+                cardContent.Children.Add(hoverActions);
+                var text = new TextBlock
+                {
+                    Text = $"{group.FileName}\n{group.Pages.Count} pages · click to open",
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = 11.5,
+                    Margin = new Thickness(2, 6, 2, 0)
+                };
+                text.SetResourceReference(TextBlock.ForegroundProperty, "Ui.Text");
+                Grid.SetRow(text, 1);
+                cardContent.Children.Add(text);
+                var card = new Border
+                {
+                    Width = 142,
+                    Height = 124,
+                    Padding = new Thickness(7),
+                    Margin = new Thickness(0, 0, 10, 0),
+                    CornerRadius = new CornerRadius(8),
                     BorderThickness = new Thickness(1),
                     Cursor = Cursors.Hand,
                     AllowDrop = true,
-                    ToolTip = group.SourcePath + "\nClick to open · drop pages here to append them",
-                    Child = text
+                    ToolTip = "Temporary group — not included in Merge all. Click to open as a window; drop pages here to append.",
+                    Child = cardContent
                 };
-                chip.SetResourceReference(Border.BackgroundProperty, "Ui.Surface");
-                chip.SetResourceReference(Border.BorderBrushProperty, "Ui.Border");
-                chip.MouseLeftButtonUp += (_, _) => ShowGroup(group);
-                chip.DragOver += (_, e) =>
+                card.SetResourceReference(Border.BackgroundProperty, "Ui.Surface");
+                card.SetResourceReference(Border.BorderBrushProperty, "Ui.Border");
+                card.MouseEnter += (_, _) => hoverActions.Visibility = Visibility.Visible;
+                card.MouseLeave += (_, _) => hoverActions.Visibility = Visibility.Collapsed;
+                card.MouseLeftButtonUp += (_, _) =>
+                {
+                    _draft?.PromoteTemporaryDocument(group);
+                    Sync();
+                    ShowGroup(group);
+                };
+                card.DragOver += (_, e) =>
                 {
                     if (!e.Data.GetDataPresent(typeof(ReaderSidePanel.PageDragData))) return;
                     e.Effects = (e.KeyStates & DragDropKeyStates.ControlKey) != 0 ? DragDropEffects.Copy : DragDropEffects.Move;
-                    chip.SetResourceReference(Border.BorderBrushProperty, "Ui.Accent");
+                    card.SetResourceReference(Border.BorderBrushProperty, "Ui.Accent");
+                    ShowTempDropHighlight(true);
                     e.Handled = true;
                 };
-                chip.DragLeave += (_, _) => chip.SetResourceReference(Border.BorderBrushProperty, "Ui.Border");
-                chip.Drop += (_, e) =>
+                card.DragLeave += (_, _) => card.SetResourceReference(Border.BorderBrushProperty, "Ui.Border");
+                card.Drop += (_, e) =>
                 {
-                    chip.SetResourceReference(Border.BorderBrushProperty, "Ui.Border");
+                    card.SetResourceReference(Border.BorderBrushProperty, "Ui.Border");
+                    ShowTempDropHighlight(false);
                     if (e.Data.GetData(typeof(ReaderSidePanel.PageDragData)) is not ReaderSidePanel.PageDragData data) return;
-                    Host?.MovePages(data.Source, group, data.Pages, group.Pages.Count, (e.KeyStates & DragDropKeyStates.ControlKey) != 0);
+                    _draft?.MovePages(data.Source, group, data.Pages, group.Pages.Count, (e.KeyStates & DragDropKeyStates.ControlKey) != 0);
+                    Sync();
                     e.Handled = true;
                 };
-                DockChips.Children.Add(chip);
+                DockChips.Children.Add(card);
             }
-            int shown = visible.Count;
-            DockInfo.Text = $"{shown} window{(shown == 1 ? "" : "s")} shown · {docked.Count} minimized · max {Capacity(MergeLayout.Grid)} at once  |  Drag = move · Ctrl+drag = copy";
-            if (docked.Count == 0)
+            DockInfo.Text = "Temporary groups are not included in Merge all · drag = move · Ctrl+drag = copy";
+            if (temporaryGroups.Count == 0)
             {
-                var hint = new TextBlock { Text = "Minimized windows appear here.", FontSize = 11.5 };
+                var hint = new TextBlock { Text = "Drop pages anywhere in this shelf to create a temporary group.", FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
                 hint.SetResourceReference(TextBlock.ForegroundProperty, "Ui.Muted");
                 DockChips.Children.Add(hint);
             }
         }
 
+        /// <summary>Nút tròn nhỏ nổi trên thẻ temp shelf, chỉ hiện khi hover thẻ đó.</summary>
+        private static Border CreateChipActionButton(string iconResource, string tooltip, Action onClick)
+        {
+            var icon = new Viewbox { Width = 12, Height = 12 };
+            var path = new System.Windows.Shapes.Path { Data = (Geometry)Application.Current.FindResource(iconResource), Fill = Brushes.White };
+            icon.Child = new Canvas { Width = 24, Height = 24, Children = { path } };
+            var button = new Border
+            {
+                Width = 22, Height = 22, Margin = new Thickness(3, 0, 0, 0), CornerRadius = new CornerRadius(11),
+                Background = new SolidColorBrush(Color.FromArgb(196, 26, 32, 44)), Cursor = Cursors.Hand,
+                ToolTip = tooltip, Child = icon
+            };
+            button.MouseLeftButtonDown += (_, e) => { onClick(); e.Handled = true; };
+            return button;
+        }
+
+        private void TempShelf_DragOver(object sender, DragEventArgs e)
+        {
+            EmptyArea_DragOver(sender, e);
+            ShowTempDropHighlight(e.Effects != DragDropEffects.None);
+        }
+
+        private void TempShelf_DragLeave(object sender, DragEventArgs e) => ShowTempDropHighlight(false);
+
+        private void ShowTempDropHighlight(bool show)
+            => TempDropHighlight.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+
+        private void RequestTempThumbnail(PageRow page)
+        {
+            if (page.Thumbnail != null || _tempThumbnailRequests.ContainsKey(page)) return;
+            var cts = new System.Threading.CancellationTokenSource();
+            _tempThumbnailRequests[page] = cts;
+            _ = LoadTempThumbnailAsync(page, cts);
+        }
+
+        private async System.Threading.Tasks.Task LoadTempThumbnailAsync(PageRow page, System.Threading.CancellationTokenSource cts)
+        {
+            try { await ThumbnailCache.LoadPreviewAsync(page, cts.Token, PdfRenderPriority.Thumbnail); }
+            finally
+            {
+                if (_tempThumbnailRequests.TryGetValue(page, out var current) && ReferenceEquals(current, cts))
+                    _tempThumbnailRequests.Remove(page);
+                cts.Dispose();
+            }
+        }
+
+        private void CancelTempThumbnailRequests()
+        {
+            foreach (var cts in _tempThumbnailRequests.Values) cts.Cancel();
+            _tempThumbnailRequests.Clear();
+        }
+
         // ── Thanh công cụ ─────────────────────────────────────────────
 
-        // ── Thả trang lên vùng trống / dock = tạo cửa sổ tạm ───────────
+        // ── Thả trang: canvas tạo window, Temp shelf chỉ tạo nhóm tạm ──
 
         private void EmptyArea_DragOver(object sender, DragEventArgs e)
         {
@@ -393,32 +527,101 @@ namespace XTPdfMergeApp.Controls
                 : DragDropEffects.None;
         }
 
-        private void Workspace_Drop(object sender, DragEventArgs e) => DropIntoNewTemp(e, minimize: false);
-        private void Dock_Drop(object sender, DragEventArgs e) => DropIntoNewTemp(e, minimize: false);
-
-        private void DropIntoNewTemp(DragEventArgs e, bool minimize)
+        private void Workspace_Drop(object sender, DragEventArgs e) => DropIntoNewGroup(e, temporary: false);
+        private void Dock_Drop(object sender, DragEventArgs e)
         {
-            if (Host is not { } host || e.Data.GetData(typeof(ReaderSidePanel.PageDragData)) is not ReaderSidePanel.PageDragData data) return;
+            ShowTempDropHighlight(false);
+            DropIntoNewGroup(e, temporary: true);
+        }
+
+        private void DropIntoNewGroup(DragEventArgs e, bool temporary)
+        {
+            if (_draft == null || e.Data.GetData(typeof(ReaderSidePanel.PageDragData)) is not ReaderSidePanel.PageDragData data) return;
             e.Handled = true;
-            var temp = host.CreateTempWindow();
-            host.MovePages(data.Source, temp, data.Pages, 0, (e.KeyStates & DragDropKeyStates.ControlKey) != 0);
-            var entry = _entries.FirstOrDefault(x => ReferenceEquals(x.Window.Group, temp));
-            if (entry == null) return;
-            entry.Minimized = minimize;
-            entry.LastActive = ++_tick;
-            Relayout();
+            var target = temporary ? _draft.CreateTemporaryDocument() : _draft.CreateWindowDocument();
+            _draft.MovePages(data.Source, target, data.Pages, 0, (e.KeyStates & DragDropKeyStates.ControlKey) != 0);
+            Sync();
+            if (temporary) return;
+            var entry = _entries.FirstOrDefault(x => ReferenceEquals(x.Window.Group, target));
+            if (entry != null) { entry.LastActive = ++_tick; Relayout(); }
         }
 
         private void NewTemp_Click(object sender, RoutedEventArgs e)
         {
-            var group = Host?.CreateTempWindow();
-            if (group != null) ShowGroup(group);
+            var group = _draft?.CreateWindowDocument();
+            if (group != null) { Sync(); ShowGroup(group); }
         }
 
-        private void Undo_Click(object sender, RoutedEventArgs e) => Host?.Undo();
-        private void Redo_Click(object sender, RoutedEventArgs e) => Host?.Redo();
+        private void WindowList_Click(object sender, RoutedEventArgs e)
+        {
+            var menu = new ContextMenu { PlacementTarget = WindowListButton };
+            foreach (var entry in _entries)
+            {
+                var captured = entry;
+                var item = new MenuItem
+                {
+                    Header = $"{captured.Window.Group.FileName}  (#{_entries.IndexOf(captured) + 1})",
+                    IsCheckable = true,
+                    IsChecked = captured.Window.Visibility == Visibility.Visible
+                };
+                item.Click += (_, _) =>
+                {
+                    captured.Minimized = false;
+                    captured.LastActive = ++_tick;
+                    Relayout();
+                };
+                menu.Items.Add(item);
+            }
+            menu.IsOpen = true;
+        }
+
+        internal void UndoDraft() { _draft?.Undo(); Sync(); }
+        internal void RedoDraft() { _draft?.Redo(); Sync(); }
+        private void Undo_Click(object sender, RoutedEventArgs e) => UndoDraft();
+        private void Redo_Click(object sender, RoutedEventArgs e) => RedoDraft();
         private void Done_Click(object sender, RoutedEventArgs e) => DoneRequested?.Invoke();
-        private void MergeAll_Click(object sender, RoutedEventArgs e) => MergeAllRequested?.Invoke();
+        private async void MergeAll_Click(object sender, RoutedEventArgs e)
+        {
+            var documents = _draft?.WindowDocuments.ToList() ?? [];
+            if (documents.Count == 0) return;
+            var orderWindow = new MergeOrderWindow(documents) { Owner = Window.GetWindow(this) };
+            if (orderWindow.ShowDialog() != true) return;
+            await ExportAsync(orderWindow.OrderedDocuments);
+        }
         private void OpenFile_Click(object sender, RoutedEventArgs e) => OpenFileRequested?.Invoke();
+
+        private System.Threading.Tasks.Task ExportAsync(DocumentGroup group)
+            => ExportAsync([group]);
+
+        private async System.Threading.Tasks.Task ExportAsync(IEnumerable<DocumentGroup> documents)
+        {
+            if (_isExporting) return;
+            var pages = documents.SelectMany(g => g.Pages).Select(p => (p.SourcePath, p.PageNumber)).ToList();
+            if (pages.Count == 0) return;
+            string folder = AppSettings.LastMergeFolder;
+            if (!System.IO.Directory.Exists(folder)) folder = System.IO.Path.GetDirectoryName(pages[0].SourcePath) ?? "";
+            var dialog = new MergeSaveWindow(pages, folder) { Owner = Window.GetWindow(this) };
+            if (dialog.ShowDialog() != true) return;
+
+            string error = "";
+            Mouse.OverrideCursor = Cursors.Wait;
+            _isExporting = true;
+            bool ok;
+            try
+            {
+                pages = await AnnotationWorkingCopy.MapAsync(pages);
+                ok = await System.Threading.Tasks.Task.Run(() =>
+                    XTPdfMerger.TryMergePages(pages, dialog.OutputPath, out error, null,
+                        mergeLayersByName: dialog.Options.MergeLayers, options: dialog.Options));
+            }
+            finally { _isExporting = false; Mouse.OverrideCursor = null; }
+            if (!ok)
+            {
+                try { if (System.IO.File.Exists(dialog.OutputPath)) System.IO.File.Delete(dialog.OutputPath); } catch { }
+                MessageBox.Show(Window.GetWindow(this), "Could not create the PDF:\n" + error, "Merge", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            XTStyle.Controls.XTGrowl.Success($"Created {System.IO.Path.GetFileName(dialog.OutputPath)}", Window.GetWindow(this));
+        }
     }
 }
