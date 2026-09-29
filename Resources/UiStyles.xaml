@@ -24,7 +24,7 @@
 
     <!-- ══ Nút toolbar: icon trên, chữ 11 px dưới ══ -->
     <ControlTemplate x:Key="UiToolbarButtonTemplate" TargetType="{x:Type xt:XTButton}">
-        <Border x:Name="Bd" CornerRadius="6" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+        <Border x:Name="Bd" CornerRadius="6" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Viewbox Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}" HorizontalAlignment="Center">
                     <Canvas Width="24" Height="24">
@@ -34,7 +34,7 @@
                     </Canvas>
                 </Viewbox>
                 <TextBlock Text="{TemplateBinding Text}" Foreground="{TemplateBinding Foreground}" FontSize="11"
-                           TextAlignment="Center" HorizontalAlignment="Center" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                           TextAlignment="Center" HorizontalAlignment="Center" TextWrapping="Wrap" Margin="0,2,0,0"/>
             </StackPanel>
         </Border>
         <ControlTemplate.Triggers>
@@ -51,14 +51,14 @@
          xuống 2 dòng thay vì kéo giãn bề ngang nút đó, để mọi nút trong hàng đều nhau, ribbon không bị so le. -->
     <Style x:Key="UiToolbarButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
         <Setter Property="Template" Value="{StaticResource UiToolbarButtonTemplate}"/>
-        <Setter Property="Width" Value="66"/>
+        <Setter Property="Width" Value="54"/>
         <Setter Property="MinWidth" Value="0"/>
         <Setter Property="Height" Value="62"/>
-        <Setter Property="Padding" Value="4,0"/>
-        <Setter Property="Margin" Value="1,0"/>
+        <Setter Property="Padding" Value="1,0"/>
+        <Setter Property="Margin" Value="0"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
         <!-- Bậc icon lớn nhất trong app (giống ribbon Foxit): ribbon > thanh trái > quick access title bar > icon trong trang panel. -->
-        <Setter Property="IconSize" Value="27"/>
+        <Setter Property="IconSize" Value="26"/>
         <Setter Property="Background" Value="Transparent"/>
         <!-- Mặc định dùng thẳng Ui.Text/Ui.Icon (đậm) thay vì Ui.Muted — trước đây icon/chữ chỉ đậm lên khi hover,
              nên cả ribbon nhìn mờ nhạt khi không rê chuột. -->
@@ -208,6 +208,93 @@
         </Style.Triggers>
     </Style>
 
+    <!-- Thanh cuộn chính của PDF: rõ hơn scrollbar overlay dùng chung để luôn nhận ra vị trí
+         trong tài liệu dài. Track nhận page-up/down trực tiếp, thumb không tự ẩn. -->
+    <ControlTemplate x:Key="UiReaderVerticalScrollBarTemplate" TargetType="{x:Type ScrollBar}">
+        <Border Background="{TemplateBinding Background}" CornerRadius="5" Padding="2,4,2,6">
+            <Track x:Name="PART_Track" IsDirectionReversed="True">
+                <Track.DecreaseRepeatButton>
+                    <RepeatButton Command="ScrollBar.PageUpCommand" Focusable="False" IsTabStop="False">
+                        <RepeatButton.Template>
+                            <ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate>
+                        </RepeatButton.Template>
+                    </RepeatButton>
+                </Track.DecreaseRepeatButton>
+                <Track.Thumb>
+                    <Thumb Background="{TemplateBinding Foreground}" MinHeight="48" Focusable="False">
+                        <Thumb.Template>
+                            <ControlTemplate TargetType="Thumb">
+                                <Border Background="{TemplateBinding Background}" CornerRadius="4"/>
+                            </ControlTemplate>
+                        </Thumb.Template>
+                    </Thumb>
+                </Track.Thumb>
+                <Track.IncreaseRepeatButton>
+                    <RepeatButton Command="ScrollBar.PageDownCommand" Focusable="False" IsTabStop="False">
+                        <RepeatButton.Template>
+                            <ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate>
+                        </RepeatButton.Template>
+                    </RepeatButton>
+                </Track.IncreaseRepeatButton>
+            </Track>
+        </Border>
+    </ControlTemplate>
+
+    <Style x:Key="UiReaderVerticalScrollBar" TargetType="{x:Type ScrollBar}">
+        <Setter Property="Width" Value="14"/>
+        <Setter Property="MinWidth" Value="14"/>
+        <Setter Property="Margin" Value="0,4,3,6"/>
+        <Setter Property="Background" Value="{DynamicResource Ui.Panel}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Ui.Border}"/>
+        <Setter Property="Template" Value="{StaticResource UiReaderVerticalScrollBarTemplate}"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.28"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- Ô nhảy trang ở statusbar: TextBox riêng, không dùng XTTextBox vì control đó có nút clear (X).
+         Nền trắng giữ ô nhập nổi bật trên statusbar ở cả hai theme. -->
+    <ControlTemplate x:Key="UiStatusPageBoxTemplate" TargetType="{x:Type TextBox}">
+        <Border x:Name="Border" Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="3" SnapsToDevicePixels="True">
+            <ScrollViewer x:Name="PART_ContentHost" Padding="{TemplateBinding Padding}"
+                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                          VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Hidden"/>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                <Setter TargetName="Border" Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <Style x:Key="UiStatusPageBox" TargetType="{x:Type TextBox}">
+        <Setter Property="Height" Value="22"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Padding" Value="5,0"/>
+        <Setter Property="Background" Value="White"/>
+        <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+        <Setter Property="CaretBrush" Value="{DynamicResource Ui.Text}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Ui.Border}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Template" Value="{StaticResource UiStatusPageBoxTemplate}"/>
+        <Style.Triggers>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                <Setter Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
+            </Trigger>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="BorderBrush" Value="{DynamicResource Ui.Muted}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
     <!-- ══ Nút nhỏ icon + nhãn trong ribbon: vẫn xếp lưới để tiết kiệm chiều ngang, nhưng tên công cụ luôn nhìn thấy.
          Icon neo cố định bên trái (không center theo nội dung) để cột icon thẳng hàng dù chữ dài ngắn khác nhau
          (Rect/Cloud/Oval/Arrow/Line/Stamp) — center theo cả cụm icon+chữ làm icon bị xê dịch theo độ dài chữ. ══ -->
@@ -236,8 +323,8 @@
     <!-- Không viền: chỉ đổi nền khi hover/active (giống mọi nút khác trong ribbon), viền cố định nhìn rối và lạc tông. -->
     <Style x:Key="UiMiniIconButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
         <Setter Property="Template" Value="{StaticResource UiMiniLabeledButtonTemplate}"/>
-        <Setter Property="Width" Value="76"/>
-        <Setter Property="Height" Value="24"/>
+        <Setter Property="Width" Value="64"/>
+        <Setter Property="Height" Value="22"/>
         <Setter Property="Margin" Value="0,0,3,3"/>
         <Setter Property="MinWidth" Value="0"/>
         <Setter Property="Padding" Value="0"/>

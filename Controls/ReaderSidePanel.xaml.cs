@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using XTStyle.Controls;
 using XTPdfMergeApp.Services;
 using PageRow = XTPdfMergeApp.Domain.PagePlacement;
 using DocumentGroup = XTPdfMergeApp.Domain.WorkspaceDocument;
@@ -38,6 +39,9 @@ namespace XTPdfMergeApp.Controls
             LayersView.HiddenChanged += (path, info, hidden) => LayerHiddenChanged?.Invoke(path, info, hidden);
             CommentsView.CommentActivated += c => CommentActivated?.Invoke(c);
             CommentsView.ResolvedToggled += (c, resolved) => CommentResolvedToggled?.Invoke(c, resolved);
+            CommentsView.ReplySubmitted += (c, text) => CommentReplySubmitted?.Invoke(c, text);
+            CommentsView.EditRequested += (c, text) => CommentEditRequested?.Invoke(c, text);
+            CommentsView.DeleteRequested += c => CommentDeleteRequested?.Invoke(c);
             CommentsView.CountChanged += count => { _commentCount = count; if (_tab == Tab.Comments) UpdateCount(); };
             LayersView.ExportViewRequested += (names, view) => ExportLayerViewRequested?.Invoke(names, view);
             LayersView.CountChanged += count =>
@@ -58,6 +62,9 @@ namespace XTPdfMergeApp.Controls
         internal event Action<string, PdfLayerInfo, IReadOnlySet<string>>? LayerHiddenChanged;
         /// <summary>Xuất PDF theo View layer hiện tại: (tên layer đang tắt, tên View).</summary>
         internal event Action<IReadOnlySet<string>, string>? ExportLayerViewRequested;
+        /// <summary>Panel vừa tự ghi thẳng vào 1 file nguồn (sửa bookmark) — ReaderWindow cập nhật lại dấu
+        /// (size/giờ ghi) đã biết của file đó, để không tự báo nhầm "đã đổi trên đĩa".</summary>
+        internal event Action<string>? SourceFileWritten;
 
         /// <summary>Lệnh trên các trang đang chọn (menu chuột phải, phím tắt) — ReaderWindow thực thi.</summary>
         internal event Action<PageCommand>? PageCommandRequested;
@@ -290,9 +297,13 @@ namespace XTPdfMergeApp.Controls
             => _group == null ? Array.Empty<PageRow>()
                 : ThumbnailList.SelectedItems.Cast<PageRow>().OrderBy(p => _group.Pages.IndexOf(p)).ToList();
 
+        /// <summary>Trang đang xem trong Viewer — dùng làm mặc định khi "Add bookmark".</summary>
+        private PageRow? _currentRow;
+
         /// <summary>Viewer vừa đổi trang đang xem.</summary>
         internal void SetCurrent(DocumentGroup? group, PageRow? row)
         {
+            _currentRow = row;
             if (!ReferenceEquals(_group, group))
             {
                 if (_group != null) _group.Pages.CollectionChanged -= OnPagesChanged;
@@ -337,8 +348,10 @@ namespace XTPdfMergeApp.Controls
         internal event Action? CollapseRequested;
         private void CollapsePanel_Click(object sender, RoutedEventArgs e) => CollapseRequested?.Invoke();
 
-        /// <summary>Hides the list part and keeps only the icon rail (Foxit style); a click on a rail tab brings it back.</summary>
+        /// <summary>Hides the list part and keeps only the icon rail (Foxit style); clicking a rail tab brings it back.</summary>
         internal void SetCollapsed(bool collapsed) => PanelContent.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+
+        private bool IsCollapsed => PanelContent.Visibility != Visibility.Visible;
 
         /// <summary>Thanh "N pages selected" chỉ hiện khi chọn từ 2 trang (1 trang luôn được chọn = trang đang xem).</summary>
         private void UpdateSelectionBar()
@@ -371,9 +384,9 @@ namespace XTPdfMergeApp.Controls
 
         /// <summary>Chuyển tab theo tên ("Pages", "Bookmarks", "Layers") — cho bảng lệnh.</summary>
         internal void ShowPanel(string name)
-            => SetTab(name switch { "Bookmarks" => Tab.Bookmarks, "Layers" => Tab.Layers, "Find" => Tab.Find, "Comments" => Tab.Comments, _ => Tab.Thumbnails });
+            => SetTab(name switch { "Bookmarks" => Tab.Bookmarks, "Layers" => Tab.Layers, "Find" => Tab.Find, "Comments" => Tab.Comments, _ => Tab.Thumbnails }, toggleIfAlreadyOpen: false);
 
-        private void CommentsTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Comments);
+        private void CommentsTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Comments, toggleIfAlreadyOpen: true);
 
         /// <summary>Chú thích của các file trong window đang xem (nạp nền, có cache).</summary>
         private Task RefreshCommentsAsync()
@@ -406,38 +419,32 @@ namespace XTPdfMergeApp.Controls
 
         internal event Action<CommentInfo>? CommentActivated;
         internal event Action<CommentInfo, bool>? CommentResolvedToggled;
+        internal event Action<CommentInfo, string>? CommentReplySubmitted;
+        internal event Action<CommentInfo, string>? CommentEditRequested;
+        internal event Action<CommentInfo>? CommentDeleteRequested;
 
-        private void FindTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Find);
+        private void FindTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Find, toggleIfAlreadyOpen: true);
 
         /// <summary>Panel Find (ReaderWindow nối sự kiện / cấp danh sách file).</summary>
         internal FindPanel Find => FindView;
 
-        private void ThumbnailTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Thumbnails);
-        private void BookmarkTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Bookmarks);
-        private void LayerTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Layers);
+        private void ThumbnailTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Thumbnails, toggleIfAlreadyOpen: true);
+        private void BookmarkTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Bookmarks, toggleIfAlreadyOpen: true);
+        private void LayerTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Layers, toggleIfAlreadyOpen: true);
 
-        /// <summary>Bấm nút Settings trên thanh trái (ReaderWindow hiện/ẩn trang Settings phủ lên panel + vùng xem).</summary>
-        internal event Action? SettingsRequested;
         /// <summary>Chọn 1 tab khác (Pages/Bookmarks/Layers) — ReaderWindow đóng trang Settings nếu đang mở.</summary>
         internal event Action? RailTabChosen;
         /// <summary>Tab đổi: true = tab cần panel rộng (Layers/Find/Comments/Bookmarks), false = Pages.</summary>
         internal event Action<bool>? WideTabChanged;
 
-        private void SettingsTab_Click(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
-
-        /// <summary>Đánh dấu nút Settings đang bật (và tắt nút tab hiện tại) khi trang Settings mở.</summary>
-        internal void SetSettingsActive(bool active)
+        private void SetTab(Tab tab, bool toggleIfAlreadyOpen = false)
         {
-            SettingsTabButton.Tag = active ? "Active" : null;
-            ThumbnailTabButton.Tag = !active && _tab == Tab.Thumbnails ? "Active" : null;
-            BookmarkTabButton.Tag = !active && _tab == Tab.Bookmarks ? "Active" : null;
-            LayerTabButton.Tag = !active && _tab == Tab.Layers ? "Active" : null;
-            FindTabButton.Tag = !active && _tab == Tab.Find ? "Active" : null;
-            CommentsTabButton.Tag = !active && _tab == Tab.Comments ? "Active" : null;
-        }
-
-        private void SetTab(Tab tab)
-        {
+            // Nhấn lại chính tab đang mở = thu panel về rail. Khi rail đang thu, nhấn tab đó mở lại như bình thường.
+            if (toggleIfAlreadyOpen && _tab == tab && !IsCollapsed)
+            {
+                CollapseRequested?.Invoke();
+                return;
+            }
             RailTabChosen?.Invoke();
             _tab = tab;
             ThumbnailTabButton.Tag = tab == Tab.Thumbnails ? "Active" : null;
@@ -454,6 +461,7 @@ namespace XTPdfMergeApp.Controls
             LayersView.Visibility = tab == Tab.Layers ? Visibility.Visible : Visibility.Collapsed;
             PanelEmptyText.Visibility = Visibility.Collapsed;
             PanelSourceText.Visibility = tab == Tab.Bookmarks ? Visibility.Visible : Visibility.Collapsed;
+            BookmarkActionsBar.Visibility = tab == Tab.Bookmarks ? Visibility.Visible : Visibility.Collapsed;
             UpdateCount();
             WideTabChanged?.Invoke(tab != Tab.Thumbnails);
             if (tab == Tab.Comments) _ = RefreshCommentsAsync();
@@ -584,6 +592,77 @@ namespace XTPdfMergeApp.Controls
         {
             if ((sender as FrameworkElement)?.DataContext is not PdfBookmarkNode { PageNumber: int page } || _sourcePath == null) return;
             BookmarkActivated?.Invoke(_sourcePath, page);
+        }
+
+        private void AddBookmark_Click(object sender, RoutedEventArgs e) => _ = AddBookmarkAsync(Array.Empty<int>());
+
+        private void BookmarkAddChild_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is PdfBookmarkNode node) _ = AddBookmarkAsync(node.Path);
+        }
+
+        private async Task AddBookmarkAsync(IReadOnlyList<int> parentPath)
+        {
+            if (_sourcePath is not { } path || _currentRow is not { } row || !string.Equals(row.SourcePath, path, StringComparison.OrdinalIgnoreCase))
+            {
+                XTGrowl.Info("Open a page from this file first.", Window.GetWindow(this));
+                return;
+            }
+            var prompt = new TextPromptWindow("Add bookmark", "Bookmark name:", $"Page {row.PageNumber}", null) { Owner = Window.GetWindow(this) };
+            if (prompt.ShowDialog() != true || prompt.Value is not { } title) return;
+            await RunOutlineEditAsync(path, () => PdfOutlineService.AddBookmark(path, parentPath, title, row.PageNumber));
+        }
+
+        private void BookmarkRename_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is not PdfBookmarkNode node || _sourcePath is not { } path) return;
+            var prompt = new TextPromptWindow("Rename bookmark", "Bookmark name:", node.Title, null) { Owner = Window.GetWindow(this) };
+            if (prompt.ShowDialog() != true || prompt.Value is not { } title) return;
+            _ = RunOutlineEditAsync(path, () => PdfOutlineService.RenameBookmark(path, node.Path, title));
+        }
+
+        private void BookmarkDelete_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is not PdfBookmarkNode node || _sourcePath is not { } path) return;
+            string extra = node.Children.Count > 0 ? $" and its {node.Children.Count} sub-bookmark(s)" : "";
+            if (MessageBox.Show(Window.GetWindow(this), $"Delete \"{node.Title}\"{extra}?", "Delete bookmark",
+                    MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+            _ = RunOutlineEditAsync(path, () => PdfOutlineService.DeleteBookmark(path, node.Path));
+        }
+
+        private void BookmarkMoveUp_Click(object sender, RoutedEventArgs e) => MoveBookmark(sender, -1);
+        private void BookmarkMoveDown_Click(object sender, RoutedEventArgs e) => MoveBookmark(sender, +1);
+
+        private void MoveBookmark(object sender, int delta)
+        {
+            if ((sender as FrameworkElement)?.DataContext is not PdfBookmarkNode node || _sourcePath is not { } path) return;
+            _ = RunOutlineEditAsync(path, () => PdfOutlineService.MoveBookmark(path, node.Path, delta));
+        }
+
+        /// <summary>Đóng handle PDFium của file → sửa outline bằng iText (thread nền) → mở khoá → đọc lại cây bookmark.
+        /// Không đổi ảnh trang (geometryChanged=false), chỉ đổi cây outline.</summary>
+        private Task RunOutlineEditAsync(string path, Action edit)
+            => RunOutlineEditAsync(path, () => { edit(); return true; });
+
+        private async Task RunOutlineEditAsync(string path, Func<bool> edit)
+        {
+            try
+            {
+                AnnotationStore.ReleaseReader(path);
+                using (await PdfThumbnailService.SuspendDocumentAsync(path, TimeSpan.FromSeconds(3)))
+                {
+                    bool changed = await Task.Run(edit);
+                    if (!changed) return;
+                }
+            }
+            catch (Exception ex)
+            {
+                XTGrowl.Error("Could not update bookmarks: " + ex.Message, Window.GetWindow(this));
+                return;
+            }
+            SourceFileWritten?.Invoke(path);
+            _bookmarks.Remove(path);
+            await RefreshSourceTabAsync();
         }
     }
 }

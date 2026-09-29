@@ -92,9 +92,9 @@
                                     <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.actual}" Text="Actual size"
                                                  ToolTip="Actual size (100%)" Click="ReaderActualSize_Click"/>
                                     <StackPanel VerticalAlignment="Center">
-                                        <xt:XTButton Style="{StaticResource UiMiniIconButton}" Width="100" Icon="{StaticResource Ui.Icon.fitp}" Text="Fit page"
+                                        <xt:XTButton Style="{StaticResource UiMiniIconButton}" Width="70" Icon="{StaticResource Ui.Icon.fitp}" Text="Fit page"
                                                      ToolTip="Fit page" Click="ReaderFitPage_Click"/>
-                                        <xt:XTButton Style="{StaticResource UiMiniIconButton}" Width="100" Icon="{StaticResource Ui.Icon.fitw}" Text="Fit width"
+                                        <xt:XTButton Style="{StaticResource UiMiniIconButton}" Width="70" Icon="{StaticResource Ui.Icon.fitw}" Text="Fit width"
                                                      ToolTip="Fit width" Click="ReaderFitWidth_Click"/>
                                     </StackPanel>
                                 </StackPanel>
@@ -104,7 +104,7 @@
                             <!-- Rotate view -->
                             <StackPanel VerticalAlignment="Bottom">
                                 <StackPanel Orientation="Horizontal">
-                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.rotl}" Text="Rotate left"
+                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.rotl}" Text="Rotate&#x0a;left"
                                                  ToolTip="Rotate the view left (view only, the file is not changed)" Click="ReaderRotateLeft_Click"/>
                                     <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.rotr}" Text="Rotate right"
                                                  ToolTip="Rotate the view right (view only, the file is not changed)" Click="ReaderRotateRight_Click"/>
@@ -119,17 +119,27 @@
                                                  ToolTip="Type text on the page: click where it goes, type, then Enter (Shift+Enter for a new line). Click existing text to edit." Click="ReaderTypewriterTool_Click"/>
                                     <xt:XTButton x:Name="ReaderCommentToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.note}" Text="Note"
                                                  ToolTip="Sticky note: click the page, type, then Enter. Hover the icon to read it, click to edit." Click="ReaderCommentTool_Click"/>
+                                    <xt:XTButton x:Name="ReaderCalloutToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.callout}" Text="Callout"
+                                                 ToolTip="Callout: click the point to highlight, then enter the note text" Click="ReaderCalloutTool_Click"/>
+                                    <xt:XTButton x:Name="ReaderPencilToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.pencil}" Text="Pencil"
+                                                 ToolTip="Draw a freehand PDF Ink stroke. It remains editable/selectable and is saved with the PDF." Click="ReaderPencilTool_Click"/>
                                     <xt:XTButton x:Name="ReaderHighlightTextButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl_text}" Text="Highlight text"
                                                  ToolTip="Drag across text to highlight it (needs selectable text)" Click="ReaderHighlightText_Click"/>
                                     <xt:XTButton x:Name="ReaderHighlightAreaButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl_area}" Text="Highlight area"
                                                  ToolTip="Drag a rectangle to highlight an area (also works on scanned pages and drawings)" Click="ReaderHighlightArea_Click"/>
-                                    <!-- Underline/Strikethrough: dùng ít hơn Highlight, gom vào 1 cột 2 ô nhỏ (kiểu Foxit) thay vì mỗi cái 1 nút to riêng. -->
-                                    <StackPanel VerticalAlignment="Center">
-                                        <xt:XTButton x:Name="ReaderUnderlineToolButton" Style="{StaticResource UiMiniIconButton}" Width="100" Icon="{StaticResource Ui.Icon.underline}" Text="Underline"
+                                    <!-- Markup tools stay in a compact 2×2 grid, avoiding a flyout during day-to-day reviewing. -->
+                                    <Grid VerticalAlignment="Center">
+                                        <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="94"/><ColumnDefinition Width="78"/></Grid.ColumnDefinitions>
+                                        <xt:XTButton x:Name="ReaderUnderlineToolButton" Grid.Row="0" Grid.Column="0" Style="{StaticResource UiMiniIconButton}" Width="94" Icon="{StaticResource Ui.Icon.underline}" Text="Underline"
                                                      ToolTip="Underline: drag across text" Click="ReaderUnderlineTool_Click"/>
-                                        <xt:XTButton x:Name="ReaderStrikethroughToolButton" Style="{StaticResource UiMiniIconButton}" Width="100" Icon="{StaticResource Ui.Icon.strike}" Text="Strike"
+                                        <xt:XTButton x:Name="ReaderStrikethroughToolButton" Grid.Row="0" Grid.Column="1" Style="{StaticResource UiMiniIconButton}" Icon="{StaticResource Ui.Icon.strike}" Text="Strike"
                                                      ToolTip="Strikethrough: drag across text" Click="ReaderStrikethroughTool_Click"/>
-                                    </StackPanel>
+                                        <xt:XTButton x:Name="ReaderSquigglyToolButton" Grid.Row="1" Grid.Column="0" Style="{StaticResource UiMiniIconButton}" Width="94" Icon="{StaticResource Ui.Icon.squiggly}" Text="Squiggly"
+                                                     ToolTip="Squiggly underline: drag across text" Click="ReaderSquigglyTool_Click"/>
+                                        <xt:XTButton x:Name="ReaderEraserToolButton" Grid.Row="1" Grid.Column="1" Style="{StaticResource UiMiniIconButton}" Icon="{StaticResource Ui.Icon.trash}" Text="Eraser"
+                                                     ToolTip="Delete an annotation: click it. Undo restores it." Click="ReaderEraserTool_Click"/>
+                                    </Grid>
                                 </StackPanel>
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Comment"/>
                             </StackPanel>
@@ -181,6 +191,8 @@
                                 <StackPanel Orientation="Horizontal">
                                     <xt:XTButton x:Name="ReaderFindButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.search}" Text="Find"
                                                  ToolTip="Find in document (Ctrl+F)" Click="ReaderFind_Click"/>
+                                    <xt:XTButton x:Name="ReaderOcrButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.selecttext}" Text="OCR"
+                                                 ToolTip="Create a searchable copy with offline Windows OCR" Click="ReaderOcr_Click"/>
                                     <xt:XTButton x:Name="ReaderPrintButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.print}" Text="Print"
                                                  ToolTip="Print (Ctrl+P)" Click="ReaderPrint_Click"/>
                                     <xt:XTButton x:Name="ReaderSecurityButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.lock}" Text="Protect"
@@ -310,6 +322,11 @@
                             <Setter Property="Panel.ZIndex" Value="5"/>
                         </Style>
                     </Canvas.Resources>
+                    <Polyline x:Name="ReaderInkPreview" Stroke="{DynamicResource Ui.Accent}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                              IsHitTestVisible="False" Visibility="Collapsed"/>
+                    <Line x:Name="ReaderCalloutLeader" Stroke="{DynamicResource Ui.Danger}" StrokeThickness="2" IsHitTestVisible="False" Visibility="Collapsed"/>
+                    <Border x:Name="ReaderCalloutPreview" Width="240" Height="72" BorderBrush="{DynamicResource Ui.Danger}" BorderThickness="1.5" Background="#22FFFFFF"
+                            IsHitTestVisible="False" Visibility="Collapsed"/>
                     <Border x:Name="AnnotationSelectionBox" Visibility="Collapsed" IsHitTestVisible="False" BorderThickness="1.5" CornerRadius="3"
                             BorderBrush="{DynamicResource Ui.Accent}" Background="#1A2563EB"/>
                     <!-- Vẽ/resize hình (Rect/Cloud dùng Rectangle bo góc, Oval dùng Ellipse, Line/Arrow dùng Line + mũi tên): xem trước bằng
@@ -500,8 +517,8 @@
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.chevl}"
                                  ToolTip="Previous page" Click="ReaderPreviousPage_Click"/>
-                    <TextBox x:Name="ReaderPageBox" Width="42" Height="22" Margin="3,0,0,0"
-                             TextAlignment="Center" VerticalContentAlignment="Center"
+                    <TextBox x:Name="ReaderPageBox" Style="{StaticResource UiStatusPageBox}" Width="42" Margin="3,0,0,0"
+                             TextAlignment="Center" MaxLength="6" ToolTip="Type a page number, then press Enter"
                              KeyDown="ReaderPageBox_KeyDown" LostFocus="ReaderPageBox_LostFocus"/>
                     <TextBlock x:Name="ReaderPageTotalText" MinWidth="44" Margin="6,0,6,0"
                                VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>

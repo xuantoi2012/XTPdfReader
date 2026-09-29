@@ -51,7 +51,7 @@ internal static class Program
             }
             if (!baseline)
             {
-                TestCacheAndOwnership(); TestBulkPages(); TestPresentationQueue(); TestViewportScheduling(); TestRetainedRefinement(); TestViewportMotion(); TestReaderZoomMath();
+                TestCacheAndOwnership(); TestBulkPages(); TestPresentationQueue(); TestViewportScheduling(); TestRetainedRefinement(); TestViewportMotion(); TestTwoPageLayout(); TestReaderZoomMath(); TestPrintRasterPlan(); TestOutlineEditing(); TestSquigglyAnnotation(); TestInkAnnotation(); TestCalloutAnnotation(); TestReplyAnnotation(); TestPdfLinksAsync().GetAwaiter().GetResult(); TestPdfSecurityAsync().GetAwaiter().GetResult(); TestPdfProtectionRewriteAsync().GetAwaiter().GetResult();
                 TestGateAsync().GetAwaiter().GetResult();
             }
             RunNativeAsync(baseline).GetAwaiter().GetResult();
@@ -131,6 +131,292 @@ internal static class Program
         Check(document.LoadedThumbnailCount == 0 && document.Pages[0].Index == 1, "Removal refreshes indices and progress");
         Check(!document.IsThumbnailLoading, "Lazy thumbnails do not leave a perpetual loading spinner");
         Console.WriteLine($"10,000 page rows, one bulk notification: {sw.Elapsed.TotalMilliseconds:F1} ms");
+    }
+
+    static void TestPrintRasterPlan()
+    {
+        // A3 ngang, actual size: standard in một/two dải nhỏ; CAD high = 600 DPI nhưng không dồn cả trang vào RAM.
+        var standard = PdfPrintService.GetRasterPlan(1654, 1169, PrintQuality.Standard);
+        var cadHigh = PdfPrintService.GetRasterPlan(1654, 1169, PrintQuality.CadHigh);
+        Check(standard.EffectiveDpi == 300 && standard.FullWidth is > 4_900 and < 5_000, "Print standard A3 uses 300 DPI");
+        Check(cadHigh.EffectiveDpi == 600 && cadHigh.FullWidth is > 9_900 and < 10_000 && cadHigh.BandHeight < cadHigh.FullHeight,
+            "Print CAD high quality uses 600 DPI in memory-bounded bands");
+        Check((long)cadHigh.FullWidth * cadHigh.BandHeight <= 12_000_000, "Print band stays within pixel memory budget");
+        var oversized = PdfPrintService.GetRasterPlan(4600, 3300, PrintQuality.CadHigh); // A0
+        Check(Math.Max(oversized.FullWidth, oversized.FullHeight) == 20_000 && oversized.EffectiveDpi < 600,
+            "Print caps oversized sheets without distorting aspect ratio");
+    }
+
+    static async Task TestPdfLinksAsync()
+    {
+        string path = System.IO.Path.Combine(Output, "links.pdf");
+        using (var document = new PdfDocument(new PdfWriter(path)))
+        {
+            var first = document.AddNewPage(new PageSize(400, 300));
+            var second = document.AddNewPage(new PageSize(400, 300));
+            var web = new iText.Kernel.Pdf.Annot.PdfLinkAnnotation(new Rectangle(100, 100, 100, 100));
+            web.SetAction(iText.Kernel.Pdf.Action.PdfAction.CreateURI("https://intranet.example.test/spec"));
+            first.AddAnnotation(web);
+            var goTo = new iText.Kernel.Pdf.Annot.PdfLinkAnnotation(new Rectangle(220, 100, 100, 100));
+            goTo.SetAction(iText.Kernel.Pdf.Action.PdfAction.CreateGoTo(iText.Kernel.Pdf.Navigation.PdfExplicitDestination.CreateFit(second)));
+            first.AddAnnotation(goTo);
+            document.AddNamedDestination("section-2", iText.Kernel.Pdf.Navigation.PdfExplicitDestination.CreateFit(second).GetPdfObject());
+            var namedGoTo = new iText.Kernel.Pdf.Annot.PdfLinkAnnotation(new Rectangle(100, 190, 100, 80));
+            namedGoTo.SetAction(iText.Kernel.Pdf.Action.PdfAction.CreateGoTo("section-2"));
+            first.AddAnnotation(namedGoTo);
+        }
+        var webTarget = await PdfLinkService.FindAtAsync(path, 1, .375, .5);
+        var pageTarget = await PdfLinkService.FindAtAsync(path, 1, .675, .5);
+        Check(webTarget?.Uri == "https://intranet.example.test/spec" && webTarget.PageNumber == null, "PDF URI link hit-test");
+        Check(pageTarget?.PageNumber == 2 && pageTarget.Uri == null, "PDF GoTo link hit-test");
+        var namedTarget = await PdfLinkService.FindAtAsync(path, 1, .375, .25);
+        Check(namedTarget?.PageNumber == 2 && namedTarget.Uri == null, "PDF named GoTo link hit-test");
+        AnnotationStore.Forget(path);
+
+        string encryptedPath = System.IO.Path.Combine(Output, "encrypted-links.pdf");
+        using (var writer = new PdfWriter(encryptedPath, new WriterProperties().SetStandardEncryption(
+            System.Text.Encoding.UTF8.GetBytes("link-user"), System.Text.Encoding.UTF8.GetBytes("link-owner"),
+            EncryptionConstants.ALLOW_COPY, EncryptionConstants.ENCRYPTION_AES_128)))
+        using (var document = new PdfDocument(writer))
+        {
+            var first = document.AddNewPage(new PageSize(400, 300));
+            var second = document.AddNewPage(new PageSize(400, 300));
+            var goTo = new iText.Kernel.Pdf.Annot.PdfLinkAnnotation(new Rectangle(100, 100, 100, 100));
+            goTo.SetAction(iText.Kernel.Pdf.Action.PdfAction.CreateGoTo(iText.Kernel.Pdf.Navigation.PdfExplicitDestination.CreateFit(second)));
+            first.AddAnnotation(goTo);
+        }
+        await PdfThumbnailService.SetDocumentPasswordAsync(encryptedPath, "link-user");
+        var encryptedTarget = await PdfLinkService.FindAtAsync(encryptedPath, 1, .375, .5);
+        Check(encryptedTarget?.PageNumber == 2, "PDF link uses the in-memory password for encrypted documents");
+        AnnotationStore.Forget(encryptedPath);
+        await PdfThumbnailService.ForgetDocumentPasswordAsync(encryptedPath);
+
+        string bookmarkPath = System.IO.Path.Combine(Output, "encrypted-bookmarks.pdf");
+        using (var writer = new PdfWriter(bookmarkPath, new WriterProperties().SetStandardEncryption(
+            System.Text.Encoding.UTF8.GetBytes("bookmark-user"), System.Text.Encoding.UTF8.GetBytes("bookmark-owner"),
+            EncryptionConstants.ALLOW_COPY, EncryptionConstants.ENCRYPTION_AES_128)))
+        using (var document = new PdfDocument(writer))
+        {
+            document.AddNewPage(new PageSize(400, 300));
+            var second = document.AddNewPage(new PageSize(400, 300));
+            document.GetOutlines(false).AddOutline("Second page")
+                .AddDestination(iText.Kernel.Pdf.Navigation.PdfExplicitDestination.CreateFit(second));
+        }
+        await PdfThumbnailService.SetDocumentPasswordAsync(bookmarkPath, "bookmark-user");
+        var bookmarks = PdfOutlineService.ReadBookmarks(bookmarkPath);
+        Check(bookmarks.Count == 1 && bookmarks[0].Title == "Second page" && bookmarks[0].PageNumber == 2,
+            "Bookmarks use the in-memory password for encrypted documents");
+        await PdfThumbnailService.ForgetDocumentPasswordAsync(bookmarkPath);
+
+        string layersPath = System.IO.Path.Combine(Output, "encrypted-layers.pdf");
+        using (var writer = new PdfWriter(layersPath, new WriterProperties().SetStandardEncryption(
+            System.Text.Encoding.UTF8.GetBytes("layer-user"), System.Text.Encoding.UTF8.GetBytes("layer-owner"),
+            EncryptionConstants.ALLOW_COPY, EncryptionConstants.ENCRYPTION_AES_128)))
+        using (var document = new PdfDocument(writer))
+        {
+            _ = new iText.Kernel.Pdf.Layer.PdfLayer("Secure layer", document);
+            document.AddNewPage(new PageSize(400, 300));
+        }
+        await PdfThumbnailService.SetDocumentPasswordAsync(layersPath, "layer-user");
+        var layers = PdfLayerService.ReadLayers(layersPath);
+        Check(layers.Names.Values.Contains("Secure layer"), "Layers use the in-memory password for encrypted documents");
+        await PdfThumbnailService.ForgetDocumentPasswordAsync(layersPath);
+
+        string editablePath = System.IO.Path.Combine(Output, "encrypted-owner-edit.pdf");
+        using (var writer = new PdfWriter(editablePath, new WriterProperties().SetStandardEncryption(
+            System.Text.Encoding.UTF8.GetBytes("edit-user"), System.Text.Encoding.UTF8.GetBytes("edit-owner"),
+            EncryptionConstants.ALLOW_COPY, EncryptionConstants.ENCRYPTION_AES_128)))
+        using (var document = new PdfDocument(writer)) document.AddNewPage(new PageSize(400, 300));
+        await PdfThumbnailService.SetDocumentPasswordAsync(editablePath, "edit-owner");
+        PdfPageEditService.RotatePages(editablePath, new[] { 1 }, 90);
+        var editProperties = new ReaderProperties().SetPassword(System.Text.Encoding.UTF8.GetBytes("edit-user"));
+        using (var edited = new PdfDocument(new PdfReader(editablePath, editProperties)))
+            Check(edited.GetPage(1).GetRotation() == 90, "Owner password supports incremental edits to encrypted PDF");
+        await PdfThumbnailService.ForgetDocumentPasswordAsync(editablePath);
+    }
+
+    static async Task TestPdfSecurityAsync()
+    {
+        string path = System.IO.Path.Combine(Output, "security.pdf");
+        using (var writer = new PdfWriter(path, new WriterProperties().SetStandardEncryption(
+            System.Text.Encoding.UTF8.GetBytes("user-password"),
+            System.Text.Encoding.UTF8.GetBytes("owner-password"),
+            EncryptionConstants.ALLOW_PRINTING,
+            EncryptionConstants.ENCRYPTION_AES_128)))
+        using (var document = new PdfDocument(writer)) document.AddNewPage();
+
+        await PdfThumbnailService.SetDocumentPasswordAsync(path, "user-password");
+        var info = await PdfSecurityService.ReadAsync(path);
+        Check(info.Error == null && info.IsEncrypted && !info.IsOwner,
+            $"Security service reads encrypted user document (error={info.Error}, encrypted={info.IsEncrypted}, owner={info.IsOwner})");
+        Check(info.CanPrint && !info.CanCopy && !info.CanModify && !info.CanAnnotate && !info.CanFillForms,
+            "Security service reports declared PDF permissions");
+        await PdfThumbnailService.ForgetDocumentPasswordAsync(path);
+    }
+
+    static void TestSquigglyAnnotation()
+    {
+        string path = System.IO.Path.Combine(Output, "squiggly.pdf");
+        using (var document = new PdfDocument(new PdfWriter(path)))
+        {
+            var page = document.AddNewPage(new PageSize(400, 300));
+            var geometry = PdfQuickAnnotationService.GetGeometry(page);
+            var spec = new QuickAnnotationSpec("test-squiggly", QuickAnnotationKind.Squiggly, 1, .1, .2, .8, .3, "Review this")
+            {
+                Format = PdfQuickAnnotationService.EncodeTextHighlight(new[] { (.1, .2, .8, .3) }),
+                Color = "#ED1C24"
+            };
+            PdfQuickAnnotationService.AddGenerated(document, page, spec, new PdfQuickAnnotationService.FontSet());
+            Check(page.GetAnnotations().Count == 1 && PdfName.Squiggly.Equals(page.GetAnnotations()[0].GetSubtype()), "Squiggly writes a standard PDF Squiggly annotation");
+        }
+        using (var document = new PdfDocument(new PdfReader(path)))
+        {
+            var page = document.GetPage(1);
+            var annotations = PdfQuickAnnotationService.ReadAnnotations(page, PdfQuickAnnotationService.GetGeometry(page), 1);
+            Check(annotations.Count == 1 && annotations[0].Kind == QuickAnnotationKind.Squiggly, "Squiggly annotations round-trip as editable markup");
+            Check(PdfQuickAnnotationService.TextHighlightRects(annotations[0].Format).Count == 1, "Squiggly preserves its text line geometry");
+        }
+    }
+
+    static void TestOutlineEditing()
+    {
+        string path = System.IO.Path.Combine(Output, "outline-editing.pdf");
+        using (var document = new PdfDocument(new PdfWriter(path)))
+        {
+            document.AddNewPage(new PageSize(400, 300));
+            document.AddNewPage(new PageSize(400, 300));
+            var root = document.GetOutlines(false);
+            var first = root.AddOutline("First");
+            first.AddDestination(iText.Kernel.Pdf.Navigation.PdfExplicitDestination.CreateFit(document.GetPage(1)));
+            var child = first.AddOutline("Child");
+            child.AddDestination(iText.Kernel.Pdf.Navigation.PdfExplicitDestination.CreateFit(document.GetPage(2)));
+            var second = root.AddOutline("Second");
+            second.AddDestination(iText.Kernel.Pdf.Navigation.PdfExplicitDestination.CreateFit(document.GetPage(2)));
+        }
+
+        Check(PdfOutlineService.MoveBookmark(path, new[] { 1 }, -1), "Bookmark move reports a real reorder");
+        var moved = PdfOutlineService.ReadBookmarks(path);
+        Check(moved.Select(x => x.Title).SequenceEqual(new[] { "Second", "First" }), "Bookmark move rewrites sibling order");
+        Check(moved[1].Children.Count == 1 && moved[1].Children[0].Title == "Child" && moved[1].Children[0].PageNumber == 2,
+            "Bookmark reorder preserves descendants and destinations");
+        Check(!PdfOutlineService.MoveBookmark(path, new[] { 0 }, -1), "Bookmark move leaves the first sibling unchanged");
+        PdfOutlineService.RenameBookmark(path, new[] { 0 }, "Renamed");
+        Check(PdfOutlineService.ReadBookmarks(path)[0].Title == "Renamed", "Bookmark rename persists after reorder");
+
+        // AddBookmark writes through PdfPageEditService.EditInPlace (append mode) onto a file that already
+        // has an outline tree — this used to silently no-op (new object written to disk, but the parent's
+        // /First·/Last never repointed at it, so it never showed up on read-back). Guard against regressing.
+        PdfOutlineService.AddBookmark(path, Array.Empty<int>(), "Appended top-level", 2);
+        var afterAdd = PdfOutlineService.ReadBookmarks(path);
+        Check(afterAdd.Count == 3 && afterAdd[2].Title == "Appended top-level" && afterAdd[2].PageNumber == 2,
+            "AddBookmark on a file that already has an outline tree is visible on read-back");
+        PdfOutlineService.AddBookmark(path, afterAdd[2].Path, "Nested under appended", 1);
+        var afterNestedAdd = PdfOutlineService.ReadBookmarks(path);
+        Check(afterNestedAdd[2].Children.Count == 1 && afterNestedAdd[2].Children[0].Title == "Nested under appended",
+            "AddBookmark under a non-root parent is visible on read-back");
+        PdfOutlineService.DeleteBookmark(path, afterNestedAdd[2].Path);
+        Check(PdfOutlineService.ReadBookmarks(path).Count == 2, "DeleteBookmark removes the node (and its child) from the tree");
+
+        // Same AddBookmark path, but the very first bookmark ever added to a document with no outline at all
+        // (a different code path inside GetOrCreateRoot — no pre-existing /Outlines dictionary to hang off of).
+        string blankPath = System.IO.Path.Combine(Output, "outline-from-scratch.pdf");
+        using (var document = new PdfDocument(new PdfWriter(blankPath))) document.AddNewPage(new PageSize(400, 300));
+        PdfOutlineService.AddBookmark(blankPath, Array.Empty<int>(), "First ever bookmark", 1);
+        var fromScratch = PdfOutlineService.ReadBookmarks(blankPath);
+        Check(fromScratch.Count == 1 && fromScratch[0].Title == "First ever bookmark" && fromScratch[0].PageNumber == 1,
+            "AddBookmark creates the outline tree from scratch on a file with none");
+    }
+
+    static void TestInkAnnotation()
+    {
+        string path = System.IO.Path.Combine(Output, "ink.pdf");
+        var stroke = new[] { (.15, .2), (.3, .45), (.6, .35), (.8, .7) };
+        using (var document = new PdfDocument(new PdfWriter(path)))
+        {
+            var page = document.AddNewPage(new PageSize(400, 300));
+            var spec = new QuickAnnotationSpec("test-ink", QuickAnnotationKind.Ink, 1, .145, .195, .805, .705, "")
+            {
+                Format = PdfQuickAnnotationService.EncodeInkPoints(stroke),
+                Color = "#D74B31"
+            };
+            PdfQuickAnnotationService.AddGenerated(document, page, spec, new PdfQuickAnnotationService.FontSet());
+            Check(page.GetAnnotations().Count == 1 && PdfName.Ink.Equals(page.GetAnnotations()[0].GetSubtype()), "Pencil writes a standard PDF Ink annotation");
+        }
+        using (var document = new PdfDocument(new PdfReader(path)))
+        {
+            var page = document.GetPage(1);
+            var annotations = PdfQuickAnnotationService.ReadAnnotations(page, PdfQuickAnnotationService.GetGeometry(page), 1);
+            Check(annotations.Count == 1 && annotations[0].Kind == QuickAnnotationKind.Ink, "Pencil Ink round-trips as an editable annotation");
+            Check(PdfQuickAnnotationService.InkPoints(annotations[0].Format).Count == stroke.Length, "Pencil preserves every stroke point");
+        }
+    }
+
+    static void TestCalloutAnnotation()
+    {
+        string path = System.IO.Path.Combine(Output, "callout.pdf");
+        using (var document = new PdfDocument(new PdfWriter(path)))
+        {
+            var page = document.AddNewPage(new PageSize(400, 300));
+            var spec = new QuickAnnotationSpec("test-callout", QuickAnnotationKind.Callout, 1, .42, .18, .42, .18, "Check this detail")
+            {
+                Format = PdfQuickAnnotationService.EncodeCallout(.2, .55, TextFormat.Default.Encode())
+            };
+            PdfQuickAnnotationService.AddGenerated(document, page, PdfQuickAnnotationService.WithMeasuredSize(spec, PdfQuickAnnotationService.GetGeometry(page)), new PdfQuickAnnotationService.FontSet());
+            var annotation = page.GetAnnotations().Single();
+            Check(PdfName.FreeText.Equals(annotation.GetSubtype()) && annotation.GetPdfObject().GetAsArray(PdfName.CL)?.Size() == 4,
+                "Callout writes FreeText plus a standard leader line");
+        }
+        using (var document = new PdfDocument(new PdfReader(path)))
+        {
+            var page = document.GetPage(1);
+            var annotation = PdfQuickAnnotationService.ReadAnnotations(page, PdfQuickAnnotationService.GetGeometry(page), 1).Single();
+            Check(annotation.Kind == QuickAnnotationKind.Callout && annotation.Text == "Check this detail", "Callout round-trips as editable text");
+            var leader = PdfQuickAnnotationService.DecodeCallout(annotation.Format);
+            Check(Math.Abs(leader.TipU - .2) < .01 && Math.Abs(leader.TipV - .55) < .01, "Callout preserves its target point");
+        }
+    }
+
+    static void TestReplyAnnotation()
+    {
+        string path = System.IO.Path.Combine(Output, "reply.pdf");
+        using (var document = new PdfDocument(new PdfWriter(path)))
+        {
+            var page = document.AddNewPage(new PageSize(400, 300));
+            var geometry = PdfQuickAnnotationService.GetGeometry(page);
+            PdfQuickAnnotationService.AddGenerated(document, page, PdfQuickAnnotationService.WithMeasuredSize(new QuickAnnotationSpec("parent", QuickAnnotationKind.Comment, 1, .2, .2, 0, 0, "Question"), geometry), new PdfQuickAnnotationService.FontSet());
+            PdfQuickAnnotationService.AddGenerated(document, page, PdfQuickAnnotationService.WithMeasuredSize(new QuickAnnotationSpec("reply", QuickAnnotationKind.Reply, 1, .3, .2, 0, 0, "Answer") { Format = "R|parent" }, geometry), new PdfQuickAnnotationService.FontSet());
+            var reply = page.GetAnnotations().First(a => a.GetName()?.ToUnicodeString() == "reply");
+            Check(reply.GetPdfObject().Get(PdfName.IRT) != null && reply.GetPdfObject().GetAsName(PdfName.RT)?.GetValue() == "R", "Reply writes standard IRT parent relationship");
+        }
+    }
+
+    static async Task TestPdfProtectionRewriteAsync()
+    {
+        string path = System.IO.Path.Combine(Output, "protect-rewrite.pdf");
+        using (var writer = new PdfWriter(path))
+        using (var document = new PdfDocument(writer))
+        {
+            document.AddNewPage(new PageSize(400, 300));
+            document.AddNewPage(new PageSize(400, 300));
+        }
+
+        PdfSecurityService.ApplyProtection(path, new PdfProtectionOptions(
+            CurrentOwnerPassword: null, UserPassword: "open-secret", OwnerPassword: "owner-secret",
+            AllowPrint: true, AllowCopy: false, AllowModify: false, AllowAnnotate: true));
+        await PdfThumbnailService.SetDocumentPasswordAsync(path, "open-secret");
+        var userInfo = await PdfSecurityService.ReadAsync(path);
+        Check(userInfo.Error == null && userInfo.IsEncrypted && !userInfo.IsOwner && userInfo.CanPrint && !userInfo.CanCopy && !userInfo.CanModify && userInfo.CanAnnotate,
+            "Protection rewrite applies the user password and declared permissions");
+        using (var opened = new PdfDocument(new PdfReader(path, new ReaderProperties().SetPassword(System.Text.Encoding.UTF8.GetBytes("open-secret")))))
+            Check(opened.GetNumberOfPages() == 2, "Protection rewrite preserves PDF pages");
+
+        PdfSecurityService.ApplyProtection(path, new PdfProtectionOptions(
+            CurrentOwnerPassword: "owner-secret", UserPassword: "", OwnerPassword: "",
+            AllowPrint: false, AllowCopy: false, AllowModify: false, AllowAnnotate: false, RemoveProtection: true));
+        await PdfThumbnailService.ForgetDocumentPasswordAsync(path);
+        var unprotected = await PdfSecurityService.ReadAsync(path);
+        Check(unprotected.Error == null && !unprotected.IsEncrypted && unprotected.CanPrint && unprotected.CanCopy,
+            "Protection rewrite removes encryption with the owner password");
     }
 
     static void TestPresentationQueue()
@@ -334,6 +620,25 @@ internal static class Program
         Check(!tracker.Update(new Point(0, 310), viewport, false), "Movement anchor resets after invalidation");
         Check(tracker.Update(new Point(1000, 310), viewport, false), "Horizontal pan also invalidates");
         Check(!tracker.Update(new Point(5000, 5000), viewport, true), "Zoom establishes a new movement anchor");
+    }
+
+    static void TestTwoPageLayout()
+    {
+        var sizes = new[] { (100.0, 200.0), (100.0, 200.0), (80.0, 160.0) };
+        var layout = new ContinuousPageLayout(sizes, 1.0, columns: 2);
+        Check(layout.Columns == 2 && layout.Top(0) == layout.Top(1), "Two-page layout places a spread on one row");
+        Check(layout.Top(2) > layout.Top(0) + layout.Height(0), "Two-page layout starts the next spread below the first");
+        Check(layout.IndexAt(150, 40, 500) == 0 && layout.IndexAt(265, 40, 500) == 1,
+            "Two-page layout hit testing distinguishes left and right pages");
+
+        var viewport = new ContinuousViewport();
+        viewport.SetViewportSize(500, 260);
+        viewport.SetColumns(2);
+        viewport.SetPages(sizes, 1.0);
+        Check(viewport.HitTest(150, 40, out int left, out _, out _) && left == 0,
+            "Two-page viewport hits the left page");
+        Check(viewport.HitTest(265, 40, out int right, out _, out _) && right == 1,
+            "Two-page viewport hits the right page");
     }
 
     static void TestReaderZoomMath()

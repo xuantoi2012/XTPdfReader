@@ -55,8 +55,12 @@ namespace XTPdfMergeApp
             {
                 if (EditHost != null) await EditHost.SetCommentResolvedAsync(c.Path, c.Page, c.Name, resolved);
             };
+            ReaderSidePanel.CommentReplySubmitted += (c, text) => AddInlineReply(c, text);
+            ReaderSidePanel.CommentEditRequested += (c, text) => EditInlineComment(c, text);
+            ReaderSidePanel.CommentDeleteRequested += DeleteInlineComment;
             ReaderSidePanel.LayerHiddenChanged += OnLayerHiddenChanged;
             ReaderSidePanel.ExportLayerViewRequested += OnExportLayerView;
+            ReaderSidePanel.SourceFileWritten += path => Session.RefreshDiskStamp(path);
             AnnotationStore.Changed += OnAnnotationsChanged;
             ShowEmptyReaderState();
         }
@@ -484,11 +488,12 @@ namespace XTPdfMergeApp
             if (_mergeWindow != null) return _mergeWindow;
             var window = new Controls.MergeWindow { Owner = this };
             var view = window.View;
-            view.HostProvider = () => EditHost;
-            view.Bind(_groups);
             view.DoneRequested += () => window.Hide();
-            view.OpenFileRequested += () => { if (EditHost != null) _ = EditHost.OpenFilesAsync(); };
-            view.MergeAllRequested += () => { if (EditHost != null) _ = EditHost.MergeAllToFileAsync(); };
+            view.OpenFileRequested += async () =>
+            {
+                if (EditHost != null) await EditHost.OpenFilesAsync();
+                view.BeginSession(_groups);
+            };
             return _mergeWindow = window;
         }
 
@@ -508,6 +513,9 @@ namespace XTPdfMergeApp
         {
             if (!show) { _mergeWindow?.Hide(); return; }
             var window = EnsureMergeWindow();
+            // Chỉ tạo bàn nháp lúc mở lại. Gọi lệnh Merge khi cửa sổ đang hiện phải giữ nguyên
+            // thao tác chưa export của người dùng, không được âm thầm nạp lại từ các tab chính.
+            if (!window.IsVisible) window.View.BeginSession(_groups);
             if (_readerGroup != null) window.View.ShowGroup(_readerGroup);
             if (!window.IsVisible) window.Show();
             if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
@@ -550,7 +558,6 @@ namespace XTPdfMergeApp
 
         private void InitializeSettings()
         {
-            ReaderSidePanel.SettingsRequested += () => ShowSettings(true);
             ReaderSidePanel.CollapseRequested += () => SetPanelCollapsed(true);
             ReaderSidePanel.RailTabChosen += () => SetPanelCollapsed(false);
             Loaded += (_, _) =>
@@ -578,13 +585,17 @@ namespace XTPdfMergeApp
                 _settingsWindow.Activate();
                 return;
             }
-            _settingsWindow = new Controls.SettingsWindow(ClearFileCachesAsync) { Owner = this };
-            _settingsWindow.Show();
+            var window = _settingsWindow = new Controls.SettingsWindow(ClearFileCachesAsync) { Owner = this };
+            try { window.ShowDialog(); }
+            finally
+            {
+                if (ReferenceEquals(_settingsWindow, window)) _settingsWindow = null;
+            }
         }
 
         private Controls.SettingsWindow? _settingsWindow;
 
-        // ── Title-bar quick access: hide panel, New ───────────────────
+        // ── Side panel collapse/restore ───────────────────────────────
 
         private double _panelWidthBeforeHide = 364;
         private bool _panelCollapsed;
@@ -615,22 +626,10 @@ namespace XTPdfMergeApp
 
         private async void ReaderNew_Click(object sender, RoutedEventArgs e)
         {
-            if (EditHost == null) return;
-            using var dialog = new System.Windows.Forms.SaveFileDialog { Title = "New PDF", Filter = "PDF (*.pdf)|*.pdf", FileName = "Untitled.pdf", OverwritePrompt = true };
-            if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
-            try
-            {
-                using (var writer = new iText.Kernel.Pdf.PdfWriter(dialog.FileName))
-                using (var pdf = new iText.Kernel.Pdf.PdfDocument(writer))
-                    pdf.AddNewPage(iText.Kernel.Geom.PageSize.A4);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, "Could not create the file:\n" + ex.Message, "New PDF", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
+            var size = Controls.NewBlankPdfWindow.Ask(this);
+            if (size == null) return;
             ShowStart(false);
-            await EditHost.OpenPathsAsync(new[] { dialog.FileName });
+            await Session.CreateBlankDocumentAsync(size.Value.WidthPoints, size.Value.HeightPoints);
         }
 
         /// <summary>"Clear cache": đóng document PDFium đang giữ và bỏ bộ đệm file của các file KHÔNG nằm trên màn hình (đọc lại khi cần).</summary>
