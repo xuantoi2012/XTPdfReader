@@ -82,7 +82,6 @@ namespace XTPdfMergeApp
             CommitAnnotationEditor();
             CancelHighlightDrag();
             CancelInkDrag();
-            CancelCalloutDraft();
             CancelShapeDrag();
             _readerTool = tool;
             if (tool != ReaderTool.Hand) SelectAnnotation(null, null);
@@ -260,8 +259,7 @@ namespace XTPdfMergeApp
 
                 case ReaderTool.Callout:
                     e.Handled = true;
-                    if (_calloutDraft == null) BeginCalloutDraft(hit);
-                    else _ = FinishCalloutDraftAsync(hit);
+                    _ = PlaceCalloutAsync(hit);
                     break;
 
                 case ReaderTool.Pencil:
@@ -323,7 +321,6 @@ namespace XTPdfMergeApp
         private void ReaderContentHost_PreviewMouseMove(object sender, MouseEventArgs e)
         {
             Point point = e.GetPosition(ReaderContentHost);
-            UpdateCalloutDraft(point);
             if (UpdateAnnotationMove(point) || UpdateShapeDrag(point) || UpdateShapeResize(point) || UpdateLineResize(point))
             {
                 e.Handled = true;
@@ -514,54 +511,18 @@ namespace XTPdfMergeApp
             if (ReaderContentHost.IsMouseCaptured) ReaderContentHost.ReleaseMouseCapture();
         }
 
-        private sealed record CalloutDraft(PageHit Tip);
-        private CalloutDraft? _calloutDraft;
-
-        private void BeginCalloutDraft(PageHit tip)
+        /// <summary>Callout kiểu Foxit: 1 cú bấm là có ngay hộp (không cần bấm lần 2 chọn góc hộp) — hộp đặt lệch
+        /// lên-phải so với điểm chỉ theo 1 khoảng cố định, người dùng gõ chữ luôn.</summary>
+        private async Task PlaceCalloutAsync(PageHit tip)
         {
-            _calloutDraft = new CalloutDraft(tip);
-            ReaderCalloutPreview.Visibility = Visibility.Visible;
-            ReaderCalloutLeader.Visibility = Visibility.Visible;
-        }
-
-        private void UpdateCalloutDraft(Point point)
-        {
-            if (_calloutDraft is not { } draft || !TryGetPagePoint(draft.Tip.Row, point, clamp: true, out var box) ||
-                !TryPageToLayer(draft.Tip.Row, draft.Tip.U, draft.Tip.V, out Point tipPoint) || !TryPageToLayer(draft.Tip.Row, box.U, box.V, out Point boxPoint)) return;
-            Canvas.SetLeft(ReaderCalloutPreview, boxPoint.X); Canvas.SetTop(ReaderCalloutPreview, boxPoint.Y);
-            ReaderCalloutLeader.X1 = tipPoint.X; ReaderCalloutLeader.Y1 = tipPoint.Y; ReaderCalloutLeader.X2 = boxPoint.X; ReaderCalloutLeader.Y2 = boxPoint.Y;
-        }
-
-        private async Task FinishCalloutDraftAsync(PageHit box)
-        {
-            if (_calloutDraft is not { } draft) return;
-            CancelCalloutDraft();
-            var page = await LoadPageAnnotationsAsync(box.Row);
+            var page = await LoadPageAnnotationsAsync(tip.Row);
             if (page == null) return;
-            _annotationEditor = new AnnotationEditorState { Row = box.Row, Kind = QuickAnnotationKind.Callout, U = box.U, V = box.V, Geometry = page.Geometry, TipU = draft.Tip.U, TipV = draft.Tip.V };
+            double boxU = Math.Clamp(tip.U + .025, 0, .72);
+            double boxV = Math.Clamp(tip.V - .04, 0, .85);
+            _annotationEditor = new AnnotationEditorState { Row = tip.Row, Kind = QuickAnnotationKind.Callout, U = boxU, V = boxV, Geometry = page.Geometry, TipU = tip.U, TipV = tip.V };
             ReaderAnnotationEditor.Text = ""; ApplyEditorFormat(); ReaderAnnotationEditor.Background = new SolidColorBrush(Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF));
             ReaderAnnotationEditor.TextWrapping = TextWrapping.Wrap; ReaderAnnotationEditor.Width = 240; ReaderAnnotationEditor.MinHeight = 72; ReaderAnnotationEditor.Visibility = Visibility.Visible;
             PositionAnnotationEditor(); ReaderAnnotationEditor.Focus();
-        }
-
-        private void CancelCalloutDraft()
-        {
-            _calloutDraft = null; ReaderCalloutPreview.Visibility = Visibility.Collapsed; ReaderCalloutLeader.Visibility = Visibility.Collapsed;
-        }
-
-        private async Task AddCalloutAsync(PageHit hit)
-        {
-            var page = await LoadPageAnnotationsAsync(hit.Row);
-            if (page == null) return;
-            var prompt = new TextPromptWindow("Add callout", "Callout text:", "", null) { Owner = this };
-            if (prompt.ShowDialog() != true || string.IsNullOrWhiteSpace(prompt.Value)) return;
-            double boxU = Math.Clamp(hit.U + .025, 0, .72);
-            double boxV = Math.Clamp(hit.V - .04, 0, .85);
-            var spec = new QuickAnnotationSpec(NewAnnotationName(), QuickAnnotationKind.Callout, hit.Row.PageNumber, boxU, boxV, boxU, boxV, prompt.Value)
-            {
-                Format = PdfQuickAnnotationService.EncodeCallout(hit.U, hit.V, _textFormat.Encode())
-            };
-            CommitAnnotationChange(hit.Row, new QuickAnnotationChange(null, PdfQuickAnnotationService.WithMeasuredSize(spec, page.Geometry)), "Add callout");
         }
 
         private async Task EditCalloutAsync(PageRow row, QuickAnnotationSpec existing)

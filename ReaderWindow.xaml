@@ -324,9 +324,6 @@
                     </Canvas.Resources>
                     <Polyline x:Name="ReaderInkPreview" Stroke="{DynamicResource Ui.Accent}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
                               IsHitTestVisible="False" Visibility="Collapsed"/>
-                    <Line x:Name="ReaderCalloutLeader" Stroke="{DynamicResource Ui.Danger}" StrokeThickness="2" IsHitTestVisible="False" Visibility="Collapsed"/>
-                    <Border x:Name="ReaderCalloutPreview" Width="240" Height="72" BorderBrush="{DynamicResource Ui.Danger}" BorderThickness="1.5" Background="#22FFFFFF"
-                            IsHitTestVisible="False" Visibility="Collapsed"/>
                     <Border x:Name="AnnotationSelectionBox" Visibility="Collapsed" IsHitTestVisible="False" BorderThickness="1.5" CornerRadius="3"
                             BorderBrush="{DynamicResource Ui.Accent}" Background="#1A2563EB"/>
                     <!-- Vẽ/resize hình (Rect/Cloud dùng Rectangle bo góc, Oval dùng Ellipse, Line/Arrow dùng Line + mũi tên): xem trước bằng

@@ -48,28 +48,64 @@
         <DataTemplate DataType="{x:Type local:CommentGroupHeader}">
             <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Margin="14,10,10,2" Foreground="{DynamicResource Ui.Muted}"/>
         </DataTemplate>
+        <!-- Avatar tròn: nền màu theo tác giả + chữ cái đầu, kiểu Word. -->
+        <Style x:Key="CommentAvatar" TargetType="Border">
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="CornerRadius" Value="14"/>
+            <Setter Property="VerticalAlignment" Value="Top"/>
+            <Setter Property="Background" Value="{Binding AvatarBrush}"/>
+        </Style>
+
+        <!-- 1 reply trong thread: avatar nhỏ hơn, không viền/box riêng, chỉ ngăn bằng 1 gạch mảnh phía trên — kiểu Word. -->
+        <DataTemplate x:Key="CommentReplyTemplate" DataType="{x:Type local:CommentPerson}">
+            <Border BorderThickness="0,1,0,0" BorderBrush="{DynamicResource Ui.Border}" Padding="0,8,0,0" Margin="0,8,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Border Width="22" Height="22" CornerRadius="11" Background="{Binding AvatarBrush}" VerticalAlignment="Top">
+                        <TextBlock Text="{Binding Initials}" FontSize="9" FontWeight="SemiBold" Foreground="White"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="7,0,0,0">
+                        <Grid>
+                            <TextBlock Text="{Binding Author}" FontWeight="SemiBold" FontSize="11.5" Foreground="{DynamicResource Ui.Text}"/>
+                            <TextBlock Text="{Binding DateText}" FontSize="10.5" HorizontalAlignment="Right" Foreground="{DynamicResource Ui.Muted}"/>
+                        </Grid>
+                        <TextBlock Text="{Binding Text}" TextWrapping="Wrap" Margin="0,2,0,0" FontSize="11.5" Foreground="{DynamicResource Ui.Text}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
         <DataTemplate DataType="{x:Type local:CommentCard}">
-            <Border x:Name="Card" Margin="{Binding Margin}" Padding="12,10" CornerRadius="8" BorderThickness="1.5" BorderBrush="{DynamicResource Ui.Border}"
+            <Border x:Name="Card" Margin="8,4,8,4" Padding="12,10" CornerRadius="8" BorderThickness="1.5" BorderBrush="{DynamicResource Ui.Border}"
                     Background="{DynamicResource Ui.Surface}" Cursor="Hand">
                 <StackPanel>
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Viewbox Width="16" Height="16" Margin="0,0,8,0">
+                        <Border Style="{StaticResource CommentAvatar}">
+                            <TextBlock Text="{Binding Initials}" FontSize="11" FontWeight="SemiBold" Foreground="White"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Author}" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
+                            <TextBlock Text="{Binding DateText}" FontSize="11" Foreground="{DynamicResource Ui.Muted}"/>
+                        </StackPanel>
+                        <Viewbox Grid.Column="2" Width="14" Height="14" Margin="0,0,6,0" VerticalAlignment="Top" ToolTip="{Binding Info.Kind}">
                             <Canvas Width="24" Height="24">
-                                <Path Data="{Binding Icon}" Fill="#D97706"/>
+                                <Path Data="{Binding Icon}" Fill="{DynamicResource Ui.Muted}"/>
                             </Canvas>
                         </Viewbox>
-                        <TextBlock Grid.Column="1" Text="{Binding Author}" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
-                        <TextBlock Grid.Column="2" Text="{Binding DateText}" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}" FontSize="11"/>
-                        <Border Grid.Column="3" x:Name="Chip" CornerRadius="9" Padding="8,1" Cursor="Hand" ToolTip="Click to change the status"
+                        <Border Grid.Column="3" x:Name="Chip" CornerRadius="9" Padding="8,1" Cursor="Hand" ToolTip="Click to change the status" VerticalAlignment="Top"
                                 Background="{DynamicResource Ui.AccentSoft}" MouseLeftButtonUp="Status_MouseLeftButtonUp">
                             <TextBlock x:Name="ChipText" Text="Open" FontSize="11" Foreground="{DynamicResource Ui.Accent}"/>
                         </Border>
-                        <Button Grid.Column="4" Content="…" Tag="{Binding Info}" Margin="6,0,0,0" Padding="5,0" Click="MessageMenu_Click"/>
+                        <Button Grid.Column="4" Content="…" Tag="{Binding Info}" Margin="6,0,0,0" Padding="5,0" VerticalAlignment="Top" Click="MessageMenu_Click"/>
                     </Grid>
-                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" Margin="0,6,0,0" LineHeight="17" Foreground="{DynamicResource Ui.Text}"/>
+                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" Margin="36,6,0,0" LineHeight="17" Foreground="{DynamicResource Ui.Text}"/>
+                    <ItemsControl Margin="0" ItemsSource="{Binding Replies}" ItemTemplate="{StaticResource CommentReplyTemplate}"/>
                     <TextBox Tag="{Binding Info}" Margin="0,8,0,0" Height="28" VerticalContentAlignment="Center" Text="Reply"
                              Foreground="{DynamicResource Ui.Muted}" GotKeyboardFocus="ReplyBox_GotKeyboardFocus" PreviewKeyDown="ReplyBox_PreviewKeyDown"/>
                 </StackPanel>

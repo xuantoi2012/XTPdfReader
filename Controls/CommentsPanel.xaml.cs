@@ -14,7 +14,13 @@ namespace XTPdfMergeApp.Controls
 {
     public sealed record CommentGroupHeader(string Title) { public bool IsHeader => true; }
 
-    public sealed record CommentCard(CommentInfo Info, Geometry Icon, string Author, string DateText, string Text, bool Resolved, Thickness Margin) { public bool IsHeader => false; }
+    /// <summary>1 người trong 1 thread — dùng cho reply (avatar nhỏ, không viền/box riêng, không có ô Reply riêng).</summary>
+    public sealed record CommentPerson(CommentInfo Info, string Initials, Brush AvatarBrush, string Author, string DateText, string Text);
+
+    /// <summary>1 thread bình luận: mục gốc + toàn bộ reply (mọi cấp, dàn phẳng theo thời gian) hiện gộp trong 1 khung —
+    /// kiểu Word, thay vì mỗi reply là 1 card viền riêng như trước.</summary>
+    public sealed record CommentCard(CommentInfo Info, Geometry Icon, string Initials, Brush AvatarBrush, string Author, string DateText, string Text,
+        bool Resolved, IReadOnlyList<CommentPerson> Replies) { public bool IsHeader => false; }
 
     /// <summary>Tab Comments của panel trái (docs/UI_REDESIGN.md, mockup 11): chú thích của window đang xem (Typewriter, Note, Highlight), lọc theo trạng thái / loại / tác giả,
     /// bấm để tới trang, bấm chip để đổi Open ↔ Resolved, xuất bảng tóm tắt (CSV).</summary>
@@ -97,12 +103,12 @@ namespace XTPdfMergeApp.Controls
             {
                 rows.Add(new CommentGroupHeader((multiFile ? Path.GetFileName(group.Key.Path) + " · " : "") + "Page " + group.Key.Page));
                 var byParent = group.ToLookup(c => c.ParentName);
-                void AddThread(CommentInfo c, int level)
-                {
-                    rows.Add(ToCard(c, level));
-                    foreach (var reply in byParent[c.Name].OrderBy(r => r.Date)) AddThread(reply, level + 1);
-                }
-                foreach (var root in group.Where(c => c.ParentName.Length == 0 || !group.Any(p => p.Name == c.ParentName)).OrderBy(c => c.Date)) AddThread(root, 0);
+                // Mọi reply (kể cả reply-của-reply) dàn phẳng theo thời gian dưới đúng 1 thread gốc — giống Word,
+                // Word cũng không lồng reply nhiều cấp, chỉ có 1 luồng hội thoại phẳng dưới mỗi bình luận gốc.
+                List<CommentPerson> CollectReplies(string parentName) => byParent[parentName].OrderBy(r => r.Date)
+                    .SelectMany(r => new[] { ToPerson(r) }.Concat(CollectReplies(r.Name))).ToList();
+                foreach (var root in group.Where(c => c.ParentName.Length == 0 || !group.Any(p => p.Name == c.ParentName)).OrderBy(c => c.Date))
+                    rows.Add(ToCard(root, CollectReplies(root.Name)));
             }
             _selecting = true;
             Cards.ItemsSource = rows;
@@ -112,7 +118,7 @@ namespace XTPdfMergeApp.Controls
             else EmptyText.Visibility = Visibility.Collapsed;
         }
 
-        private static CommentCard ToCard(CommentInfo c, int level)
+        private static CommentCard ToCard(CommentInfo c, IReadOnlyList<CommentPerson> replies)
         {
             string iconName = c.Kind switch
             {
@@ -126,9 +132,48 @@ namespace XTPdfMergeApp.Controls
                 QuickAnnotationKind.Callout => "Callout", QuickAnnotationKind.Highlight => "Highlight", QuickAnnotationKind.Shape => "Shape",
                 QuickAnnotationKind.Underline => "Underline", QuickAnnotationKind.StrikeOut => "Strikethrough", QuickAnnotationKind.Squiggly => "Squiggly underline", QuickAnnotationKind.Ink => "Pencil stroke", _ => "(empty)"
             };
+            string author = c.Author.Length > 0 ? c.Author : "Unknown";
+            var (initials, avatar) = PersonStyle(author);
             return new CommentCard(c, (Geometry)Application.Current.FindResource("Ui.Icon." + iconName),
-                c.Author.Length > 0 ? c.Author : "Unknown", c.Date?.ToString("d MMM") ?? "", text, c.Resolved,
-                new Thickness(8 + Math.Min(level, 4) * 18, 4, 8, 4));
+                initials, avatar, author, c.Date?.ToString("d MMM") ?? "", text, c.Resolved, replies);
+        }
+
+        /// <summary>1 reply, hiển thị gọn trong thread của mục gốc — không icon loại chú thích, không ô Reply riêng.</summary>
+        private static CommentPerson ToPerson(CommentInfo c)
+        {
+            string author = c.Author.Length > 0 ? c.Author : "Unknown";
+            var (initials, avatar) = PersonStyle(author);
+            string text = c.Text.Trim();
+            return new CommentPerson(c, initials, avatar, author, c.Date?.ToString("d MMM") ?? "", text.Length > 0 ? text : "(empty)");
+        }
+
+        // Màu avatar theo tên tác giả (băm đơn giản) — cùng 1 người luôn ra cùng 1 màu trong suốt phiên làm việc.
+        private static readonly Brush[] AvatarPalette = BuildAvatarPalette();
+        private static Brush[] BuildAvatarPalette()
+        {
+            var hex = new[] { "#D9424F", "#2E7D32", "#1565C0", "#8E24AA", "#EF6C00", "#00838F", "#5D4037", "#6D4C41" };
+            var brushes = new Brush[hex.Length];
+            for (int i = 0; i < hex.Length; i++)
+            {
+                var b = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex[i]));
+                b.Freeze();
+                brushes[i] = b;
+            }
+            return brushes;
+        }
+
+        private static (string Initials, Brush Avatar) PersonStyle(string author)
+        {
+            string[] parts = author.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            string initials = parts.Length switch
+            {
+                0 => "?",
+                1 => (parts[0].Length >= 2 ? parts[0][..2] : parts[0]).ToUpperInvariant(),
+                _ => (parts[0][0].ToString() + parts[^1][0]).ToUpperInvariant()
+            };
+            int hash = 0;
+            foreach (char ch in author) hash = hash * 31 + ch;
+            return (initials, AvatarPalette[(hash & int.MaxValue) % AvatarPalette.Length]);
         }
 
         private void Cards_SelectionChanged(object sender, SelectionChangedEventArgs e)

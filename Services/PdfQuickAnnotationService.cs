@@ -80,7 +80,6 @@ namespace XTPdfMergeApp.Services
         private const float TypewriterPadding = 2f;
         private const float CommentIconSize = 20f;
         private static readonly PdfName TypewriterIntent = new("FreeTextTypeWriter");
-        private static readonly PdfName CalloutIntent = new("FreeTextCallout");
         private static readonly PdfName IntentKey = new("IT");
         private static readonly PdfName FormatKey = new("XTFormat");
         private static readonly PdfName ShapeKey = new("XTShape");
@@ -233,7 +232,8 @@ namespace XTPdfMergeApp.Services
             var subtype = annot.GetSubtype();
             if (annot.GetPdfObject().ContainsKey(ShapeKey)) return QuickAnnotationKind.Shape;
             if (PdfName.FreeText.Equals(subtype))
-                return CalloutIntent.Equals(annot.GetPdfObject().GetAsName(IntentKey)) ? QuickAnnotationKind.Callout : QuickAnnotationKind.Typewriter;
+                return annot.GetPdfObject().GetAsString(FormatKey)?.GetValue().StartsWith("C|", StringComparison.Ordinal) == true
+                    ? QuickAnnotationKind.Callout : QuickAnnotationKind.Typewriter;
             if (PdfName.Text.Equals(subtype)) return annot.GetPdfObject().Get(PdfName.IRT) != null ? QuickAnnotationKind.Reply : QuickAnnotationKind.Comment;
             if (PdfName.Highlight.Equals(subtype)) return QuickAnnotationKind.Highlight;
             if (PdfName.Underline.Equals(subtype)) return QuickAnnotationKind.Underline;
@@ -778,21 +778,89 @@ namespace XTPdfMergeApp.Services
             float size = (float)format.Size, lead = size * TypewriterLineHeight;
             float width = Math.Max(100f, lines.Max(l => font.GetWidth(l, size)) + 2 * TypewriterPadding);
             float height = Math.Max(28f, lines.Length * lead + 2 * TypewriterPadding);
-            var rect = DisplayBoxToUser(geometry, spec.U1, spec.V1, width, height);
+
+            // TOÀN BỘ hình học dưới đây tính bằng đơn vị HIỂN THỊ (trục X sang phải, trục Y XUỐNG DƯỚI — như
+            // spec.U/V), CHỈ đổi sang user-space (trục Y lên trên, theo /Rotate trang) đúng 1 lần ở /Rect và /CL.
+            // Trước đây box/tip được đổi sang user-space TRƯỚC rồi mới lấy min/max/kích thước — với trang bị xoay
+            // 90°/270°, DisplayRectToUser hoán trục X/Y, nên "width,height" (đo theo hiển thị) không còn khớp với
+            // bề ngang/dọc thật của hộp trong user-space nữa. Hệ quả: BBox của form dựng theo user-space (đã hoán
+            // trục) trong khi nội dung lại vẽ theo width/height hiển thị (chưa hoán) → PDF tự co giãn lệch trục
+            // cho khớp /Rect khi hiển thị, chữ/đường dẫn bị bóp méo thành vệt ngắn không đọc được — đã thấy tận
+            // mắt trên file thật (trang xoay 90°), tái hiện được bằng Tests/Program.cs --inspect-file.
+            double dw = geometry.DisplayWidth, dh = geometry.DisplayHeight;
+            double boxDispLeft = spec.U1 * dw, boxDispTop = spec.V1 * dh;
+            double boxDispRight = boxDispLeft + width, boxDispBottom = boxDispTop + height;
+            double tipDispX = callout.TipU * dw, tipDispY = callout.TipV * dh;
+
+            // Đường dẫn nối vào mép trên hộp, hơi lệch trái (không đúng giữa) — kiểu Foxit. Có khúc gấp: đoạn chéo
+            // dài từ điểm chỉ tới 1 điểm "gối" sát hộp, rồi 1 đoạn ngắn vuông góc nối vào hộp — dễ đọc hơn hẳn 1
+            // đường chéo thẳng tuột thẳng vào giữa hộp.
+            double attachDispX = boxDispLeft + Math.Min(width * 0.25, 24.0);
+            const double kneeOffset = 14;
+            double kneeDispY = Math.Abs(tipDispY - boxDispTop) > kneeOffset ? boxDispTop + Math.Sign(tipDispY - boxDispTop) * kneeOffset : tipDispY;
+
+            // /Rect (và AP) phải phủ luôn cả điểm chỉ + đường dẫn, không chỉ riêng hộp chữ — nếu không đường dẫn
+            // sẽ bị cắt ở đúng mép hộp khi vẽ.
+            double unionDispLeft = Math.Min(boxDispLeft, tipDispX), unionDispRight = Math.Max(boxDispRight, tipDispX);
+            double unionDispTop = Math.Min(boxDispTop, tipDispY), unionDispBottom = Math.Max(boxDispBottom, tipDispY);
+            double unionDispWidth = unionDispRight - unionDispLeft, unionDispHeight = unionDispBottom - unionDispTop;
+
+            var (rLeft, rBottom, rRight, rTop) = geometry.DisplayRectToUser(
+                unionDispLeft / dw, unionDispTop / dh, unionDispRight / dw, unionDispBottom / dh);
+            var rect = new Rectangle((float)rLeft, (float)rBottom, (float)(rRight - rLeft), (float)(rTop - rBottom));
+            var (tipX, tipY, _, _) = geometry.DisplayRectToUser(callout.TipU, callout.TipV, callout.TipU, callout.TipV);
+            double attachU = attachDispX / dw, boxTopV = boxDispTop / dh, kneeV = kneeDispY / dh;
+            var (attachX, boxTopY, _, _) = geometry.DisplayRectToUser(attachU, boxTopV, attachU, boxTopV);
+            var (_, kneeY, _, _) = geometry.DisplayRectToUser(attachU, kneeV, attachU, kneeV);
+
             var annot = new PdfFreeTextAnnotation(rect, new PdfString(spec.Text, PdfEncodings.UNICODE_BIG));
             var color = ParseColor(format.Color);
             var rgb = color.GetColorValue();
             annot.SetDefaultAppearance(new PdfString(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{rgb[0]:0.###} {rgb[1]:0.###} {rgb[2]:0.###} rg /Helv {size:0.##} Tf")));
             annot.GetPdfObject().Put(FormatKey, new PdfString(spec.Format, PdfEncodings.UNICODE_BIG));
-            annot.GetPdfObject().Put(IntentKey, CalloutIntent);
-            var (tipX, tipY, _, _) = geometry.DisplayRectToUser(callout.TipU, callout.TipV, callout.TipU, callout.TipV);
-            var (boxX, boxY, _, _) = geometry.DisplayRectToUser(spec.U1, spec.V1 + height / geometry.DisplayHeight, spec.U1, spec.V1 + height / geometry.DisplayHeight);
-            annot.GetPdfObject().Put(PdfName.CL, new PdfArray(new PdfObject[] { new PdfNumber(tipX), new PdfNumber(tipY), new PdfNumber(boxX), new PdfNumber(boxY) }));
-            annot.GetPdfObject().Put(PdfName.BS, new PdfDictionary(new Dictionary<PdfName, PdfObject> { [PdfName.W] = new PdfNumber(1) }));
+            // Cố tình KHÔNG đặt /IT = FreeTextCallout (khác Typewriter): PDFium coi đây là tín hiệu "tự vẽ lại
+            // appearance của tôi" cho callout (có lẽ vì có /CL) và đè hẳn lên /AP mình đã vẽ. Loại Callout vẫn
+            // nhận ra được khi đọc lại nhờ tiền tố "C|" sẵn có trong <see cref="FormatKey"/> (xem DecodeCallout).
+            annot.GetPdfObject().Put(PdfName.CL, new PdfArray(new PdfObject[]
+            {
+                new PdfNumber(tipX), new PdfNumber(tipY), new PdfNumber(attachX), new PdfNumber(kneeY), new PdfNumber(attachX), new PdfNumber(boxTopY)
+            }));
+            annot.GetPdfObject().Put(PdfName.BS, new PdfDictionary(new Dictionary<PdfName, PdfObject> { [PdfName.W] = new PdfNumber(1.2) }));
+            // Viền xanh + nền xanh nhạt (kiểu Foxit) thay vì trong suốt — dễ thấy hộp trên nền bản vẽ dày đặc nét,
+            // không ăn theo màu chữ người dùng chọn (_textFormat.Color, đổi riêng).
+            var borderColor = new DeviceRgb(0.357f, 0.608f, 0.835f);
+            var fillColor = new DeviceRgb(0.863f, 0.922f, 0.969f);
+            annot.GetPdfObject().Put(PdfName.C, new PdfArray(new float[] { 0.357f, 0.608f, 0.835f }));
+            annot.GetPdfObject().Put(PdfName.IC, new PdfArray(new float[] { 0.863f, 0.922f, 0.969f }));
             StampCommon(annot, spec);
 
-            // Do not install a box-only /AP here. A callout leader intentionally reaches outside the text box;
-            // leaving its appearance to the PDF renderer makes /CL visible in PDFium, Acrobat and Foxit.
+            // AP thật (tự vẽ đường dẫn + hộp viền/nền + chữ) thay vì để PDFium tự sinh appearance từ /CL, /C, /IC —
+            // BBox và mọi toạ độ vẽ CÙNG một hệ đơn vị hiển thị (chưa xoay) như width/height ở trên; /Matrix
+            // (SetRotationMatrix) lo phần xoay khi PDF tự khớp BBox vào /Rect, giống hệt cách AddTypewriter làm.
+            var form = new PdfFormXObject(new Rectangle(0, 0, (float)unionDispWidth, (float)unionDispHeight));
+            SetRotationMatrix(form, geometry.Rotation);
+            var canvas = new PdfCanvas(form, doc);
+            // Toạ độ cục bộ Y-lên (canvas PDF) từ toạ độ hiển thị Y-xuống: local Y = chiều cao khối - (dispY - đỉnh khối).
+            float ToLocalX(double dispX) => (float)(dispX - unionDispLeft);
+            float ToLocalY(double dispY) => (float)(unionDispHeight - (dispY - unionDispTop));
+            float lox = ToLocalX(boxDispLeft), loy = ToLocalY(boxDispBottom); // góc dưới-trái của hộp, toạ độ cục bộ
+            float ltx = ToLocalX(tipDispX), lty = ToLocalY(tipDispY);
+            float lax = ToLocalX(attachDispX), lay = ToLocalY(boxDispTop), lky = ToLocalY(kneeDispY);
+
+            canvas.SaveState().SetStrokeColor(borderColor).SetLineWidth(1.2f)
+                .SetLineCapStyle(PdfCanvasConstants.LineCapStyle.ROUND).SetLineJoinStyle(PdfCanvasConstants.LineJoinStyle.ROUND)
+                .MoveTo(ltx, lty).LineTo(lax, lky).LineTo(lax, lay).Stroke();
+            canvas.SetFillColor(fillColor).SetStrokeColor(borderColor).Rectangle(lox, loy, width, height).FillStroke();
+            canvas.BeginText().SetFontAndSize(font, size).SetFillColor(color)
+                .MoveText(lox + TypewriterPadding, loy + height - TypewriterPadding - size * 0.9f);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (i > 0) canvas.MoveText(0, -lead);
+                canvas.ShowText(lines[i]);
+            }
+            canvas.EndText().RestoreState().Release();
+            annot.SetNormalAppearance(form.GetPdfObject());
+
             page.AddAnnotation(annot);
         }
 

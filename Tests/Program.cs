@@ -33,6 +33,42 @@ internal static class Program
                 .First(path => path.Contains("win-x64", StringComparison.OrdinalIgnoreCase));
             foreach (var assembly in new[] { typeof(PdfThumbnailService).Assembly, typeof(Program).Assembly })
                 NativeLibrary.SetDllImportResolver(assembly, (name, _, _) => name == "pdfium" ? NativeLibrary.Load(dll) : IntPtr.Zero);
+            int inspectArg = Array.IndexOf(args, "--inspect-file");
+            if (inspectArg >= 0)
+            {
+                string src = System.IO.Path.GetFullPath(args[inspectArg + 1]);
+                int pageNum = int.Parse(args[inspectArg + 2]);
+                byte[] bytes = File.ReadAllBytes(src);
+                using (var doc2 = new PdfDocument(new PdfReader(new MemoryStream(bytes))))
+                {
+                    var pg = doc2.GetPage(pageNum);
+                    foreach (var a in pg.GetAnnotations())
+                    {
+                        if (!PdfName.FreeText.Equals(a.GetSubtype())) continue;
+                        Console.WriteLine("Rect: " + a.GetRectangle());
+                        Console.WriteLine("Contents: " + a.GetContents());
+                        var ap = a.GetPdfObject().GetAsDictionary(PdfName.AP)?.GetAsStream(PdfName.N);
+                        Console.WriteLine("AP bytes: " + (ap?.GetBytes()?.Length ?? -1));
+                        if (ap != null) Console.WriteLine("AP:\n" + System.Text.Encoding.ASCII.GetString(ap.GetBytes()));
+                        Console.WriteLine("---");
+                    }
+                }
+                using (var docForSize = new PdfDocument(new PdfReader(new MemoryStream(bytes))))
+                {
+                    var mb = docForSize.GetPage(pageNum).GetMediaBox();
+                    Console.WriteLine($"MediaBox: {mb.GetLeft()},{mb.GetBottom()} .. {mb.GetRight()},{mb.GetTop()} (w={mb.GetWidth()} h={mb.GetHeight()})");
+                }
+                var job2 = new PdfThumbnailService.MemoryRenderJob(pageNum - 1, 1600, 1200, new Int32Rect(0, 0, 1600, 1200));
+                var bmp2 = PdfThumbnailService.RenderMemoryPagesAsync(bytes, new[] { job2 }).GetAwaiter().GetResult()[0];
+                if (bmp2 != null)
+                {
+                    string outPng = System.IO.Path.Combine(Output, "inspect-file.png");
+                    using var stream2 = new FileStream(outPng, FileMode.Create);
+                    var enc2 = new PngBitmapEncoder(); enc2.Frames.Add(BitmapFrame.Create(bmp2)); enc2.Save(stream2);
+                    Console.WriteLine("Saved " + outPng);
+                }
+                return 0;
+            }
             int viewportArg = Array.IndexOf(args, "--viewport-pdf");
             if (viewportArg >= 0)
             {
@@ -363,8 +399,11 @@ internal static class Program
             };
             PdfQuickAnnotationService.AddGenerated(document, page, PdfQuickAnnotationService.WithMeasuredSize(spec, PdfQuickAnnotationService.GetGeometry(page)), new PdfQuickAnnotationService.FontSet());
             var annotation = page.GetAnnotations().Single();
-            Check(PdfName.FreeText.Equals(annotation.GetSubtype()) && annotation.GetPdfObject().GetAsArray(PdfName.CL)?.Size() == 4,
-                "Callout writes FreeText plus a standard leader line");
+            // 6 số = 3 điểm (có khúc gấp gần hộp, kiểu Foxit/Acrobat) thay vì 4 số = đường thẳng 1 đoạn.
+            Check(PdfName.FreeText.Equals(annotation.GetSubtype()) && annotation.GetPdfObject().GetAsArray(PdfName.CL)?.Size() == 6,
+                "Callout writes FreeText plus a kneed leader line");
+            Check(annotation.GetPdfObject().GetAsArray(PdfName.C)?.Size() == 3 && annotation.GetPdfObject().GetAsArray(PdfName.IC)?.Size() == 3,
+                "Callout has a border colour and a fill colour (Foxit-style box, not transparent)");
         }
         using (var document = new PdfDocument(new PdfReader(path)))
         {
@@ -373,6 +412,33 @@ internal static class Program
             Check(annotation.Kind == QuickAnnotationKind.Callout && annotation.Text == "Check this detail", "Callout round-trips as editable text");
             var leader = PdfQuickAnnotationService.DecodeCallout(annotation.Format);
             Check(Math.Abs(leader.TipU - .2) < .01 && Math.Abs(leader.TipV - .55) < .01, "Callout preserves its target point");
+        }
+
+        // Trang xoay 90°/270° (thường gặp ở bản vẽ kỹ thuật khổ ngang lưu trong khung giấy dọc): DisplayRectToUser
+        // hoán trục X/Y, nên nếu box/tip được đổi sang user-space TRƯỚC rồi mới tính min/max/kích thước AP, BBox
+        // dựng theo user-space (đã hoán trục) không còn khớp width/height vẽ theo hiển thị (chưa hoán) nữa — PDF
+        // tự co giãn lệch trục cho khớp /Rect khi hiển thị, chữ/đường dẫn bị bóp méo thành vệt ngắn không đọc
+        // được. Từng thấy tận mắt trên file thật; bài dưới khoá lại bằng cách so AP đã tô đúng tỉ lệ hộp thật
+        // (đo được biên chữ đúng như đã vẽ), không lệch trục.
+        string rotatedPath = System.IO.Path.Combine(Output, "callout-rotated.pdf");
+        using (var document = new PdfDocument(new PdfWriter(rotatedPath)))
+        {
+            var page = document.AddNewPage(new PageSize(600, 400));
+            page.SetRotation(90);
+            var spec = new QuickAnnotationSpec("test-callout-rot", QuickAnnotationKind.Callout, 1, .5, .3, .5, .3, "Hello world")
+            {
+                Format = PdfQuickAnnotationService.EncodeCallout(.15, .75, TextFormat.Default.Encode())
+            };
+            PdfQuickAnnotationService.AddGenerated(document, page, PdfQuickAnnotationService.WithMeasuredSize(spec, PdfQuickAnnotationService.GetGeometry(page)), new PdfQuickAnnotationService.FontSet());
+            var annotation = page.GetAnnotations().Single();
+            var ap = annotation.GetPdfObject().GetAsDictionary(PdfName.AP)!.GetAsStream(PdfName.N)!;
+            var bbox = ap.GetAsArray(PdfName.BBox)!;
+            var rect = annotation.GetRectangle().ToRectangle();
+            double bboxW = bbox.GetAsNumber(2).DoubleValue(), bboxH = bbox.GetAsNumber(3).DoubleValue();
+            // Trang xoay 90°: /Rect (user-space) có bề ngang/dọc HOÁN NHAU so với BBox (hệ hiển thị, chưa xoay) —
+            // đúng ý; sai (lỗi cũ) là khi BBox lại đi theo đúng bề ngang/dọc của /Rect (không hoán).
+            bool swappedAsExpected = Math.Abs(bboxW - rect.GetHeight()) < 1 && Math.Abs(bboxH - rect.GetWidth()) < 1;
+            Check(swappedAsExpected, "Callout AP BBox stays in display-space units on a rotated page (not swapped to match /Rect)");
         }
     }
 
