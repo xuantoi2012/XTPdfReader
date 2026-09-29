@@ -63,7 +63,8 @@
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Ui.Hover}"/>
-                <Setter Property="IconBrush" Value="{DynamicResource Ui.Text}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Warn}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Ui.Pressed}"/>
@@ -110,6 +111,10 @@
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Background" Value="{DynamicResource XTPrimaryButtonHoverBackground}"/>
+                <Setter Property="Foreground" Value="White"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Foreground" Value="White"/>
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -153,7 +158,8 @@
 
     <!-- ══ Nút icon nhỏ (thanh trạng thái, đóng tab…) ══ -->
     <ControlTemplate x:Key="UiIconButtonTemplate" TargetType="{x:Type xt:XTButton}">
-        <Border x:Name="Bd" CornerRadius="5" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+        <Border x:Name="Bd" CornerRadius="5" Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" SnapsToDevicePixels="True">
             <Viewbox Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}" HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Canvas Width="24" Height="24">
                     <Path Fill="{TemplateBinding IconBrush}">
@@ -191,31 +197,65 @@
             <Trigger Property="IsPressed" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Ui.Pressed}"/>
             </Trigger>
+            <Trigger Property="Tag" Value="Active">
+                <Setter Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Accent}"/>
+            </Trigger>
         </Style.Triggers>
     </Style>
 
-    <!-- ══ Nút icon nhỏ xếp lưới trong ribbon (Shapes, Underline/Strikethrough…): kiểu Foxit gom nhiều công cụ
-         ít dùng vào 1 ô nhỏ thay vì mỗi cái 1 nút to riêng — Tag="Active" = công cụ đang bật. ══ -->
+    <!-- ══ Nút nhỏ icon + nhãn trong ribbon: vẫn xếp lưới để tiết kiệm chiều ngang, nhưng tên công cụ luôn nhìn thấy.
+         Icon neo cố định bên trái (không center theo nội dung) để cột icon thẳng hàng dù chữ dài ngắn khác nhau
+         (Rect/Cloud/Oval/Arrow/Line/Stamp) — center theo cả cụm icon+chữ làm icon bị xê dịch theo độ dài chữ. ══ -->
+    <ControlTemplate x:Key="UiMiniLabeledButtonTemplate" TargetType="{x:Type xt:XTButton}">
+        <Border x:Name="Bd" CornerRadius="3" Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                SnapsToDevicePixels="True">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="6,0,4,0">
+                <Viewbox Width="13" Height="13">
+                    <Canvas Width="24" Height="24">
+                        <Path x:Name="Tint" Fill="{DynamicResource Ui.Accent}" Opacity="0.3" Visibility="Collapsed"
+                              Data="{Binding IconData, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource UiIconTint}}"/>
+                        <Path Data="{TemplateBinding IconData}" Fill="{TemplateBinding IconBrush}"/>
+                    </Canvas>
+                </Viewbox>
+                <TextBlock Text="{TemplateBinding Text}" Margin="4,0,0,0" FontSize="10" TextTrimming="CharacterEllipsis"
+                           Foreground="{TemplateBinding Foreground}" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="Tag" Value="Active"><Setter TargetName="Tint" Property="Visibility" Value="Visible"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.42"/></Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
     <Style x:Key="UiMiniIconButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
-        <Setter Property="Template" Value="{StaticResource UiIconButtonTemplate}"/>
-        <Setter Property="Width" Value="26"/>
+        <Setter Property="Template" Value="{StaticResource UiMiniLabeledButtonTemplate}"/>
+        <Setter Property="Width" Value="64"/>
         <Setter Property="Height" Value="19"/>
+        <Setter Property="Margin" Value="0,0,3,3"/>
         <Setter Property="MinWidth" Value="0"/>
         <Setter Property="Padding" Value="0"/>
-        <Setter Property="IconSize" Value="15"/>
+        <Setter Property="IconSize" Value="13"/>
         <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Ui.Border}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
         <Setter Property="IconBrush" Value="{DynamicResource Ui.Icon}"/>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Ui.Hover}"/>
-                <Setter Property="IconBrush" Value="{DynamicResource Ui.Text}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Warn}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Ui.Pressed}"/>
             </Trigger>
             <Trigger Property="Tag" Value="Active">
                 <Setter Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
-                <Setter Property="IconBrush" Value="{DynamicResource Ui.Text}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Accent}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -280,7 +320,9 @@
         </Border>
         <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/>
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Border}"/>
+                <Setter TargetName="Bd" Property="BorderThickness" Value="1"/>
             </Trigger>
             <Trigger Property="Tag" Value="Active">
                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Surface}"/>
@@ -288,6 +330,14 @@
                 <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.Text}"/>
                 <Setter TargetName="Tx" Property="FontWeight" Value="SemiBold"/>
             </Trigger>
+            <MultiTrigger>
+                <MultiTrigger.Conditions>
+                    <Condition Property="IsMouseOver" Value="True"/>
+                    <Condition Property="Tag" Value="Active"/>
+                </MultiTrigger.Conditions>
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                <Setter TargetName="Bd" Property="BorderThickness" Value="1"/>
+            </MultiTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
@@ -299,6 +349,18 @@
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
         <Setter Property="IconBrush" Value="{DynamicResource Ui.Muted}"/>
+    </Style>
+
+    <!-- Nút + nằm trong dải tab: cùng phản hồi hover rõ ràng như tab Start/tab file. -->
+    <Style x:Key="UiTabAddButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiIconButton}">
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Text}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource Ui.Border}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <!-- ══ Tab file (ListBoxItem): nền mặt khi chọn, gạch accent 2 px dưới chân ══ -->
@@ -315,7 +377,9 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Border}"/>
+                            <Setter TargetName="Bd" Property="BorderThickness" Value="1"/>
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Surface}"/>
@@ -323,6 +387,14 @@
                             <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
                             <Setter Property="FontWeight" Value="SemiBold"/>
                         </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsMouseOver" Value="True"/>
+                                <Condition Property="IsSelected" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                            <Setter TargetName="Bd" Property="BorderThickness" Value="1"/>
+                        </MultiTrigger>
                         <!-- Kéo trang lên tab: tab sáng lên (giữ ~0,5 s thì chuyển sang tab đó, thả lên tab = thêm vào cuối). -->
                         <Trigger Property="Tag" Value="DropHover">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
