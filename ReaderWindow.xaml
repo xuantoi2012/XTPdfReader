@@ -119,9 +119,9 @@
                                                  ToolTip="Type text on the page: click where it goes, type, then Enter (Shift+Enter for a new line). Click existing text to edit." Click="ReaderTypewriterTool_Click"/>
                                     <xt:XTButton x:Name="ReaderCommentToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.note}" Text="Note"
                                                  ToolTip="Sticky note: click the page, type, then Enter. Hover the icon to read it, click to edit." Click="ReaderCommentTool_Click"/>
-                                    <xt:XTButton x:Name="ReaderHighlightTextButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl}" Text="Highlight text"
+                                    <xt:XTButton x:Name="ReaderHighlightTextButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl_text}" Text="Highlight text"
                                                  ToolTip="Drag across text to highlight it (needs selectable text)" Click="ReaderHighlightText_Click"/>
-                                    <xt:XTButton x:Name="ReaderHighlightAreaButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl}" Text="Highlight area"
+                                    <xt:XTButton x:Name="ReaderHighlightAreaButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl_area}" Text="Highlight area"
                                                  ToolTip="Drag a rectangle to highlight an area (also works on scanned pages and drawings)" Click="ReaderHighlightArea_Click"/>
                                     <!-- Underline/Strikethrough: dùng ít hơn Highlight, gom vào 1 cột 2 ô nhỏ (kiểu Foxit) thay vì mỗi cái 1 nút to riêng. -->
                                     <StackPanel VerticalAlignment="Center">
@@ -134,22 +134,23 @@
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Comment"/>
                             </StackPanel>
                             <Border Style="{StaticResource UiToolbarSeparator}"/>
-                            <!-- Shapes: lưới nhỏ 2 cột × 3 hàng (kiểu Foxit) thay vì mỗi hình 1 nút to riêng — không cần bung popup chọn trước. -->
+                            <!-- Shapes: lưới nhỏ 3 cột x 2 hàng (kiểu Foxit) thay vì mỗi hình 1 nút to riêng — không cần bung popup chọn trước.
+                                 2 hàng (thay vì 3) để tên nhóm "Shapes" thẳng hàng với tên các nhóm khác trong ribbon. -->
                             <StackPanel>
                                 <Grid VerticalAlignment="Center">
-                                    <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="76"/><ColumnDefinition Width="76"/></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="76"/><ColumnDefinition Width="76"/><ColumnDefinition Width="76"/></Grid.ColumnDefinitions>
                                     <xt:XTButton x:Name="ReaderShapeRectButton" Grid.Row="0" Grid.Column="0" Style="{StaticResource UiMiniIconButton}"
                                                  Icon="{StaticResource Ui.Icon.shape_rect}" Text="Rect" ToolTip="Rectangle" Click="ReaderShapeRect_Click"/>
                                     <xt:XTButton x:Name="ReaderShapeCloudButton" Grid.Row="0" Grid.Column="1" Style="{StaticResource UiMiniIconButton}"
                                                  Icon="{StaticResource Ui.Icon.shape_cloud}" Text="Cloud" ToolTip="Cloud" Click="ReaderShapeCloud_Click"/>
-                                    <xt:XTButton x:Name="ReaderShapeOvalButton" Grid.Row="1" Grid.Column="0" Style="{StaticResource UiMiniIconButton}"
+                                    <xt:XTButton x:Name="ReaderShapeOvalButton" Grid.Row="0" Grid.Column="2" Style="{StaticResource UiMiniIconButton}"
                                                  Icon="{StaticResource Ui.Icon.shape_oval}" Text="Oval" ToolTip="Oval" Click="ReaderShapeOval_Click"/>
-                                    <xt:XTButton x:Name="ReaderShapeArrowButton" Grid.Row="1" Grid.Column="1" Style="{StaticResource UiMiniIconButton}"
+                                    <xt:XTButton x:Name="ReaderShapeArrowButton" Grid.Row="1" Grid.Column="0" Style="{StaticResource UiMiniIconButton}"
                                                  Icon="{StaticResource Ui.Icon.shape_arrow}" Text="Arrow" ToolTip="Arrow" Click="ReaderShapeArrow_Click"/>
-                                    <xt:XTButton x:Name="ReaderShapeLineButton" Grid.Row="2" Grid.Column="0" Style="{StaticResource UiMiniIconButton}"
+                                    <xt:XTButton x:Name="ReaderShapeLineButton" Grid.Row="1" Grid.Column="1" Style="{StaticResource UiMiniIconButton}"
                                                  Icon="{StaticResource Ui.Icon.shape_line}" Text="Line" ToolTip="Line" Click="ReaderShapeLine_Click"/>
-                                    <xt:XTButton x:Name="ReaderStampToolButton" Grid.Row="2" Grid.Column="1" Style="{StaticResource UiMiniIconButton}"
+                                    <xt:XTButton x:Name="ReaderStampToolButton" Grid.Row="1" Grid.Column="2" Style="{StaticResource UiMiniIconButton}"
                                                  Icon="{StaticResource Ui.Icon.stamp}" Text="Stamp" ToolTip="Stamp" Click="ReaderStampTool_Click"/>
                                 </Grid>
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Shapes"/>
