@@ -14,6 +14,11 @@ using System.Windows.Media.Imaging;
 
 namespace XTPdfMergeApp.Services
 {
+    /// <summary>Lý do PDFium không mở được file. Mật khẩu chỉ sống trong RAM của phiên hiện tại.</summary>
+    public enum PdfOpenFailure { None, Unknown, File, Format, Password, Security }
+
+    public readonly record struct PdfOpenResult(int PageCount, PdfOpenFailure Failure);
+
     /// <summary>
     /// Direct PDFium renderer for the WPF thumbnail queue.
     /// The service keeps native PDF documents open only for active source files and
@@ -280,6 +285,8 @@ namespace XTPdfMergeApp.Services
 
         private static readonly ConcurrentDictionary<DocumentKey, Lazy<Task<PdfDocumentLease?>>> _documentCache =
             new(new DocumentKeyComparer());
+        private static readonly ConcurrentDictionary<string, string> _documentPasswords = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, PdfOpenFailure> _openFailures = new(StringComparer.OrdinalIgnoreCase);
 
         public static int CachedDocumentCount => _documentCache.Count;
 
@@ -299,26 +306,57 @@ namespace XTPdfMergeApp.Services
                 reserveFirst: priority != PdfRenderPriority.Visible);
         }
 
-        public static async Task<int> GetPageCountAsync(string pdfPath)
+        /// <summary>Mở để đếm trang và trả về nguyên nhân có thể hiển thị cho người dùng nếu PDFium từ chối file.</summary>
+        public static async Task<PdfOpenResult> TryGetPageCountAsync(string pdfPath)
         {
-            if (_shuttingDown) return 0;
+            if (_shuttingDown) return new PdfOpenResult(0, PdfOpenFailure.Unknown);
             PdfiumInstance? pdfium = null;
+            string? normalized = null;
             try
             {
-                string normalized = NormalizePath(pdfPath);
+                normalized = NormalizePath(pdfPath);
                 pdfium = ChooseInstance(normalized, -1);
                 pdfium.AddLoad(1);
                 using var usage = await AcquireDocumentAsync(normalized, pdfium).ConfigureAwait(false);
-                return usage?.Lease.PageCount ?? 0;
+                if (usage != null) return new PdfOpenResult(usage.Lease.PageCount, PdfOpenFailure.None);
+                return new PdfOpenResult(0, _openFailures.TryGetValue(normalized, out var failure) ? failure : PdfOpenFailure.Unknown);
             }
             catch
             {
-                return 0;
+                return new PdfOpenResult(0, PdfOpenFailure.Unknown);
             }
             finally
             {
                 pdfium?.AddLoad(-1);
             }
+        }
+
+        public static async Task<int> GetPageCountAsync(string pdfPath)
+            => (await TryGetPageCountAsync(pdfPath).ConfigureAwait(false)).PageCount;
+
+        /// <summary>Trả password chỉ đang giữ trong RAM cho các thao tác đọc cùng tiến trình.</summary>
+        internal static string? TryGetDocumentPassword(string pdfPath)
+        {
+            _documentPasswords.TryGetValue(NormalizePath(pdfPath), out string? password);
+            return password;
+        }
+
+        /// <summary>Đặt mật khẩu đọc cho một file, chỉ trong bộ nhớ tiến trình; lease cũ bị mở lại an toàn.</summary>
+        public static async Task SetDocumentPasswordAsync(string pdfPath, string password)
+        {
+            string normalized = NormalizePath(pdfPath);
+            _documentPasswords[normalized] = password;
+            _openFailures.TryRemove(normalized, out _);
+            await RetireDocumentAsync(normalized).ConfigureAwait(false);
+        }
+
+        /// <summary>Bỏ mật khẩu chỉ lưu trong RAM khi user huỷ mở/đóng file.</summary>
+        public static async Task ForgetDocumentPasswordAsync(string pdfPath)
+        {
+            string normalized = NormalizePath(pdfPath);
+            _documentPasswords.TryRemove(normalized, out _);
+            _openFailures.TryRemove(normalized, out _);
+            await RetireDocumentAsync(normalized).ConfigureAwait(false);
         }
 
         public static void ReleaseUnusedDocuments(IEnumerable<string> activePdfPaths)
@@ -330,6 +368,10 @@ namespace XTPdfMergeApp.Services
                 StringComparer.OrdinalIgnoreCase);
 
             PdfFileBuffer.ReleaseExcept(active.Contains);
+            foreach (string path in _documentPasswords.Keys)
+                if (!active.Contains(path)) _documentPasswords.TryRemove(path, out _);
+            foreach (string path in _openFailures.Keys)
+                if (!active.Contains(path)) _openFailures.TryRemove(path, out _);
             foreach (var key in _documentCache.Keys)
             {
                 if (active.Contains(key.Path)) continue;
@@ -676,12 +718,14 @@ namespace XTPdfMergeApp.Services
 
                 using var native = EnterPdfiumGate(pdfium);
                 long openStart = Stopwatch.GetTimestamp();
+                _documentPasswords.TryGetValue(pdfPath, out string? password);
                 document = source != null
-                    ? pdfium.LoadCustomDocument(source.FileAccessPointer)
-                    : pdfium.LoadDocument(pdfPath);
+                    ? pdfium.LoadCustomDocument(source.FileAccessPointer, password)
+                    : pdfium.LoadDocument(pdfPath, password);
                 RenderDiagnostics.DocumentOpen.Record(openStart);
                 if (document == IntPtr.Zero)
                 {
+                    _openFailures[pdfPath] = MapOpenFailure(pdfium.GetLastError());
                     source?.Dispose();
                     _documentCache.TryRemove(cacheKey, out _);
                     return null;
@@ -697,12 +741,14 @@ namespace XTPdfMergeApp.Services
                     return null;
                 }
 
+                _openFailures.TryRemove(pdfPath, out _);
                 // Nguồn đọc (và bộ đệm khối) phải sống tới sau FPDF_CloseDocument: giao cho lease giữ.
                 Interlocked.Increment(ref pdfium.OpenDocuments);
                 return new PdfDocumentLease(pdfium, pdfPath, document, pageCount, layerToken, source);
             }
             catch
             {
+                _openFailures[pdfPath] = PdfOpenFailure.Unknown;
                 if (document != IntPtr.Zero && pdfium != null)
                 {
                     using var native = EnterPdfiumGate(pdfium);
@@ -717,6 +763,15 @@ namespace XTPdfMergeApp.Services
                 cache?.Release(); // chỉ còn khác null khi chưa kịp giao cho source
             }
         }
+
+        private static PdfOpenFailure MapOpenFailure(uint error) => error switch
+        {
+            2 => PdfOpenFailure.File,
+            3 => PdfOpenFailure.Format,
+            4 => PdfOpenFailure.Password,
+            5 => PdfOpenFailure.Security,
+            _ => PdfOpenFailure.Unknown
+        };
 
         /// <summary>Phần nối thêm đổi /D/ON,/D/OFF theo trạng thái layer — dựng 1 lần (iText) rồi dùng lại cho mọi
         /// bản PDFium mở cùng file cùng trạng thái. Bỏ khi file sắp bị ghi (SuspendDocumentAsync) hoặc file đổi.</summary>
@@ -745,7 +800,8 @@ namespace XTPdfMergeApp.Services
             int pageIndex,
             int fullWidth,
             int fullHeight,
-            IReadOnlyList<Int32Rect> tileRects, CancellationToken cancellationToken = default, string? layerToken = null)
+            IReadOnlyList<Int32Rect> tileRects, CancellationToken cancellationToken = default, string? layerToken = null,
+            bool withAnnotations = false)
         {
             var results = new List<BitmapSource?>(tileRects.Count);
             for (int i = 0; i < tileRects.Count; i++) results.Add(null);
@@ -770,7 +826,7 @@ namespace XTPdfMergeApp.Services
                 if (pageIndex < 0 || pageIndex >= lease.PageCount) return results;
 
                 await Task.Run(() => RenderTilesProgressiveAsync(lease, pageIndex, fullWidth, fullHeight,
-                    tileRects, results, cancellationToken), cancellationToken).ConfigureAwait(false);
+                    tileRects, results, cancellationToken, withAnnotations), cancellationToken).ConfigureAwait(false);
             }
             catch
             {

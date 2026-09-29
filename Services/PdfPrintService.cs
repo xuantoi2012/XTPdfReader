@@ -13,11 +13,12 @@ namespace XTPdfMergeApp.Services
     public enum PrintScale { FitToPaper, ActualSize, Custom, ReduceToPaper }
     public enum PrintOrientation { Auto, Portrait, Landscape }
     public enum PrintColor { Color, Grayscale, BlackLines }
+    public enum PrintQuality { Standard, CadHigh }
 
     /// <summary>Yêu cầu in: các trang (theo thứ tự in), máy in, khổ giấy, số bản, tỉ lệ, màu.</summary>
     public sealed record PrintRequest(
         IReadOnlyList<(string SourcePath, int PageNumber)> Pages, string Printer, PaperSize Paper, int Copies,
-        PrintScale Scale, int CustomPercent, PrintColor Color, PrintOrientation Orientation, bool Center, bool Collate, byte[]? DevMode);
+        PrintScale Scale, int CustomPercent, PrintColor Color, PrintQuality Quality, PrintOrientation Orientation, bool Center, bool Collate, byte[]? DevMode);
 
     /// <summary>The printer driver's own settings dialog (paper tray, quality, duplex, plotter options…) through Win32 DocumentProperties. The result is a DEVMODE blob that is applied to the print job.</summary>
     public static class PrinterDriver
@@ -92,11 +93,29 @@ namespace XTPdfMergeApp.Services
         }
     }
 
-    /// <summary>In PDF: vẽ từng trang bằng PDFium ở ~300 dpi (theo trạng thái layer đang xem) rồi gửi qua System.Drawing.Printing.</summary>
+    /// <summary>In PDF theo trạng thái layer đang xem. Chất lượng CAD 600 DPI được render theo dải để không phải giữ cả A3/A0 trong RAM.</summary>
     public static class PdfPrintService
     {
-        private const int Dpi = 300;
-        private const int MaxPixels = 9000;
+        private const int StandardDpi = 300;
+        private const int CadHighDpi = 600;
+        private const int MaxRasterDimension = 20_000;
+        private const int MaxBandPixels = 12_000_000;
+
+        /// <summary>Kế hoạch raster theo hundredths of an inch. Band giới hạn peak memory của ảnh WPF + buffer BGRA + GDI bitmap.</summary>
+        internal readonly record struct RasterPlan(int FullWidth, int FullHeight, int BandHeight, int EffectiveDpi);
+
+        internal static RasterPlan GetRasterPlan(double drawWidth, double drawHeight, PrintQuality quality)
+        {
+            int requestedDpi = quality == PrintQuality.CadHigh ? CadHighDpi : StandardDpi;
+            double rawWidth = Math.Max(1, drawWidth / 100.0 * requestedDpi);
+            double rawHeight = Math.Max(1, drawHeight / 100.0 * requestedDpi);
+            double reduction = Math.Min(1.0, MaxRasterDimension / Math.Max(rawWidth, rawHeight));
+            int fullWidth = Math.Max(1, (int)Math.Round(rawWidth * reduction));
+            int fullHeight = Math.Max(1, (int)Math.Round(rawHeight * reduction));
+            int bandHeight = Math.Clamp(MaxBandPixels / fullWidth, 1, fullHeight);
+            int effectiveDpi = Math.Max(1, (int)Math.Round(requestedDpi * reduction));
+            return new RasterPlan(fullWidth, fullHeight, bandHeight, effectiveDpi);
+        }
 
         /// <summary>Khổ trang (point, đã tính xoay) của 1 trang — để chọn hướng giấy và tỉ lệ.</summary>
         private static (double W, double H) PageSize(string path, int pageNumber)
@@ -148,19 +167,23 @@ namespace XTPdfMergeApp.Services
                     _ => Math.Min(area.Width / pageW, area.Height / pageH)
                 };
                 double drawW = pageW * scale, drawH = pageH * scale;
-                int pixelsW = (int)Math.Clamp(drawW / 100.0 * Dpi, 200, MaxPixels);
-
-                var source = PdfThumbnailService.RenderPageAsync(path, number - 1, pixelsW, layerToken: PdfLayerStateStore.GetToken(path), withAnnotations: true)
-                    .GetAwaiter().GetResult();
-                if (source != null)
+                var plan = GetRasterPlan(drawW, drawH, request.Quality);
+                var g = e.Graphics!;
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                float x = request.Center ? area.Left + (float)((area.Width - drawW) / 2) : area.Left;
+                float y = request.Center ? area.Top + (float)((area.Height - drawH) / 2) : area.Top;
+                for (int top = 0; top < plan.FullHeight; top += plan.BandHeight)
                 {
+                    int height = Math.Min(plan.BandHeight, plan.FullHeight - top);
+                    var tile = new System.Windows.Int32Rect(0, top, plan.FullWidth, height);
+                    var source = PdfThumbnailService.RenderPageTilesBatchAsync(path, number - 1, plan.FullWidth, plan.FullHeight,
+                        new[] { tile }, layerToken: PdfLayerStateStore.GetToken(path), withAnnotations: true).GetAwaiter().GetResult()[0];
+                    if (source == null) throw new InvalidOperationException($"Could not render page {number} for printing.");
                     using var bitmap = ToBitmap(source, request.Color);
-                    var g = e.Graphics!;
-                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                    g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                    float x = request.Center ? area.Left + (float)((area.Width - drawW) / 2) : area.Left;
-                    float y = request.Center ? area.Top + (float)((area.Height - drawH) / 2) : area.Top;
-                    g.DrawImage(bitmap, x, y, (float)drawW, (float)drawH);
+                    float bandY = y + (float)(drawH * top / plan.FullHeight);
+                    float bandH = (float)(drawH * height / plan.FullHeight);
+                    g.DrawImage(bitmap, x, bandY, (float)drawW, bandH);
                 }
                 index++;
                 progress?.Report(index);

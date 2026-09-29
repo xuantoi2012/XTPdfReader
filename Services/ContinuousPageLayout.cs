@@ -25,23 +25,57 @@ internal sealed class ContinuousPageLayout
     private readonly double[] _top;
     private readonly double[] _width;
     private readonly double[] _height;
+    private readonly double[] _rowWidth;
+    private readonly double[] _rowOffset;
+    private readonly int[] _rowFirst;
+    private readonly double[] _rowTop;
+    private readonly double[] _rowHeight;
 
-    public ContinuousPageLayout(IReadOnlyList<(double Width, double Height)> baseSizes, double zoom)
+    /// <param name="columns">1 for normal/single layouts, 2 for facing-page spreads.</param>
+    public ContinuousPageLayout(IReadOnlyList<(double Width, double Height)> baseSizes, double zoom, int columns = 1)
     {
         Zoom = zoom;
         int n = baseSizes.Count;
+        Columns = Math.Clamp(columns, 1, 2);
         _top = new double[n];
         _width = new double[n];
         _height = new double[n];
+        _rowWidth = new double[n];
+        _rowOffset = new double[n];
+        int rowCount = (n + Columns - 1) / Columns;
+        _rowFirst = new int[rowCount];
+        _rowTop = new double[rowCount];
+        _rowHeight = new double[rowCount];
         Gap = Math.Max(MinGap, BaseGap * zoom);
-        double y = Margin, maxWidth = 0;
         for (int i = 0; i < n; i++)
         {
-            _top[i] = y;
             _width[i] = Math.Max(1, baseSizes[i].Width * zoom) + 2 * BorderThickness;
             _height[i] = Math.Max(1, baseSizes[i].Height * zoom) + 2 * BorderThickness;
-            maxWidth = Math.Max(maxWidth, _width[i]);
-            y += _height[i] + (i < n - 1 ? Gap : 0);
+        }
+
+        double y = Margin, maxWidth = 0;
+        for (int row = 0, first = 0; first < n; row++, first += Columns)
+        {
+            int last = Math.Min(n, first + Columns);
+            double rowWidth = 0, rowHeight = 0;
+            for (int i = first; i < last; i++)
+            {
+                if (i > first) rowWidth += Gap;
+                _rowOffset[i] = rowWidth;
+                rowWidth += _width[i];
+                rowHeight = Math.Max(rowHeight, _height[i]);
+            }
+
+            _rowFirst[row] = first;
+            _rowTop[row] = y;
+            _rowHeight[row] = rowHeight;
+            for (int i = first; i < last; i++)
+            {
+                _top[i] = y;
+                _rowWidth[i] = rowWidth;
+            }
+            maxWidth = Math.Max(maxWidth, rowWidth);
+            y += rowHeight + (row < rowCount - 1 ? Gap : 0);
         }
         ContentWidth = maxWidth + 2 * Margin;
         ContentHeight = n == 0 ? 2 * Margin : y + Margin;
@@ -49,6 +83,7 @@ internal sealed class ContinuousPageLayout
 
     public double Zoom { get; }
     public double Gap { get; }
+    public int Columns { get; }
     public int Count => _top.Length;
     /// <summary>Chiều rộng nội dung (trang rộng nhất + 2 lề).</summary>
     public double ContentWidth { get; }
@@ -58,19 +93,35 @@ internal sealed class ContinuousPageLayout
     public double Height(int index) => _height[index];
     public double Width(int index) => _width[index];
 
-    /// <summary>Toạ độ trái của trang: căn giữa trong max(chiều rộng nội dung, chiều rộng khung nhìn).</summary>
+    /// <summary>Toạ độ trái của trang: căn giữa cả hàng trang trong max(chiều rộng nội dung, chiều rộng khung nhìn).</summary>
     public double Left(int index, double viewportWidth)
-        => Margin + (Math.Max(ContentWidth, viewportWidth) - 2 * Margin - _width[index]) / 2;
+        => Margin + (Math.Max(ContentWidth, viewportWidth) - 2 * Margin - _rowWidth[index]) / 2 + _rowOffset[index];
 
     /// <summary>Trang chứa (hoặc gần nhất phía trên) toạ độ dọc <paramref name="y"/> của nội dung.</summary>
     public int IndexAt(double y)
     {
-        if (Count == 0) return -1;
-        int lo = 0, hi = Count - 1;
+        int row = RowAt(y);
+        return row < 0 ? -1 : _rowFirst[row];
+    }
+
+    /// <summary>Trang dưới toạ độ nội dung. Ở spread hai trang, chọn đúng trang bên trái/phải.</summary>
+    public int IndexAt(double x, double y, double viewportWidth)
+    {
+        int first = IndexAt(y);
+        if (first < 0 || Columns == 1 || first + 1 >= Count) return first;
+        int second = first + 1;
+        double split = (Left(first, viewportWidth) + Width(first) + Left(second, viewportWidth)) / 2;
+        return x >= split ? second : first;
+    }
+
+    private int RowAt(double y)
+    {
+        if (_rowFirst.Length == 0) return -1;
+        int lo = 0, hi = _rowFirst.Length - 1;
         while (lo < hi)
         {
             int mid = (lo + hi + 1) / 2;
-            if (_top[mid] <= y) lo = mid; else hi = mid - 1;
+            if (_rowTop[mid] <= y) lo = mid; else hi = mid - 1;
         }
         return lo;
     }
@@ -81,8 +132,10 @@ internal sealed class ContinuousPageLayout
         if (Count == 0 || y1 < y0) return (-1, -1);
         int first = IndexAt(y0);
         if (first < 0) return (-1, -1);
-        if (_top[first] + _height[first] < y0 && first < Count - 1) first++; // y0 rơi vào khe giữa 2 trang
-        int last = IndexAt(y1);
+        int firstRow = RowAt(y0);
+        if (_rowTop[firstRow] + _rowHeight[firstRow] < y0 && firstRow < _rowFirst.Length - 1) first = _rowFirst[firstRow + 1];
+        int lastRow = RowAt(y1);
+        int last = lastRow < 0 ? -1 : Math.Min(Count - 1, _rowFirst[lastRow] + Columns - 1);
         if (last < first) return (-1, -1);
         return (first, last);
     }
@@ -91,10 +144,13 @@ internal sealed class ContinuousPageLayout
     /// ngoài 0..1 nếu điểm nằm ở khe/lề — vẫn giữ đúng vị trí khi zoom).</summary>
     public (int Index, double FractionX, double FractionY) Anchor(double x, double y, double viewportWidth)
     {
-        int i = IndexAt(y);
+        int i = IndexAt(x, y, viewportWidth);
         if (i < 0) return (-1, 0, 0);
-        // Điểm nằm ở khe dưới trang i: neo theo trang gần hơn.
-        if (y > _top[i] + _height[i] && i < Count - 1 && y - (_top[i] + _height[i]) > (_top[i + 1] - y)) i++;
+        // Điểm nằm ở khe dưới một hàng: neo theo hàng gần hơn.
+        int row = RowAt(y);
+        if (row >= 0 && y > _rowTop[row] + _rowHeight[row] && row < _rowFirst.Length - 1 &&
+            y - (_rowTop[row] + _rowHeight[row]) > (_rowTop[row + 1] - y))
+            i = _rowFirst[row + 1];
         double left = Left(i, viewportWidth);
         return (i, (x - left) / _width[i], (y - _top[i]) / _height[i]);
     }

@@ -29,6 +29,10 @@ namespace XTPdfMergeApp.Controls;
 /// </summary>
 public sealed class ContinuousPdfView : Grid
 {
+    // Với tài liệu rất dài, thumb theo tỉ lệ đúng có thể nhỏ hơn vài pixel và không còn kéo được.
+    // Đây chỉ là kích thước hiển thị tối thiểu; Maximum/Value vẫn là toạ độ cuộn thực của tài liệu.
+    private const double MinimumVerticalThumbHeight = 48.0;
+    private const double VerticalScrollTrackInsets = 10.0;
     // ── Ngưỡng ─────────────────────────────────────────────────────────────
     /// <summary>Ảnh trang cả trang tối đa (như chế độ 1 trang); zoom sâu hơn thì vẽ vùng đang nhìn.</summary>
     private const int MaxPageBitmapWidth = 2304;
@@ -61,6 +65,7 @@ public sealed class ContinuousPdfView : Grid
     /// <summary>Slot bố cục → chỉ số trang. Cuộn liên tục: mọi trang; 1 trang: chỉ trang đang xem.</summary>
     private int[] _slots = Array.Empty<int>();
     private bool _singlePage;
+    private bool _twoPage;
     private int _single;
     private int _rotation;
     private INotifyCollectionChanged? _observed;
@@ -80,7 +85,11 @@ public sealed class ContinuousPdfView : Grid
         // Luôn co giãn chất lượng cao (GPU làm, rẻ): nét mảnh bản vẽ CAD không răng cưa/nhấp nháy khi cuộn, không có
         // khoảnh khắc "đổi chất lượng" lúc dừng tay như khi hạ xuống LowQuality trong lúc thao tác.
         RenderOptions.SetBitmapScalingMode(_surface, BitmapScalingMode.HighQuality);
-        _vbar = new ScrollBar { Orientation = Orientation.Vertical, Minimum = 0 };
+        // Thanh cuộn dọc là một phần cố định của vùng đọc (giống Foxit), không phải
+        // scrollbar "tự ẩn". Dùng biến thể rõ hơn của theme để người dùng luôn nhìn
+        // thấy vị trí trong tài liệu dài, nhưng vẫn giữ track mảnh.
+        _vbar = new ScrollBar { Orientation = Orientation.Vertical, Minimum = 0, Visibility = Visibility.Visible };
+        _vbar.SetResourceReference(StyleProperty, "UiReaderVerticalScrollBar");
         _hbar = new ScrollBar { Orientation = Orientation.Horizontal, Minimum = 0, Visibility = Visibility.Collapsed };
         SetColumn(_vbar, 1);
         SetRow(_hbar, 1);
@@ -142,7 +151,7 @@ public sealed class ContinuousPdfView : Grid
     public FrameworkElement Surface => _surface;
     /// <summary>Chiều rộng khung nhìn khi có thanh cuộn dọc (thanh cuộn dọc luôn hiện, nên không đổi theo nội dung).</summary>
     public double ViewportWidth => _surface.ActualWidth > 0 ? _surface.ActualWidth
-        : Math.Max(0, ActualWidth - SystemParameters.VerticalScrollBarWidth);
+        : Math.Max(0, ActualWidth - 14); // 12px thanh + margin phải 2px (UiReaderVerticalScrollBar).
 
     /// <summary>Gán tài liệu (null = trống). Vị trí về đầu; ReaderWindow tự cuộn tới trang cần xem.</summary>
     internal void SetDocument(IReadOnlyList<PageRow>? pages, double zoom)
@@ -168,8 +177,28 @@ public sealed class ContinuousPdfView : Grid
         {
             if (_singlePage == value) return;
             _singlePage = value;
+            if (value) _twoPage = false;
             _single = Math.Clamp(_currentPage, 0, Math.Max(0, _pages.Count - 1));
             RebuildIndex();
+            _vp.SetColumns(1);
+            _vp.SetPages(BaseSizes(), _vp.Zoom);
+            if (_pages.Count > 0) _vp.ScrollToPage(SlotOf(_single));
+            OnViewChanged(ChangeKind.Navigate);
+        }
+    }
+
+    /// <summary>Trải hai trang: toàn bộ tài liệu cuộn theo hàng hai trang, dùng cùng renderer/lớp chú thích/hit-test.</summary>
+    public bool TwoPage
+    {
+        get => _twoPage;
+        set
+        {
+            if (_twoPage == value) return;
+            _twoPage = value;
+            if (value) _singlePage = false;
+            _single = Math.Clamp(_currentPage, 0, Math.Max(0, _pages.Count - 1));
+            RebuildIndex();
+            _vp.SetColumns(value ? 2 : 1);
             _vp.SetPages(BaseSizes(), _vp.Zoom);
             if (_pages.Count > 0) _vp.ScrollToPage(SlotOf(_single));
             OnViewChanged(ChangeKind.Navigate);
@@ -418,7 +447,15 @@ public sealed class ContinuousPdfView : Grid
     {
         double maxY = _vp.MaxOffsetY, maxX = _vp.MaxOffsetX;
         _vbar.Maximum = maxY;
-        _vbar.ViewportSize = _vp.ViewportHeight;
+        // Track tính chiều dài thumb từ ViewportSize. Nới riêng giá trị trình bày này để
+        // thumb không biến thành một chấm ở PDF hàng trăm trang; vị trí kéo vẫn map theo
+        // Maximum/Value thật nên không làm sai trang đang xem.
+        double usableTrackHeight = Math.Max(1, _vbar.ActualHeight - VerticalScrollTrackInsets);
+        double minThumbRatio = Math.Clamp(MinimumVerticalThumbHeight / usableTrackHeight, 0.02, 0.75);
+        double visualViewport = maxY > 0
+            ? Math.Max(_vp.ViewportHeight, maxY * minThumbRatio / (1 - minThumbRatio))
+            : _vp.ViewportHeight;
+        _vbar.ViewportSize = visualViewport;
         _vbar.LargeChange = Math.Max(1, _vp.ViewportHeight * 0.9);
         _vbar.SmallChange = 100.0 / 3;
         _vbar.Value = _vp.OffsetY;

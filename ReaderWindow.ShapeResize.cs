@@ -33,23 +33,26 @@ namespace XTPdfMergeApp
         /// <summary>Shows/positions the grips for the current selection — called from UpdateSelectionVisual whenever it runs.</summary>
         private void UpdateShapeGrips()
         {
-            bool selected = _shapeResizeDrag == null && _lineResizeDrag == null && _annotationEditor == null && _annMove == null
-                && _selAnn is { Kind: QuickAnnotationKind.Shape } && _selRow is { };
-            var style = selected ? ShapeStyle.Decode(((QuickAnnotationSpec)_selAnn!).Format) : default;
-            bool showBox = selected && !style.IsLine;
-            bool showLine = selected && style.IsLine;
+            if (_shapeResizeDrag != null || _lineResizeDrag != null || _annotationEditor != null || _annMove != null ||
+                _selAnn is not { Kind: QuickAnnotationKind.Shape } selected || _selRow is not { } row)
+            {
+                foreach (var g in ShapeGrips) g.Visibility = Visibility.Collapsed;
+                foreach (var g in LineGrips) g.Visibility = Visibility.Collapsed;
+                return;
+            }
 
-            if (showBox && TryPageToLayer(_selRow!, ((QuickAnnotationSpec)_selAnn!).U1, ((QuickAnnotationSpec)_selAnn!).V1, out Point a) &&
-                TryPageToLayer(_selRow!, ((QuickAnnotationSpec)_selAnn!).U2, ((QuickAnnotationSpec)_selAnn!).V2, out Point b))
+            var style = ShapeStyle.Decode(selected.Format);
+            if (!style.IsLine && TryPageToLayer(row, selected.U1, selected.V1, out Point a) &&
+                TryPageToLayer(row, selected.U2, selected.V2, out Point b))
             {
                 PlaceGrips(a, b);
                 foreach (var g in ShapeGrips) g.Visibility = Visibility.Visible;
             }
             else foreach (var g in ShapeGrips) g.Visibility = Visibility.Collapsed;
 
-            if (showLine)
+            if (style.IsLine)
             {
-                var (tail, head) = GetLineEndpointsPixel(_selRow!, (QuickAnnotationSpec)_selAnn!, style);
+                var (tail, head) = GetLineEndpointsPixel(row, selected, style);
                 Place(GripLineA, tail.X, tail.Y);
                 Place(GripLineB, head.X, head.Y);
                 foreach (var g in LineGrips) g.Visibility = Visibility.Visible;

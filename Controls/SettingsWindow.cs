@@ -12,12 +12,13 @@ internal sealed class SettingsWindow : XTWindow
     public SettingsWindow(Func<Task> clearCache)
     {
         Title = "Settings";
-        TitleBarMode = TitleBarMode.Dialog;
+        TitleBarMode = TitleBarMode.Tool;
         Width = 940;
         Height = 560;
         MinWidth = 720;
         MinHeight = 480;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        ShowInTaskbar = false;
         FontFamily = new FontFamily("Segoe UI");
         FontSize = 13;
         UseLayoutRounding = true;

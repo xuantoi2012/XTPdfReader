@@ -4,7 +4,7 @@
         xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
         Title="Print" Width="960" Height="640" MinWidth="900" MinHeight="600"
         TitleBarMode="Dialog" WindowStartupLocation="CenterOwner" FontFamily="Segoe UI" FontSize="13"
-        UseLayoutRounding="True" SnapsToDevicePixels="True">
+        UseLayoutRounding="True" SnapsToDevicePixels="True" ShowInTaskbar="False">
     <xt:XTWindow.Resources>
         <Style x:Key="Card" TargetType="Border">
             <Setter Property="BorderBrush" Value="{DynamicResource Ui.Border}"/>
@@ -123,6 +123,8 @@
                             <TextBlock DockPanel.Dock="Right" Text="%" VerticalAlignment="Center" Margin="6,0,0,0"/>
                             <TextBox x:Name="PercentBox" Width="70" Height="28" Margin="12,0,0,0" HorizontalAlignment="Left" Text="100" VerticalContentAlignment="Center" IsEnabled="False" TextChanged="Percent_TextChanged"/>
                         </DockPanel>
+                        <CheckBox x:Name="HighQualityBox" Content="High quality CAD (600 DPI)" Margin="0,10,0,0" Checked="Setting_Changed" Unchecked="Setting_Changed"
+                                  ToolTip="Renders in memory-bounded bands for sharp CAD lines. Large sheets can take longer to spool."/>
                         <TextBlock x:Name="LayerNote" Margin="0,10,0,0" TextWrapping="Wrap" Style="{StaticResource Small}"/>
                     </StackPanel>
                 </Border>

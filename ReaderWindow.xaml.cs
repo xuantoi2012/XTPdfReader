@@ -67,7 +67,7 @@ namespace XTPdfMergeApp
                 reader.Cache, reader.Bytes, reader.Inflight,
                 0, 0,
                 continuous.Pages, continuous.Regions, continuous.RegionBytes,
-                _readerContinuousMode ? "Continuous" : "Single page", _readerZoom, current, pageCount);
+                _readerTwoPageMode ? "Two-page" : _readerContinuousMode ? "Continuous" : "Single page", _readerZoom, current, pageCount);
         }
 
         internal void ShutdownReader()
@@ -92,6 +92,12 @@ namespace XTPdfMergeApp
         /// nào đang focus, phím tắt ở đây chỉ bao giờ tới tay khi Viewer thật sự đang active.</summary>
         private void ReaderWindow_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.F1)
+            {
+                Controls.KeyboardShortcutsWindow.ShowFor(this);
+                e.Handled = true;
+                return;
+            }
             if (e.Key == Key.F11)
             {
                 SetReaderFullScreen(!_readerFullScreen);
@@ -238,6 +244,7 @@ namespace XTPdfMergeApp
         }
 
         private enum ReaderZoomMode { Manual, FitWidth, FitPage }
+        private enum ReaderPageView { Single, Continuous, TwoPage }
 
         private const double ReaderRenderWidthPx = 2200;
         internal const long ReaderCacheBudgetBytes = 64L * 1024 * 1024;
@@ -260,6 +267,7 @@ namespace XTPdfMergeApp
         /// <summary>Bố cục của vùng xem (ReaderContinuousView — bộ vẽ DUY NHẤT): TRUE = cuộn liên tục qua mọi trang,
         /// FALSE = 1 trang (lăn quá mép = sang trang kế/trước, như Foxit). Lăn chuột cuộn, Ctrl+lăn chuột zoom.</summary>
         private bool _readerContinuousMode;
+        private bool _readerTwoPageMode;
 
         /// <summary>Xoay CHỈ ĐỂ XEM (0/90/180/270) cho mọi trang — không đụng tới file PDF, không ảnh hưởng lúc Lưu/merge.</summary>
         private int _readerRotation;
@@ -455,21 +463,39 @@ namespace XTPdfMergeApp
         private static ReaderZoomMode DefaultReaderZoomMode()
             => AppSettings.ZoomOnOpen == DefaultZoom.FitPage ? ReaderZoomMode.FitPage : ReaderZoomMode.FitWidth;
 
-        private void ReaderViewSingle_Click(object sender, RoutedEventArgs e) { if (_readerContinuousMode) ReaderContinuousToggle_Click(sender, e); else UpdateViewModeButtons(); }
-        private void ReaderViewContinuous_Click(object sender, RoutedEventArgs e) { if (!_readerContinuousMode) ReaderContinuousToggle_Click(sender, e); else UpdateViewModeButtons(); }
+        private void ReaderViewSingle_Click(object sender, RoutedEventArgs e) => SetReaderViewMode(ReaderPageView.Single);
+        private void ReaderViewContinuous_Click(object sender, RoutedEventArgs e) => SetReaderViewMode(ReaderPageView.Continuous);
+        private void ReaderViewTwoPage_Click(object sender, RoutedEventArgs e) => SetReaderViewMode(ReaderPageView.TwoPage);
 
         private void UpdateViewModeButtons()
         {
-            ReaderContinuousToggle.Tag = _readerContinuousMode ? "Active" : null;
-            ReaderSingleViewButton.Tag = _readerContinuousMode ? null : "Active";
-            ReaderStatusContinuousButton.Tag = _readerContinuousMode ? "Active" : null;
-            ReaderStatusSingleButton.Tag = _readerContinuousMode ? null : "Active";
+            ReaderStatusSingleButton.Tag = !_readerContinuousMode ? "Active" : null;
+            ReaderStatusContinuousButton.Tag = _readerContinuousMode && !_readerTwoPageMode ? "Active" : null;
+            ReaderStatusTwoPageButton.Tag = _readerTwoPageMode ? "Active" : null;
         }
 
         private void ReaderContinuousToggle_Click(object sender, RoutedEventArgs e)
+            => SetReaderViewMode(_readerContinuousMode ? ReaderPageView.Single : ReaderPageView.Continuous);
+
+        private void SetReaderViewMode(ReaderPageView mode)
         {
-            _readerContinuousMode = !_readerContinuousMode;
-            ReaderContinuousView.SinglePage = !_readerContinuousMode;
+            _readerContinuousMode = mode != ReaderPageView.Single;
+            _readerTwoPageMode = mode == ReaderPageView.TwoPage;
+            if (mode == ReaderPageView.Single)
+            {
+                ReaderContinuousView.TwoPage = false;
+                ReaderContinuousView.SinglePage = true;
+            }
+            else if (mode == ReaderPageView.Continuous)
+            {
+                ReaderContinuousView.TwoPage = false;
+                ReaderContinuousView.SinglePage = false;
+            }
+            else
+            {
+                ReaderContinuousView.SinglePage = false;
+                ReaderContinuousView.TwoPage = true;
+            }
             ReapplyZoomMode();
             UpdateViewModeButtons();
         }
@@ -588,6 +614,15 @@ namespace XTPdfMergeApp
             double width = ReaderContinuousView.ViewportWidth;
             if (width <= 0) return _readerZoom > 0 ? _readerZoom : 1.0; // chưa layout — khớp lại khi có kích thước (ViewportResized)
             double viewportWidth = Math.Max(1, width - 2 * ContinuousPageLayout.Margin - 2 * ContinuousPageLayout.BorderThickness);
+            if (_readerTwoPageMode && _readerGroup != null && _readerPage != null)
+            {
+                int first = Math.Max(0, _readerGroup.Pages.IndexOf(_readerPage) / 2 * 2);
+                var (firstWidth, _) = ReaderContinuousView.DisplayBaseSize(first);
+                double spreadWidth = firstWidth;
+                if (first + 1 < _readerGroup.Pages.Count)
+                    spreadWidth += ReaderContinuousView.DisplayBaseSize(first + 1).Width + ContinuousPageLayout.BaseGap;
+                return ReaderZoomMath.Clamp(ReaderZoomMath.FitWidthZoom(viewportWidth, spreadWidth), ReaderMinZoom, ReaderMaxZoom);
+            }
             // Trang rộng nhất như đang hiện: không xoay = ReaderRenderWidthPx; xoay 90/270 = trang cao nhất.
             double widest = ReaderRenderWidthPx;
             if (_readerRotation % 180 != 0)
@@ -607,6 +642,17 @@ namespace XTPdfMergeApp
             if (_readerGroup == null || _readerPage == null || view.ViewportWidth <= 0 || view.ViewportHeight <= 0) return _readerZoom;
             var (w, h) = view.DisplayBaseSize(_readerGroup.Pages.IndexOf(_readerPage));
             if (w <= 0 || h <= 0) return _readerZoom;
+            if (_readerTwoPageMode)
+            {
+                int first = Math.Max(0, _readerGroup.Pages.IndexOf(_readerPage) / 2 * 2);
+                (w, h) = view.DisplayBaseSize(first);
+                if (first + 1 < _readerGroup.Pages.Count)
+                {
+                    var (nextWidth, nextHeight) = view.DisplayBaseSize(first + 1);
+                    w += nextWidth + ContinuousPageLayout.BaseGap;
+                    h = Math.Max(h, nextHeight);
+                }
+            }
             double extra = 2 * ContinuousPageLayout.Margin + 2 * ContinuousPageLayout.BorderThickness;
             double zoom = Math.Min(Math.Max(1, view.ViewportWidth - extra) / w, Math.Max(1, view.ViewportHeight - extra) / h);
             return ReaderZoomMath.Clamp(zoom, ReaderMinZoom, ReaderMaxZoom);
@@ -658,6 +704,8 @@ namespace XTPdfMergeApp
             if (_syncingZoomSlider || ReaderContinuousView.Pages.Count == 0) return;
             SetReaderContinuousZoom(e.NewValue);
         }
+
+        private void ReaderMore_Click(object sender, RoutedEventArgs e) => OpenPalette();
 
         private bool _readerFullScreen;
 
@@ -858,6 +906,9 @@ namespace XTPdfMergeApp
             _readerZoomMode = ReaderZoomMode.FitWidth;
             ReapplyZoomMode();
         }
+
+        private void ReaderActualSize_Click(object sender, RoutedEventArgs e)
+            => SetReaderContinuousZoom(1.0, ReaderZoomMode.Manual);
 
         private void ReaderZoomIn_Click(object sender, RoutedEventArgs e)
             => ZoomContinuousAtPoint(ReaderContinuousZoom * ReaderZoomStep, ReaderContinuousView.ViewportCenter);

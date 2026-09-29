@@ -21,6 +21,7 @@ internal sealed class ManageLayerViewsWindow : XTWindow
         Height = 360;
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        ShowInTaskbar = false;
         FontFamily = new System.Windows.Media.FontFamily("Segoe UI");
         FontSize = 13;
 

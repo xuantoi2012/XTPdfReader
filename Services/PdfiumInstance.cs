@@ -24,6 +24,7 @@ internal sealed unsafe class PdfiumInstance
     private readonly delegate* unmanaged[Cdecl]<byte*, byte*, IntPtr> _loadDocument;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, byte*, IntPtr> _loadCustomDocument;
     private readonly delegate* unmanaged[Cdecl]<byte*, nuint, byte*, IntPtr> _loadMemDocument64;
+    private readonly delegate* unmanaged[Cdecl]<uint> _getLastError;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, int, int, int, int, int, void> _renderPageBitmap;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, void> _closeDocument;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, int> _getPageCount;
@@ -69,6 +70,7 @@ internal sealed unsafe class PdfiumInstance
         _loadDocument = (delegate* unmanaged[Cdecl]<byte*, byte*, IntPtr>)F("FPDF_LoadDocument");
         _loadCustomDocument = (delegate* unmanaged[Cdecl]<IntPtr, byte*, IntPtr>)F("FPDF_LoadCustomDocument");
         _loadMemDocument64 = (delegate* unmanaged[Cdecl]<byte*, nuint, byte*, IntPtr>)F("FPDF_LoadMemDocument64");
+        _getLastError = (delegate* unmanaged[Cdecl]<uint>)F("FPDF_GetLastError");
         _renderPageBitmap = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, int, int, int, int, int, void>)F("FPDF_RenderPageBitmap");
         _closeDocument = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("FPDF_CloseDocument");
         _getPageCount = (delegate* unmanaged[Cdecl]<IntPtr, int>)F("FPDF_GetPageCount");
@@ -186,17 +188,31 @@ internal sealed unsafe class PdfiumInstance
     /// <summary>FPDF_InitLibrary đúng 1 lần (FPDF_DestroyLibrary khi tiến trình thoát).</summary>
     public void EnsureInitialized() => _ = _initialized.Value;
 
-    public IntPtr LoadDocument(string filePath)
+    public IntPtr LoadDocument(string filePath, string? password = null)
     {
         byte[] path = Utf8(filePath);
-        fixed (byte* p = path) return _loadDocument(p, null);
+        if (string.IsNullOrEmpty(password))
+        {
+            fixed (byte* p = path) return _loadDocument(p, null);
+        }
+        byte[] credentials = Utf8(password);
+        fixed (byte* p = path)
+        fixed (byte* c = credentials) return _loadDocument(p, c);
     }
 
     /// <summary>fileAccess = FPDF_FILEACCESS* (xem LayeredDocumentSource).</summary>
-    public IntPtr LoadCustomDocument(IntPtr fileAccess) => _loadCustomDocument(fileAccess, null);
+    public IntPtr LoadCustomDocument(IntPtr fileAccess, string? password = null)
+    {
+        if (string.IsNullOrEmpty(password)) return _loadCustomDocument(fileAccess, null);
+        byte[] credentials = Utf8(password);
+        fixed (byte* c = credentials) return _loadCustomDocument(fileAccess, c);
+    }
 
     /// <summary>Document from a buffer that must stay pinned until <see cref="CloseDocument"/>.</summary>
     public IntPtr LoadMemDocument(byte* data, long length) => _loadMemDocument64(data, (nuint)length, null);
+
+    /// <summary>FPDF_GetLastError ngay sau một lần mở thất bại (FPDF_ERR_*).</summary>
+    public uint GetLastError() => _getLastError();
 
     /// <summary>Non-progressive render (small pages: annotation appearances).</summary>
     public void RenderPageBitmap(IntPtr bitmap, IntPtr page, int x, int y, int width, int height, int rotate, int flags)

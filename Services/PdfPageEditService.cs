@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Threading;
 using iText.Kernel.Pdf;
 
@@ -46,7 +47,10 @@ namespace XTPdfMergeApp.Services
             {
                 length = source.Length();
                 // Append mode chép nguyên các byte cũ ra writer rồi mới ghi phần cập nhật: TailStream bỏ phần chép, giữ phần cập nhật.
-                using var doc = new PdfDocument(new PdfReader(source, new ReaderProperties()), new PdfWriter(new TailStream(length, update)),
+                var properties = new ReaderProperties();
+                if (PdfThumbnailService.TryGetDocumentPassword(path) is { Length: > 0 } password)
+                    properties.SetPassword(Encoding.UTF8.GetBytes(password));
+                using var doc = new PdfDocument(new PdfReader(source, properties), new PdfWriter(new TailStream(length, update)),
                     new StampingProperties().UseAppendMode());
                 edit(doc);
             }

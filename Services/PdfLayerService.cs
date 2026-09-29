@@ -53,7 +53,10 @@ namespace XTPdfMergeApp.Services
 
         public static PdfLayerInfo ReadLayers(string path)
         {
-            using var doc = new PdfDocument(new PdfReader(path));
+            var properties = new ReaderProperties();
+            if (PdfThumbnailService.TryGetDocumentPassword(path) is { Length: > 0 } password)
+                properties.SetPassword(Encoding.UTF8.GetBytes(password));
+            using var doc = new PdfDocument(new PdfReader(path, properties));
             return ReadLayers(doc);
         }
 

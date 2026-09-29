@@ -26,12 +26,14 @@ namespace XTPdfMergeApp
     /// </summary>
     public partial class ReaderWindow
     {
-        private enum ReaderTool { Hand, Select, Typewriter, Comment, Highlight, Underline, Strikethrough, Stamp, Shape, SnapShot }
+        private enum ReaderTool { Hand, Select, Typewriter, Comment, Callout, Pencil, Highlight, Underline, Strikethrough, Squiggly, Eraser, Stamp, Shape, SnapShot }
 
         private ReaderTool _readerTool = ReaderTool.Hand;
 
         /// <summary>1 điểm trên 1 trang đang hiển thị: (U, V) chuẩn hoá 0..1, gốc trên-trái của trang.</summary>
         private readonly record struct PageHit(PageRow Row, double U, double V);
+        private sealed record LinkPress(PageHit Hit, Point Start);
+        private LinkPress? _linkPress;
 
         // ── Chọn công cụ ────────────────────────────────────────────────
 
@@ -39,8 +41,12 @@ namespace XTPdfMergeApp
         private void ReaderSelectTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Select);
         private void ReaderTypewriterTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Typewriter);
         private void ReaderCommentTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Comment);
+        private void ReaderCalloutTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Callout);
+        private void ReaderPencilTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Pencil);
         private void ReaderUnderlineTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Underline);
         private void ReaderStrikethroughTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Strikethrough);
+        private void ReaderSquigglyTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Squiggly);
+        private void ReaderEraserTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Eraser);
         private void ReaderSnapShotTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.SnapShot);
 
         /// <summary>Highlight "Text"/"Area" are 2 separate buttons now (Foxit shows both, not 1 button + a mode toggle bar).</summary>
@@ -75,6 +81,8 @@ namespace XTPdfMergeApp
         {
             CommitAnnotationEditor();
             CancelHighlightDrag();
+            CancelInkDrag();
+            CancelCalloutDraft();
             CancelShapeDrag();
             _readerTool = tool;
             if (tool != ReaderTool.Hand) SelectAnnotation(null, null);
@@ -83,10 +91,14 @@ namespace XTPdfMergeApp
             ReaderSelectToolButton.Tag = tool == ReaderTool.Select ? "Active" : null;
             ReaderTypewriterToolButton.Tag = tool == ReaderTool.Typewriter ? "Active" : null;
             ReaderCommentToolButton.Tag = tool == ReaderTool.Comment ? "Active" : null;
+            ReaderCalloutToolButton.Tag = tool == ReaderTool.Callout ? "Active" : null;
+            ReaderPencilToolButton.Tag = tool == ReaderTool.Pencil ? "Active" : null;
             ReaderHighlightTextButton.Tag = tool == ReaderTool.Highlight && AppSettings.HighlightMode != "Area" ? "Active" : null;
             ReaderHighlightAreaButton.Tag = tool == ReaderTool.Highlight && AppSettings.HighlightMode == "Area" ? "Active" : null;
             ReaderUnderlineToolButton.Tag = tool == ReaderTool.Underline ? "Active" : null;
             ReaderStrikethroughToolButton.Tag = tool == ReaderTool.Strikethrough ? "Active" : null;
+            ReaderSquigglyToolButton.Tag = tool == ReaderTool.Squiggly ? "Active" : null;
+            ReaderEraserToolButton.Tag = tool == ReaderTool.Eraser ? "Active" : null;
             ReaderStampToolButton.Tag = tool == ReaderTool.Stamp ? "Active" : null;
             ReaderShapeRectButton.Tag = tool == ReaderTool.Shape && _shapeStyle.Type == ShapeStyle.Rect ? "Active" : null;
             ReaderShapeCloudButton.Tag = tool == ReaderTool.Shape && _shapeStyle.Type == ShapeStyle.Cloud ? "Active" : null;
@@ -102,7 +114,10 @@ namespace XTPdfMergeApp
                 ReaderTool.Select => Cursors.IBeam,
                 ReaderTool.Typewriter => Cursors.IBeam,
                 ReaderTool.Comment => Cursors.Pen,
-                ReaderTool.Highlight or ReaderTool.Underline or ReaderTool.Strikethrough => Cursors.Cross,
+                ReaderTool.Callout => Cursors.Pen,
+                ReaderTool.Pencil => Cursors.Pen,
+                ReaderTool.Highlight or ReaderTool.Underline or ReaderTool.Strikethrough or ReaderTool.Squiggly => Cursors.Cross,
+                ReaderTool.Eraser => Cursors.No,
                 ReaderTool.Stamp => Cursors.Cross,
                 ReaderTool.Shape => Cursors.Cross,
                 ReaderTool.SnapShot => Cursors.Cross,
@@ -188,6 +203,7 @@ namespace XTPdfMergeApp
 
         private void ReaderContentHost_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
+            _linkPress = null;
             // Thanh Find / thanh định dạng nằm đè lên trang: bấm vào chúng không được coi là bấm lên trang.
             if (IsOverlayBar(e.OriginalSource as DependencyObject)) return;
             // Grip resize nằm ngay trên hình đã chọn: để nguyên (không Handled) cho Grip_MouseDown của chính nó xử lý,
@@ -215,12 +231,19 @@ namespace XTPdfMergeApp
                         e.Handled = true;
                         Focus();
                         SelectAnnotation(hit.Row, picked);
-                        if (e.ClickCount >= 2 && picked.Kind is QuickAnnotationKind.Typewriter or QuickAnnotationKind.Comment)
+                        if (e.ClickCount >= 2 && picked.Kind == QuickAnnotationKind.Callout)
+                            _ = EditCalloutAsync(hit.Row, picked);
+                        else if (e.ClickCount >= 2 && picked.Kind is QuickAnnotationKind.Typewriter or QuickAnnotationKind.Comment)
                             _ = OpenAnnotationEditorAsync(hit, picked.Kind, picked);
                         else
                             BeginAnnotationMove(hit, picked);
                     }
-                    else SelectAnnotation(null, null);
+                    else
+                    {
+                        SelectAnnotation(null, null);
+                        // Để ContinuousPdfView vẫn bắt được kéo-pan. Chỉ mouse-up gần đúng điểm bấm mới kích hoạt Link.
+                        _linkPress = new LinkPress(hit, e.GetPosition(ReaderContentHost));
+                    }
                     break;
 
                 case ReaderTool.Typewriter:
@@ -233,6 +256,17 @@ namespace XTPdfMergeApp
                     e.Handled = true;
                     _ = OpenAnnotationEditorAsync(hit, QuickAnnotationKind.Comment,
                         FindAnnotationAt(page, hit, QuickAnnotationKind.Comment));
+                    break;
+
+                case ReaderTool.Callout:
+                    e.Handled = true;
+                    if (_calloutDraft == null) BeginCalloutDraft(hit);
+                    else _ = FinishCalloutDraftAsync(hit);
+                    break;
+
+                case ReaderTool.Pencil:
+                    e.Handled = true;
+                    BeginInkDrag(hit);
                     break;
 
                 case ReaderTool.Highlight:
@@ -248,6 +282,20 @@ namespace XTPdfMergeApp
                 case ReaderTool.Strikethrough:
                     e.Handled = true;
                     BeginHighlightDrag(hit, QuickAnnotationKind.StrikeOut);
+                    break;
+
+                case ReaderTool.Squiggly:
+                    e.Handled = true;
+                    BeginHighlightDrag(hit, QuickAnnotationKind.Squiggly);
+                    break;
+
+                case ReaderTool.Eraser:
+                    e.Handled = true;
+                    if (PickAnnotation(page, hit) is { } toErase)
+                    {
+                        SelectAnnotation(hit.Row, toErase);
+                        DeleteSelectedAnnotation();
+                    }
                     break;
 
                 case ReaderTool.Stamp:
@@ -275,7 +323,13 @@ namespace XTPdfMergeApp
         private void ReaderContentHost_PreviewMouseMove(object sender, MouseEventArgs e)
         {
             Point point = e.GetPosition(ReaderContentHost);
+            UpdateCalloutDraft(point);
             if (UpdateAnnotationMove(point) || UpdateShapeDrag(point) || UpdateShapeResize(point) || UpdateLineResize(point))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (UpdateInkDrag(point))
             {
                 e.Handled = true;
                 return;
@@ -299,12 +353,20 @@ namespace XTPdfMergeApp
                 return;
             }
 
+            if (_linkPress is { } press && (point - press.Start).Length > 4)
+                _linkPress = null;
+
             UpdateCommentHover(point);
         }
 
         private void ReaderContentHost_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
             if (FinishAnnotationMove() || FinishShapeDrag(e.GetPosition(ReaderContentHost)) || FinishShapeResize() || FinishLineResize())
+            {
+                e.Handled = true;
+                return;
+            }
+            if (FinishInkDrag())
             {
                 e.Handled = true;
                 return;
@@ -325,11 +387,47 @@ namespace XTPdfMergeApp
             {
                 e.Handled = true;
                 FinishSnapshotDrag(snapDrag, e.GetPosition(ReaderContentHost));
+                return;
+            }
+            if (_linkPress is not { } press) return;
+            _linkPress = null;
+            _ = ActivateLinkAsync(press.Hit);
+        }
+
+        private async Task ActivateLinkAsync(PageHit hit)
+        {
+            var target = await PdfLinkService.FindAtAsync(hit.Row.SourcePath, hit.Row.PageNumber, hit.U, hit.V);
+            if (target == null) return;
+            if (target.PageNumber is { } page)
+            {
+                NavigateToSourcePage(hit.Row.SourcePath, page);
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(target.Uri) || !Uri.TryCreate(target.Uri, UriKind.Absolute, out var uri)) return;
+            bool safeScheme = uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+                uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                uri.Scheme.Equals(Uri.UriSchemeMailto, StringComparison.OrdinalIgnoreCase);
+            if (!safeScheme)
+            {
+                MessageBox.Show(this, $"This PDF link uses an unsupported protocol:\n{uri.Scheme}", "PDF link",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not open the link:\n" + ex.Message, "PDF link", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         private void ReaderContentHost_MouseLeave(object sender, MouseEventArgs e)
-            => ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;
+        {
+            _linkPress = null;
+            ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;
+        }
 
         // ── Ghi chú: hiện nội dung khi rê chuột lên icon ─────────────────
 
@@ -352,6 +450,163 @@ namespace XTPdfMergeApp
             double top = Math.Min(pointInHost.Y + 16, Math.Max(0, ReaderContentHost.ActualHeight - ReaderCommentHoverPopup.DesiredSize.Height - 4));
             Canvas.SetLeft(ReaderCommentHoverPopup, left);
             Canvas.SetTop(ReaderCommentHoverPopup, top);
+        }
+
+        // ── Pencil: freehand PDF Ink ───────────────────────────────────
+
+        private sealed class InkDrag
+        {
+            public required PageRow Row { get; init; }
+            public List<(double U, double V)> Points { get; } = new();
+        }
+
+        private InkDrag? _inkDrag;
+
+        private void BeginInkDrag(PageHit hit)
+        {
+            if (!TryPageToLayer(hit.Row, hit.U, hit.V, out Point point)) return;
+            _inkDrag = new InkDrag { Row = hit.Row };
+            _inkDrag.Points.Add((hit.U, hit.V));
+            ReaderInkPreview.Points.Clear();
+            ReaderInkPreview.Points.Add(point);
+            ReaderInkPreview.Visibility = Visibility.Visible;
+            ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;
+            ReaderContentHost.CaptureMouse();
+        }
+
+        private bool UpdateInkDrag(Point pointInHost)
+        {
+            if (_inkDrag is not { } drag || !TryGetPagePoint(drag.Row, pointInHost, clamp: true, out var hit)) return _inkDrag != null;
+            var previous = drag.Points[^1];
+            if (Math.Abs(hit.U - previous.U) < .0008 && Math.Abs(hit.V - previous.V) < .0008) return true;
+            if (!TryPageToLayer(drag.Row, hit.U, hit.V, out Point point)) return true;
+            drag.Points.Add((hit.U, hit.V));
+            ReaderInkPreview.Points.Add(point);
+            return true;
+        }
+
+        private bool FinishInkDrag()
+        {
+            if (_inkDrag is not { } drag) return false;
+            _inkDrag = null;
+            ReaderInkPreview.Visibility = Visibility.Collapsed;
+            ReaderInkPreview.Points.Clear();
+            if (ReaderContentHost.IsMouseCaptured) ReaderContentHost.ReleaseMouseCapture();
+            if (drag.Points.Count < 2) return true;
+            const double pad = .003;
+            var spec = new QuickAnnotationSpec(NewAnnotationName(), QuickAnnotationKind.Ink, drag.Row.PageNumber,
+                Math.Max(0, drag.Points.Min(p => p.U) - pad), Math.Max(0, drag.Points.Min(p => p.V) - pad),
+                Math.Min(1, drag.Points.Max(p => p.U) + pad), Math.Min(1, drag.Points.Max(p => p.V) + pad), "")
+            {
+                Format = PdfQuickAnnotationService.EncodeInkPoints(drag.Points),
+                Color = "#D74B31"
+            };
+            CommitAnnotationChange(drag.Row, new QuickAnnotationChange(null, spec), "Add pencil stroke");
+            return true;
+        }
+
+        private void CancelInkDrag()
+        {
+            if (_inkDrag == null) return;
+            _inkDrag = null;
+            ReaderInkPreview.Visibility = Visibility.Collapsed;
+            ReaderInkPreview.Points.Clear();
+            if (ReaderContentHost.IsMouseCaptured) ReaderContentHost.ReleaseMouseCapture();
+        }
+
+        private sealed record CalloutDraft(PageHit Tip);
+        private CalloutDraft? _calloutDraft;
+
+        private void BeginCalloutDraft(PageHit tip)
+        {
+            _calloutDraft = new CalloutDraft(tip);
+            ReaderCalloutPreview.Visibility = Visibility.Visible;
+            ReaderCalloutLeader.Visibility = Visibility.Visible;
+        }
+
+        private void UpdateCalloutDraft(Point point)
+        {
+            if (_calloutDraft is not { } draft || !TryGetPagePoint(draft.Tip.Row, point, clamp: true, out var box) ||
+                !TryPageToLayer(draft.Tip.Row, draft.Tip.U, draft.Tip.V, out Point tipPoint) || !TryPageToLayer(draft.Tip.Row, box.U, box.V, out Point boxPoint)) return;
+            Canvas.SetLeft(ReaderCalloutPreview, boxPoint.X); Canvas.SetTop(ReaderCalloutPreview, boxPoint.Y);
+            ReaderCalloutLeader.X1 = tipPoint.X; ReaderCalloutLeader.Y1 = tipPoint.Y; ReaderCalloutLeader.X2 = boxPoint.X; ReaderCalloutLeader.Y2 = boxPoint.Y;
+        }
+
+        private async Task FinishCalloutDraftAsync(PageHit box)
+        {
+            if (_calloutDraft is not { } draft) return;
+            CancelCalloutDraft();
+            var page = await LoadPageAnnotationsAsync(box.Row);
+            if (page == null) return;
+            _annotationEditor = new AnnotationEditorState { Row = box.Row, Kind = QuickAnnotationKind.Callout, U = box.U, V = box.V, Geometry = page.Geometry, TipU = draft.Tip.U, TipV = draft.Tip.V };
+            ReaderAnnotationEditor.Text = ""; ApplyEditorFormat(); ReaderAnnotationEditor.Background = new SolidColorBrush(Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF));
+            ReaderAnnotationEditor.TextWrapping = TextWrapping.Wrap; ReaderAnnotationEditor.Width = 240; ReaderAnnotationEditor.MinHeight = 72; ReaderAnnotationEditor.Visibility = Visibility.Visible;
+            PositionAnnotationEditor(); ReaderAnnotationEditor.Focus();
+        }
+
+        private void CancelCalloutDraft()
+        {
+            _calloutDraft = null; ReaderCalloutPreview.Visibility = Visibility.Collapsed; ReaderCalloutLeader.Visibility = Visibility.Collapsed;
+        }
+
+        private async Task AddCalloutAsync(PageHit hit)
+        {
+            var page = await LoadPageAnnotationsAsync(hit.Row);
+            if (page == null) return;
+            var prompt = new TextPromptWindow("Add callout", "Callout text:", "", null) { Owner = this };
+            if (prompt.ShowDialog() != true || string.IsNullOrWhiteSpace(prompt.Value)) return;
+            double boxU = Math.Clamp(hit.U + .025, 0, .72);
+            double boxV = Math.Clamp(hit.V - .04, 0, .85);
+            var spec = new QuickAnnotationSpec(NewAnnotationName(), QuickAnnotationKind.Callout, hit.Row.PageNumber, boxU, boxV, boxU, boxV, prompt.Value)
+            {
+                Format = PdfQuickAnnotationService.EncodeCallout(hit.U, hit.V, _textFormat.Encode())
+            };
+            CommitAnnotationChange(hit.Row, new QuickAnnotationChange(null, PdfQuickAnnotationService.WithMeasuredSize(spec, page.Geometry)), "Add callout");
+        }
+
+        private async Task EditCalloutAsync(PageRow row, QuickAnnotationSpec existing)
+        {
+            var prompt = new TextPromptWindow("Edit callout", "Callout text:", existing.Text, null) { Owner = this };
+            if (prompt.ShowDialog() != true || prompt.Value is not { } text || text == existing.Text) return;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                CommitAnnotationChange(row, new QuickAnnotationChange(existing, null), "Delete callout");
+                return;
+            }
+            var page = await LoadPageAnnotationsAsync(row);
+            if (page == null) return;
+            var changed = PdfQuickAnnotationService.WithMeasuredSize(Regenerated(existing) with { Text = text }, page.Geometry);
+            CommitAnnotationChange(row, new QuickAnnotationChange(existing, changed), "Edit callout");
+        }
+
+        private async void AddInlineReply(CommentInfo parent, string text)
+        {
+            var row = _readerGroup?.Pages.FirstOrDefault(p => string.Equals(p.SourcePath, parent.Path, StringComparison.OrdinalIgnoreCase) && p.PageNumber == parent.Page);
+            if (row == null) return;
+            var page = await LoadPageAnnotationsAsync(row);
+            var source = page?.Annotations.FirstOrDefault(a => a.Name == parent.Name);
+            if (page == null || source == null) return;
+            var reply = new QuickAnnotationSpec(NewAnnotationName(), QuickAnnotationKind.Reply, row.PageNumber,
+                Math.Min(.95, source.U2 + .01), Math.Min(.95, source.V1 + .01), 0, 0, text) { Format = "R|" + source.Name };
+            CommitAnnotationChange(row, new QuickAnnotationChange(null, PdfQuickAnnotationService.WithMeasuredSize(reply, page.Geometry)), "Reply to comment");
+        }
+
+        private async void EditInlineComment(CommentInfo info, string text)
+        {
+            var row = _readerGroup?.Pages.FirstOrDefault(p => string.Equals(p.SourcePath, info.Path, StringComparison.OrdinalIgnoreCase) && p.PageNumber == info.Page);
+            var page = row == null ? null : await LoadPageAnnotationsAsync(row);
+            var current = page?.Annotations.FirstOrDefault(a => a.Name == info.Name);
+            if (row == null || current == null) return;
+            var changed = current.Kind is QuickAnnotationKind.Comment or QuickAnnotationKind.Reply ? current with { Text = text } : Regenerated(current) with { Text = text };
+            CommitAnnotationChange(row, new QuickAnnotationChange(current, changed), "Edit comment");
+        }
+
+        private async void DeleteInlineComment(CommentInfo info)
+        {
+            var row = _readerGroup?.Pages.FirstOrDefault(p => string.Equals(p.SourcePath, info.Path, StringComparison.OrdinalIgnoreCase) && p.PageNumber == info.Page);
+            var page = row == null ? null : await LoadPageAnnotationsAsync(row);
+            var current = page?.Annotations.FirstOrDefault(a => a.Name == info.Name);
+            if (row != null && current != null) CommitAnnotationChange(row, new QuickAnnotationChange(current, null), "Delete comment");
         }
 
         // ── Highlight: kéo 1 hình chữ nhật ──────────────────────────────
@@ -418,6 +673,8 @@ namespace XTPdfMergeApp
             public required double U { get; init; }
             public required double V { get; init; }
             public required PdfPageGeometry Geometry { get; init; }
+            public double TipU { get; init; }
+            public double TipV { get; init; }
             public QuickAnnotationSpec? Existing { get; init; }
         }
 
@@ -492,7 +749,7 @@ namespace XTPdfMergeApp
             double pixelsPerPoint = Math.Max(0.1, (right - anchor).Length);
 
             double left, top;
-            if (state.Kind == QuickAnnotationKind.Typewriter)
+            if (state.Kind is QuickAnnotationKind.Typewriter or QuickAnnotationKind.Callout)
             {
                 // Khớp cỡ chữ + lề 2pt của annotation sẽ ghi → chữ gõ nằm đúng chỗ chữ sau khi ghi.
                 ReaderAnnotationEditor.FontSize = Math.Max(6, _textFormat.Size * pixelsPerPoint);
@@ -556,10 +813,10 @@ namespace XTPdfMergeApp
             UpdateSelectionVisual();
             if (cancel) return;
 
-            string format = state.Kind == QuickAnnotationKind.Typewriter ? _textFormat.Encode() : "";
+            string format = state.Kind == QuickAnnotationKind.Callout ? PdfQuickAnnotationService.EncodeCallout(state.TipU, state.TipV, _textFormat.Encode()) : state.Kind == QuickAnnotationKind.Typewriter ? _textFormat.Encode() : "";
             QuickAnnotationChange change;
             string description;
-            string label = state.Kind == QuickAnnotationKind.Comment ? "note" : "typewriter";
+            string label = state.Kind == QuickAnnotationKind.Comment ? "note" : state.Kind == QuickAnnotationKind.Callout ? "callout" : "typewriter";
             if (state.Existing is not { } existing)
             {
                 if (text.Length == 0) return;

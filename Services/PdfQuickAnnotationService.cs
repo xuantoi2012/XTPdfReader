@@ -15,9 +15,9 @@ using iText.Kernel.Pdf.Xobject;
 
 namespace XTPdfMergeApp.Services
 {
-    /// <summary>Other = chú thích của app khác mà app không tự vẽ lại được (ink, polygon, file đính kèm, form…): vẫn hiện
+    /// <summary>Other = chú thích của app khác mà app không tự vẽ lại được (polygon, file đính kèm, form…): vẫn hiện
     /// (appearance gốc), chọn/di chuyển/xoá được, không sửa nội dung.</summary>
-    public enum QuickAnnotationKind { Typewriter, Comment, Highlight, Stamp, Shape, Underline, StrikeOut, Other }
+    public enum QuickAnnotationKind { Typewriter, Comment, Reply, Callout, Highlight, Stamp, Shape, Underline, StrikeOut, Squiggly, Ink, Other }
 
     /// <summary>
     /// 1 annotation do công cụ sửa nhanh quản lý, mô tả theo toạ độ TRANG HIỂN THỊ chuẩn hoá (xem
@@ -53,9 +53,11 @@ namespace XTPdfMergeApp.Services
         public QuickAnnotationSpec Translate(double du, double dv)
         {
             string format = Format;
-            if (Kind is QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut && format.StartsWith("T|", StringComparison.Ordinal))
+            if (Kind is QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut or QuickAnnotationKind.Squiggly && format.StartsWith("T|", StringComparison.Ordinal))
                 format = PdfQuickAnnotationService.EncodeTextHighlight(
                     PdfQuickAnnotationService.TextHighlightRects(format).Select(r => (r.U1 + du, r.V1 + dv, r.U2 + du, r.V2 + dv)));
+            else if (Kind == QuickAnnotationKind.Ink && format.StartsWith("I|", StringComparison.Ordinal))
+                format = PdfQuickAnnotationService.EncodeInkPoints(PdfQuickAnnotationService.InkPoints(format).Select(p => (p.U + du, p.V + dv)));
             return this with { U1 = U1 + du, V1 = V1 + dv, U2 = U2 + du, V2 = V2 + dv, Format = format };
         }
     }
@@ -78,6 +80,7 @@ namespace XTPdfMergeApp.Services
         private const float TypewriterPadding = 2f;
         private const float CommentIconSize = 20f;
         private static readonly PdfName TypewriterIntent = new("FreeTextTypeWriter");
+        private static readonly PdfName CalloutIntent = new("FreeTextCallout");
         private static readonly PdfName IntentKey = new("IT");
         private static readonly PdfName FormatKey = new("XTFormat");
         private static readonly PdfName ShapeKey = new("XTShape");
@@ -145,8 +148,9 @@ namespace XTPdfMergeApp.Services
                 {
                     Format = kind switch
                     {
-                        QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut => ReadQuadFormat(annot, geometry),
+                        QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut or QuickAnnotationKind.Squiggly => ReadQuadFormat(annot, geometry),
                         QuickAnnotationKind.Shape => obj.GetAsString(ShapeKey)?.ToUnicodeString() ?? "",
+                        QuickAnnotationKind.Ink => ReadInkFormat(annot, geometry),
                         _ => obj.GetAsString(FormatKey)?.ToUnicodeString() ?? ""
                     },
                     ObjectNumber = reference?.GetObjNumber() ?? 0,
@@ -191,9 +195,10 @@ namespace XTPdfMergeApp.Services
         private static string ReadQuadFormat(PdfAnnotation annot, PdfPageGeometry geometry)
         {
             var subtype = annot.GetSubtype();
-            if (!PdfName.Highlight.Equals(subtype) && !PdfName.Underline.Equals(subtype) && !PdfName.StrikeOut.Equals(subtype)) return "";
+            if (!PdfName.Highlight.Equals(subtype) && !PdfName.Underline.Equals(subtype) && !PdfName.StrikeOut.Equals(subtype) && !PdfName.Squiggly.Equals(subtype)) return "";
             var quads = annot.GetPdfObject().GetAsArray(PdfName.QuadPoints);
-            if (quads == null || quads.Size() < 16) return "";
+            // One text line is exactly one quad (8 numbers); requiring 16 silently discarded every single-line markup.
+            if (quads == null || quads.Size() < 8) return "";
             var rects = new List<(double, double, double, double)>();
             for (int i = 0; i + 7 < quads.Size(); i += 8)
             {
@@ -204,15 +209,37 @@ namespace XTPdfMergeApp.Services
             return EncodeTextHighlight(rects);
         }
 
+        private static string ReadInkFormat(PdfAnnotation annot, PdfPageGeometry geometry)
+        {
+            var strokes = annot.GetPdfObject().GetAsArray(PdfName.InkList);
+            if (strokes == null || strokes.Size() == 0) return "";
+            // A Pencil stroke made by this app has one point list. Other producers may have several;
+            // keep the first stroke editable and leave their original appearance intact until altered.
+            var points = strokes.GetAsArray(0);
+            if (points == null || points.Size() < 4) return "";
+            var display = new List<(double U, double V)>();
+            for (int index = 0; index + 1 < points.Size(); index += 2)
+            {
+                double x = points.GetAsNumber(index)?.DoubleValue() ?? 0;
+                double y = points.GetAsNumber(index + 1)?.DoubleValue() ?? 0;
+                var (u1, v1, _, _) = geometry.UserRectToDisplay(x, y, x, y);
+                display.Add((u1, v1));
+            }
+            return EncodeInkPoints(display);
+        }
+
         private static QuickAnnotationKind? KindOf(PdfAnnotation annot)
         {
             var subtype = annot.GetSubtype();
             if (annot.GetPdfObject().ContainsKey(ShapeKey)) return QuickAnnotationKind.Shape;
-            if (PdfName.FreeText.Equals(subtype)) return QuickAnnotationKind.Typewriter;
-            if (PdfName.Text.Equals(subtype)) return QuickAnnotationKind.Comment;
+            if (PdfName.FreeText.Equals(subtype))
+                return CalloutIntent.Equals(annot.GetPdfObject().GetAsName(IntentKey)) ? QuickAnnotationKind.Callout : QuickAnnotationKind.Typewriter;
+            if (PdfName.Text.Equals(subtype)) return annot.GetPdfObject().Get(PdfName.IRT) != null ? QuickAnnotationKind.Reply : QuickAnnotationKind.Comment;
             if (PdfName.Highlight.Equals(subtype)) return QuickAnnotationKind.Highlight;
             if (PdfName.Underline.Equals(subtype)) return QuickAnnotationKind.Underline;
             if (PdfName.StrikeOut.Equals(subtype)) return QuickAnnotationKind.StrikeOut;
+            if (PdfName.Squiggly.Equals(subtype)) return QuickAnnotationKind.Squiggly;
+            if (PdfName.Ink.Equals(subtype)) return QuickAnnotationKind.Ink;
             if (PdfName.Stamp.Equals(subtype)) return QuickAnnotationKind.Stamp;
             return null;
         }
@@ -227,15 +254,16 @@ namespace XTPdfMergeApp.Services
             switch (spec.Kind)
             {
                 case QuickAnnotationKind.Typewriter:
+                case QuickAnnotationKind.Callout:
                 {
-                    var format = TextFormat.Decode(spec.Format);
+                    var format = TextFormat.Decode(spec.Kind == QuickAnnotationKind.Callout ? DecodeCallout(spec.Format).TextFormat : spec.Format);
                     string[] lines = SplitLines(spec.Text);
                     float size = (float)format.Size;
                     lock (_measureFonts)
                     {
                         string key = format.Family + format.Bold + format.Italic;
                         if (!_measureFonts.TryGetValue(key, out var font)) _measureFonts[key] = font = CreateFormatFont(format);
-                        width = Math.Max(20f, lines.Max(l => font.GetWidth(l, size)) + 2 * TypewriterPadding);
+                        width = Math.Max(spec.Kind == QuickAnnotationKind.Callout ? 100f : 20f, lines.Max(l => font.GetWidth(l, size)) + 2 * TypewriterPadding);
                     }
                     height = lines.Length * size * TypewriterLineHeight + 2 * TypewriterPadding;
                     break;
@@ -299,8 +327,14 @@ namespace XTPdfMergeApp.Services
                     AddTypewriter(doc, page, spec, fonts.For(format), format);
                     break;
                 }
+                case QuickAnnotationKind.Callout:
+                    AddCallout(doc, page, spec, fonts.For(TextFormat.Decode(DecodeCallout(spec.Format).TextFormat)));
+                    break;
                 case QuickAnnotationKind.Comment:
                     AddComment(doc, page, spec);
+                    break;
+                case QuickAnnotationKind.Reply:
+                    AddReply(doc, page, spec);
                     break;
                 case QuickAnnotationKind.Highlight:
                     AddHighlight(doc, page, spec);
@@ -310,6 +344,12 @@ namespace XTPdfMergeApp.Services
                     break;
                 case QuickAnnotationKind.StrikeOut:
                     AddQuadLineMarkup(doc, page, spec, strike: true);
+                    break;
+                case QuickAnnotationKind.Squiggly:
+                    AddQuadLineMarkup(doc, page, spec, strike: false, squiggly: true);
+                    break;
+                case QuickAnnotationKind.Ink:
+                    AddInk(doc, page, spec);
                     break;
                 case QuickAnnotationKind.Shape:
                     AddShape(doc, page, spec);
@@ -609,7 +649,7 @@ namespace XTPdfMergeApp.Services
 
         // ── Comment (sticky note: chỉ hiện icon, nội dung trong popup) ──
 
-        private static void AddComment(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec)
+        private static PdfTextAnnotation AddComment(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec)
         {
             var geometry = GetGeometry(page);
             var rect = DisplayBoxToUser(geometry, spec.U1, spec.V1, CommentIconSize, CommentIconSize);
@@ -641,6 +681,19 @@ namespace XTPdfMergeApp.Services
             popup.SetParent(annot);
             annot.SetPopup(popup);
             page.AddAnnotation(popup);
+            return annot;
+        }
+
+        private static void AddReply(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec)
+        {
+            var reply = AddComment(doc, page, spec);
+            string parentName = spec.Format.StartsWith("R|", StringComparison.Ordinal) ? spec.Format[2..] : "";
+            if (Find(page, parentName) is { } parent)
+            {
+                reply.GetPdfObject().Put(PdfName.IRT, parent.GetPdfObject());
+                reply.GetPdfObject().Put(PdfName.RT, new PdfName("R"));
+                reply.GetPdfObject().SetModified();
+            }
         }
 
         // ── Highlight (tô vàng bán trong suốt đúng vùng kéo) ──────────────
@@ -673,7 +726,7 @@ namespace XTPdfMergeApp.Services
         }
 
         /// <summary>Underline / strikethrough: a coloured line per text line (from the "T|" rects), no page-pixel blending needed.</summary>
-        private static void AddQuadLineMarkup(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec, bool strike)
+        private static void AddQuadLineMarkup(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec, bool strike, bool squiggly = false)
         {
             var geometry = GetGeometry(page);
             var (left, bottom, right, top) = geometry.DisplayRectToUser(spec.U1, spec.V1, spec.U2, spec.V2);
@@ -682,7 +735,7 @@ namespace XTPdfMergeApp.Services
             if (parts.Count == 0) parts.Add((left, bottom, right, top));
             var quad = parts.SelectMany(p => new[] { (float)p.Left, (float)p.Top, (float)p.Right, (float)p.Top, (float)p.Left, (float)p.Bottom, (float)p.Right, (float)p.Bottom }).ToArray();
             var color = ParseColor(spec.Color.Length > 0 ? spec.Color : "#ED1C24");
-            PdfTextMarkupAnnotation annot = strike ? PdfTextMarkupAnnotation.CreateStrikeout(rect, quad) : PdfTextMarkupAnnotation.CreateUnderline(rect, quad);
+            PdfTextMarkupAnnotation annot = squiggly ? PdfTextMarkupAnnotation.CreateSquiggly(rect, quad) : strike ? PdfTextMarkupAnnotation.CreateStrikeout(rect, quad) : PdfTextMarkupAnnotation.CreateUnderline(rect, quad);
             annot.SetColor(color);
             if (!string.IsNullOrEmpty(spec.Text)) annot.SetContents(new PdfString(spec.Text, PdfEncodings.UNICODE_BIG));
             StampCommon(annot, spec);
@@ -695,9 +748,93 @@ namespace XTPdfMergeApp.Services
                 double h = p.Top - p.Bottom;
                 double lw = Math.Clamp(h * 0.07, 0.6, 3.0);
                 double y = strike ? p.Bottom - bottom + h * 0.5 : p.Bottom - bottom + h * 0.12;
-                canvas.SetLineWidth((float)lw).MoveTo((float)(p.Left - left), (float)y).LineTo((float)(p.Right - left), (float)y).Stroke();
+                if (!squiggly)
+                {
+                    canvas.SetLineWidth((float)lw).MoveTo((float)(p.Left - left), (float)y).LineTo((float)(p.Right - left), (float)y).Stroke();
+                    continue;
+                }
+                // A compact zig-zag matches the PDF Squiggly subtype and stays crisp at every zoom level.
+                double x0 = p.Left - left, x1 = p.Right - left, step = Math.Clamp(h * 0.28, 2.5, 7), amplitude = Math.Clamp(h * 0.10, 0.8, 2.2);
+                canvas.SetLineWidth((float)lw).MoveTo((float)x0, (float)y);
+                bool up = true;
+                for (double x = x0 + step; x < x1; x += step)
+                {
+                    canvas.LineTo((float)x, (float)(y + (up ? amplitude : -amplitude)));
+                    up = !up;
+                }
+                canvas.LineTo((float)x1, (float)y).Stroke();
             }
             canvas.Release();
+            annot.SetNormalAppearance(form.GetPdfObject());
+            page.AddAnnotation(annot);
+        }
+
+        private static void AddCallout(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec, PdfFont font)
+        {
+            var geometry = GetGeometry(page);
+            var callout = DecodeCallout(spec.Format);
+            var format = TextFormat.Decode(callout.TextFormat);
+            string[] lines = SplitLines(spec.Text);
+            float size = (float)format.Size, lead = size * TypewriterLineHeight;
+            float width = Math.Max(100f, lines.Max(l => font.GetWidth(l, size)) + 2 * TypewriterPadding);
+            float height = Math.Max(28f, lines.Length * lead + 2 * TypewriterPadding);
+            var rect = DisplayBoxToUser(geometry, spec.U1, spec.V1, width, height);
+            var annot = new PdfFreeTextAnnotation(rect, new PdfString(spec.Text, PdfEncodings.UNICODE_BIG));
+            var color = ParseColor(format.Color);
+            var rgb = color.GetColorValue();
+            annot.SetDefaultAppearance(new PdfString(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{rgb[0]:0.###} {rgb[1]:0.###} {rgb[2]:0.###} rg /Helv {size:0.##} Tf")));
+            annot.GetPdfObject().Put(FormatKey, new PdfString(spec.Format, PdfEncodings.UNICODE_BIG));
+            annot.GetPdfObject().Put(IntentKey, CalloutIntent);
+            var (tipX, tipY, _, _) = geometry.DisplayRectToUser(callout.TipU, callout.TipV, callout.TipU, callout.TipV);
+            var (boxX, boxY, _, _) = geometry.DisplayRectToUser(spec.U1, spec.V1 + height / geometry.DisplayHeight, spec.U1, spec.V1 + height / geometry.DisplayHeight);
+            annot.GetPdfObject().Put(PdfName.CL, new PdfArray(new PdfObject[] { new PdfNumber(tipX), new PdfNumber(tipY), new PdfNumber(boxX), new PdfNumber(boxY) }));
+            annot.GetPdfObject().Put(PdfName.BS, new PdfDictionary(new Dictionary<PdfName, PdfObject> { [PdfName.W] = new PdfNumber(1) }));
+            StampCommon(annot, spec);
+
+            // Do not install a box-only /AP here. A callout leader intentionally reaches outside the text box;
+            // leaving its appearance to the PDF renderer makes /CL visible in PDFium, Acrobat and Foxit.
+            page.AddAnnotation(annot);
+        }
+
+        /// <summary>Writes a standard /Ink annotation, not a flattened image. The point list remains usable by
+        /// Acrobat/Foxit, while the explicit appearance makes it render consistently in PDFium.</summary>
+        private static void AddInk(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec)
+        {
+            var display = InkPoints(spec.Format);
+            if (display.Count < 2) return;
+            var geometry = GetGeometry(page);
+            var user = display.Select(p => geometry.DisplayRectToUser(p.U, p.V, p.U, p.V)).ToList();
+            var (left, bottom, right, top) = geometry.DisplayRectToUser(spec.U1, spec.V1, spec.U2, spec.V2);
+            var rect = new Rectangle((float)left, (float)bottom, (float)(right - left), (float)(top - bottom));
+            var inkPoints = new PdfArray();
+            foreach (var point in user)
+            {
+                inkPoints.Add(new PdfNumber(point.Left));
+                inkPoints.Add(new PdfNumber(point.Bottom));
+            }
+            var inkList = new PdfArray();
+            inkList.Add(inkPoints);
+            var obj = new PdfDictionary();
+            obj.Put(PdfName.Type, PdfName.Annot);
+            obj.Put(PdfName.Subtype, PdfName.Ink);
+            obj.Put(PdfName.Rect, new PdfArray(rect));
+            obj.Put(PdfName.InkList, inkList);
+            obj.Put(PdfName.NM, new PdfString(spec.Name));
+            obj.Put(PdfName.T, new PdfString(spec.Author.Length > 0 ? spec.Author : Environment.UserName, PdfEncodings.UNICODE_BIG));
+            obj.Put(PdfName.M, (spec.Date is { } date ? new PdfDate(date) : new PdfDate()).GetPdfObject());
+            obj.Put(PdfName.CreationDate, new PdfDate().GetPdfObject());
+            obj.Put(PdfName.F, new PdfNumber(PdfAnnotation.PRINT));
+            var color = ParseColor(spec.Color.Length > 0 ? spec.Color : "#D74B31");
+            var annot = (PdfInkAnnotation)PdfAnnotation.MakeAnnotation(obj);
+            annot.SetColor(color);
+            annot.SetOpacity(new PdfNumber(spec.Opacity <= 0 ? 1 : spec.Opacity));
+
+            var form = new PdfFormXObject(new Rectangle(0, 0, rect.GetWidth(), rect.GetHeight()));
+            var canvas = new PdfCanvas(form, doc).SetStrokeColor(color).SetLineWidth(2f).SetLineCapStyle(PdfCanvasConstants.LineCapStyle.ROUND).SetLineJoinStyle(PdfCanvasConstants.LineJoinStyle.ROUND);
+            canvas.MoveTo((float)(user[0].Left - left), (float)(user[0].Bottom - bottom));
+            for (int index = 1; index < user.Count; index++)
+                canvas.LineTo((float)(user[index].Left - left), (float)(user[index].Bottom - bottom));
+            canvas.Stroke().Release();
             annot.SetNormalAppearance(form.GetPdfObject());
             page.AddAnnotation(annot);
         }
@@ -717,6 +854,39 @@ namespace XTPdfMergeApp.Services
                 }
             }
             return list;
+        }
+
+        internal static List<(double U, double V)> InkPoints(string format)
+        {
+            var points = new List<(double, double)>();
+            if (!format.StartsWith("I|", StringComparison.Ordinal)) return points;
+            foreach (string part in format[2..].Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var pair = part.Split(',');
+                if (pair.Length != 2 || !double.TryParse(pair[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double u) ||
+                    !double.TryParse(pair[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v)) continue;
+                points.Add((u, v));
+            }
+            return points;
+        }
+
+        internal static string EncodeInkPoints(IEnumerable<(double U, double V)> points)
+            => "I|" + string.Join(";", points.Select(p => p.U.ToString("0.#####", System.Globalization.CultureInfo.InvariantCulture) + "," + p.V.ToString("0.#####", System.Globalization.CultureInfo.InvariantCulture)));
+
+        internal static string EncodeCallout(double tipU, double tipV, string textFormat)
+            => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"C|{tipU:0.#####},{tipV:0.#####}|{textFormat}");
+
+        internal static (double TipU, double TipV, string TextFormat) DecodeCallout(string format)
+        {
+            if (format.StartsWith("C|", StringComparison.Ordinal))
+            {
+                var parts = format[2..].Split('|', 2);
+                var point = parts[0].Split(',');
+                if (point.Length == 2 && double.TryParse(point[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double u) &&
+                    double.TryParse(point[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v))
+                    return (u, v, parts.Length == 2 ? parts[1] : "");
+            }
+            return (0, 0, "");
         }
 
         public static string EncodeTextHighlight(System.Collections.Generic.IEnumerable<(double U1, double V1, double U2, double V2)> rects)

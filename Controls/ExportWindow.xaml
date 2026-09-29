@@ -5,7 +5,7 @@
         xmlns:svc="clr-namespace:XTPdfMergeApp.Services"
         Title="Export PDF" Width="1000" Height="640" MinWidth="820" MinHeight="520"
         TitleBarMode="Dialog" WindowStartupLocation="CenterOwner" FontFamily="Segoe UI" FontSize="13"
-        UseLayoutRounding="True" SnapsToDevicePixels="True">
+        UseLayoutRounding="True" SnapsToDevicePixels="True" ShowInTaskbar="False">
     <xt:XTWindow.Resources>
         <Style x:Key="FieldLabel" TargetType="TextBlock">
             <Setter Property="FontSize" Value="12"/>

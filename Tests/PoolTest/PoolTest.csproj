@@ -23,6 +23,7 @@
     <Compile Include="..\..\Services\MemoryProbe.cs" Link="App\MemoryProbe.cs" />
     <Compile Include="..\..\Services\DiagnosticsLog.cs" Link="App\DiagnosticsLog.cs" />
     <Compile Include="..\..\Services\PdfiumInstance.cs" Link="App\PdfiumInstance.cs" />
+    <Compile Include="..\..\Services\PdfPageCoordinateMath.cs" Link="App\PdfPageCoordinateMath.cs" />
     <Compile Include="..\..\Services\PdfRenderGate.cs" Link="App\PdfRenderGate.cs" />
     <Compile Include="..\..\Services\PdfFileBuffer.cs" Link="App\PdfFileBuffer.cs" />
     <Compile Include="..\..\Services\LayeredDocumentSource.cs" Link="App\LayeredDocumentSource.cs" />

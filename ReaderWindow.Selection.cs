@@ -157,9 +157,13 @@ namespace XTPdfMergeApp
         {
             QuickAnnotationKind.Typewriter => "text",
             QuickAnnotationKind.Comment => "note",
+            QuickAnnotationKind.Reply => "reply",
+            QuickAnnotationKind.Callout => "callout",
             QuickAnnotationKind.Highlight => "highlight",
             QuickAnnotationKind.Underline => "underline",
             QuickAnnotationKind.StrikeOut => "strikethrough",
+            QuickAnnotationKind.Squiggly => "squiggly underline",
+            QuickAnnotationKind.Ink => "pencil stroke",
             QuickAnnotationKind.Stamp => "stamp",
             QuickAnnotationKind.Shape => "shape",
             _ => "annotation"
@@ -172,6 +176,33 @@ namespace XTPdfMergeApp
             if (_selAnn is not { } spec || _selRow is not { } row) return;
             SelectAnnotation(null, null);
             CommitAnnotationChange(row, new QuickAnnotationChange(spec, null), "Delete " + KindLabel(spec.Kind));
+        }
+
+        private void CopyAnnotationText(QuickAnnotationSpec spec)
+        {
+            if (string.IsNullOrWhiteSpace(spec.Text)) return;
+            try { Clipboard.SetText(spec.Text); }
+            catch { XTStyle.Controls.XTGrowl.Error("Could not copy the annotation text.", this); }
+        }
+
+        private void ToggleSelectedAnnotationResolved()
+        {
+            if (_selAnn is not { } spec || _selRow is not { } row) return;
+            var changed = spec with { Resolved = !spec.Resolved };
+            _selAnn = changed;
+            CommitAnnotationChange(row, new QuickAnnotationChange(spec, changed), changed.Resolved ? "Resolve " + KindLabel(spec.Kind) : "Reopen " + KindLabel(spec.Kind));
+        }
+
+        private async Task ReplyToAnnotationAsync(PageHit hit, QuickAnnotationSpec parent)
+        {
+            string? text = TextPromptWindow.Ask(this, "Reply to comment", "Reply text:");
+            if (string.IsNullOrWhiteSpace(text)) return;
+            var page = await LoadPageAnnotationsAsync(hit.Row);
+            if (page == null) return;
+            var reply = new QuickAnnotationSpec(NewAnnotationName(), QuickAnnotationKind.Reply, hit.Row.PageNumber,
+                Math.Min(.95, parent.U2 + .01), Math.Min(.95, parent.V1 + .01), 0, 0, text) { Format = "R|" + parent.Name };
+            reply = PdfQuickAnnotationService.WithMeasuredSize(reply, page.Geometry);
+            CommitAnnotationChange(hit.Row, new QuickAnnotationChange(null, reply), "Reply to comment");
         }
 
         private void ReaderContent_AnnotationContextMenu(object sender, MouseButtonEventArgs e)
@@ -199,13 +230,35 @@ namespace XTPdfMergeApp
             SelectAnnotation(hit.Row, picked);
 
             var menu = new ContextMenu();
-            if (picked.Kind is QuickAnnotationKind.Typewriter or QuickAnnotationKind.Comment)
+            if (!string.IsNullOrWhiteSpace(picked.Text))
+            {
+                var copy = new MenuItem { Header = "Copy text", InputGestureText = "Ctrl+C" };
+                copy.Click += (_, _) => CopyAnnotationText(picked);
+                menu.Items.Add(copy);
+            }
+            if (picked.Kind is QuickAnnotationKind.Typewriter or QuickAnnotationKind.Comment or QuickAnnotationKind.Callout)
             {
                 var edit = new MenuItem { Header = "Edit text" };
-                edit.Click += (_, _) => _ = OpenAnnotationEditorAsync(hit, picked.Kind, picked);
+                edit.Click += (_, _) =>
+                {
+                    if (picked.Kind == QuickAnnotationKind.Callout) _ = EditCalloutAsync(hit.Row, picked);
+                    else _ = OpenAnnotationEditorAsync(hit, picked.Kind, picked);
+                };
                 menu.Items.Add(edit);
             }
-            if (picked.Kind is QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut or QuickAnnotationKind.Shape)
+            if (picked.Kind != QuickAnnotationKind.Reply)
+            {
+                var reply = new MenuItem { Header = "Reply…" };
+                reply.Click += (_, _) => _ = ReplyToAnnotationAsync(hit, picked);
+                menu.Items.Add(reply);
+            }
+            if (picked.Selectable)
+            {
+                var resolved = new MenuItem { Header = picked.Resolved ? "Reopen comment" : "Mark as resolved" };
+                resolved.Click += (_, _) => ToggleSelectedAnnotationResolved();
+                menu.Items.Add(resolved);
+            }
+            if (menu.Items.Count > 0)
                 menu.Items.Add(new Separator());
             var delete = new MenuItem { Header = "Delete " + KindLabel(picked.Kind), InputGestureText = "Del" };
             delete.Click += (_, _) => DeleteSelectedAnnotation();
@@ -226,6 +279,8 @@ namespace XTPdfMergeApp
             }
             Add(_readerTool == ReaderTool.Hand ? "Select Tool" : "Hand Tool", "",
                 () => SetReaderTool(_readerTool == ReaderTool.Hand ? ReaderTool.Select : ReaderTool.Hand));
+            Add("Add note", "", () => SetReaderTool(ReaderTool.Comment));
+            Add("Highlight text", "", () => SelectHighlightMode("Text"));
             menu.Items.Add(new Separator());
             Add("Zoom In", "+", () => ReaderZoomIn_Click(this, new RoutedEventArgs()));
             Add("Zoom Out", "-", () => ReaderZoomOut_Click(this, new RoutedEventArgs()));
@@ -342,7 +397,7 @@ namespace XTPdfMergeApp
             if (shapes && ShapeBar.Visibility != Visibility.Visible) LoadShapeBar();
             ShapeBar.Visibility = shapes ? Visibility.Visible : Visibility.Collapsed;
 
-            bool markup = _selAnn is { Kind: QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut };
+            bool markup = _selAnn is { Kind: QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut or QuickAnnotationKind.Squiggly };
             if (markup) LoadMarkupColorBar();
             MarkupColorBar.Visibility = markup ? Visibility.Visible : Visibility.Collapsed;
         }
@@ -386,7 +441,7 @@ namespace XTPdfMergeApp
 
         private void MarkupColorChanged(string hex)
         {
-            if (_selAnn is not { Kind: QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut } spec || _selRow is not { } row) return;
+            if (_selAnn is not { Kind: QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut or QuickAnnotationKind.Squiggly } spec || _selRow is not { } row) return;
             string current = spec.Color.Length > 0 ? spec.Color : DefaultMarkupColor(spec.Kind);
             if (string.Equals(current, hex, StringComparison.OrdinalIgnoreCase)) return;
             var changed = Regenerated(spec) with { Color = hex };

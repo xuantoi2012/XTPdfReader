@@ -23,6 +23,7 @@ internal sealed class NumberPromptWindow : XTWindow
         SizeToContent = SizeToContent.Height;
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        ShowInTaskbar = false;
         FontFamily = new System.Windows.Media.FontFamily("Segoe UI");
         FontSize = 13;
 

@@ -13,6 +13,7 @@ namespace XTPdfMergeApp.Services;
 internal sealed class ContinuousViewport
 {
     private IReadOnlyList<(double Width, double Height)> _baseSizes = Array.Empty<(double, double)>();
+    private int _columns = 1;
 
     public ContinuousPageLayout Layout { get; private set; } = new(Array.Empty<(double, double)>(), 1);
     public double Zoom => Layout.Zoom;
@@ -21,6 +22,7 @@ internal sealed class ContinuousViewport
     public double ViewportWidth { get; private set; }
     public double ViewportHeight { get; private set; }
     public int Count => Layout.Count;
+    public int Columns => _columns;
 
     public double MaxOffsetX => Math.Max(0, Layout.ContentWidth - ViewportWidth);
     public double MaxOffsetY => Math.Max(0, Layout.ContentHeight - ViewportHeight);
@@ -29,8 +31,19 @@ internal sealed class ContinuousViewport
     public void SetPages(IReadOnlyList<(double Width, double Height)> baseSizes, double zoom)
     {
         _baseSizes = baseSizes;
-        Layout = new ContinuousPageLayout(baseSizes, zoom);
+        Layout = new ContinuousPageLayout(baseSizes, zoom, _columns);
         OffsetX = OffsetY = 0;
+    }
+
+    /// <summary>Đổi bố cục một/trải hai trang, giữ trang ở giữa đỉnh khung nhìn nếu có thể.</summary>
+    public void SetColumns(int columns)
+    {
+        columns = Math.Clamp(columns, 1, 2);
+        if (_columns == columns) return;
+        var anchor = AnchorAt(ViewportWidth / 2, 0);
+        _columns = columns;
+        Layout = new ContinuousPageLayout(_baseSizes, Zoom, _columns);
+        Restore(anchor, ViewportWidth / 2, 0);
     }
 
     /// <summary>Khổ giấy của một số trang vừa biết/đổi — trang ở đỉnh khung nhìn (điểm giữa-đỉnh) đứng yên.</summary>
@@ -38,7 +51,7 @@ internal sealed class ContinuousViewport
     {
         var anchor = AnchorAt(ViewportWidth / 2, 0);
         _baseSizes = baseSizes;
-        Layout = new ContinuousPageLayout(baseSizes, Zoom);
+        Layout = new ContinuousPageLayout(baseSizes, Zoom, _columns);
         Restore(anchor, ViewportWidth / 2, 0);
     }
 
@@ -67,7 +80,7 @@ internal sealed class ContinuousViewport
     {
         if (zoom <= 0 || double.IsNaN(zoom)) return;
         var anchor = AnchorAt(viewX, viewY);
-        Layout = new ContinuousPageLayout(_baseSizes, zoom);
+        Layout = new ContinuousPageLayout(_baseSizes, zoom, _columns);
         Restore(anchor, viewX, viewY);
     }
 
@@ -109,7 +122,7 @@ internal sealed class ContinuousViewport
     {
         index = -1; u = v = 0;
         if (Count == 0) return false;
-        int i = Layout.IndexAt(OffsetY + viewY);
+        int i = Layout.IndexAt(OffsetX + viewX, OffsetY + viewY, ViewportWidth);
         if (i < 0) return false;
         var (x, y, w, h) = PageContentRect(i);
         if (w <= 0 || h <= 0) return false;

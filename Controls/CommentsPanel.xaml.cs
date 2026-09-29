@@ -14,7 +14,7 @@ namespace XTPdfMergeApp.Controls
 {
     public sealed record CommentGroupHeader(string Title) { public bool IsHeader => true; }
 
-    public sealed record CommentCard(CommentInfo Info, Geometry Icon, string Author, string DateText, string Text, bool Resolved) { public bool IsHeader => false; }
+    public sealed record CommentCard(CommentInfo Info, Geometry Icon, string Author, string DateText, string Text, bool Resolved, Thickness Margin) { public bool IsHeader => false; }
 
     /// <summary>Tab Comments của panel trái (docs/UI_REDESIGN.md, mockup 11): chú thích của window đang xem (Typewriter, Note, Highlight), lọc theo trạng thái / loại / tác giả,
     /// bấm để tới trang, bấm chip để đổi Open ↔ Resolved, xuất bảng tóm tắt (CSV).</summary>
@@ -29,6 +29,9 @@ namespace XTPdfMergeApp.Controls
 
         internal event Action<CommentInfo>? CommentActivated;
         internal event Action<CommentInfo, bool>? ResolvedToggled;
+        internal event Action<CommentInfo, string>? ReplySubmitted;
+        internal event Action<CommentInfo, string>? EditRequested;
+        internal event Action<CommentInfo>? DeleteRequested;
         /// <summary>Số chú thích (null = chưa có).</summary>
         internal event Action<int?>? CountChanged;
 
@@ -48,7 +51,8 @@ namespace XTPdfMergeApp.Controls
                 if (version != _version) return;
                 foreach (var a in await AnnotationStore.GetAllAsync(path))
                     if (a.Selectable)
-                        all.Add(new CommentInfo(path, a.PageNumber, a.Name, a.Kind, a.Author, a.Date, a.Text, a.Resolved));
+                        all.Add(new CommentInfo(path, a.PageNumber, a.Name, a.Kind, a.Author, a.Date, a.Text, a.Resolved,
+                            a.Kind == QuickAnnotationKind.Reply && a.Format.StartsWith("R|", StringComparison.Ordinal) ? a.Format[2..] : ""));
             }
             if (version != _version) return;
             _all = all;
@@ -92,7 +96,13 @@ namespace XTPdfMergeApp.Controls
             foreach (var group in shown.GroupBy(c => (c.Path, c.Page)))
             {
                 rows.Add(new CommentGroupHeader((multiFile ? Path.GetFileName(group.Key.Path) + " · " : "") + "Page " + group.Key.Page));
-                foreach (var c in group) rows.Add(ToCard(c));
+                var byParent = group.ToLookup(c => c.ParentName);
+                void AddThread(CommentInfo c, int level)
+                {
+                    rows.Add(ToCard(c, level));
+                    foreach (var reply in byParent[c.Name].OrderBy(r => r.Date)) AddThread(reply, level + 1);
+                }
+                foreach (var root in group.Where(c => c.ParentName.Length == 0 || !group.Any(p => p.Name == c.ParentName)).OrderBy(c => c.Date)) AddThread(root, 0);
             }
             _selecting = true;
             Cards.ItemsSource = rows;
@@ -102,22 +112,23 @@ namespace XTPdfMergeApp.Controls
             else EmptyText.Visibility = Visibility.Collapsed;
         }
 
-        private static CommentCard ToCard(CommentInfo c)
+        private static CommentCard ToCard(CommentInfo c, int level)
         {
             string iconName = c.Kind switch
             {
-                QuickAnnotationKind.Typewriter => "type", QuickAnnotationKind.Highlight => "hl", QuickAnnotationKind.Stamp => "stamp",
-                QuickAnnotationKind.Shape => "shapes", QuickAnnotationKind.Underline => "underline", QuickAnnotationKind.StrikeOut => "strike", _ => "comment"
+                QuickAnnotationKind.Typewriter => "type", QuickAnnotationKind.Reply => "comment", QuickAnnotationKind.Callout => "callout", QuickAnnotationKind.Highlight => "hl", QuickAnnotationKind.Stamp => "stamp",
+                QuickAnnotationKind.Shape => "shapes", QuickAnnotationKind.Underline => "underline", QuickAnnotationKind.StrikeOut => "strike", QuickAnnotationKind.Squiggly => "squiggly", QuickAnnotationKind.Ink => "pencil", _ => "comment"
             };
             string text = c.Text.Trim();
             if (c.Kind == QuickAnnotationKind.Stamp) text = StampDefinition.Decode(c.Text).Definition is { IsImage: false } stamp ? stamp.Text : "Image stamp";
             if (text.Length == 0) text = c.Kind switch
             {
-                QuickAnnotationKind.Highlight => "Highlight", QuickAnnotationKind.Shape => "Shape",
-                QuickAnnotationKind.Underline => "Underline", QuickAnnotationKind.StrikeOut => "Strikethrough", _ => "(empty)"
+                QuickAnnotationKind.Callout => "Callout", QuickAnnotationKind.Highlight => "Highlight", QuickAnnotationKind.Shape => "Shape",
+                QuickAnnotationKind.Underline => "Underline", QuickAnnotationKind.StrikeOut => "Strikethrough", QuickAnnotationKind.Squiggly => "Squiggly underline", QuickAnnotationKind.Ink => "Pencil stroke", _ => "(empty)"
             };
             return new CommentCard(c, (Geometry)Application.Current.FindResource("Ui.Icon." + iconName),
-                c.Author.Length > 0 ? c.Author : "Unknown", c.Date?.ToString("d MMM") ?? "", text, c.Resolved);
+                c.Author.Length > 0 ? c.Author : "Unknown", c.Date?.ToString("d MMM") ?? "", text, c.Resolved,
+                new Thickness(8 + Math.Min(level, 4) * 18, 4, 8, 4));
         }
 
         private void Cards_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -130,6 +141,35 @@ namespace XTPdfMergeApp.Controls
         {
             e.Handled = true;
             if ((sender as FrameworkElement)?.DataContext is CommentCard card) ResolvedToggled?.Invoke(card.Info, !card.Resolved);
+        }
+
+        private void ReplyBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            if (sender is TextBox { Text: "Reply" } box) { box.Text = ""; box.Foreground = (Brush)Application.Current.FindResource("Ui.Text"); }
+        }
+
+        private void ReplyBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Enter || sender is not TextBox { Tag: CommentInfo info } box) return;
+            string text = box.Text.Trim();
+            if (text.Length > 0 && text != "Reply") ReplySubmitted?.Invoke(info, text);
+            box.Text = "Reply"; box.Foreground = (Brush)Application.Current.FindResource("Ui.Muted"); e.Handled = true;
+        }
+
+        private void MessageMenu_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement { Tag: CommentInfo info } anchor) return;
+            var menu = new ContextMenu();
+            var edit = new MenuItem { Header = "Edit" };
+            edit.Click += (_, _) =>
+            {
+                string? text = TextPromptWindow.Ask(Window.GetWindow(this), "Edit comment", "Comment text:", info.Text);
+                if (!string.IsNullOrWhiteSpace(text) && text != info.Text) EditRequested?.Invoke(info, text);
+            };
+            var delete = new MenuItem { Header = "Delete" };
+            delete.Click += (_, _) => DeleteRequested?.Invoke(info);
+            menu.Items.Add(edit); menu.Items.Add(delete);
+            menu.PlacementTarget = anchor; menu.IsOpen = true;
         }
 
         private void Export_Click(object sender, RoutedEventArgs e)

@@ -274,7 +274,7 @@ public static partial class PdfThumbnailService
 
     private static async Task RenderTilesProgressiveAsync(PdfDocumentLease document, int index,
         int fullWidth, int fullHeight, IReadOnlyList<Int32Rect> rectangles,
-        List<BitmapSource?> results, CancellationToken token)
+        List<BitmapSource?> results, CancellationToken token, bool withAnnotations)
     {
         var page = await AcquirePageAsync(document, index, PdfRenderPriority.Visible, token).ConfigureAwait(false);
         bool locked = false;
@@ -289,7 +289,7 @@ public static partial class PdfThumbnailService
                 token.ThrowIfCancellationRequested();
                 if (_shuttingDown) break;
                 results[i] = await RenderRegionProgressiveAsync(page, fullWidth, fullHeight, rectangles[i],
-                    PdfRenderPriority.Visible, token).ConfigureAwait(false);
+                    PdfRenderPriority.Visible, token, withAnnotations).ConfigureAwait(false);
             }
         }
         finally

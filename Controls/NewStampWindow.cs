@@ -25,6 +25,7 @@ internal sealed class NewStampWindow : XTWindow
         SizeToContent = SizeToContent.Height;
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        ShowInTaskbar = false;
         FontFamily = new FontFamily("Segoe UI");
         FontSize = 13;
 

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Print</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .win { font-family: "Segoe UI", system-ui, sans-serif; font-size: 12.5px; color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; }
+  button { font-family: inherit; font-size: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .tbtn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: 60px; height: 48px; border-radius: 6px; color: var(--text); flex-shrink: 0; }
+  .tbtn span { font-size: 11px; line-height: 1; white-space: nowrap; color: var(--muted); }
+  .tbtn:hover { background: var(--hover); }
+  .tbtn.on { background: var(--sel); color: var(--accent); }
+  .tbtn.on span { color: var(--accent); }
+  .sep { width: 1px; align-self: stretch; margin: 6px 6px; background: var(--border); flex-shrink: 0; }
+  .primary { display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px; border-radius: 6px; background: var(--accent); color: #ffffff; font-weight: 600; white-space: nowrap; }
+  .ghost { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); white-space: nowrap; }
+  .ghost:hover { background: var(--hover); }
+  .tab { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px 0 12px; color: var(--muted); white-space: nowrap; border-bottom: 2px solid transparent; }
+  .tab.active { color: var(--text); background: var(--surface); border-bottom-color: var(--accent); }
+  .tab .x { width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+  .tab .x:hover { background: var(--hover); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); flex-shrink: 0; }
+  .rail { width: 64px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0; background: var(--panel); border-right: 1px solid var(--border); }
+  .ritem { width: 56px; height: 54px; border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--muted); position: relative; }
+  .ritem span { font-size: 11px; line-height: 1; }
+  .ritem:hover { background: var(--hover); color: var(--text); }
+  .ritem.on { color: var(--accent); background: var(--sel); }
+  .pact { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: 46px; border-radius: 6px; color: var(--text); flex: 1 1 0; min-width: 0; }
+  .pact span { font-size: 11px; line-height: 1; color: var(--muted); white-space: nowrap; }
+  .pact:hover { background: var(--hover); }
+  .thumb { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 8px 6px; border-radius: 6px; border: 1.5px solid transparent; position: relative; }
+  .thumb:hover { background: var(--hover); }
+  .thumb.sel { background: var(--sel); border-color: var(--accent); }
+  .thumb .num { font-size: 11px; color: var(--muted); }
+  .thumb.sel .num { color: var(--accent); font-weight: 600; }
+  .paper { background: #ffffff; border: 1px solid #cfd6de; border-radius: 2px; overflow: hidden; display: block; }
+  .paper svg { display: block; }
+  .chipx { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px; background: var(--chip); color: var(--text); font-size: 12px; }
+  .menu { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); padding: 5px; display: flex; flex-direction: column; }
+  .mi { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 10px; border-radius: 5px; white-space: nowrap; }
+  .mi .k { margin-left: auto; padding-left: 22px; color: var(--muted); font-size: 11.5px; }
+  .mi.hot { background: var(--sel); }
+  .mi.danger { color: #c0392b; }
+  .msep { height: 1px; background: var(--border); margin: 4px 6px; }
+  .status { height: 30px; flex-shrink: 0; display: flex; align-items: center; padding: 0 12px; gap: 10px; background: var(--panel); border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+  .sbtn { width: 26px; height: 26px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+  .sbtn:hover { background: var(--hover); color: var(--text); }
+  .pagebox { width: 42px; height: 22px; border-radius: 4px; background: var(--surface); border: 1px solid var(--border); color: var(--text); text-align: center; font-size: 12px; }
+  .hdr { display: flex; align-items: center; justify-content: space-between; padding: 0 14px; height: 40px; font-weight: 600; font-size: 13px; flex-shrink: 0; }
+  .count { font-weight: 400; font-size: 11.5px; color: var(--muted); background: var(--chip); border-radius: 9px; padding: 1px 8px; }
+  .field { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+  .cb { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--muted); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #ffffff; }
+  .cb.on { background: var(--accent); border-color: var(--accent); }
+  .cb.mixed { background: var(--accent); border-color: var(--accent); }
+  .row { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 10px; border-radius: 5px; }
+  .row:hover { background: var(--hover); }
+  .lbl { font-size: 11px; color: var(--muted); }
+</style>
+</helmet>
+<div class="win" style="width:1000px;height:640px;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;--accent:{{accent}};--bg:#f1f4f8;--surface:#ffffff;--panel:#f7f9fb;--border:#dbe1e8;--text:#1b2733;--muted:#566373;--hover:#e9eef4;--view:#dfe5ec;--chip:#e9eef4;--sel:color-mix(in srgb, var(--accent) 12%, #ffffff);--shadow:0 10px 30px rgba(20,32,50,0.18);--warn:#b45309;"><div style="height:52px;flex-shrink:0;display:flex;align-items:center;padding:0 12px 0 20px;border-bottom:1px solid var(--border);font-size:15px;font-weight:600">Print<div style="flex:1 1 auto"></div><button class="sbtn" aria-label="Close"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="M5 5l14 14M19 5 5 19"/></svg></button></div><div style="flex:1 1 auto;min-height:0;display:flex"><div style="width:400px;flex-shrink:0;padding:18px 20px;display:flex;flex-direction:column;gap:14px;border-right:1px solid var(--border);overflow:hidden"><div style="display:flex;flex-direction:column;gap:6px"><div class="lbl" style="font-size:12px">Printer</div><div class="field" style="flex:1 1 auto;justify-content:space-between;color:var(--text)"><span>HP DesignJet T1700 (A0 plotter)</span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="m6 9 6 6 6-6"/></svg></div></div><div><div class="lbl" style="font-size:12px;margin-bottom:4px">Pages</div><div style="display:flex;gap:10px;align-items:flex-start;padding:5px 0"><span style="width:16px;height:16px;border-radius:50%;border:5px solid var(--accent);background:#ffffff;flex-shrink:0;margin-top:1px"></span><div><div>All pages (281)</div></div></div><div style="display:flex;gap:10px;align-items:flex-start;padding:5px 0"><span style="width:16px;height:16px;border-radius:50%;border:1.5px solid var(--muted);flex-shrink:0;margin-top:1px"></span><div><div>Current page (3)</div></div></div><div style="display:flex;gap:10px;align-items:flex-start;padding:5px 0"><span style="width:16px;height:16px;border-radius:50%;border:1.5px solid var(--muted);flex-shrink:0;margin-top:1px"></span><div><div>Range</div></div></div><div style="margin-left:26px;margin-top:2px"><div class="field" style="flex:1 1 auto;justify-content:space-between;color:var(--text)"><span>1-12, 40, 55-60</span></div></div></div><div style="display:flex;gap:10px"><div style="display:flex;flex-direction:column;gap:6px"><div class="lbl" style="font-size:12px">Paper</div><div class="field" style="width:190px;justify-content:space-between;color:var(--text)"><span>A3 (297 × 420 mm)</span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="m6 9 6 6 6-6"/></svg></div></div><div style="display:flex;flex-direction:column;gap:6px"><div class="lbl" style="font-size:12px">Copies</div><div class="field" style="width:60px;justify-content:space-between;color:var(--text)"><span>1</span></div></div></div><div style="display:flex;flex-direction:column;gap:6px"><div class="lbl" style="font-size:12px">Scale</div><div style="display:flex;gap:2px;padding:2px;border-radius:7px;background:var(--chip);flex-shrink:0"><div style="height:30px;padding:0 14px;display:flex;align-items:center;border-radius:5px;background:var(--accent);color:#ffffff;font-weight:600">Fit to paper</div><div style="height:30px;padding:0 14px;display:flex;align-items:center;border-radius:5px;color:var(--muted)">Actual size</div><div style="height:30px;padding:0 14px;display:flex;align-items:center;border-radius:5px;color:var(--muted)">Custom %</div></div></div><div style="display:flex;flex-direction:column;gap:6px"><div class="lbl" style="font-size:12px">Color</div><div style="display:flex;gap:2px;padding:2px;border-radius:7px;background:var(--chip);flex-shrink:0"><div style="height:30px;padding:0 14px;display:flex;align-items:center;border-radius:5px;color:var(--muted)">Color</div><div style="height:30px;padding:0 14px;display:flex;align-items:center;border-radius:5px;background:var(--accent);color:#ffffff;font-weight:600">Grayscale</div><div style="height:30px;padding:0 14px;display:flex;align-items:center;border-radius:5px;color:var(--muted)">Black lines</div></div></div><div><div style="display:flex;gap:10px;align-items:flex-start;padding:5px 0"><span class="cb on"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="m5 12 4.5 4.5L19 7"/></svg></span><div><div>Use current layer view</div><div class="lbl" style="margin-top:2px;line-height:1.4">Hidden layers are not printed (View: Drainage plan).</div></div></div><div style="display:flex;gap:10px;align-items:flex-start;padding:5px 0"><span class="cb on"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="m5 12 4.5 4.5L19 7"/></svg></span><div><div>Auto-rotate each page to fit the paper</div></div></div></div></div><div style="flex:1 1 auto;min-width:0;background:var(--view);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px"><div style="position:relative;width:400px;height:283px;background:#ffffff;box-shadow:0 2px 12px rgba(0,0,0,.28)"><div style="position:absolute;inset:12px;border:1px dashed #b8c0cb"></div><svg width="400" height="283" viewBox="0 0 112 80" fill="none" stroke-width="0.5" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="106" height="74" stroke="#4b5563" stroke-width="0.7"/><path d="M6 60 C30 44 52 60 76 40 S100 30 108 22" stroke="#6b7785" fill="none"/><path d="M6 66 C30 50 52 66 76 46 S100 36 108 28" stroke="#6b7785" fill="none"/><path d="M14 20h34M14 26h22" stroke="#3b6fd4"/><circle cx="90" cy="60" r="7" stroke="#c2453b" fill="none"/><rect x="72" y="66" width="37" height="11" stroke="#4b5563" stroke-width="0.5"/><path d="M84 66v11M96 66v11" stroke="#9aa3ae" stroke-width="0.5"/></svg></div><div style="display:flex;align-items:center;gap:8px;color:var(--muted)"><button class="sbtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="m15 6-6 6 6 6"/></svg></button>Page 1 of 281 · A3 landscape<button class="sbtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="m9 6 6 6-6 6"/></svg></button></div></div></div><div style="height:64px;flex-shrink:0;display:flex;align-items:center;gap:10px;padding:0 20px;background:var(--panel);border-top:1px solid var(--border)"><button class="ghost">Page setup…</button><div style="flex:1 1 auto"></div><button class="ghost">Cancel</button><button class="primary"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><rect x="7" y="14" width="10" height="7"/></svg>Print</button></div></div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent": {"editor": "color", "default": "#2563eb", "options": ["#2563eb", "#0f8b6d", "#7c4dff", "#d9463b"]}, "$preview": {"width": 1000, "height": 640}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#2563eb' };
+  }
+}
+</script>
+</body>
+</html>

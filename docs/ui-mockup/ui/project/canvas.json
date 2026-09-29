@@ -1,0 +1,146 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-09-27T21:00:00Z"
+  },
+  "title": "XT PDF Reader — unified UI design (English only)",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1280,
+      "h": 820,
+      "title": "1. Main window — light (default), Pages panel"
+    },
+    "MainDark.dc.html": {
+      "x": 1360,
+      "y": 0,
+      "w": 1280,
+      "h": 820,
+      "title": "2. Main window — dark (same tokens)"
+    },
+    "Layers.dc.html": {
+      "x": 0,
+      "y": 900,
+      "w": 1280,
+      "h": 820,
+      "title": "3. Layers panel"
+    },
+    "Settings.dc.html": {
+      "x": 1360,
+      "y": 900,
+      "w": 1280,
+      "h": 820,
+      "title": "4. Settings (with Language)"
+    },
+    "PageOps.dc.html": {
+      "x": 0,
+      "y": 1800,
+      "w": 780,
+      "h": 660,
+      "title": "5. Pages panel — context menu, drag onto a tab"
+    },
+    "Merge.dc.html": {
+      "x": 860,
+      "y": 1800,
+      "w": 1280,
+      "h": 820,
+      "title": "6. Merge files — one small window per file"
+    },
+    "Layouts.dc.html": {
+      "x": 2220,
+      "y": 1800,
+      "w": 780,
+      "h": 520,
+      "title": "7. Merge files — layouts and limits"
+    },
+    "Find.dc.html": {
+      "x": 0,
+      "y": 2700,
+      "w": 1280,
+      "h": 820,
+      "title": "8. Find — panel, results, on-page highlights"
+    },
+    "Comments.dc.html": {
+      "x": 1360,
+      "y": 2700,
+      "w": 1280,
+      "h": 820,
+      "title": "11. Comments — list, filters, export summary"
+    },
+    "Stamps.dc.html": {
+      "x": 2720,
+      "y": 2700,
+      "w": 1280,
+      "h": 820,
+      "title": "12. Stamps — library, custom stamps, placement"
+    },
+    "Notify.dc.html": {
+      "x": 0,
+      "y": 3600,
+      "w": 1280,
+      "h": 820,
+      "title": "13. File changed on disk + command palette (Ctrl+K)"
+    },
+    "LayerViews.dc.html": {
+      "x": 2720,
+      "y": 900,
+      "w": 1280,
+      "h": 820,
+      "title": "3b. Layers — saved views (presets) and export"
+    },
+    "Print.dc.html": {
+      "x": 0,
+      "y": 4500,
+      "w": 1000,
+      "h": 640,
+      "title": "14. Print — range, paper, scale, layer view"
+    },
+    "Export.dc.html": {
+      "x": 1100,
+      "y": 4500,
+      "w": 1000,
+      "h": 640,
+      "title": "15. Export — flattened layer view, optimize size, split by page size"
+    },
+    "Start.dc.html": {
+      "x": 2220,
+      "y": 4500,
+      "w": 1280,
+      "h": 820,
+      "title": "16. Start screen — recent files, pinned, workspaces"
+    },
+    "MergeSave.dc.html": {
+      "x": 0,
+      "y": 5340,
+      "w": 1000,
+      "h": 640,
+      "title": "17. Merge files — save options (bookmarks, layers, page numbers)"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "MainDark.dc.html",
+    "Layers.dc.html",
+    "Settings.dc.html",
+    "PageOps.dc.html",
+    "Merge.dc.html",
+    "Layouts.dc.html",
+    "Find.dc.html",
+    "Comments.dc.html",
+    "Stamps.dc.html",
+    "Notify.dc.html",
+    "LayerViews.dc.html",
+    "Print.dc.html",
+    "Export.dc.html",
+    "Start.dc.html",
+    "MergeSave.dc.html"
+  ],
+  "notes": {},
+  "designSystems": []
+}

@@ -67,6 +67,7 @@ namespace XTPdfMergeApp.Controls
         private PrintScale Scale => ScaleActual.IsChecked == true ? PrintScale.ActualSize : ScaleCustom.IsChecked == true ? PrintScale.Custom
             : ScaleReduce.IsChecked == true ? PrintScale.ReduceToPaper : PrintScale.FitToPaper;
         private PrintColor Color => LinesBox.IsChecked == true ? PrintColor.BlackLines : GrayBox.IsChecked == true ? PrintColor.Grayscale : PrintColor.Color;
+        private PrintQuality Quality => HighQualityBox.IsChecked == true ? PrintQuality.CadHigh : PrintQuality.Standard;
         private PrintOrientation Orientation => OrientBox.SelectedIndex switch { 1 => PrintOrientation.Portrait, 2 => PrintOrientation.Landscape, _ => PrintOrientation.Auto };
         private int Percent => int.TryParse(PercentBox.Text, out int p) ? Math.Clamp(p, 5, 1000) : 100;
 
@@ -146,8 +147,9 @@ namespace XTPdfMergeApp.Controls
         private void UpdateSummary()
         {
             var indices = SelectedIndices();
+            string quality = Quality == PrintQuality.CadHigh ? " · CAD high quality (600 DPI)" : " · Standard (300 DPI)";
             SummaryText.Text = indices == null ? "Check the page range (for example 1-12, 40, 55-60)."
-                : indices.Count == 0 ? "No pages selected." : $"{indices.Count} page{(indices.Count == 1 ? "" : "s")} will be printed";
+                : indices.Count == 0 ? "No pages selected." : $"{indices.Count} page{(indices.Count == 1 ? "" : "s")} will be printed{quality}";
             PrintButton.IsEnabled = indices is { Count: > 0 } && PrinterBox.Items.Count > 0;
         }
 
@@ -236,7 +238,7 @@ namespace XTPdfMergeApp.Controls
             var paper = SelectedPaper;
             if (indices is not { Count: > 0 } || paper == null || PrinterBox.SelectedItem is not string printer) return;
             int copies = int.TryParse(CopiesBox.Text, out int c) ? Math.Clamp(c, 1, 99) : 1;
-            var request = new PrintRequest(indices.Select(i => _pages[i]).ToList(), printer, paper, copies, Scale, Percent, Color, Orientation,
+            var request = new PrintRequest(indices.Select(i => _pages[i]).ToList(), printer, paper, copies, Scale, Percent, Color, Quality, Orientation,
                 AutoCenterBox.IsChecked == true, CollateBox.IsChecked == true, _devMode);
 
             PrintButton.IsEnabled = false;

@@ -48,6 +48,15 @@ namespace XTPdfMergeApp
         /// <summary>Cửa sổ làm owner cho hộp thoại — luôn là cửa sổ đọc chính.</summary>
         private static Window? OwnerWindow => Application.Current?.MainWindow;
 
+        /// <summary>XTGrowl's legacy signature does not mark its optional owner as nullable; call its
+        /// ownerless overload during startup/shutdown rather than passing a nullable window through.</summary>
+        private static void ShowSuccess(string message)
+        {
+            var owner = OwnerWindow;
+            if (owner == null) XTStyle.Controls.XTGrowl.Success(message);
+            else XTStyle.Controls.XTGrowl.Success(message, owner);
+        }
+
         /// <summary>Vùng chọn trang trong Organizer — cửa sổ ghép gắn vào khi mở, bỏ khi đóng.</summary>
         public Func<DocumentGroup, IEnumerable<PageRow>>? OrganizerSelection { get; set; }
 
@@ -189,20 +198,35 @@ namespace XTPdfMergeApp
 
             try
             {
-                Interlocked.Increment(ref _activeFileLoadCount);
-                int pageCount;
-                try
+                PdfOpenResult openResult;
+                bool passwordRejected = false;
+                while (true)
                 {
-                    pageCount = await Task.Run(() => PdfThumbnailService.GetPageCountAsync(fullPath)).ConfigureAwait(false);
-                }
-                finally
-                {
-                    Interlocked.Decrement(ref _activeFileLoadCount);
+                    Interlocked.Increment(ref _activeFileLoadCount);
+                    try
+                    {
+                        openResult = await Task.Run(() => PdfThumbnailService.TryGetPageCountAsync(fullPath)).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref _activeFileLoadCount);
+                    }
+
+                    if (openResult.Failure != PdfOpenFailure.Password) break;
+                    string? password = await _dispatcher.InvokeAsync(() => PromptForPdfPassword(fullPath, passwordRejected));
+                    if (password == null)
+                    {
+                        await PdfThumbnailService.ForgetDocumentPasswordAsync(fullPath).ConfigureAwait(false);
+                        await _dispatcher.InvokeAsync(() => _groups.Remove(placeholder));
+                        return null;
+                    }
+                    passwordRejected = true;
+                    await PdfThumbnailService.SetDocumentPasswordAsync(fullPath, password).ConfigureAwait(false);
                 }
 
-                await _dispatcher.InvokeAsync(() => FinishOpeningGroup(placeholder, fullPath, pageCount));
+                await _dispatcher.InvokeAsync(() => FinishOpeningGroup(placeholder, fullPath, openResult));
                 RefreshDiskStamp(fullPath);
-                if (pageCount > 0) RecentFilesStore.NoteOpened(fullPath, pageCount);
+                if (openResult.PageCount > 0 && !BlankPageService.IsBlankFile(fullPath)) RecentFilesStore.NoteOpened(fullPath, openResult.PageCount);
                 return await _dispatcher.InvokeAsync(() =>
                     _groups.Contains(placeholder) && placeholder.Pages.Count > 0 ? placeholder : null);
             }
@@ -243,19 +267,19 @@ namespace XTPdfMergeApp
 
         /// <summary>Đổ trang thật vào đúng placeholder đã hiện sẵn từ <see cref="AddOpeningPlaceholder"/>
         /// (xem AddFileAsGroup) — không tạo group mới ở đây, tránh có 2 card cho cùng 1 file.</summary>
-        private void FinishOpeningGroup(DocumentGroup group, string fullPath, int pageCount)
+        private void FinishOpeningGroup(DocumentGroup group, string fullPath, PdfOpenResult openResult)
         {
             // User có thể đã tự đóng card "đang mở" (nút X) trước khi đếm trang xong.
             if (!_groups.Contains(group)) return;
 
-            if (pageCount <= 0)
+            if (openResult.PageCount <= 0)
             {
                 group.SetOpening(false);
-                group.SetLoadError("Could not open the file (damaged, or its page count could not be read)");
+                group.SetLoadError(OpenFailureText(openResult.Failure));
                 return;
             }
 
-            group.Pages.AddRange(Enumerable.Range(1, pageCount).Select(p => _workspace.CreatePlacement(fullPath, p)));
+            group.Pages.AddRange(Enumerable.Range(1, openResult.PageCount).Select(p => _workspace.CreatePlacement(fullPath, p)));
             group.SetBaseline();
             group.SetOpening(false);
 
@@ -266,6 +290,66 @@ namespace XTPdfMergeApp
 
             // Không render hết ngay ở đây. Thumbnail được đưa qua queue theo viewport thật
             // của từng ListBox PDF; prefetch nền chỉ cache ảnh và tự nhường cho vùng đang thấy.
+        }
+
+        private static string OpenFailureText(PdfOpenFailure failure) => failure switch
+        {
+            PdfOpenFailure.File => "Could not read the file",
+            PdfOpenFailure.Format => "The file is damaged or is not a supported PDF",
+            PdfOpenFailure.Password => "Password required",
+            PdfOpenFailure.Security => "This PDF uses an unsupported security handler",
+            _ => "Could not open the file (damaged, or its page count could not be read)"
+        };
+
+        /// <summary>Mật khẩu chỉ được gửi tới PDFium rồi giữ trong RAM của phiên cho đúng file này.</summary>
+        private static string? PromptForPdfPassword(string fullPath, bool rejected)
+        {
+            var passwordBox = new System.Windows.Controls.PasswordBox { MinWidth = 340 };
+            var message = new System.Windows.Controls.TextBlock
+            {
+                Text = rejected ? "That password was not accepted. Try again." : "This PDF is password-protected.",
+                TextWrapping = TextWrapping.Wrap
+            };
+            var panel = new System.Windows.Controls.StackPanel { Margin = new Thickness(20) };
+            panel.Children.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = Path.GetFileName(fullPath),
+                FontWeight = FontWeights.SemiBold,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth = 360
+            });
+            panel.Children.Add(new System.Windows.Controls.TextBlock { Height = 10 });
+            panel.Children.Add(message);
+            panel.Children.Add(new System.Windows.Controls.TextBlock { Height = 14 });
+            panel.Children.Add(new System.Windows.Controls.TextBlock { Text = "Password" });
+            panel.Children.Add(passwordBox);
+
+            var buttons = new System.Windows.Controls.StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 18, 0, 0)
+            };
+            var cancel = new System.Windows.Controls.Button { Content = "Cancel", MinWidth = 82, IsCancel = true };
+            var open = new System.Windows.Controls.Button { Content = "Open", MinWidth = 82, IsDefault = true, Margin = new Thickness(8, 0, 0, 0) };
+            buttons.Children.Add(cancel);
+            buttons.Children.Add(open);
+            panel.Children.Add(buttons);
+
+            var dialog = new Window
+            {
+                Title = "Password required",
+                Content = panel,
+                Width = 410,
+                SizeToContent = SizeToContent.Height,
+                ResizeMode = ResizeMode.NoResize,
+                ShowInTaskbar = false,
+                WindowStartupLocation = OwnerWindow == null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner,
+                Owner = OwnerWindow
+            };
+            open.Click += (_, _) => dialog.DialogResult = true;
+            dialog.Loaded += (_, _) => passwordBox.Focus();
+            return dialog.ShowDialog() == true ? passwordBox.Password : null;
         }
 
         private async Task WarmInitialThumbnailsAsync(DocumentGroup group)
@@ -304,7 +388,11 @@ namespace XTPdfMergeApp
 
         internal void ReleaseUnusedPdfDocuments()
         {
-            var active = new HashSet<string>(_groups.SelectMany(g => g.Pages.Select(p => p.SourcePath)), StringComparer.OrdinalIgnoreCase);
+            // Group đang "Opening" chưa có PageRow, nhưng source vẫn là active (đặc biệt khi user vừa nhập
+            // mật khẩu). Nếu chỉ lấy Pages thì một thao tác nền có thể thu hồi lease/mật khẩu giữa lần thử mở.
+            var active = new HashSet<string>(_groups
+                .Where(g => !string.IsNullOrWhiteSpace(g.SourcePath))
+                .Select(g => g.SourcePath), StringComparer.OrdinalIgnoreCase);
             // File không còn window nào dùng: bỏ chú thích trong bộ nhớ (chưa lưu thì người dùng đã được hỏi khi đóng tab).
             foreach (string path in _annotationFiles.Where(p => !active.Contains(p)).ToList())
             {
@@ -430,7 +518,7 @@ namespace XTPdfMergeApp
                 MessageBox.Show(OwnerWindow, "Could not export the file:\n" + error, "Export PDF", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
-            XTStyle.Controls.XTGrowl.Success("Exported " + Path.GetFileName(output), OwnerWindow);
+            ShowSuccess("Exported " + Path.GetFileName(output));
         }
 
         private void RefreshRendersAfterLayerChange(string path)
@@ -496,7 +584,7 @@ namespace XTPdfMergeApp
                 MessageBox.Show(OwnerWindow, "Could not merge the files:\n" + error, "Merge", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
-            XTStyle.Controls.XTGrowl.Success($"Merged {pageList.Count} pages into {Path.GetFileName(output)}", OwnerWindow);
+            ShowSuccess($"Merged {pageList.Count} pages into {Path.GetFileName(output)}");
         }
 
         Task IReaderPageEditHost.OpenPathsAsync(IEnumerable<string> paths) => OpenFilesInReaderAsync(paths);
@@ -721,7 +809,17 @@ namespace XTPdfMergeApp
             return group;
         }
 
-        private static bool IsTempWindow(DocumentGroup group) => !File.Exists(group.SourcePath);
+        private static bool IsTempWindow(DocumentGroup group) => group.IsUntitled || !File.Exists(group.SourcePath);
+
+        /// <summary>Tạo một PDF trắng trong thư mục phiên làm việc, mở như document Untitled và chỉ chọn nơi lưu khi Save/Save As.</summary>
+        internal async Task<DocumentGroup?> CreateBlankDocumentAsync(double widthPoints, double heightPoints)
+        {
+            string blank = await Task.Run(() => BlankPageService.CreateUntitledPdf(widthPoints, heightPoints));
+            var group = await AddFileAsGroup(blank);
+            if (group == null) return null;
+            await _dispatcher.InvokeAsync(() => group.MarkUntitled("Untitled.pdf"));
+            return group;
+        }
 
         async Task<bool> IReaderPageEditHost.SaveGroupAsync(DocumentGroup group, bool saveAs)
         {
@@ -781,7 +879,7 @@ namespace XTPdfMergeApp
             _workspace.History.Clear();
             AfterHistoryChange();
             ReaderWindow.Instance?.ReaderSidePanel.OnSourceEdited(target);
-            XTStyle.Controls.XTGrowl.Success("Saved " + Path.GetFileName(target), OwnerWindow);
+            ShowSuccess("Saved " + Path.GetFileName(target));
             return true;
         }
 
@@ -793,7 +891,7 @@ namespace XTPdfMergeApp
                 Title = "Save as",
                 Filter = "PDF (*.pdf)|*.pdf",
                 DefaultExt = "pdf",
-                FileName = Path.GetFileNameWithoutExtension(group.SourcePath) + " - edited.pdf",
+                FileName = group.IsUntitled ? "Untitled.pdf" : Path.GetFileNameWithoutExtension(group.SourcePath) + " - edited.pdf",
                 InitialDirectory = Directory.Exists(dir) ? dir : ""
             };
             if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return false;
@@ -825,7 +923,7 @@ namespace XTPdfMergeApp
             if (IsTempWindow(group)) ((IReaderPageEditHost)this).CloseDocument(group); // đã lưu thành file thật, cửa sổ tạm hết việc
             if (opened != null && opened.Pages.Count > 0 && ReaderWindow.Instance is { } reader)
                 await reader.ShowPageAsync(opened, opened.Pages[0], preserveZoomMode: true);
-            XTStyle.Controls.XTGrowl.Success("Saved " + Path.GetFileName(output), OwnerWindow);
+            ShowSuccess("Saved " + Path.GetFileName(output));
             return true;
         }
 
@@ -884,7 +982,7 @@ namespace XTPdfMergeApp
             ReaderWindow.Instance?.OnGroupSaved(group, target, keepIndex);
             ReleaseUnusedPdfDocuments();
             AfterHistoryChange();
-            XTStyle.Controls.XTGrowl.Success("Saved " + Path.GetFileName(target), OwnerWindow);
+            ShowSuccess("Saved " + Path.GetFileName(target));
             return true;
         }
 

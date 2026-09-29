@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Merge files — layouts and limits</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .win { font-family: "Segoe UI", system-ui, sans-serif; font-size: 12.5px; color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; }
+  button { font-family: inherit; font-size: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .tbtn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: 60px; height: 48px; border-radius: 6px; color: var(--text); flex-shrink: 0; }
+  .tbtn span { font-size: 11px; line-height: 1; white-space: nowrap; color: var(--muted); }
+  .tbtn:hover { background: var(--hover); }
+  .tbtn.on { background: var(--sel); color: var(--accent); }
+  .tbtn.on span { color: var(--accent); }
+  .sep { width: 1px; align-self: stretch; margin: 6px 6px; background: var(--border); flex-shrink: 0; }
+  .primary { display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px; border-radius: 6px; background: var(--accent); color: #ffffff; font-weight: 600; white-space: nowrap; }
+  .ghost { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); white-space: nowrap; }
+  .ghost:hover { background: var(--hover); }
+  .tab { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px 0 12px; color: var(--muted); white-space: nowrap; border-bottom: 2px solid transparent; }
+  .tab.active { color: var(--text); background: var(--surface); border-bottom-color: var(--accent); }
+  .tab .x { width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+  .tab .x:hover { background: var(--hover); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); flex-shrink: 0; }
+  .rail { width: 64px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0; background: var(--panel); border-right: 1px solid var(--border); }
+  .ritem { width: 56px; height: 54px; border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--muted); position: relative; }
+  .ritem span { font-size: 11px; line-height: 1; }
+  .ritem:hover { background: var(--hover); color: var(--text); }
+  .ritem.on { color: var(--accent); background: var(--sel); }
+  .pact { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: 46px; border-radius: 6px; color: var(--text); flex: 1 1 0; min-width: 0; }
+  .pact span { font-size: 11px; line-height: 1; color: var(--muted); white-space: nowrap; }
+  .pact:hover { background: var(--hover); }
+  .thumb { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 8px 6px; border-radius: 6px; border: 1.5px solid transparent; position: relative; }
+  .thumb:hover { background: var(--hover); }
+  .thumb.sel { background: var(--sel); border-color: var(--accent); }
+  .thumb .num { font-size: 11px; color: var(--muted); }
+  .thumb.sel .num { color: var(--accent); font-weight: 600; }
+  .paper { background: #ffffff; border: 1px solid #cfd6de; border-radius: 2px; overflow: hidden; display: block; }
+  .paper svg { display: block; }
+  .chipx { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px; background: var(--chip); color: var(--text); font-size: 12px; }
+  .menu { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); padding: 5px; display: flex; flex-direction: column; }
+  .mi { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 10px; border-radius: 5px; white-space: nowrap; }
+  .mi .k { margin-left: auto; padding-left: 22px; color: var(--muted); font-size: 11.5px; }
+  .mi.hot { background: var(--sel); }
+  .mi.danger { color: #c0392b; }
+  .msep { height: 1px; background: var(--border); margin: 4px 6px; }
+  .status { height: 30px; flex-shrink: 0; display: flex; align-items: center; padding: 0 12px; gap: 10px; background: var(--panel); border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+  .sbtn { width: 26px; height: 26px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+  .sbtn:hover { background: var(--hover); color: var(--text); }
+  .pagebox { width: 42px; height: 22px; border-radius: 4px; background: var(--surface); border: 1px solid var(--border); color: var(--text); text-align: center; font-size: 12px; }
+  .hdr { display: flex; align-items: center; justify-content: space-between; padding: 0 14px; height: 40px; font-weight: 600; font-size: 13px; flex-shrink: 0; }
+  .count { font-weight: 400; font-size: 11.5px; color: var(--muted); background: var(--chip); border-radius: 9px; padding: 1px 8px; }
+  .field { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+  .cb { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--muted); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #ffffff; }
+  .cb.on { background: var(--accent); border-color: var(--accent); }
+  .cb.mixed { background: var(--accent); border-color: var(--accent); }
+  .row { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 10px; border-radius: 5px; }
+  .row:hover { background: var(--hover); }
+  .lbl { font-size: 11px; color: var(--muted); }
+</style>
+</helmet>
+<div class="win" style="width:780px;height:520px;display:flex;flex-direction:column;padding:28px 32px;gap:22px;background:var(--surface);--accent:{{accent}};--bg:#f1f4f8;--surface:#ffffff;--panel:#f7f9fb;--border:#dbe1e8;--text:#1b2733;--muted:#566373;--hover:#e9eef4;--view:#dfe5ec;--chip:#e9eef4;--sel:color-mix(in srgb, var(--accent) 12%, #ffffff);--shadow:0 10px 30px rgba(20,32,50,0.18);--warn:#b45309;"><div style="font-size:18px;font-weight:600">Layouts and limits</div><div style="display:flex;gap:18px"><div style="display:flex;flex-direction:column;gap:8px;width:130px;flex-shrink:0"><div style="position:relative;height:84px;border-radius:8px;border:1px solid var(--border);background:var(--panel);padding:8px"><div style="position:relative;width:100%;height:100%"><div style="position:absolute;left:0%;top:0%;width:100%;height:100%;border:1.5px solid var(--muted);border-radius:3px;background:var(--surface)"></div></div></div><div style="font-weight:600">1 window</div><div class="lbl" style="line-height:1.4">One file fills the workspace</div></div><div style="display:flex;flex-direction:column;gap:8px;width:130px;flex-shrink:0"><div style="position:relative;height:84px;border-radius:8px;border:2px solid var(--accent);background:var(--panel);padding:8px"><div style="position:relative;width:100%;height:100%"><div style="position:absolute;left:0%;top:0%;width:49%;height:100%;border:1.5px solid var(--accent);border-radius:3px;background:var(--sel)"></div><div style="position:absolute;left:51%;top:0%;width:49%;height:100%;border:1.5px solid var(--accent);border-radius:3px;background:var(--sel)"></div></div></div><div style="font-weight:600">2 side by side</div><div class="lbl" style="line-height:1.4">Copy or move between two files</div></div><div style="display:flex;flex-direction:column;gap:8px;width:130px;flex-shrink:0"><div style="position:relative;height:84px;border-radius:8px;border:1px solid var(--border);background:var(--panel);padding:8px"><div style="position:relative;width:100%;height:100%"><div style="position:absolute;left:0%;top:0%;width:32%;height:100%;border:1.5px solid var(--muted);border-radius:3px;background:var(--surface)"></div><div style="position:absolute;left:34%;top:0%;width:32%;height:100%;border:1.5px solid var(--muted);border-radius:3px;background:var(--surface)"></div><div style="position:absolute;left:68%;top:0%;width:32%;height:100%;border:1.5px solid var(--muted);border-radius:3px;background:var(--surface)"></div></div></div><div style="font-weight:600">3 columns</div><div class="lbl" style="line-height:1.4">Two sources and a result</div></div><div style="display:flex;flex-direction:column;gap:8px;width:130px;flex-shrink:0"><div style="position:relative;height:84px;border-radius:8px;border:1px solid var(--border);background:var(--panel);padding:8px"><div style="position:relative;width:100%;height:100%"><div style="position:absolute;left:0%;top:0%;width:49%;height:49%;border:1.5px solid var(--muted);border-radius:3px;background:var(--surface)"></div><div style="position:absolute;left:51%;top:0%;width:49%;height:49%;border:1.5px solid var(--muted);border-radius:3px;background:var(--surface)"></div><div style="position:absolute;left:0%;top:51%;width:49%;height:49%;border:1.5px solid var(--muted);border-radius:3px;background:var(--surface)"></div><div style="position:absolute;left:51%;top:51%;width:49%;height:49%;border:1.5px solid var(--muted);border-radius:3px;background:var(--surface)"></div></div></div><div style="font-weight:600">2 × 2 grid</div><div class="lbl" style="line-height:1.4">Four files at once</div></div><div style="display:flex;flex-direction:column;gap:8px;width:130px;flex-shrink:0"><div style="position:relative;height:84px;border-radius:8px;border:1px solid var(--border);background:var(--panel);padding:8px"><div style="position:relative;width:100%;height:100%"><div style="position:absolute;left:0%;top:0%;width:58%;height:60%;border:1.5px solid var(--muted);border-radius:3px;background:var(--surface)"></div><div style="position:absolute;left:30%;top:34%;width:66%;height:62%;border:1.5px solid var(--muted);border-radius:3px;background:var(--surface)"></div></div></div><div style="font-weight:600">Free</div><div class="lbl" style="line-height:1.4">Move and resize freely</div></div></div><div style="display:flex;flex-direction:column;gap:10px;padding-top:6px;border-top:1px solid var(--border)"><div style="padding-top:14px;font-weight:600">Rules</div><div style="display:flex;gap:10px;align-items:flex-start;line-height:1.5"><span style="color:var(--accent);margin-top:3px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="m5 12 4.5 4.5L19 7"/></svg></span><span>At most 4 windows are shown at once. Opening a fifth minimizes the least recently used one to the dock.</span></div><div style="display:flex;gap:10px;align-items:flex-start;line-height:1.5"><span style="color:var(--accent);margin-top:3px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="m5 12 4.5 4.5L19 7"/></svg></span><span>A window can't be smaller than 320 × 240 and can't be dragged or resized outside the workspace.</span></div><div style="display:flex;gap:10px;align-items:flex-start;line-height:1.5"><span style="color:var(--accent);margin-top:3px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="m5 12 4.5 4.5L19 7"/></svg></span><span>Free mode keeps your positions; switching to a tiled layout arranges the windows and remembers the free layout.</span></div><div style="display:flex;gap:10px;align-items:flex-start;line-height:1.5"><span style="color:var(--accent);margin-top:3px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="m5 12 4.5 4.5L19 7"/></svg></span><span>Double-click a header to maximize; double-click again to return to the previous size and position.</span></div><div style="display:flex;gap:10px;align-items:flex-start;line-height:1.5"><span style="color:var(--accent);margin-top:3px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="m5 12 4.5 4.5L19 7"/></svg></span><span>Drag a window to a screen edge to snap it (left, right, corners); a preview shows where it will land.</span></div></div></div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent": {"editor": "color", "default": "#2563eb", "options": ["#2563eb", "#0f8b6d", "#7c4dff", "#d9463b"]}, "$preview": {"width": 780, "height": 520}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#2563eb' };
+  }
+}
+</script>
+</body>
+</html>

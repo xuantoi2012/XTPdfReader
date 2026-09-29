@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using iText.IO.Source;
 using iText.Kernel.Pdf;
 
@@ -29,7 +30,10 @@ namespace XTPdfMergeApp.Services
             IRandomAccessSource source = _cache != null ? new PdfLayerService.BlockCacheSource(_cache) : new SharedFileSource(_path);
             try
             {
-                _document = new PdfDocument(new PdfReader(source, new ReaderProperties()));
+                var properties = new ReaderProperties();
+                if (PdfThumbnailService.TryGetDocumentPassword(_path) is { Length: > 0 } password)
+                    properties.SetPassword(Encoding.UTF8.GetBytes(password));
+                _document = new PdfDocument(new PdfReader(source, properties));
             }
             catch
             {

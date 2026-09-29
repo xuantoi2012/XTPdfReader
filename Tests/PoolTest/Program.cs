@@ -24,15 +24,42 @@ static class P
 
     static async Task<int> Main(string[] a)
     {
-        Environment.SetEnvironmentVariable("XTPDF_PDFIUM_INSTANCES", a[0]);
-        int k = int.Parse(a[0]);
-        string small = Path.GetFullPath(a[1]), big = Path.GetFullPath(a[2]);
-        int stressSeconds = a.Length > 3 ? int.Parse(a[3]) : 15;
+        int k;
+        string small, big;
+        int stressSeconds;
+        if (a.Length == 0)
+        {
+            // CI và máy mới chưa có PDF mẫu vẫn chạy được toàn bộ kiểm tra.
+            // Giữ chế độ có tham số để benchmark với đúng hồ sơ PDF thực tế.
+            k = 4;
+            small = MakeRenderFixture("fixture-small.pdf", 12);
+            big = MakeRenderFixture("fixture-big.pdf", 16);
+            stressSeconds = 5;
+            Console.WriteLine("Không có tham số: dùng PDF fixture nội bộ (K=4, stress 5 giây).");
+        }
+        else if (a.Length >= 3)
+        {
+            k = int.Parse(a[0]);
+            small = Path.GetFullPath(a[1]);
+            big = Path.GetFullPath(a[2]);
+            stressSeconds = a.Length > 3 ? int.Parse(a[3]) : 15;
+        }
+        else
+        {
+            Console.Error.WriteLine("Cách dùng: PoolTest <K> <file-nho.pdf> <file-lon.pdf> [giây stress]");
+            return 2;
+        }
+        Environment.SetEnvironmentVariable("XTPDF_PDFIUM_INSTANCES", k.ToString());
 
         Check(PdfiumPool.Count == k, $"pool có {PdfiumPool.Count} bản (muốn {k})");
 
         // ── Tham chiếu: vẽ tuần tự (từng lệnh await xong mới gọi lệnh sau) ──
         int smallPages = await PdfThumbnailService.GetPageCountAsync(small);
+        if (smallPages < 4)
+        {
+            Console.Error.WriteLine("File nhỏ phải có ít nhất 4 trang.");
+            return 2;
+        }
         var pages = Enumerable.Range(0, Math.Min(12, smallPages)).ToArray();
         var reference = new Dictionary<int, ulong>();
         foreach (int p in pages) reference[p] = (await PdfThumbnailService.RenderPageAsync(small, p, 800))!.Hash();
@@ -71,8 +98,25 @@ static class P
             "GetPageSizesAsync: A1 ngang, A3 ngang, A3 dọc (/Rotate 90) đúng kích thước point" +
             (sizes == null ? "" : " — " + string.Join(", ", sizes.Select(z => $"{z.Width:F0}x{z.Height:F0}"))));
 
+        // ── PDF mã hoá: báo đúng nguyên nhân, thử lại bằng mật khẩu chỉ ở RAM ──
+        string protectedPdf = MakePasswordProtected();
+        var locked = await PdfThumbnailService.TryGetPageCountAsync(protectedPdf);
+        Check(locked.PageCount == 0 && locked.Failure == PdfOpenFailure.Password, "PDF mã hoá: nhận ra cần mật khẩu");
+        await PdfThumbnailService.SetDocumentPasswordAsync(protectedPdf, "sai-mat-khau");
+        var wrongPassword = await PdfThumbnailService.TryGetPageCountAsync(protectedPdf);
+        Check(wrongPassword.PageCount == 0 && wrongPassword.Failure == PdfOpenFailure.Password, "PDF mã hoá: báo sai mật khẩu để cho thử lại");
+        await PdfThumbnailService.SetDocumentPasswordAsync(protectedPdf, "reader-password");
+        var unlocked = await PdfThumbnailService.TryGetPageCountAsync(protectedPdf);
+        Check(unlocked.PageCount == 1 && unlocked.Failure == PdfOpenFailure.None, "PDF mã hoá: mở được sau khi nhập đúng mật khẩu");
+        await PdfThumbnailService.ForgetDocumentPasswordAsync(protectedPdf);
+
         // ── Tốc độ: 12 trang file lớn cùng lúc ──
         int bigPages = await PdfThumbnailService.GetPageCountAsync(big);
+        if (bigPages < 13)
+        {
+            Console.Error.WriteLine("File lớn phải có ít nhất 13 trang.");
+            return 2;
+        }
         await PdfThumbnailService.RenderPageAsync(big, 0, 256); // mở document, khởi động
         var sw = Stopwatch.StartNew();
         var bigRes = await Task.WhenAll(Enumerable.Range(1, 12).Select(p => Task.Run(() => PdfThumbnailService.RenderPageAsync(big, p, 1024))));
@@ -210,12 +254,54 @@ static class P
         return f;
     }
 
+    /// <summary>Tạo PDF vector cố định cho CI; không thay thế benchmark trên hồ sơ thật.</summary>
+    static string MakeRenderFixture(string fileName, int pageCount)
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "xtpooltest");
+        Directory.CreateDirectory(dir);
+        string f = Path.Combine(dir, fileName);
+        using var doc = new PdfDocument(new PdfWriter(f));
+        for (int pageIndex = 0; pageIndex < pageCount; pageIndex++)
+        {
+            bool landscape = pageIndex % 2 == 0;
+            float width = landscape ? 1191 : 842;
+            float height = landscape ? 842 : 1191;
+            var page = doc.AddNewPage(new iText.Kernel.Geom.PageSize(width, height));
+            var canvas = new PdfCanvas(page);
+            canvas.SetFillColor(new DeviceRgb(250, 251, 253)).Rectangle(0, 0, width, height).Fill();
+            for (int i = 0; i < 80; i++)
+            {
+                byte shade = (byte)(80 + (i * 29 + pageIndex * 17) % 150);
+                canvas.SetStrokeColor(new DeviceRgb(shade, (byte)(255 - shade / 2), (byte)(90 + shade / 3)))
+                    .SetLineWidth((i % 3) + 0.5f)
+                    .MoveTo(20, 20 + (i * 31) % (int)(height - 40))
+                    .LineTo(width - 20, 20 + (i * 53 + pageIndex * 11) % (int)(height - 40))
+                    .Stroke();
+            }
+        }
+        return f;
+    }
+
+    static string MakePasswordProtected()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "xtpooltest");
+        Directory.CreateDirectory(dir);
+        string f = Path.Combine(dir, "password-protected.pdf");
+        byte[] user = System.Text.Encoding.UTF8.GetBytes("reader-password");
+        byte[] owner = System.Text.Encoding.UTF8.GetBytes("owner-password");
+        var properties = new WriterProperties().SetStandardEncryption(user, owner,
+            EncryptionConstants.ALLOW_PRINTING, EncryptionConstants.ENCRYPTION_AES_128);
+        using var doc = new PdfDocument(new PdfWriter(f, properties));
+        doc.AddNewPage(new iText.Kernel.Geom.PageSize(400, 300));
+        return f;
+    }
+
     /// <summary>PDF viết tay: /OCProperties và /D là từ điển trực tiếp trong Catalog, như file AutoCAD xuất ra.</summary>
     static string MakeDirectOcProperties()
     {
         string dir = Path.Combine(Path.GetTempPath(), "xtpooltest"); Directory.CreateDirectory(dir);
         string f = Path.Combine(dir, "direct-oc.pdf");
-        string[] objects =
+        string?[] objects =
         {
             "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [5 0 R 6 0 R] /D << /Order [5 0 R 6 0 R] /OFF [] >> >> >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -231,7 +317,8 @@ static class P
         for (int i = 0; i < objects.Length; i++)
         {
             offsets.Add(sb.Length);
-            sb.Append($"{i + 1} 0 obj\n{objects[i]}\nendobj\n");
+            string obj = objects[i] ?? throw new InvalidOperationException("Thiếu đối tượng PDF.");
+            sb.Append($"{i + 1} 0 obj\n{obj}\nendobj\n");
         }
         int xref = sb.Length;
         sb.Append($"xref\n0 {objects.Length + 1}\n0000000000 65535 f \n");

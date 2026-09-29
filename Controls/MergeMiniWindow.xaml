@@ -54,13 +54,13 @@
                         <TextBox x:Name="GoToBox" Style="{StaticResource GoToBox}" Width="84" Margin="0,0,8,0" ToolTip="Type a page number and press Enter"
                                  PreviewKeyDown="GoTo_PreviewKeyDown" MouseDown="GoTo_Focus"/>
                         <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.save}" Width="24" Height="24" IconSize="14"
-                                     ToolTip="Save this file" Click="Save_Click"/>
+                                     ToolTip="Export this draft window as a new PDF" Click="Save_Click"/>
                         <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.down2}" Width="24" Height="24" IconSize="14"
-                                     ToolTip="Minimize to the dock" Click="Minimize_Click"/>
+                                     ToolTip="Move this window to the temporary shelf (excluded from Merge all)" Click="Minimize_Click"/>
                         <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.max}" Width="24" Height="24" IconSize="14"
                                      ToolTip="Maximize / restore (double-click the title)" Click="Maximize_Click"/>
                         <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.close}" Width="24" Height="24" IconSize="14"
-                                     ToolTip="Close this file" Click="Close_Click"/>
+                                     ToolTip="Remove this window from the merge draft" Click="Close_Click"/>
                     </StackPanel>
                     <Border x:Name="FileHandle" DockPanel.Dock="Left" Width="26" Height="26" Background="Transparent" Cursor="SizeAll" VerticalAlignment="Center"
                             ToolTip="Drag onto another window to insert all pages of this file (Ctrl = copy)"

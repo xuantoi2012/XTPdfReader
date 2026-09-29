@@ -8,7 +8,7 @@ using iText.Kernel.Pdf.Annot;
 namespace XTPdfMergeApp.Services
 {
     /// <summary>1 chú thích trong panel Comments (từ <see cref="AnnotationStore"/>: file + thay đổi chưa lưu), kể cả do app khác tạo.</summary>
-    public sealed record CommentInfo(string Path, int Page, string Name, QuickAnnotationKind Kind, string Author, DateTime? Date, string Text, bool Resolved);
+    public sealed record CommentInfo(string Path, int Page, string Name, QuickAnnotationKind Kind, string Author, DateTime? Date, string Text, bool Resolved, string ParentName = "");
 
     /// <summary>Trạng thái Open / Resolved của chú thích (/StateModel /Review, /State /Completed).</summary>
     public static class PdfCommentService

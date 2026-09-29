@@ -182,12 +182,12 @@ namespace XTPdfMergeApp
 
         // ── Bảng lệnh Ctrl+K ──────────────────────────────────────────
 
-        private static Geometry Icon(string name) => (Geometry)Application.Current.FindResource("Ui.Icon." + name);
+        private static Geometry PaletteIcon(string name) => (Geometry)Application.Current.FindResource("Ui.Icon." + name);
 
         private void OpenPalette()
         {
             var items = new List<PaletteItem>();
-            void Cmd(string title, string shortcut, string icon, Action run) => items.Add(new PaletteItem("Commands", title, shortcut, Icon(icon), run));
+            void Cmd(string title, string shortcut, string icon, Action run) => items.Add(new PaletteItem("Commands", title, shortcut, PaletteIcon(icon), run));
 
             Cmd("Open file…", "Ctrl+O", "folder", () => { if (EditHost != null) _ = EditHost.OpenFilesAsync(); });
             Cmd("Start: recent files and workspaces", "", "clock", () => ShowStart(true));
@@ -197,9 +197,11 @@ namespace XTPdfMergeApp
                 Cmd("Save", "Ctrl+S", "save", () => _ = SaveCurrentGroupAsync(saveAs: false));
                 Cmd("Save as…", "Ctrl+Shift+S", "save", () => _ = SaveCurrentGroupAsync(saveAs: true));
                 Cmd("Close this file", "", "close", () => ReaderCloseDocument_Click(new FrameworkElement { DataContext = _readerGroup }, new RoutedEventArgs()));
+                Cmd("Actual size", "", "actual", () => ReaderActualSize_Click(this, new RoutedEventArgs()));
                 Cmd("Fit page", "", "fitp", () => ReaderFitPage_Click(this, new RoutedEventArgs()));
                 Cmd("Fit width", "Ctrl+0", "fitw", () => ReaderFitWidth_Click(this, new RoutedEventArgs()));
                 Cmd(_readerContinuousMode ? "Switch to single page view" : "Switch to continuous scrolling", "", "scroll", () => ReaderContinuousToggle_Click(this, new RoutedEventArgs()));
+                Cmd("Two-page view", "", "twopage", () => ReaderViewTwoPage_Click(this, new RoutedEventArgs()));
                 Cmd("Rotate view left", "", "rotl", () => ReaderRotateLeft_Click(this, new RoutedEventArgs()));
                 Cmd("Rotate view right", "", "rotr", () => ReaderRotateRight_Click(this, new RoutedEventArgs()));
                 Cmd("Show pages panel", "", "pages", () => { ShowStart(false); ReaderSidePanel.ShowPanel("Pages"); });
@@ -209,9 +211,12 @@ namespace XTPdfMergeApp
             }
             Cmd("Find in document…", "Ctrl+F", "search", OpenFind);
             if (_readerGroup != null) Cmd("Export / split PDF…", "Ctrl+Shift+E", "export", () => OpenExport(preferFlatten: false));
+            if (_readerGroup != null) Cmd("Make searchable (OCR)…", "", "selecttext", () => ReaderOcr_Click(this, new RoutedEventArgs()));
             if (_readerGroup != null) Cmd("Print…", "Ctrl+P", "print", () => ReaderPrint_Click(this, new RoutedEventArgs()));
+            if (_readerGroup != null) Cmd("Document security and permissions…", "", "lock", () => ReaderSecurity_Click(this, new RoutedEventArgs()));
             Cmd("Undo", "Ctrl+Z", "undo", () => EditHost?.Undo());
             Cmd("Redo", "Ctrl+Y", "redo", () => EditHost?.Redo());
+            Cmd("Keyboard shortcuts", "F1", "info", () => Controls.KeyboardShortcutsWindow.ShowFor(this));
             Cmd("Settings", "", "settings", () => { ShowStart(false); ShowSettings(true); });
             Cmd(ThemeService.IsDark ? "Switch to the light theme" : "Switch to the dark theme", "", "eye", () =>
             {
@@ -222,7 +227,7 @@ namespace XTPdfMergeApp
             foreach (var group in _groups)
             {
                 var g = group;
-                items.Add(new PaletteItem("Open files", group.FileName, "", Icon("file"), () =>
+                items.Add(new PaletteItem("Open files", group.FileName, "", PaletteIcon("file"), () =>
                 {
                     ShowStart(false);
                     ReaderDocumentTabs.SelectedItem = g;
@@ -232,7 +237,7 @@ namespace XTPdfMergeApp
             foreach (var recent in RecentFilesStore.Items.Where(r => !open.Contains(r.Path) && File.Exists(r.Path)).Take(15))
             {
                 string path = recent.Path;
-                items.Add(new PaletteItem("Recent files", Path.GetFileName(path), "", Icon("clock"), () =>
+                items.Add(new PaletteItem("Recent files", Path.GetFileName(path), "", PaletteIcon("clock"), () =>
                 {
                     ShowStart(false);
                     if (EditHost != null) _ = EditHost.OpenPathsAsync(new[] { path });

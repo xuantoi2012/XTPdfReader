@@ -49,6 +49,19 @@ internal static class BlankPageService
         });
     }
 
+    /// <summary>PDF trắng riêng cho document Untitled. Không dùng cache theo khổ để có thể mở cùng lúc nhiều file mới cùng A4.</summary>
+    public static string CreateUntitledPdf(double widthPoints, double heightPoints)
+    {
+        double w = Math.Round(Math.Clamp(widthPoints, 72, 14400), 1);
+        double h = Math.Round(Math.Clamp(heightPoints, 72, 14400), 1);
+        Directory.CreateDirectory(Directory_);
+        string file = Path.Combine(Directory_, "Untitled_" + Guid.NewGuid().ToString("N") + ".pdf");
+        using var writer = new PdfWriter(file);
+        using var document = new PdfDocument(writer);
+        document.AddNewPage(new PageSize((float)w, (float)h));
+        return file;
+    }
+
     public static bool IsBlankFile(string path)
         => path.StartsWith(Directory_, StringComparison.OrdinalIgnoreCase);
 

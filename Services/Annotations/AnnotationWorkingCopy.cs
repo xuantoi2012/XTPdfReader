@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using iText.Kernel.Pdf;
 
@@ -50,7 +51,10 @@ namespace XTPdfMergeApp.Services
 
         private static void Write(string path, string copy, IReadOnlyList<QuickAnnotationChange> changes)
         {
-            using var reader = new PdfReader(path);
+            var properties = new ReaderProperties();
+            if (PdfThumbnailService.TryGetDocumentPassword(path) is { Length: > 0 } password)
+                properties.SetPassword(Encoding.UTF8.GetBytes(password));
+            using var reader = new PdfReader(path, properties);
             using var writer = new PdfWriter(copy);
             using var doc = new PdfDocument(reader, writer, new StampingProperties().UseAppendMode());
             PdfQuickAnnotationService.ApplyChanges(doc, changes);

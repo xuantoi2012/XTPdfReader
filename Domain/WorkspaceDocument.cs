@@ -70,8 +70,10 @@ internal sealed class WorkspaceDocument : INotifyPropertyChanged
     // Sửa cấu trúc trang (xoá/chèn/đổi thứ tự) chỉ đổi workspace tới khi Save. Baseline = danh sách (file, số trang nguồn)
     // lúc mở hoặc lúc lưu xong. Chú thích chưa lưu (AnnotationStore) của file mà window dùng trang cũng tính. Xoay THẬT ghi thẳng file nên không tính.
     private List<(string Path, int Page)>? _baseline;
-    private bool _pagesDirty, _annotationsDirty;
+    private bool _pagesDirty, _annotationsDirty, _unsavedDocument;
     public bool IsDirty { get; private set; }
+    /// <summary>Blank document vừa tạo trong phiên: chưa có tên/tệp đích nên luôn hỏi Save As khi đóng hoặc Ctrl+S.</summary>
+    public bool IsUntitled => _unsavedDocument;
     /// <summary>Only annotations changed (the page list is as saved): Save writes them into the file in place.</summary>
     public bool OnlyAnnotationsDirty => _annotationsDirty && !_pagesDirty;
 
@@ -87,6 +89,14 @@ internal sealed class WorkspaceDocument : INotifyPropertyChanged
     {
         _baseline = Pages.Select(p => (p.SourcePath, p.PageNumber)).ToList();
         UpdateDirty();
+    }
+
+    internal void MarkUntitled(string displayName)
+    {
+        _unsavedDocument = true;
+        SetDisplayName(displayName);
+        UpdateDirty();
+        Notify(nameof(IsUntitled));
     }
 
     private void UpdateDirty()
@@ -105,7 +115,7 @@ internal sealed class WorkspaceDocument : INotifyPropertyChanged
                     }
         }
         _pagesDirty = dirty;
-        dirty |= _annotationsDirty;
+        dirty |= _annotationsDirty || _unsavedDocument;
         if (dirty == IsDirty) return;
         IsDirty = dirty;
         Notify(nameof(IsDirty));

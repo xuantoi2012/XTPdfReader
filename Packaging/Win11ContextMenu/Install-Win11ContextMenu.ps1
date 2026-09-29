@@ -3,6 +3,7 @@ param(
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
     [string]$AppDir = "",
+    [string]$CertificateThumbprint = "",
     [switch]$SkipPublish,
     [switch]$RestartExplorer
 )
@@ -69,16 +70,27 @@ if (Test-Path $packagePath) {
 & $makeAppx pack /o /d $scriptDir /nv /p $packagePath
 if ($LASTEXITCODE -ne 0) { throw "MakeAppx failed with exit code $LASTEXITCODE." }
 
-$cert = Get-ChildItem Cert:\CurrentUser\My |
-    Where-Object { $_.Subject -eq $publisher -and $_.HasPrivateKey } |
-    Sort-Object NotAfter -Descending |
-    Select-Object -First 1
+$cert = if ([string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
+    Get-ChildItem Cert:\CurrentUser\My |
+        Where-Object { $_.Subject -eq $publisher -and $_.HasPrivateKey } |
+        Sort-Object NotAfter -Descending |
+        Select-Object -First 1
+}
+else {
+    Get-ChildItem Cert:\CurrentUser\My |
+        Where-Object { $_.Thumbprint -eq ($CertificateThumbprint -replace '\s', '') -and $_.HasPrivateKey } |
+        Select-Object -First 1
+}
+
+if (-not $cert -and -not [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
+    throw "A code-signing certificate with private key was not found for thumbprint: $CertificateThumbprint"
+}
 
 if (-not $cert) {
     $cert = New-SelfSignedCertificate `
         -Type CodeSigningCert `
         -Subject $publisher `
-        -FriendlyName "XTPdfMergeApp sparse package signing" `
+        -FriendlyName "PDF Reader Pro sparse package signing" `
         -CertStoreLocation Cert:\CurrentUser\My `
         -KeyUsage DigitalSignature `
         -NotAfter (Get-Date).AddYears(5)
@@ -110,3 +122,5 @@ if ($RestartExplorer) {
 
 Write-Host "Installed Windows 11 context menu package: $packageName"
 Write-Host "External app location: $AppDir"
+Write-Host "Context-menu command: Open with PDF Reader Pro"
+Write-Host "Windows chooses the default PDF app only after the user selects it in Settings > Apps > Default apps."

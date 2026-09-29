@@ -31,7 +31,7 @@ internal sealed class DragGhostAdorner : Adorner
     {
         const double width = 150;
         const double height = 112;
-        var rect = new Rect(_position.X + 18, _position.Y + 18, width, height);
+        var rect = new Rect(_position.X + 8, _position.Y + 8, width, height);
         drawingContext.PushOpacity(0.86);
         drawingContext.DrawRoundedRectangle(new SolidColorBrush(Color.FromRgb(245, 248, 252)),
             new Pen(new SolidColorBrush(Color.FromRgb(3, 109, 246)), 2), rect, 7, 7);

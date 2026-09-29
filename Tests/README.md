@@ -6,10 +6,16 @@ Run on Windows with .NET 10 SDK from the app directory:
 powershell -NoProfile -ExecutionPolicy Bypass -File Tests/Run.ps1
 ```
 
-The runner obtains the original renderer from commit
-`c08f4e2808929517cf6dc27066f6c0dcab0bbd14`, then runs baseline and optimized
-renderers in separate processes. Pass `-BaselineRef` for another compatible
-revision. Generated fixtures, hashes and JSON stay under Tests/bin/.../results.
+This always runs the current regression suite. To compare with a historical renderer that
+exists in the current Git checkout, pass its commit explicitly:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File Tests/Run.ps1 -BaselineRef '<commit>'
+```
+
+When `-BaselineRef` is supplied, the runner obtains that version of the renderer
+and runs baseline and optimized renderers in separate processes. Generated
+fixtures, hashes and JSON stay under Tests/bin/.../results.
 No production PDFs or user settings are changed.
 
 ## Checks

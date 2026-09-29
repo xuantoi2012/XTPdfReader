@@ -49,12 +49,12 @@
             <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Margin="14,10,10,2" Foreground="{DynamicResource Ui.Muted}"/>
         </DataTemplate>
         <DataTemplate DataType="{x:Type local:CommentCard}">
-            <Border x:Name="Card" Margin="8,4" Padding="12,10" CornerRadius="8" BorderThickness="1.5" BorderBrush="{DynamicResource Ui.Border}"
+            <Border x:Name="Card" Margin="{Binding Margin}" Padding="12,10" CornerRadius="8" BorderThickness="1.5" BorderBrush="{DynamicResource Ui.Border}"
                     Background="{DynamicResource Ui.Surface}" Cursor="Hand">
                 <StackPanel>
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <Viewbox Width="16" Height="16" Margin="0,0,8,0">
                             <Canvas Width="24" Height="24">
@@ -67,8 +67,11 @@
                                 Background="{DynamicResource Ui.AccentSoft}" MouseLeftButtonUp="Status_MouseLeftButtonUp">
                             <TextBlock x:Name="ChipText" Text="Open" FontSize="11" Foreground="{DynamicResource Ui.Accent}"/>
                         </Border>
+                        <Button Grid.Column="4" Content="…" Tag="{Binding Info}" Margin="6,0,0,0" Padding="5,0" Click="MessageMenu_Click"/>
                     </Grid>
                     <TextBlock Text="{Binding Text}" TextWrapping="Wrap" Margin="0,6,0,0" LineHeight="17" Foreground="{DynamicResource Ui.Text}"/>
+                    <TextBox Tag="{Binding Info}" Margin="0,8,0,0" Height="28" VerticalContentAlignment="Center" Text="Reply"
+                             Foreground="{DynamicResource Ui.Muted}" GotKeyboardFocus="ReplyBox_GotKeyboardFocus" PreviewKeyDown="ReplyBox_PreviewKeyDown"/>
                 </StackPanel>
             </Border>
             <DataTemplate.Triggers>
