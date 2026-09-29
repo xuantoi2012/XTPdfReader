@@ -55,6 +55,7 @@ namespace XTPdfMergeApp
             _readerTool = tool;
             if (tool != ReaderTool.Hand) SelectAnnotation(null, null);
             UpdateFormatBarVisibility();
+            ShowRibbonTabForTool(tool);
             ReaderHandToolButton.Tag = tool == ReaderTool.Hand ? "Active" : null;
             ReaderSelectToolButton.Tag = tool == ReaderTool.Select ? "Active" : null;
             ReaderTypewriterToolButton.Tag = tool == ReaderTool.Typewriter ? "Active" : null;
