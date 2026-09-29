@@ -45,7 +45,7 @@ namespace XTPdfMergeApp
 
         /// <summary>Bars floating over the page (Find, text format, shape style, highlight mode): clicks on them are not clicks on the page.</summary>
         private bool IsOverlayBar(DependencyObject? source)
-            => IsInside(source, FindBar) || IsInside(source, TextFormatBar) || IsInside(source, ShapeBar) || IsInside(source, HighlightBar);
+            => IsInside(source, FindBar) || IsInside(source, TextFormatBar) || IsInside(source, ShapeBar) || IsInside(source, HighlightBar) || IsInside(source, MarkupColorBar);
 
         private void SelectAnnotation(PageRow? row, QuickAnnotationSpec? spec)
         {
@@ -188,7 +188,12 @@ namespace XTPdfMergeApp
             }
             if (!TryHitPage(e.GetPosition(ReaderContentHost), out var hit)) return;
             var picked = PickAnnotation(GetCachedPageAnnotations(hit.Row), hit);
-            if (picked == null) return;
+            if (picked == null)
+            {
+                e.Handled = true;
+                ShowPageContextMenu();
+                return;
+            }
             e.Handled = true;
             SelectAnnotation(hit.Row, picked);
 
@@ -199,9 +204,40 @@ namespace XTPdfMergeApp
                 edit.Click += (_, _) => _ = OpenAnnotationEditorAsync(hit, picked.Kind, picked);
                 menu.Items.Add(edit);
             }
+            if (picked.Kind is QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut or QuickAnnotationKind.Shape)
+                menu.Items.Add(new Separator());
             var delete = new MenuItem { Header = "Delete " + KindLabel(picked.Kind), InputGestureText = "Del" };
             delete.Click += (_, _) => DeleteSelectedAnnotation();
             menu.Items.Add(delete);
+            menu.IsOpen = true;
+        }
+
+        /// <summary>Right-click on empty page space with no annotation under the pointer (Foxit shows this instead of nothing): view tools + navigation.</summary>
+        private void ShowPageContextMenu()
+        {
+            var menu = new ContextMenu();
+            MenuItem Add(string header, string gesture, Action action)
+            {
+                var item = new MenuItem { Header = header, InputGestureText = gesture };
+                item.Click += (_, _) => action();
+                menu.Items.Add(item);
+                return item;
+            }
+            Add(_readerTool == ReaderTool.Hand ? "Select Tool" : "Hand Tool", "",
+                () => SetReaderTool(_readerTool == ReaderTool.Hand ? ReaderTool.Select : ReaderTool.Hand));
+            menu.Items.Add(new Separator());
+            Add("Zoom In", "+", () => ReaderZoomIn_Click(this, new RoutedEventArgs()));
+            Add("Zoom Out", "-", () => ReaderZoomOut_Click(this, new RoutedEventArgs()));
+            Add("Fit Page", "", () => ReaderFitPage_Click(this, new RoutedEventArgs()));
+            Add("Fit Width", "0", () => ReaderFitWidth_Click(this, new RoutedEventArgs()));
+            menu.Items.Add(new Separator());
+            Add("Rotate Clockwise", "", () => ReaderRotateRight_Click(this, new RoutedEventArgs()));
+            Add("Rotate Counterclockwise", "", () => ReaderRotateLeft_Click(this, new RoutedEventArgs()));
+            menu.Items.Add(new Separator());
+            Add("Previous Page", "PgUp", () => ReaderPreviousPage_Click(this, new RoutedEventArgs()));
+            Add("Next Page", "PgDn", () => ReaderNextPage_Click(this, new RoutedEventArgs()));
+            menu.Items.Add(new Separator());
+            Add("Print…", "Ctrl+P", () => ReaderPrint_Click(this, new RoutedEventArgs()));
             menu.IsOpen = true;
         }
 
@@ -319,6 +355,57 @@ namespace XTPdfMergeApp
             bool shapes = _readerTool == ReaderTool.Shape || _selAnn is { Kind: QuickAnnotationKind.Shape };
             if (shapes && ShapeBar.Visibility != Visibility.Visible) LoadShapeBar();
             ShapeBar.Visibility = shapes ? Visibility.Visible : Visibility.Collapsed;
+
+            bool markup = _selAnn is { Kind: QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut };
+            if (markup) LoadMarkupColorBar();
+            MarkupColorBar.Visibility = markup ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        // ── Colour of a selected Highlight/Underline/Strikethrough ("properties" of the selected markup) ──────
+
+        private static readonly string[] MarkupColorPalette = { "#FFEB00", "#7CFC00", "#FF6EC7", "#66CCFF", "#ED1C24", "#FF8A00", "#000000" };
+        private bool _markupColorBuilt, _markupColorLoading;
+
+        private void EnsureMarkupColorBar()
+        {
+            if (_markupColorBuilt) return;
+            _markupColorBuilt = true;
+            foreach (string hex in MarkupColorPalette)
+            {
+                var swatch = new RadioButton
+                {
+                    GroupName = "MarkupColor", Tag = hex, Focusable = false, Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 4, 0), ToolTip = "Colour",
+                    Template = SwatchTemplate((Color)ColorConverter.ConvertFromString(hex))
+                };
+                swatch.Checked += (_, _) => { if (!_markupColorLoading) MarkupColorChanged(hex); };
+                MarkupColorSwatches.Children.Add(swatch);
+            }
+        }
+
+        /// <summary>Default colour of a markup that has none set yet — matches what <see cref="PdfQuickAnnotationService"/> writes.</summary>
+        private static string DefaultMarkupColor(QuickAnnotationKind kind) => kind == QuickAnnotationKind.Highlight ? "#FFEB00" : "#ED1C24";
+
+        private void LoadMarkupColorBar()
+        {
+            EnsureMarkupColorBar();
+            string current = _selAnn is { } spec ? (spec.Color.Length > 0 ? spec.Color : DefaultMarkupColor(spec.Kind)) : DefaultMarkupColor(QuickAnnotationKind.Highlight);
+            _markupColorLoading = true;
+            try
+            {
+                foreach (RadioButton swatch in MarkupColorSwatches.Children)
+                    swatch.IsChecked = string.Equals((string)swatch.Tag, current, StringComparison.OrdinalIgnoreCase);
+            }
+            finally { _markupColorLoading = false; }
+        }
+
+        private void MarkupColorChanged(string hex)
+        {
+            if (_selAnn is not { Kind: QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut } spec || _selRow is not { } row) return;
+            string current = spec.Color.Length > 0 ? spec.Color : DefaultMarkupColor(spec.Kind);
+            if (string.Equals(current, hex, StringComparison.OrdinalIgnoreCase)) return;
+            var changed = Regenerated(spec) with { Color = hex };
+            _selAnn = changed;
+            CommitAnnotationChange(row, new QuickAnnotationChange(spec, changed), "Change colour");
         }
 
         private void FmtControl_Changed(object sender, RoutedEventArgs e)

@@ -336,6 +336,16 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Màu của Highlight/Underline/Strikethrough: hiện khi chọn công cụ đó hoặc chọn 1 chú thích loại này đã có (double-click hoặc bấm chọn = xem "thuộc tính"). -->
+                <Border x:Name="MarkupColorBar" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="14,14,0,0" Panel.ZIndex="19"
+                        Padding="8,6" CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}">
+                    <Border.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="3" Opacity="0.2" Direction="270"/></Border.Effect>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Colour" VerticalAlignment="Center" Margin="2,0,10,0" Foreground="{DynamicResource Ui.Muted}"/>
+                        <StackPanel x:Name="MarkupColorSwatches" Orientation="Horizontal" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Kiểu nét của hình vẽ: màu + độ dày. Hiện khi chọn công cụ Shapes hoặc chọn 1 hình đã vẽ. -->
                 <Border x:Name="ShapeBar" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="14,14,0,0" Panel.ZIndex="19"
                         Padding="8,6" CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}">
