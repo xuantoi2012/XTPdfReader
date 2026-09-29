@@ -287,33 +287,47 @@ internal sealed unsafe class PdfiumInstance
 
     /// <summary>Text between two points of a page (user space) as line rectangles (Left, Bottom, Right, Top) — used by "Highlight text". Empty when there is no text at either point.</summary>
     internal List<(double L, double B, double R, double T)> SelectTextRects(IntPtr page, double ax, double ay, double bx, double by)
+        => SelectTextAndRects(page, ax, ay, bx, by, out _);
+
+    /// <summary>Same as <see cref="SelectTextRects"/>, plus the actual characters covered (for the Select tool's Copy) — used by "Select".</summary>
+    internal List<(double L, double B, double R, double T)> SelectTextAndRects(IntPtr page, double ax, double ay, double bx, double by, out string text)
     {
+        text = "";
         var result = new List<(double, double, double, double)>();
-        IntPtr text = _textLoadPage(page);
-        if (text == IntPtr.Zero) return result;
+        IntPtr textPage = _textLoadPage(page);
+        if (textPage == IntPtr.Zero) return result;
         try
         {
             int IndexAt(double x, double y)
             {
                 foreach (double tolerance in new[] { 3.0, 10.0, 24.0 })
                 {
-                    int i = _textGetCharIndexAtPos(text, x, y, tolerance, tolerance);
+                    int i = _textGetCharIndexAtPos(textPage, x, y, tolerance, tolerance);
                     if (i >= 0) return i;
                 }
                 return -1;
             }
             int a = IndexAt(ax, ay), b = IndexAt(bx, by);
             if (a < 0 || b < 0) return result;
-            int start = Math.Min(a, b), count = Math.Abs(a - b) + 1;
-            int rectCount = _textCountRects(text, start, count);
+            int start = Math.Min(a, b), count = Math.Min(Math.Abs(a - b) + 1, Math.Max(0, _textCountChars(textPage) - Math.Min(a, b)));
+            int rectCount = _textCountRects(textPage, start, count);
             for (int r = 0; r < rectCount; r++)
             {
                 double left, top, right, bottom;
-                if (_textGetRect(text, r, &left, &top, &right, &bottom) != 0)
+                if (_textGetRect(textPage, r, &left, &top, &right, &bottom) != 0)
                     result.Add((left, Math.Min(top, bottom), right, Math.Max(top, bottom)));
             }
+            if (count > 0)
+            {
+                var buffer = new ushort[count + 1];
+                int got;
+                fixed (ushort* p = buffer) got = _textGetText(textPage, start, count, p);
+                var chars = new char[Math.Max(0, got - 1)];
+                for (int i = 0; i < chars.Length; i++) chars[i] = buffer[i] is 10 or 13 ? '\n' : buffer[i] == 0 ? ' ' : (char)buffer[i];
+                text = new string(chars);
+            }
         }
-        finally { _textClosePage(text); }
+        finally { _textClosePage(textPage); }
         return result;
     }
 

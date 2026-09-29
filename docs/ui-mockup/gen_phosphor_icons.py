@@ -47,10 +47,13 @@ ICONS = {
     # misc
     "alert": ["warning-circle"], "info": ["info"], "clock": ["clock"], "cmd": ["command"], "compare": ["columns"],
     "eye": ["eye"], "file": ["file"], "filter": ["funnel"], "star": ["star"], "tray": ["tray"], "workspace": ["squares-four"],
+    # ribbon / status bar
+    "more": ["dots-three"], "actual": ["number-square-one"], "sidebar": ["sidebar-simple"],
+    "first": ["caret-line-left"], "last": ["caret-line-right"], "squiggly": ["wave-sine"], "textbox": ["textbox"],
 }
 # icons that are often drawn small (≤ 15 px): also emit the bold weight
 BOLD = ["close", "plus", "min", "check", "chevd", "chevl", "chevr", "up2", "down2", "dleft", "dright", "search", "star", "trash",
-        "folder", "file", "save", "undo", "redo", "copy", "grip", "max", "export", "info", "alert"]
+        "folder", "file", "save", "undo", "redo", "copy", "grip", "max", "export", "info", "alert", "first", "last", "more"]
 # extra filled weight (e.g. a pinned star)
 FILL = ["star"]
 

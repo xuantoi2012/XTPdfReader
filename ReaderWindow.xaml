@@ -77,6 +77,10 @@
                                 <StackPanel Orientation="Horizontal">
                                     <xt:XTButton x:Name="ReaderHandToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hand}" Text="Hand"
                                                  ToolTip="Drag to scroll the page (Esc returns to this tool)" Click="ReaderHandTool_Click" Tag="Active"/>
+                                    <xt:XTButton x:Name="ReaderSelectToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.select}" Text="Select"
+                                                 ToolTip="Drag across text to select it, Ctrl+C to copy" Click="ReaderSelectTool_Click"/>
+                                    <xt:XTButton x:Name="ReaderSnapShotToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.snapshot}" Text="SnapShot"
+                                                 ToolTip="Drag a rectangle: the picture goes to the clipboard" Click="ReaderSnapShotTool_Click"/>
                                 </StackPanel>
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Tools"/>
                             </StackPanel>
@@ -107,6 +111,10 @@
                                                  ToolTip="Sticky note: click the page, type, then Enter. Hover the icon to read it, click to edit." Click="ReaderCommentTool_Click"/>
                                     <xt:XTButton x:Name="ReaderHighlightToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl}" Text="Highlight"
                                                  ToolTip="Drag a rectangle to highlight in yellow" Click="ReaderHighlightTool_Click"/>
+                                    <xt:XTButton x:Name="ReaderUnderlineToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.underline}" Text="Underline"
+                                                 ToolTip="Drag across text to underline it" Click="ReaderUnderlineTool_Click"/>
+                                    <xt:XTButton x:Name="ReaderStrikethroughToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.strike}" Text="Strikethrough"
+                                                 ToolTip="Drag across text to strike it through" Click="ReaderStrikethroughTool_Click"/>
                                     <xt:XTButton x:Name="ReaderShapesToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.shapes}" Text="Shapes"
                                                  ToolTip="Draw a rectangle, cloud, oval, arrow or line" Click="ReaderShapesTool_Click"/>
                                     <xt:XTButton x:Name="ReaderStampToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.stamp}" Text="Stamp"
@@ -230,6 +238,10 @@
                     <Line x:Name="ReaderShapeRubberLine" Visibility="Collapsed" IsHitTestVisible="False" Stroke="{DynamicResource Ui.Accent}" StrokeThickness="1.5" StrokeDashArray="4 3"/>
                     <Rectangle x:Name="ReaderHighlightRubberBand" Visibility="Collapsed" IsHitTestVisible="False"
                                Fill="#66FFE600" Stroke="#FFC9A800" StrokeThickness="1"/>
+                    <Rectangle x:Name="TextSelectDragRubber" Visibility="Collapsed" IsHitTestVisible="False"
+                               Fill="#332563EB" IsEnabled="False"/>
+                    <Rectangle x:Name="ReaderSnapshotRubber" Visibility="Collapsed" IsHitTestVisible="False"
+                               Fill="#2263EBFF" Stroke="{DynamicResource Ui.Accent}" StrokeThickness="1.5" StrokeDashArray="4 3"/>
                     <Border x:Name="ReaderCommentHoverPopup" Visibility="Collapsed" IsHitTestVisible="False"
                             MaxWidth="280" Padding="8,6" CornerRadius="3"
                             Background="#FFFFF6C4" BorderBrush="#FFC9A800" BorderThickness="1">

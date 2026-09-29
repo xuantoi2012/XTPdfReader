@@ -50,6 +50,44 @@ namespace XTPdfMergeApp.Services
             }
         }
 
+        /// <summary>Same as <see cref="SelectTextAsync"/>, plus the actual text (Select tool: Copy). null = could not read.</summary>
+        public static async Task<(IReadOnlyList<(double U1, double V1, double U2, double V2)> Rects, string Text)?> SelectTextWithStringAsync(
+            string pdfPath, int pageNumber, double ax, double ay, double bx, double by)
+        {
+            if (_shuttingDown) return null;
+            Interlocked.Increment(ref _inFlightPublicCalls);
+            PdfiumInstance? pdfium = null;
+            try
+            {
+                string normalized = NormalizePath(pdfPath);
+                pdfium = ChooseInstance(normalized, pageNumber - 1);
+                pdfium.AddLoad(1);
+                using var usage = await AcquireDocumentAsync(normalized, pdfium, CancellationToken.None).ConfigureAwait(false);
+                if (usage == null) return null;
+                var lease = usage.Lease;
+                using var native = await EnterPdfiumGateAsync(lease.Pdfium, PdfRenderPriority.Visible, lease.RetiredToken).ConfigureAwait(false);
+                return await Task.Run(() =>
+                {
+                    IntPtr page = lease.Pdfium.LoadPage(lease.Document, pageNumber - 1);
+                    if (page == IntPtr.Zero) return null;
+                    try
+                    {
+                        var geometry = lease.Pdfium.GetPageGeometry(page);
+                        var rects = lease.Pdfium.SelectTextAndRects(page, ax, ay, bx, by, out string text);
+                        return ((IReadOnlyList<(double, double, double, double)>, string)?)
+                            (rects.Select(r => geometry.UserRectToDisplay(r.L, r.B, r.R, r.T)).ToList(), text);
+                    }
+                    finally { lease.Pdfium.ClosePage(page); }
+                }).ConfigureAwait(false);
+            }
+            catch { return null; }
+            finally
+            {
+                pdfium?.AddLoad(-1);
+                Interlocked.Decrement(ref _inFlightPublicCalls);
+            }
+        }
+
         private const int SearchPagesPerGate = 12;
         private const int MaxMatchesPerPage = 200;
 

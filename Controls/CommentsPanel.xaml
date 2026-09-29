@@ -105,6 +105,8 @@
                     <ComboBoxItem Content="Typewriter" Tag="Typewriter"/>
                     <ComboBoxItem Content="Note" Tag="Comment"/>
                     <ComboBoxItem Content="Highlight" Tag="Highlight"/>
+                    <ComboBoxItem Content="Underline" Tag="Underline"/>
+                    <ComboBoxItem Content="Strikethrough" Tag="StrikeOut"/>
                     <ComboBoxItem Content="Stamp" Tag="Stamp"/>
                     <ComboBoxItem Content="Shape" Tag="Shape"/>
                     <ComboBoxItem Content="Other" Tag="Other"/>

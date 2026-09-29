@@ -132,6 +132,13 @@ namespace XTPdfMergeApp
 
             if (Keyboard.FocusedElement is TextBox or ComboBox) return;
 
+            if (_readerTool == ReaderTool.Select && e.Key == Key.C && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            {
+                CopySelectedText();
+                e.Handled = true;
+                return;
+            }
+
             if (_selAnn != null && e.Key == Key.Delete)
             {
                 DeleteSelectedAnnotation();

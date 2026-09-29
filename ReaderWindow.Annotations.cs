@@ -26,7 +26,7 @@ namespace XTPdfMergeApp
     /// </summary>
     public partial class ReaderWindow
     {
-        private enum ReaderTool { Hand, Typewriter, Comment, Highlight, Stamp, Shape }
+        private enum ReaderTool { Hand, Select, Typewriter, Comment, Highlight, Underline, Strikethrough, Stamp, Shape, SnapShot }
 
         private ReaderTool _readerTool = ReaderTool.Hand;
 
@@ -36,9 +36,13 @@ namespace XTPdfMergeApp
         // ── Chọn công cụ ────────────────────────────────────────────────
 
         private void ReaderHandTool_Click(object sender, RoutedEventArgs e) => SetReaderTool(ReaderTool.Hand);
+        private void ReaderSelectTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Select);
         private void ReaderTypewriterTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Typewriter);
         private void ReaderCommentTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Comment);
         private void ReaderHighlightTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Highlight);
+        private void ReaderUnderlineTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Underline);
+        private void ReaderStrikethroughTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Strikethrough);
+        private void ReaderSnapShotTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.SnapShot);
 
         private void ToggleReaderTool(ReaderTool tool)
             => SetReaderTool(_readerTool == tool ? ReaderTool.Hand : tool);
@@ -52,20 +56,27 @@ namespace XTPdfMergeApp
             if (tool != ReaderTool.Hand) SelectAnnotation(null, null);
             UpdateFormatBarVisibility();
             ReaderHandToolButton.Tag = tool == ReaderTool.Hand ? "Active" : null;
+            ReaderSelectToolButton.Tag = tool == ReaderTool.Select ? "Active" : null;
             ReaderTypewriterToolButton.Tag = tool == ReaderTool.Typewriter ? "Active" : null;
             ReaderCommentToolButton.Tag = tool == ReaderTool.Comment ? "Active" : null;
             ReaderHighlightToolButton.Tag = tool == ReaderTool.Highlight ? "Active" : null;
+            ReaderUnderlineToolButton.Tag = tool == ReaderTool.Underline ? "Active" : null;
+            ReaderStrikethroughToolButton.Tag = tool == ReaderTool.Strikethrough ? "Active" : null;
             ReaderStampToolButton.Tag = tool == ReaderTool.Stamp ? "Active" : null;
             ReaderShapesToolButton.Tag = tool == ReaderTool.Shape ? "Active" : null;
+            ReaderSnapShotToolButton.Tag = tool == ReaderTool.SnapShot ? "Active" : null;
+            if (tool != ReaderTool.Select) ClearTextSelection();
 
             // ForceCursor: con trỏ của vùng xem đè lên Cursor="Hand" sẵn có của ReaderImage.
             ReaderContentHost.Cursor = tool switch
             {
+                ReaderTool.Select => Cursors.IBeam,
                 ReaderTool.Typewriter => Cursors.IBeam,
                 ReaderTool.Comment => Cursors.Pen,
-                ReaderTool.Highlight => Cursors.Cross,
+                ReaderTool.Highlight or ReaderTool.Underline or ReaderTool.Strikethrough => Cursors.Cross,
                 ReaderTool.Stamp => Cursors.Cross,
                 ReaderTool.Shape => Cursors.Cross,
+                ReaderTool.SnapShot => Cursors.Cross,
                 _ => null
             };
             ReaderContentHost.ForceCursor = tool != ReaderTool.Hand;
@@ -194,7 +205,17 @@ namespace XTPdfMergeApp
 
                 case ReaderTool.Highlight:
                     e.Handled = true;
-                    BeginHighlightDrag(hit);
+                    BeginHighlightDrag(hit, QuickAnnotationKind.Highlight);
+                    break;
+
+                case ReaderTool.Underline:
+                    e.Handled = true;
+                    BeginHighlightDrag(hit, QuickAnnotationKind.Underline);
+                    break;
+
+                case ReaderTool.Strikethrough:
+                    e.Handled = true;
+                    BeginHighlightDrag(hit, QuickAnnotationKind.StrikeOut);
                     break;
 
                 case ReaderTool.Stamp:
@@ -205,6 +226,16 @@ namespace XTPdfMergeApp
                 case ReaderTool.Shape:
                     e.Handled = true;
                     BeginShapeDrag(hit);
+                    break;
+
+                case ReaderTool.Select:
+                    e.Handled = true;
+                    BeginTextSelectionDrag(hit);
+                    break;
+
+                case ReaderTool.SnapShot:
+                    e.Handled = true;
+                    BeginSnapshotDrag(hit);
                     break;
             }
         }
@@ -223,6 +254,18 @@ namespace XTPdfMergeApp
                 e.Handled = true;
                 return;
             }
+            if (_textSelDrag is { } selDrag)
+            {
+                UpdateTextSelectionDrag(selDrag, point);
+                e.Handled = true;
+                return;
+            }
+            if (_snapshotDrag is { } snapDrag)
+            {
+                UpdateSnapshotDrag(snapDrag, point);
+                e.Handled = true;
+                return;
+            }
 
             UpdateCommentHover(point);
         }
@@ -234,9 +277,23 @@ namespace XTPdfMergeApp
                 e.Handled = true;
                 return;
             }
-            if (_highlightDrag is not { } drag) return;
-            e.Handled = true;
-            FinishHighlightDrag(drag, e.GetPosition(ReaderContentHost));
+            if (_highlightDrag is { } drag)
+            {
+                e.Handled = true;
+                FinishHighlightDrag(drag, e.GetPosition(ReaderContentHost));
+                return;
+            }
+            if (_textSelDrag is { } selDrag)
+            {
+                e.Handled = true;
+                _ = FinishTextSelectionDragAsync(selDrag, e.GetPosition(ReaderContentHost));
+                return;
+            }
+            if (_snapshotDrag is { } snapDrag)
+            {
+                e.Handled = true;
+                FinishSnapshotDrag(snapDrag, e.GetPosition(ReaderContentHost));
+            }
         }
 
         private void ReaderContentHost_MouseLeave(object sender, MouseEventArgs e)
@@ -267,13 +324,13 @@ namespace XTPdfMergeApp
 
         // ── Highlight: kéo 1 hình chữ nhật ──────────────────────────────
 
-        private sealed record HighlightDrag(PageRow Row, double StartU, double StartV);
+        private sealed record HighlightDrag(PageRow Row, double StartU, double StartV, QuickAnnotationKind Kind);
         private HighlightDrag? _highlightDrag;
 
-        private void BeginHighlightDrag(PageHit hit)
+        private void BeginHighlightDrag(PageHit hit, QuickAnnotationKind kind)
         {
             if (!TryPageToLayer(hit.Row, hit.U, hit.V, out Point start)) return;
-            _highlightDrag = new HighlightDrag(hit.Row, hit.U, hit.V);
+            _highlightDrag = new HighlightDrag(hit.Row, hit.U, hit.V, kind);
             ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;
             ReaderContentHost.CaptureMouse();
             Canvas.SetLeft(ReaderHighlightRubberBand, start.X);
@@ -299,9 +356,10 @@ namespace XTPdfMergeApp
             bool bigEnough = ReaderHighlightRubberBand.Width >= 4 && ReaderHighlightRubberBand.Height >= 4;
             CancelHighlightDrag();
             if (!haveEnd || !bigEnough) return;
-            if (AppSettings.HighlightMode != "Area")
+            // Underline/strikethrough only make sense on real text; Area mode applies to Highlight only.
+            if (drag.Kind != QuickAnnotationKind.Highlight || AppSettings.HighlightMode != "Area")
             {
-                _ = CommitTextHighlightAsync(drag, end.U, end.V);
+                _ = CommitTextMarkupAsync(drag, end.U, end.V, drag.Kind);
                 return;
             }
 

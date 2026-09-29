@@ -17,7 +17,7 @@ namespace XTPdfMergeApp.Services
 {
     /// <summary>Other = chú thích của app khác mà app không tự vẽ lại được (ink, polygon, file đính kèm, form…): vẫn hiện
     /// (appearance gốc), chọn/di chuyển/xoá được, không sửa nội dung.</summary>
-    public enum QuickAnnotationKind { Typewriter, Comment, Highlight, Stamp, Shape, Other }
+    public enum QuickAnnotationKind { Typewriter, Comment, Highlight, Stamp, Shape, Underline, StrikeOut, Other }
 
     /// <summary>
     /// 1 annotation do công cụ sửa nhanh quản lý, mô tả theo toạ độ TRANG HIỂN THỊ chuẩn hoá (xem
@@ -53,7 +53,7 @@ namespace XTPdfMergeApp.Services
         public QuickAnnotationSpec Translate(double du, double dv)
         {
             string format = Format;
-            if (Kind == QuickAnnotationKind.Highlight && format.StartsWith("T|", StringComparison.Ordinal))
+            if (Kind is QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut && format.StartsWith("T|", StringComparison.Ordinal))
                 format = PdfQuickAnnotationService.EncodeTextHighlight(
                     PdfQuickAnnotationService.TextHighlightRects(format).Select(r => (r.U1 + du, r.V1 + dv, r.U2 + du, r.V2 + dv)));
             return this with { U1 = U1 + du, V1 = V1 + dv, U2 = U2 + du, V2 = V2 + dv, Format = format };
@@ -145,7 +145,7 @@ namespace XTPdfMergeApp.Services
                 {
                     Format = kind switch
                     {
-                        QuickAnnotationKind.Highlight => ReadHighlightFormat(annot, geometry),
+                        QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut => ReadQuadFormat(annot, geometry),
                         QuickAnnotationKind.Shape => obj.GetAsString(ShapeKey)?.ToUnicodeString() ?? "",
                         _ => obj.GetAsString(FormatKey)?.ToUnicodeString() ?? ""
                     },
@@ -187,10 +187,11 @@ namespace XTPdfMergeApp.Services
                 System.Globalization.DateTimeStyles.None, out var d) ? d : null;
         }
 
-        /// <summary>A text highlight keeps its per-line rectangles (from /QuadPoints) so moving it does not turn it into one big block.</summary>
-        private static string ReadHighlightFormat(PdfAnnotation annot, PdfPageGeometry geometry)
+        /// <summary>A text markup (highlight/underline/strikethrough) keeps its per-line rectangles (from /QuadPoints) so moving it does not turn it into one big block.</summary>
+        private static string ReadQuadFormat(PdfAnnotation annot, PdfPageGeometry geometry)
         {
-            if (!PdfName.Highlight.Equals(annot.GetSubtype())) return "";
+            var subtype = annot.GetSubtype();
+            if (!PdfName.Highlight.Equals(subtype) && !PdfName.Underline.Equals(subtype) && !PdfName.StrikeOut.Equals(subtype)) return "";
             var quads = annot.GetPdfObject().GetAsArray(PdfName.QuadPoints);
             if (quads == null || quads.Size() < 16) return "";
             var rects = new List<(double, double, double, double)>();
@@ -210,6 +211,8 @@ namespace XTPdfMergeApp.Services
             if (PdfName.FreeText.Equals(subtype)) return QuickAnnotationKind.Typewriter;
             if (PdfName.Text.Equals(subtype)) return QuickAnnotationKind.Comment;
             if (PdfName.Highlight.Equals(subtype)) return QuickAnnotationKind.Highlight;
+            if (PdfName.Underline.Equals(subtype)) return QuickAnnotationKind.Underline;
+            if (PdfName.StrikeOut.Equals(subtype)) return QuickAnnotationKind.StrikeOut;
             if (PdfName.Stamp.Equals(subtype)) return QuickAnnotationKind.Stamp;
             return null;
         }
@@ -301,6 +304,12 @@ namespace XTPdfMergeApp.Services
                     break;
                 case QuickAnnotationKind.Highlight:
                     AddHighlight(doc, page, spec);
+                    break;
+                case QuickAnnotationKind.Underline:
+                    AddQuadLineMarkup(doc, page, spec, strike: false);
+                    break;
+                case QuickAnnotationKind.StrikeOut:
+                    AddQuadLineMarkup(doc, page, spec, strike: true);
                     break;
                 case QuickAnnotationKind.Shape:
                     AddShape(doc, page, spec);
@@ -659,6 +668,36 @@ namespace XTPdfMergeApp.Services
             foreach (var p in parts)
                 canvas.Rectangle((float)(p.Left - left), (float)(p.Bottom - bottom), (float)(p.Right - p.Left), (float)(p.Top - p.Bottom));
             canvas.Fill().RestoreState().Release();
+            annot.SetNormalAppearance(form.GetPdfObject());
+            page.AddAnnotation(annot);
+        }
+
+        /// <summary>Underline / strikethrough: a coloured line per text line (from the "T|" rects), no page-pixel blending needed.</summary>
+        private static void AddQuadLineMarkup(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec, bool strike)
+        {
+            var geometry = GetGeometry(page);
+            var (left, bottom, right, top) = geometry.DisplayRectToUser(spec.U1, spec.V1, spec.U2, spec.V2);
+            var rect = new Rectangle((float)left, (float)bottom, (float)(right - left), (float)(top - bottom));
+            var parts = TextHighlightRects(spec.Format).Select(r => geometry.DisplayRectToUser(r.U1, r.V1, r.U2, r.V2)).ToList();
+            if (parts.Count == 0) parts.Add((left, bottom, right, top));
+            var quad = parts.SelectMany(p => new[] { (float)p.Left, (float)p.Top, (float)p.Right, (float)p.Top, (float)p.Left, (float)p.Bottom, (float)p.Right, (float)p.Bottom }).ToArray();
+            var color = ParseColor(spec.Color.Length > 0 ? spec.Color : "#ED1C24");
+            PdfTextMarkupAnnotation annot = strike ? PdfTextMarkupAnnotation.CreateStrikeout(rect, quad) : PdfTextMarkupAnnotation.CreateUnderline(rect, quad);
+            annot.SetColor(color);
+            if (!string.IsNullOrEmpty(spec.Text)) annot.SetContents(new PdfString(spec.Text, PdfEncodings.UNICODE_BIG));
+            StampCommon(annot, spec);
+
+            var form = new PdfFormXObject(new Rectangle(0, 0, rect.GetWidth(), rect.GetHeight()));
+            var canvas = new PdfCanvas(form, doc);
+            canvas.SetStrokeColor(color);
+            foreach (var p in parts)
+            {
+                double h = p.Top - p.Bottom;
+                double lw = Math.Clamp(h * 0.07, 0.6, 3.0);
+                double y = strike ? p.Bottom - bottom + h * 0.5 : p.Bottom - bottom + h * 0.12;
+                canvas.SetLineWidth((float)lw).MoveTo((float)(p.Left - left), (float)y).LineTo((float)(p.Right - left), (float)y).Stroke();
+            }
+            canvas.Release();
             annot.SetNormalAppearance(form.GetPdfObject());
             page.AddAnnotation(annot);
         }

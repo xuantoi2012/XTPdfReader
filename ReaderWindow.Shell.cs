@@ -551,6 +551,7 @@ namespace XTPdfMergeApp
             ReaderSidePanel.RailTabChosen += () => SetPanelCollapsed(false);
             Loaded += (_, _) =>
             {
+                SetPanelCollapsed(true); // like Foxit: the left panel starts hidden (icon rail only)
                 UpdateViewModeButtons();
                 // Chế độ xem mặc định (Settings → Display): cuộn liên tục mặc định; nút Continuous vẫn chuyển qua lại.
                 // Đợi bố cục xong (vùng xem có kích thước thật) rồi mới bật, nếu không vùng cuộn liên tục tính zoom trên viewport 0.

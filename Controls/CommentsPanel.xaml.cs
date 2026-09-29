@@ -107,11 +107,15 @@ namespace XTPdfMergeApp.Controls
             string iconName = c.Kind switch
             {
                 QuickAnnotationKind.Typewriter => "type", QuickAnnotationKind.Highlight => "hl", QuickAnnotationKind.Stamp => "stamp",
-                QuickAnnotationKind.Shape => "shapes", _ => "comment"
+                QuickAnnotationKind.Shape => "shapes", QuickAnnotationKind.Underline => "underline", QuickAnnotationKind.StrikeOut => "strike", _ => "comment"
             };
             string text = c.Text.Trim();
             if (c.Kind == QuickAnnotationKind.Stamp) text = StampDefinition.Decode(c.Text).Definition is { IsImage: false } stamp ? stamp.Text : "Image stamp";
-            if (text.Length == 0) text = c.Kind switch { QuickAnnotationKind.Highlight => "Highlight", QuickAnnotationKind.Shape => "Shape", _ => "(empty)" };
+            if (text.Length == 0) text = c.Kind switch
+            {
+                QuickAnnotationKind.Highlight => "Highlight", QuickAnnotationKind.Shape => "Shape",
+                QuickAnnotationKind.Underline => "Underline", QuickAnnotationKind.StrikeOut => "Strikethrough", _ => "(empty)"
+            };
             return new CommentCard(c, (Geometry)Application.Current.FindResource("Ui.Icon." + iconName),
                 c.Author.Length > 0 ? c.Author : "Unknown", c.Date?.ToString("d MMM") ?? "", text, c.Resolved);
         }

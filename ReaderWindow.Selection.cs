@@ -157,6 +157,8 @@ namespace XTPdfMergeApp
             QuickAnnotationKind.Typewriter => "text",
             QuickAnnotationKind.Comment => "note",
             QuickAnnotationKind.Highlight => "highlight",
+            QuickAnnotationKind.Underline => "underline",
+            QuickAnnotationKind.StrikeOut => "strikethrough",
             QuickAnnotationKind.Stamp => "stamp",
             QuickAnnotationKind.Shape => "shape",
             _ => "annotation"
@@ -174,6 +176,16 @@ namespace XTPdfMergeApp
         private void ReaderContent_AnnotationContextMenu(object sender, MouseButtonEventArgs e)
         {
             if (_annotationEditor != null || IsOverlayBar(e.OriginalSource as DependencyObject)) return;
+            if (_readerTool == ReaderTool.Select && _textSelection != null)
+            {
+                e.Handled = true;
+                var textMenu = new ContextMenu();
+                var copy = new MenuItem { Header = "Copy", InputGestureText = "Ctrl+C" };
+                copy.Click += (_, _) => CopySelectedText();
+                textMenu.Items.Add(copy);
+                textMenu.IsOpen = true;
+                return;
+            }
             if (!TryHitPage(e.GetPosition(ReaderContentHost), out var hit)) return;
             var picked = PickAnnotation(GetCachedPageAnnotations(hit.Row), hit);
             if (picked == null) return;
@@ -201,8 +213,8 @@ namespace XTPdfMergeApp
             AppSettings.HighlightMode = ReferenceEquals(sender, HlModeArea) ? "Area" : "Text";
         }
 
-        /// <summary>"Highlight text": the words between the press and the release points, one rectangle per line.</summary>
-        private async Task CommitTextHighlightAsync(HighlightDrag drag, double endU, double endV)
+        /// <summary>Highlight/Underline/Strikethrough "on text": the words between the press and the release points, one rectangle per line.</summary>
+        private async Task CommitTextMarkupAsync(HighlightDrag drag, double endU, double endV, QuickAnnotationKind kind)
         {
             var page = await LoadPageAnnotationsAsync(drag.Row);
             if (page == null) return;
@@ -212,12 +224,14 @@ namespace XTPdfMergeApp
             var rects = await PdfThumbnailService.SelectTextAsync(drag.Row.SourcePath, drag.Row.PageNumber, ax, ay, bx, by);
             if (rects == null || rects.Count == 0)
             {
-                XTStyle.Controls.XTGrowl.Info("No selectable text there. Use Area mode for drawings and scanned pages.", this);
+                XTStyle.Controls.XTGrowl.Info(kind == QuickAnnotationKind.Highlight
+                    ? "No selectable text there. Use Area mode for drawings and scanned pages."
+                    : "No selectable text there.", this);
                 return;
             }
-            var spec = new QuickAnnotationSpec(NewAnnotationName(), QuickAnnotationKind.Highlight, drag.Row.PageNumber,
+            var spec = new QuickAnnotationSpec(NewAnnotationName(), kind, drag.Row.PageNumber,
                 rects.Min(r => r.U1), rects.Min(r => r.V1), rects.Max(r => r.U2), rects.Max(r => r.V2), "") { Format = PdfQuickAnnotationService.EncodeTextHighlight(rects) };
-            CommitAnnotationChange(drag.Row, new QuickAnnotationChange(null, spec), "Highlight text");
+            CommitAnnotationChange(drag.Row, new QuickAnnotationChange(null, spec), "Add " + KindLabel(kind));
         }
 
         // ── Typewriter format bar ─────────────────────────────────────

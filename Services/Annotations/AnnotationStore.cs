@@ -305,7 +305,7 @@ namespace XTPdfMergeApp.Services
             for (int s = 0; s < steps; s++)
             {
                 string format = spec.Format;
-                if (spec.Kind == QuickAnnotationKind.Highlight && format.StartsWith("T|", StringComparison.Ordinal))
+                if (spec.Kind is QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut && format.StartsWith("T|", StringComparison.Ordinal))
                     format = PdfQuickAnnotationService.EncodeTextHighlight(PdfQuickAnnotationService.TextHighlightRects(format)
                         .Select(r => (1 - r.V2, r.U1, 1 - r.V1, r.U2)));
                 else if (spec.Kind == QuickAnnotationKind.Shape && ShapeStyle.Decode(format) is { IsLine: true } line)
