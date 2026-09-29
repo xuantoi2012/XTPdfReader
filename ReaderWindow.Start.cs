@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using XTStyle.Controls;
 using XTPdfMergeApp.Controls;
 using XTPdfMergeApp.Services;
 using DocumentGroup = XTPdfMergeApp.Domain.WorkspaceDocument;
@@ -54,6 +55,22 @@ namespace XTPdfMergeApp
 
         private bool _autoStart;
 
+        /// <summary>"Start" is a template part of the file-tab ListBox (x:Name inside ControlTemplate), not a generated field —
+        /// fetched once via FindName, like any other named part.</summary>
+        private XTButton? _startButton;
+        private XTButton StartButtonElement
+        {
+            get
+            {
+                if (_startButton == null)
+                {
+                    ReaderDocumentTabs.ApplyTemplate();
+                    _startButton = (XTButton)ReaderDocumentTabs.Template.FindName("StartButton", ReaderDocumentTabs);
+                }
+                return _startButton;
+            }
+        }
+
         private void OpenFolder()
         {
             if (EditHost == null) return;
@@ -76,6 +93,7 @@ namespace XTPdfMergeApp
                 StartPage.Reload();
             }
             StartPage.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            StartButtonElement.Tag = show ? "Active" : null;
             UpdateToolbarVisibility();
         }
 

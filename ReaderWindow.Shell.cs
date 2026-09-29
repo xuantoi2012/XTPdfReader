@@ -265,6 +265,10 @@ namespace XTPdfMergeApp
                 ReaderDocumentTabs.SelectedItem = group;
         }
 
+        /// <summary>Bấm lên tab file đang xem Start (tab đó đã "selected" sẵn trong ListBox nên SelectionChanged không tự bắn):
+        /// đóng Start thủ công, như bấm lên 1 tab thật.</summary>
+        private void ReaderTab_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e) => ShowStart(false);
+
         private async void ReaderCloseDocument_Click(object sender, RoutedEventArgs e)
         {
             e.Handled = true;

@@ -92,6 +92,18 @@ namespace XTPdfMergeApp
         /// nào đang focus, phím tắt ở đây chỉ bao giờ tới tay khi Viewer thật sự đang active.</summary>
         private void ReaderWindow_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.F11)
+            {
+                SetReaderFullScreen(!_readerFullScreen);
+                e.Handled = true;
+                return;
+            }
+            if (_readerFullScreen && e.Key == Key.Escape)
+            {
+                SetReaderFullScreen(false);
+                e.Handled = true;
+                return;
+            }
             if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.E)
             {
                 OpenExport(preferFlatten: false);
@@ -450,6 +462,8 @@ namespace XTPdfMergeApp
         {
             ReaderContinuousToggle.Tag = _readerContinuousMode ? "Active" : null;
             ReaderSingleViewButton.Tag = _readerContinuousMode ? null : "Active";
+            ReaderStatusContinuousButton.Tag = _readerContinuousMode ? "Active" : null;
+            ReaderStatusSingleButton.Tag = _readerContinuousMode ? null : "Active";
         }
 
         private void ReaderContinuousToggle_Click(object sender, RoutedEventArgs e)
@@ -629,9 +643,62 @@ namespace XTPdfMergeApp
             _readerZoomMode = mode;
             _readerZoom = ReaderContinuousView.Zoom;
             ReaderZoomText.Text = $"{_readerZoom * 100:0}%";
+            _syncingZoomSlider = true;
+            ReaderZoomSlider.Value = Math.Clamp(_readerZoom, ReaderZoomSlider.Minimum, ReaderZoomSlider.Maximum);
+            _syncingZoomSlider = false;
             if (_readerGroup != null)
                 _readerZoomByGroup[_readerGroup] = (_readerZoomMode, _readerZoom);
         }
+
+        private bool _syncingZoomSlider;
+
+        /// <summary>Kéo thanh trượt zoom (kiểu Foxit) — như bấm Zoom in/out nhưng đi thẳng tới giá trị kéo được.</summary>
+        private void ReaderZoomSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_syncingZoomSlider || ReaderContinuousView.Pages.Count == 0) return;
+            SetReaderContinuousZoom(e.NewValue);
+        }
+
+        private bool _readerFullScreen;
+
+        /// <summary>Ẩn ribbon/tab file/panel trái/thanh trạng thái, chỉ còn trang — bấm lại icon hoặc Esc để thoát.</summary>
+        private void ReaderFullScreen_Click(object sender, RoutedEventArgs e) => SetReaderFullScreen(!_readerFullScreen);
+
+        private void SetReaderFullScreen(bool full)
+        {
+            if (full == _readerFullScreen) return;
+            _readerFullScreen = full;
+            _restoreWindowState ??= WindowState;
+            if (full)
+            {
+                _restoreWindowState = WindowState;
+                WindowState = WindowState.Maximized;
+            }
+            else if (_restoreWindowState is { } restore)
+            {
+                WindowState = restore;
+                _restoreWindowState = null;
+            }
+            var visibility = full ? Visibility.Collapsed : Visibility.Visible;
+            ReaderToolbarBar.Visibility = visibility;
+            ReaderDocumentTabsRow.Visibility = visibility;
+            ReaderStatusBar.Visibility = visibility;
+            ReaderPanelSplitter.Visibility = !full && !_panelCollapsed ? Visibility.Visible : Visibility.Collapsed;
+            if (full)
+            {
+                _fullScreenSavedPanelWidth = ReaderSidePanelColumn.Width;
+                ReaderSidePanelColumn.Width = new GridLength(0);
+            }
+            else if (_fullScreenSavedPanelWidth is { } saved)
+            {
+                ReaderSidePanelColumn.Width = saved;
+                _fullScreenSavedPanelWidth = null;
+            }
+        }
+
+        private GridLength? _fullScreenSavedPanelWidth;
+
+        private WindowState? _restoreWindowState;
 
         private readonly Dictionary<DocumentGroup, Task> _pageSizeLoads = new();
 

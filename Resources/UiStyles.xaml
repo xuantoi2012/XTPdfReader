@@ -194,16 +194,24 @@
         </Style.Triggers>
     </Style>
 
-    <!-- ══ Nhãn tab ribbon (File/Home/Comment/View/Organize): chữ, gạch chân accent khi chọn ══ -->
-    <ControlTemplate x:Key="UiRibbonTabTemplate" TargetType="{x:Type xt:XTButton}">
-        <Border x:Name="Bd" Padding="12,3,12,4" BorderThickness="0,0,0,2" BorderBrush="Transparent" Background="Transparent" SnapsToDevicePixels="True">
-            <TextBlock x:Name="Tx" Text="{TemplateBinding Text}" FontSize="12" Foreground="{TemplateBinding Foreground}"/>
+    <!-- ══ Nút "Start" trong dải tab file: trông và bật/tắt giống hệt 1 tab file (UiTabItem) ══ -->
+    <ControlTemplate x:Key="UiTabButtonTemplate" TargetType="{x:Type xt:XTButton}">
+        <Border x:Name="Bd" Padding="12,0,12,0" Height="34" BorderThickness="0,0,0,3" BorderBrush="Transparent" Background="Transparent" SnapsToDevicePixels="True">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Viewbox Width="15" Height="15" VerticalAlignment="Center">
+                    <Canvas Width="24" Height="24">
+                        <Path Data="{TemplateBinding IconData}" Fill="{TemplateBinding IconBrush}"/>
+                    </Canvas>
+                </Viewbox>
+                <TextBlock x:Name="Tx" Text="{TemplateBinding Text}" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{TemplateBinding Foreground}"/>
+            </StackPanel>
         </Border>
         <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/>
             </Trigger>
             <Trigger Property="Tag" Value="Active">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Surface}"/>
                 <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
                 <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.Text}"/>
                 <Setter TargetName="Tx" Property="FontWeight" Value="SemiBold"/>
@@ -211,13 +219,14 @@
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
-    <Style x:Key="UiRibbonTabButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
-        <Setter Property="Template" Value="{StaticResource UiRibbonTabTemplate}"/>
+    <Style x:Key="UiTabButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
+        <Setter Property="Template" Value="{StaticResource UiTabButtonTemplate}"/>
         <Setter Property="Width" Value="Auto"/>
         <Setter Property="MinWidth" Value="0"/>
-        <Setter Property="Height" Value="24"/>
+        <Setter Property="Height" Value="34"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
+        <Setter Property="IconBrush" Value="{DynamicResource Ui.Muted}"/>
     </Style>
 
     <!-- ══ Tab file (ListBoxItem): nền mặt khi chọn, gạch accent 2 px dưới chân ══ -->
