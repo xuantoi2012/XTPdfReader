@@ -564,6 +564,8 @@ namespace XTPdfMergeApp
                     {
                         if (!_readerContinuousMode) ReaderContinuousToggle_Click(this, new RoutedEventArgs());
                     }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                // Công cụ mặc định (Settings → Display): Hand (giữ nguyên như trước) hoặc Select.
+                if (AppSettings.DefaultTool == "Select") SetReaderTool(ReaderTool.Select);
             };
         }
 

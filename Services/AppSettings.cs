@@ -47,6 +47,13 @@ namespace XTPdfMergeApp.Services
             set => Set("ZoomOnOpen", value.ToString());
         }
 
+        /// <summary>"Hand" (mặc định) hoặc "Select" — công cụ đang bật khi mở 1 file.</summary>
+        public static string DefaultTool
+        {
+            get => GetString("DefaultTool", "Hand");
+            set => Set("DefaultTool", value);
+        }
+
         // ── Performance & memory ──────────────────────────────────────
 
         /// <summary>Số file dùng gần nhất được giữ document PDFium trong RAM (0 = không giữ).</summary>

@@ -176,6 +176,19 @@
                         </ComboBox>
                     </Grid>
                 </Border>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Tool when opening a file" Foreground="{DynamicResource Ui.Text}"/>
+                            <TextBlock Style="{StaticResource RowHint}" Text="Hand scrolls the page by dragging it; Select lets you drag across text right away, no need to switch tools first."/>
+                        </StackPanel>
+                        <ComboBox x:Name="DefaultToolBox" Grid.Column="1" Width="180" Height="30" Margin="24,0,0,0" VerticalAlignment="Center" SelectionChanged="DefaultTool_Changed">
+                            <ComboBoxItem Content="Hand" Tag="Hand"/>
+                            <ComboBoxItem Content="Select" Tag="Select"/>
+                        </ComboBox>
+                    </Grid>
+                </Border>
                 </StackPanel>
 
                 <StackPanel x:Name="PagePerformance" Visibility="Collapsed">

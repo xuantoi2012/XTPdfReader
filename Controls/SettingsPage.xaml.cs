@@ -36,6 +36,7 @@ namespace XTPdfMergeApp.Controls
                     swatch.IsChecked = (string)swatch.Tag == AppSettings.Accent;
                 ViewModeBox.SelectedIndex = AppSettings.ContinuousByDefault ? 0 : 1;
                 ZoomBox.SelectedIndex = (int)AppSettings.ZoomOnOpen;
+                DefaultToolBox.SelectedIndex = AppSettings.DefaultTool == "Select" ? 1 : 0;
                 WarmBox.SelectedIndex = PdfThumbnailService.WarmFiles is >= 0 and <= 8 ? PdfThumbnailService.WarmFiles : AppSettings.WarmFiles;
                 PdfFactoryToggle.IsChecked = MergeAppSettingsStore.GetPdfFactoryViewEnabled();
                 RefreshPdfFactoryHint();
@@ -99,6 +100,12 @@ namespace XTPdfMergeApp.Controls
         {
             if (_loading || ZoomBox.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
             AppSettings.ZoomOnOpen = Enum.Parse<DefaultZoom>(tag);
+        }
+
+        private void DefaultTool_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loading || DefaultToolBox.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
+            AppSettings.DefaultTool = tag;
         }
 
         // ── Performance & memory ──────────────────────────────────────
