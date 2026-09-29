@@ -94,6 +94,11 @@ namespace XTPdfMergeApp
             }
             StartPage.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             StartButtonElement.Tag = show ? "Active" : null;
+            // Only one tab lit at a time: the ListBox keeps its own selection highlight independent of Start's, so it has
+            // to be cleared/restored by hand — a real TabControl wouldn't need this, but the file tabs predate this button.
+            _syncingDocumentTabs = true;
+            ReaderDocumentTabs.SelectedItem = show ? null : _readerGroup;
+            _syncingDocumentTabs = false;
             UpdateToolbarVisibility();
         }
 

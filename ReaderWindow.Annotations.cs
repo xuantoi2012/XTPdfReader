@@ -39,10 +39,34 @@ namespace XTPdfMergeApp
         private void ReaderSelectTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Select);
         private void ReaderTypewriterTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Typewriter);
         private void ReaderCommentTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Comment);
-        private void ReaderHighlightTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Highlight);
         private void ReaderUnderlineTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Underline);
         private void ReaderStrikethroughTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Strikethrough);
         private void ReaderSnapShotTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.SnapShot);
+
+        /// <summary>Highlight "Text"/"Area" are 2 separate buttons now (Foxit shows both, not 1 button + a mode toggle bar).</summary>
+        private void ReaderHighlightText_Click(object sender, RoutedEventArgs e) => SelectHighlightMode("Text");
+        private void ReaderHighlightArea_Click(object sender, RoutedEventArgs e) => SelectHighlightMode("Area");
+
+        private void SelectHighlightMode(string mode)
+        {
+            if (_readerTool == ReaderTool.Highlight && AppSettings.HighlightMode == mode) { SetReaderTool(ReaderTool.Hand); return; }
+            AppSettings.HighlightMode = mode;
+            SetReaderTool(ReaderTool.Highlight);
+        }
+
+        /// <summary>Mỗi loại hình vẽ 1 nút riêng (kiểu Foxit), không cần bung popup chọn trước.</summary>
+        private void ReaderShapeRect_Click(object sender, RoutedEventArgs e) => SelectShapeType(ShapeStyle.Rect);
+        private void ReaderShapeCloud_Click(object sender, RoutedEventArgs e) => SelectShapeType(ShapeStyle.Cloud);
+        private void ReaderShapeOval_Click(object sender, RoutedEventArgs e) => SelectShapeType(ShapeStyle.Oval);
+        private void ReaderShapeArrow_Click(object sender, RoutedEventArgs e) => SelectShapeType(ShapeStyle.Arrow);
+        private void ReaderShapeLine_Click(object sender, RoutedEventArgs e) => SelectShapeType(ShapeStyle.Line);
+
+        private void SelectShapeType(string type)
+        {
+            if (_readerTool == ReaderTool.Shape && _shapeStyle.Type == type) { SetReaderTool(ReaderTool.Hand); return; }
+            _shapeStyle = _shapeStyle with { Type = type };
+            SetReaderTool(ReaderTool.Shape);
+        }
 
         private void ToggleReaderTool(ReaderTool tool)
             => SetReaderTool(_readerTool == tool ? ReaderTool.Hand : tool);
@@ -59,11 +83,16 @@ namespace XTPdfMergeApp
             ReaderSelectToolButton.Tag = tool == ReaderTool.Select ? "Active" : null;
             ReaderTypewriterToolButton.Tag = tool == ReaderTool.Typewriter ? "Active" : null;
             ReaderCommentToolButton.Tag = tool == ReaderTool.Comment ? "Active" : null;
-            ReaderHighlightToolButton.Tag = tool == ReaderTool.Highlight ? "Active" : null;
+            ReaderHighlightTextButton.Tag = tool == ReaderTool.Highlight && AppSettings.HighlightMode != "Area" ? "Active" : null;
+            ReaderHighlightAreaButton.Tag = tool == ReaderTool.Highlight && AppSettings.HighlightMode == "Area" ? "Active" : null;
             ReaderUnderlineToolButton.Tag = tool == ReaderTool.Underline ? "Active" : null;
             ReaderStrikethroughToolButton.Tag = tool == ReaderTool.Strikethrough ? "Active" : null;
             ReaderStampToolButton.Tag = tool == ReaderTool.Stamp ? "Active" : null;
-            ReaderShapesToolButton.Tag = tool == ReaderTool.Shape ? "Active" : null;
+            ReaderShapeRectButton.Tag = tool == ReaderTool.Shape && _shapeStyle.Type == ShapeStyle.Rect ? "Active" : null;
+            ReaderShapeCloudButton.Tag = tool == ReaderTool.Shape && _shapeStyle.Type == ShapeStyle.Cloud ? "Active" : null;
+            ReaderShapeOvalButton.Tag = tool == ReaderTool.Shape && _shapeStyle.Type == ShapeStyle.Oval ? "Active" : null;
+            ReaderShapeArrowButton.Tag = tool == ReaderTool.Shape && _shapeStyle.Type == ShapeStyle.Arrow ? "Active" : null;
+            ReaderShapeLineButton.Tag = tool == ReaderTool.Shape && _shapeStyle.Type == ShapeStyle.Line ? "Active" : null;
             ReaderSnapShotToolButton.Tag = tool == ReaderTool.SnapShot ? "Active" : null;
             if (tool != ReaderTool.Select) ClearTextSelection();
 

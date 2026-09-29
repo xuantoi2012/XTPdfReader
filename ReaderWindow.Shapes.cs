@@ -15,48 +15,10 @@ namespace XTPdfMergeApp
     public partial class ReaderWindow
     {
         private ShapeStyle _shapeStyle = ShapeStyle.Decode(AppSettings.ShapeStyleSetting);
-        private Popup? _shapePopup;
         private bool _shapeBarBuilt, _shapeLoading;
 
         private sealed record ShapeDrag(PageRow Row, double StartU, double StartV);
         private ShapeDrag? _shapeDrag;
-
-        private static readonly (string Type, string Icon, string Name)[] ShapeChoices =
-        {
-            (ShapeStyle.Rect, "Ui.Icon.shape_rect", "Rectangle"), (ShapeStyle.Cloud, "Ui.Icon.shape_cloud", "Cloud"), (ShapeStyle.Oval, "Ui.Icon.shape_oval", "Oval"),
-            (ShapeStyle.Arrow, "Ui.Icon.shape_arrow", "Arrow"), (ShapeStyle.Line, "Ui.Icon.shape_line", "Line")
-        };
-
-        private void ReaderShapesTool_Click(object sender, RoutedEventArgs e)
-        {
-            if (_readerGroup == null) return;
-            if (_shapePopup == null)
-            {
-                var wrap = new WrapPanel { Width = 3 * 44 };
-                foreach (var (type, iconKey, name) in ShapeChoices)
-                {
-                    var button = new XTStyle.Controls.XTButton
-                    {
-                        Style = (Style)FindResource("UiIconButton"), Width = 40, Height = 40, Margin = new Thickness(2), IconSize = 24, ToolTip = name,
-                        Icon = (Geometry)FindResource(iconKey)
-                    };
-                    string chosen = type;
-                    button.Click += (_, _) =>
-                    {
-                        _shapeStyle = _shapeStyle with { Type = chosen };
-                        _shapePopup!.IsOpen = false;
-                        SetReaderTool(ReaderTool.Shape);
-                    };
-                    wrap.Children.Add(button);
-                }
-                var card = new Border { Margin = new Thickness(8), Padding = new Thickness(6), CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Child = wrap };
-                card.SetResourceReference(Border.BackgroundProperty, "Ui.Surface");
-                card.SetResourceReference(Border.BorderBrushProperty, "Ui.Border");
-                card.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 16, ShadowDepth = 3, Opacity = 0.25, Direction = 270 };
-                _shapePopup = new Popup { PlacementTarget = ReaderShapesToolButton, Placement = PlacementMode.Bottom, StaysOpen = false, AllowsTransparency = true, Child = card };
-            }
-            _shapePopup.IsOpen = !_shapePopup.IsOpen;
-        }
 
         // ── Drawing ───────────────────────────────────────────────────
 

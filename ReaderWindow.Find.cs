@@ -60,6 +60,24 @@ namespace XTPdfMergeApp
             Dispatcher.BeginInvoke(new Action(() => { FindBarQuery.Focus(); FindBarQuery.SelectAll(); }), DispatcherPriority.Input);
         }
 
+        // ── Ô tìm nhanh trên title bar (kiểu Foxit: luôn hiện, không cần bấm Find trước) ──
+
+        private void TitleSearchBox_GotFocus(object sender, RoutedEventArgs e) => TitleSearchBox.SelectAll();
+
+        private void TitleSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+            => TitleSearchHint.Visibility = TitleSearchBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        private void TitleSearchBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Enter) return;
+            string text = TitleSearchBox.Text.Trim();
+            if (text.Length == 0) return;
+            OpenFind();
+            FindBarQuery.Text = text;
+            ReaderSidePanel.Find.Submit((Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? -1 : 1);
+            e.Handled = true;
+        }
+
         private bool _syncingFindBar;
 
         private void FindBarQuery_TextChanged(object sender, TextChangedEventArgs e)

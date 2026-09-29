@@ -21,7 +21,7 @@
     <xt:XTWindow.Resources>
         <ResourceDictionary>
             <BooleanToVisibilityConverter x:Key="BoolToVis"/>
-            <GridLength x:Key="XTTitleBarHeight">42</GridLength>
+            <!-- Chiều cao title bar: dùng đúng mặc định của XTStyle (32, kiểu VS Code) — trước đây có ghi đè lên 42, quá cao. -->
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/XTPdfMergeApp;component/Resources/ReaderResources.xaml"/>
             </ResourceDictionary.MergedDictionaries>
@@ -30,17 +30,35 @@
     </xt:XTWindow.Resources>
 
     <xt:XTWindow.TitleBarLeftContent>
-        <!-- Quick access: bậc 3 icon (nhỏ hơn ribbon và thanh trái, lớn hơn icon trong trang panel). -->
+        <!-- Quick access: bậc 3 icon (nhỏ hơn ribbon và thanh trái, lớn hơn icon trong trang panel — không nhỏ quá). -->
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0">
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.newdoc}" Width="30" Height="28" IconSize="18" ToolTip="New blank PDF (Ctrl+N)" Click="ReaderNew_Click"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.folder}" Width="30" Height="28" IconSize="18" ToolTip="Open (Ctrl+O)" Click="ReaderOpenFiles_Click"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.save}" Width="30" Height="28" IconSize="18" ToolTip="Save (Ctrl+S)" Click="ReaderTabSave_Click"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.saveas}" Width="30" Height="28" IconSize="18" ToolTip="Save as… (Ctrl+Shift+S)" Click="ReaderTabSaveAs_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.newdoc}" Width="30" Height="30" IconSize="20" ToolTip="New blank PDF (Ctrl+N)" Click="ReaderNew_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.folder}" Width="30" Height="30" IconSize="20" ToolTip="Open (Ctrl+O)" Click="ReaderOpenFiles_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.save}" Width="30" Height="30" IconSize="20" ToolTip="Save (Ctrl+S)" Click="ReaderTabSave_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.saveas}" Width="30" Height="30" IconSize="20" ToolTip="Save as… (Ctrl+Shift+S)" Click="ReaderTabSaveAs_Click"/>
             <Border Width="1" Height="18" Margin="6,0" Background="{DynamicResource Ui.Border}"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.undo}" Width="30" Height="28" IconSize="18" ToolTip="Undo (Ctrl+Z)" Click="ReaderUndo_Click"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.redo}" Width="30" Height="28" IconSize="18" ToolTip="Redo (Ctrl+Y)" Click="ReaderRedo_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.undo}" Width="30" Height="30" IconSize="20" ToolTip="Undo (Ctrl+Z)" Click="ReaderUndo_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.redo}" Width="30" Height="30" IconSize="20" ToolTip="Redo (Ctrl+Y)" Click="ReaderRedo_Click"/>
         </StackPanel>
     </xt:XTWindow.TitleBarLeftContent>
+
+    <xt:XTWindow.TitleBarRightContent>
+        <!-- Ô tìm nhanh luôn hiện (kiểu Foxit) — gõ rồi Enter mở/đổi kết quả trong FindBar sẵn có (Ctrl+F). -->
+        <Border Width="220" Height="24" Margin="0,0,8,0" CornerRadius="5" BorderThickness="1"
+                BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Bg}">
+            <DockPanel>
+                <Viewbox DockPanel.Dock="Left" Width="13" Height="13" Margin="7,0,4,0">
+                    <Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.search}" Fill="{DynamicResource Ui.Muted}"/></Canvas>
+                </Viewbox>
+                <Grid>
+                    <TextBox x:Name="TitleSearchBox" BorderThickness="0" Background="Transparent" Padding="0" VerticalContentAlignment="Center"
+                             Foreground="{DynamicResource Ui.Text}" FontSize="12" TextChanged="TitleSearchBox_TextChanged"
+                             GotKeyboardFocus="TitleSearchBox_GotFocus" PreviewKeyDown="TitleSearchBox_PreviewKeyDown"/>
+                    <TextBlock x:Name="TitleSearchHint" Text="Search" FontSize="12" VerticalAlignment="Center" IsHitTestVisible="False" Foreground="{DynamicResource Ui.Muted}"/>
+                </Grid>
+            </DockPanel>
+        </Border>
+    </xt:XTWindow.TitleBarRightContent>
 
     <!-- Toàn bộ nội dung dưới đây chuyển nguyên trạng từ MainWindow.xaml (Border "ReaderPanel",
          trước đó là panel nhúng cột 2 của MainContentGrid) — giữ NGUYÊN mọi x:Name/wiring sự
@@ -76,23 +94,6 @@
                     </StackPanel>
                     <ScrollViewer x:Name="ReaderToolsScroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Focusable="False">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <!-- File -->
-                            <StackPanel>
-                                <StackPanel Orientation="Horizontal">
-                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.newdoc}" Text="New"
-                                                 ToolTip="New blank PDF (Ctrl+N)" Click="ReaderNew_Click"/>
-                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.folder}" Text="Open"
-                                                 ToolTip="Open (Ctrl+O)" Click="ReaderOpenFiles_Click"/>
-                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.save}" Text="Save"
-                                                 ToolTip="Save (Ctrl+S)" Click="ReaderTabSave_Click"/>
-                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.saveas}" Text="Save As"
-                                                 ToolTip="Save as… (Ctrl+Shift+S)" Click="ReaderTabSaveAs_Click"/>
-                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.export}" Text="Export"
-                                                 ToolTip="Export / split PDF… (Ctrl+Shift+E)" Click="RibbonExport_Click"/>
-                                </StackPanel>
-                                <TextBlock Style="{StaticResource UiGroupCaption}" Text="File"/>
-                            </StackPanel>
-                            <Border Style="{StaticResource UiToolbarSeparator}"/>
                             <!-- Tools -->
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal">
@@ -139,18 +140,35 @@
                                                  ToolTip="Type text on the page: click where it goes, type, then Enter (Shift+Enter for a new line). Click existing text to edit." Click="ReaderTypewriterTool_Click"/>
                                     <xt:XTButton x:Name="ReaderCommentToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.note}" Text="Note"
                                                  ToolTip="Sticky note: click the page, type, then Enter. Hover the icon to read it, click to edit." Click="ReaderCommentTool_Click"/>
-                                    <xt:XTButton x:Name="ReaderHighlightToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl}" Text="Highlight"
-                                                 ToolTip="Drag a rectangle to highlight in yellow" Click="ReaderHighlightTool_Click"/>
+                                    <xt:XTButton x:Name="ReaderHighlightTextButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl}" Text="Highlight text"
+                                                 ToolTip="Drag across text to highlight it (needs selectable text)" Click="ReaderHighlightText_Click"/>
+                                    <xt:XTButton x:Name="ReaderHighlightAreaButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl}" Text="Highlight area"
+                                                 ToolTip="Drag a rectangle to highlight an area (also works on scanned pages and drawings)" Click="ReaderHighlightArea_Click"/>
                                     <xt:XTButton x:Name="ReaderUnderlineToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.underline}" Text="Underline"
                                                  ToolTip="Drag across text to underline it" Click="ReaderUnderlineTool_Click"/>
                                     <xt:XTButton x:Name="ReaderStrikethroughToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.strike}" Text="Strikethrough"
                                                  ToolTip="Drag across text to strike it through" Click="ReaderStrikethroughTool_Click"/>
-                                    <xt:XTButton x:Name="ReaderShapesToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.shapes}" Text="Shapes"
-                                                 ToolTip="Draw a rectangle, cloud, oval, arrow or line" Click="ReaderShapesTool_Click"/>
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource UiGroupCaption}" Text="Comment"/>
+                            </StackPanel>
+                            <Border Style="{StaticResource UiToolbarSeparator}"/>
+                            <!-- Shapes: mỗi loại 1 nút riêng (kiểu Foxit), không cần bung popup chọn trước. -->
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <xt:XTButton x:Name="ReaderShapeRectButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.shape_rect}" Text="Rectangle"
+                                                 ToolTip="Draw a rectangle" Click="ReaderShapeRect_Click"/>
+                                    <xt:XTButton x:Name="ReaderShapeCloudButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.shape_cloud}" Text="Cloud"
+                                                 ToolTip="Draw a revision cloud" Click="ReaderShapeCloud_Click"/>
+                                    <xt:XTButton x:Name="ReaderShapeOvalButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.shape_oval}" Text="Oval"
+                                                 ToolTip="Draw an oval" Click="ReaderShapeOval_Click"/>
+                                    <xt:XTButton x:Name="ReaderShapeArrowButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.shape_arrow}" Text="Arrow"
+                                                 ToolTip="Draw an arrow" Click="ReaderShapeArrow_Click"/>
+                                    <xt:XTButton x:Name="ReaderShapeLineButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.shape_line}" Text="Line"
+                                                 ToolTip="Draw a line" Click="ReaderShapeLine_Click"/>
                                     <xt:XTButton x:Name="ReaderStampToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.stamp}" Text="Stamp"
                                                  ToolTip="Stamps: approved, reviewed, your own text or image" Click="ReaderStampTool_Click"/>
                                 </StackPanel>
-                                <TextBlock Style="{StaticResource UiGroupCaption}" Text="Comment"/>
+                                <TextBlock Style="{StaticResource UiGroupCaption}" Text="Shapes"/>
                             </StackPanel>
                             <Border Style="{StaticResource UiToolbarSeparator}"/>
                             <!-- Organize: thao tác trang thật — cùng handler với panel Pages -->
@@ -349,46 +367,6 @@
                         </ToggleButton>
                         <Border Width="1" Height="18" Margin="8,0" Background="{DynamicResource Ui.Border}"/>
                         <StackPanel x:Name="FmtColors" Orientation="Horizontal" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- Highlight: tô theo chữ hay theo vùng kéo. -->
-                <Border x:Name="HighlightBar" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="14,14,0,0" Panel.ZIndex="19"
-                        Padding="6" CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}">
-                    <Border.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="3" Opacity="0.2" Direction="270"/></Border.Effect>
-                    <Border.Resources>
-                        <Style x:Key="ModeToggle" TargetType="RadioButton">
-                            <Setter Property="Focusable" Value="False"/>
-                            <Setter Property="Cursor" Value="Hand"/>
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="RadioButton">
-                                        <Border x:Name="Bd" Height="28" Padding="14,0" CornerRadius="5" Background="Transparent">
-                                            <TextBlock x:Name="Tx" Text="{TemplateBinding Content}" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.Text}"/></Trigger>
-                                            <Trigger Property="IsChecked" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource XTPrimaryButtonBackground}"/>
-                                                <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.OnAccent}"/>
-                                                <Setter TargetName="Tx" Property="FontWeight" Value="SemiBold"/>
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </Border.Resources>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Highlight" VerticalAlignment="Center" Margin="6,0,10,0" Foreground="{DynamicResource Ui.Muted}"/>
-                        <Border CornerRadius="7" Background="{DynamicResource Ui.Chip}" Padding="2">
-                            <StackPanel Orientation="Horizontal">
-                                <RadioButton x:Name="HlModeText" Style="{StaticResource ModeToggle}" GroupName="HlMode" Content="Text" Checked="HighlightMode_Checked"
-                                             ToolTip="Drag across text to highlight the words (needs selectable text)"/>
-                                <RadioButton x:Name="HlModeArea" Style="{StaticResource ModeToggle}" GroupName="HlMode" Content="Area" Checked="HighlightMode_Checked"
-                                             ToolTip="Drag a rectangle to highlight an area (also works on scanned pages and drawings)"/>
-                            </StackPanel>
-                        </Border>
                     </StackPanel>
                 </Border>
 

@@ -45,7 +45,7 @@ namespace XTPdfMergeApp
 
         /// <summary>Bars floating over the page (Find, text format, shape style, highlight mode): clicks on them are not clicks on the page.</summary>
         private bool IsOverlayBar(DependencyObject? source)
-            => IsInside(source, FindBar) || IsInside(source, TextFormatBar) || IsInside(source, ShapeBar) || IsInside(source, HighlightBar) || IsInside(source, MarkupColorBar);
+            => IsInside(source, FindBar) || IsInside(source, TextFormatBar) || IsInside(source, ShapeBar) || IsInside(source, MarkupColorBar);
 
         private void SelectAnnotation(PageRow? row, QuickAnnotationSpec? spec)
         {
@@ -241,14 +241,6 @@ namespace XTPdfMergeApp
             menu.IsOpen = true;
         }
 
-        private bool _highlightModeLoading;
-
-        private void HighlightMode_Checked(object sender, RoutedEventArgs e)
-        {
-            if (_highlightModeLoading) return;
-            AppSettings.HighlightMode = ReferenceEquals(sender, HlModeArea) ? "Area" : "Text";
-        }
-
         /// <summary>Highlight/Underline/Strikethrough "on text": the words between the press and the release points, one rectangle per line.</summary>
         private async Task CommitTextMarkupAsync(HighlightDrag drag, double endU, double endV, QuickAnnotationKind kind)
         {
@@ -344,13 +336,6 @@ namespace XTPdfMergeApp
             if (show && TextFormatBar.Visibility != Visibility.Visible) LoadFormatBar();
             TextFormatBar.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
 
-            if (_readerTool == ReaderTool.Highlight && HighlightBar.Visibility != Visibility.Visible)
-            {
-                _highlightModeLoading = true;
-                (AppSettings.HighlightMode == "Area" ? HlModeArea : HlModeText).IsChecked = true;
-                _highlightModeLoading = false;
-            }
-            HighlightBar.Visibility = _readerTool == ReaderTool.Highlight ? Visibility.Visible : Visibility.Collapsed;
 
             bool shapes = _readerTool == ReaderTool.Shape || _selAnn is { Kind: QuickAnnotationKind.Shape };
             if (shapes && ShapeBar.Visibility != Visibility.Visible) LoadShapeBar();
