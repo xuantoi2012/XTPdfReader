@@ -63,8 +63,8 @@
         </DataTemplate>
 
         <DataTemplate DataType="{x:Type local:WorkspaceItem}">
-            <Border Width="230" Margin="0,0,12,12" Padding="12" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="1" CornerRadius="8"
-                    Background="{DynamicResource Ui.Surface}">
+            <Border Margin="0,0,0,10" Padding="12" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="1" CornerRadius="8"
+                    Background="{DynamicResource Ui.Bg}">
                 <StackPanel>
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -91,71 +91,86 @@
         </DataTemplate>
     </UserControl.Resources>
 
+    <!-- 3 cột (maximize có đủ chỗ): trái = mở file/vị trí nhanh, giữa = Recent (thẻ cuộn riêng, không cuộn cả trang),
+         phải = Workspaces. Mỗi cột cuộn riêng nên danh sách Recent dài không kéo cả Quick locations/Workspaces ra khỏi màn hình. -->
     <Grid Background="{DynamicResource Ui.Panel}">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="440"/>
+            <ColumnDefinition Width="380"/>
             <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="320"/>
         </Grid.ColumnDefinitions>
 
-        <StackPanel Margin="48,36,20,0">
-            <TextBlock x:Name="TitleText" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
-            <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
-                <xt:XTButton Style="{StaticResource UiPrimaryButton}" Icon="{StaticResource Ui.Icon.folder}" Text="Open file…  Ctrl+O" Height="38" Click="OpenFile_Click"/>
-                <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Open folder…" Height="38" Margin="10,0,0,0" Padding="16,0" Click="OpenFolder_Click"
-                             ToolTip="Open every PDF in a folder"/>
-            </StackPanel>
-            <Border Height="140" Margin="0,18,0,0" CornerRadius="12" BorderThickness="2" BorderBrush="{DynamicResource Ui.Border}">
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <Viewbox Width="28" Height="28" HorizontalAlignment="Center">
-                        <Canvas Width="24" Height="24">
-                            <Path Data="{StaticResource Ui.Icon.file}" Fill="{DynamicResource Ui.Muted}"/>
-                        </Canvas>
-                    </Viewbox>
-                    <TextBlock Text="Drop PDF files here" Margin="0,8,0,0" Foreground="{DynamicResource Ui.Muted}"/>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="48,36,20,24">
+                <TextBlock x:Name="TitleText" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
+                <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                    <xt:XTButton Style="{StaticResource UiPrimaryButton}" Icon="{StaticResource Ui.Icon.folder}" Text="Open file…  Ctrl+O" Height="38" Click="OpenFile_Click"/>
+                    <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Open folder…" Height="38" Margin="10,0,0,0" Padding="16,0" Click="OpenFolder_Click"
+                                 ToolTip="Open every PDF in a folder"/>
                 </StackPanel>
-            </Border>
-            <TextBlock Text="Quick locations" FontWeight="SemiBold" Margin="0,22,0,8" Foreground="{DynamicResource Ui.Text}"/>
-            <ItemsControl x:Name="Locations">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Border Style="{StaticResource CardRow}" Padding="12,8" Margin="0,0,0,6" MouseLeftButtonUp="Location_MouseLeftButtonUp" ToolTip="{Binding Path}">
-                            <StackPanel Orientation="Horizontal">
-                                <Viewbox Width="16" Height="16" Margin="0,0,10,0">
-                                    <Canvas Width="24" Height="24">
-                                        <Path Data="{StaticResource Ui.Icon.folder}" Fill="{DynamicResource Ui.Muted}"/>
-                                    </Canvas>
-                                </Viewbox>
-                                <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Ui.Text}"/>
-                            </StackPanel>
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-        </StackPanel>
-
-        <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,0">
-            <StackPanel Margin="20,36,48,36" MaxWidth="820" HorizontalAlignment="Left">
-                <Grid>
-                    <TextBlock Text="Recent" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
-                    <xt:XTButton HorizontalAlignment="Right" Style="{StaticResource UiGhostButton}" Text="Clear list" Height="26" Padding="10,0"
-                                 ToolTip="Remove the files that are not pinned" Click="ClearRecent_Click"/>
-                </Grid>
-                <ItemsControl x:Name="RecentList" Margin="0,12,0,0"/>
-                <TextBlock x:Name="NoRecentText" Text="Files you open will appear here." Foreground="{DynamicResource Ui.Muted}" Margin="0,12,0,0" Visibility="Collapsed"/>
-
-                <Grid Margin="0,22,0,12">
-                    <TextBlock Text="Workspaces" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
-                    <xt:XTButton x:Name="SaveWorkspaceButton" HorizontalAlignment="Right" Style="{StaticResource UiGhostButton}" Text="Save open files as workspace…"
-                                 Height="26" Padding="10,0" Click="SaveWorkspace_Click"/>
-                </Grid>
-                <ItemsControl x:Name="WorkspaceList">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
+                <Border Height="140" Margin="0,18,0,0" CornerRadius="12" BorderThickness="2" BorderBrush="{DynamicResource Ui.Border}">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <Viewbox Width="28" Height="28" HorizontalAlignment="Center">
+                            <Canvas Width="24" Height="24">
+                                <Path Data="{StaticResource Ui.Icon.file}" Fill="{DynamicResource Ui.Muted}"/>
+                            </Canvas>
+                        </Viewbox>
+                        <TextBlock Text="Drop PDF files here" Margin="0,8,0,0" Foreground="{DynamicResource Ui.Muted}"/>
+                    </StackPanel>
+                </Border>
+                <TextBlock Text="Quick locations" FontWeight="SemiBold" Margin="0,22,0,8" Foreground="{DynamicResource Ui.Text}"/>
+                <ItemsControl x:Name="Locations">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource CardRow}" Padding="12,8" Margin="0,0,0,6" MouseLeftButtonUp="Location_MouseLeftButtonUp" ToolTip="{Binding Path}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Viewbox Width="16" Height="16" Margin="0,0,10,0">
+                                        <Canvas Width="24" Height="24">
+                                            <Path Data="{StaticResource Ui.Icon.folder}" Fill="{DynamicResource Ui.Muted}"/>
+                                        </Canvas>
+                                    </Viewbox>
+                                    <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Ui.Text}"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <TextBlock x:Name="NoWorkspaceText" Text="A workspace remembers the set of open files so you can restore it in one click." TextWrapping="Wrap"
-                           Foreground="{DynamicResource Ui.Muted}" Visibility="Collapsed"/>
             </StackPanel>
         </ScrollViewer>
+
+        <!-- Recent: thẻ riêng có viền + cuộn riêng bên trong, không phải cuộn cả trang Start. -->
+        <DockPanel Grid.Column="1" Margin="20,36,20,24" LastChildFill="True">
+            <Grid DockPanel.Dock="Top">
+                <TextBlock Text="Recent" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
+                <xt:XTButton HorizontalAlignment="Right" Style="{StaticResource UiGhostButton}" Text="Clear list" Height="26" Padding="10,0"
+                             ToolTip="Remove the files that are not pinned" Click="ClearRecent_Click"/>
+            </Grid>
+            <Border Margin="0,12,0,0" CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
+                    <StackPanel>
+                        <ItemsControl x:Name="RecentList"/>
+                        <TextBlock x:Name="NoRecentText" Text="Files you open will appear here." Foreground="{DynamicResource Ui.Muted}" Visibility="Collapsed"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </DockPanel>
+
+        <!-- Workspaces: cột riêng thứ 3, cũng có thẻ + cuộn riêng. -->
+        <DockPanel Grid.Column="2" Margin="0,36,48,24" LastChildFill="True">
+            <StackPanel DockPanel.Dock="Top">
+                <TextBlock Text="Workspaces" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
+                <xt:XTButton x:Name="SaveWorkspaceButton" HorizontalAlignment="Stretch" Style="{StaticResource UiGhostButton}" Text="Save open files as workspace…"
+                             Height="30" Margin="0,10,0,0" Click="SaveWorkspace_Click"/>
+            </StackPanel>
+            <Border Margin="0,12,0,0" CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
+                    <StackPanel>
+                        <ItemsControl x:Name="WorkspaceList"/>
+                        <TextBlock x:Name="NoWorkspaceText" Text="A workspace remembers the set of open files so you can restore it in one click." TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Ui.Muted}" Visibility="Collapsed"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </DockPanel>
     </Grid>
 </UserControl>
