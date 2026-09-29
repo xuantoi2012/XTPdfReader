@@ -194,6 +194,78 @@
         </Style.Triggers>
     </Style>
 
+    <!-- ══ Nút icon nhỏ xếp lưới trong ribbon (Shapes, Underline/Strikethrough…): kiểu Foxit gom nhiều công cụ
+         ít dùng vào 1 ô nhỏ thay vì mỗi cái 1 nút to riêng — Tag="Active" = công cụ đang bật. ══ -->
+    <Style x:Key="UiMiniIconButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
+        <Setter Property="Template" Value="{StaticResource UiIconButtonTemplate}"/>
+        <Setter Property="Width" Value="26"/>
+        <Setter Property="Height" Value="19"/>
+        <Setter Property="MinWidth" Value="0"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="IconSize" Value="15"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="IconBrush" Value="{DynamicResource Ui.Icon}"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Ui.Hover}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Text}"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Ui.Pressed}"/>
+            </Trigger>
+            <Trigger Property="Tag" Value="Active">
+                <Setter Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Text}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ══ Thanh trượt hiện đại dùng chung (trước đây MergeView có style riêng, chỗ khác dùng Slider mặc định
+         của Windows — không đồng bộ): nền rãnh mảnh, chấm tròn viền accent. ══ -->
+    <Style x:Key="UiSlider" TargetType="Slider">
+        <Setter Property="Height" Value="22"/>
+        <Setter Property="Focusable" Value="True"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Slider">
+                    <Grid Background="Transparent">
+                        <Border Height="4" CornerRadius="2" Background="{DynamicResource Ui.Border}" VerticalAlignment="Center"/>
+                        <Track x:Name="PART_Track" VerticalAlignment="Center">
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="Slider.DecreaseLarge" Focusable="False" IsTabStop="False">
+                                    <RepeatButton.Template>
+                                        <ControlTemplate TargetType="RepeatButton"><Border Height="4" CornerRadius="2" Background="{DynamicResource Ui.Accent}"/></ControlTemplate>
+                                    </RepeatButton.Template>
+                                </RepeatButton>
+                            </Track.DecreaseRepeatButton>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="Slider.IncreaseLarge" Focusable="False" IsTabStop="False">
+                                    <RepeatButton.Template>
+                                        <ControlTemplate TargetType="RepeatButton"><Border Height="22" Background="Transparent"/></ControlTemplate>
+                                    </RepeatButton.Template>
+                                </RepeatButton>
+                            </Track.IncreaseRepeatButton>
+                            <Track.Thumb>
+                                <Thumb Focusable="False" Width="16" Height="16">
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Ellipse x:Name="Knob" Fill="{DynamicResource Ui.Surface}" Stroke="{DynamicResource Ui.Accent}" StrokeThickness="2"/>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Knob" Property="Fill" Value="{DynamicResource Ui.AccentSoft}"/></Trigger>
+                                                <Trigger Property="IsDragging" Value="True"><Setter TargetName="Knob" Property="Fill" Value="{DynamicResource Ui.Accent}"/></Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                        </Track>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ══ Nút "Start" trong dải tab file: trông và bật/tắt giống hệt 1 tab file (UiTabItem) ══ -->
     <ControlTemplate x:Key="UiTabButtonTemplate" TargetType="{x:Type xt:XTButton}">
         <Border x:Name="Bd" Padding="12,0,12,0" Height="34" BorderThickness="0,0,0,3" BorderBrush="Transparent" Background="Transparent" SnapsToDevicePixels="True">

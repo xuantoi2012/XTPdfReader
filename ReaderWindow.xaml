@@ -79,10 +79,6 @@
             <Border x:Name="ReaderToolbarBar" Grid.Row="0" Height="86" Background="{DynamicResource Ui.Surface}"
                     BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1">
                 <DockPanel Margin="12,0">
-                    <xt:XTButton x:Name="ReaderMergeButton" DockPanel.Dock="Right" Style="{StaticResource UiPrimaryButton}"
-                                 Icon="{StaticResource Ui.Icon.merge}" Text="Merge files" Margin="10,0,0,10" VerticalAlignment="Center"
-                                 ToolTip="Open the Merge window: move or copy pages between files, merge, split and save"
-                                 Click="ReaderShowMergeWindow_Click"/>
                     <StackPanel DockPanel.Dock="Right" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal">
                             <xt:XTButton x:Name="ReaderFindButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.search}" Text="Find"
@@ -144,34 +140,40 @@
                                                  ToolTip="Drag across text to highlight it (needs selectable text)" Click="ReaderHighlightText_Click"/>
                                     <xt:XTButton x:Name="ReaderHighlightAreaButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl}" Text="Highlight area"
                                                  ToolTip="Drag a rectangle to highlight an area (also works on scanned pages and drawings)" Click="ReaderHighlightArea_Click"/>
-                                    <xt:XTButton x:Name="ReaderUnderlineToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.underline}" Text="Underline"
-                                                 ToolTip="Drag across text to underline it" Click="ReaderUnderlineTool_Click"/>
-                                    <xt:XTButton x:Name="ReaderStrikethroughToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.strike}" Text="Strikethrough"
-                                                 ToolTip="Drag across text to strike it through" Click="ReaderStrikethroughTool_Click"/>
+                                    <!-- Underline/Strikethrough: dùng ít hơn Highlight, gom vào 1 cột 2 ô nhỏ (kiểu Foxit) thay vì mỗi cái 1 nút to riêng. -->
+                                    <StackPanel VerticalAlignment="Center">
+                                        <xt:XTButton x:Name="ReaderUnderlineToolButton" Style="{StaticResource UiMiniIconButton}" Icon="{StaticResource Ui.Icon.underline}"
+                                                     ToolTip="Underline: drag across text" Click="ReaderUnderlineTool_Click"/>
+                                        <xt:XTButton x:Name="ReaderStrikethroughToolButton" Style="{StaticResource UiMiniIconButton}" Icon="{StaticResource Ui.Icon.strike}"
+                                                     ToolTip="Strikethrough: drag across text" Click="ReaderStrikethroughTool_Click"/>
+                                    </StackPanel>
                                 </StackPanel>
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Comment"/>
                             </StackPanel>
                             <Border Style="{StaticResource UiToolbarSeparator}"/>
-                            <!-- Shapes: mỗi loại 1 nút riêng (kiểu Foxit), không cần bung popup chọn trước. -->
+                            <!-- Shapes: lưới nhỏ 2 cột × 3 hàng (kiểu Foxit) thay vì mỗi hình 1 nút to riêng — không cần bung popup chọn trước. -->
                             <StackPanel>
-                                <StackPanel Orientation="Horizontal">
-                                    <xt:XTButton x:Name="ReaderShapeRectButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.shape_rect}" Text="Rectangle"
-                                                 ToolTip="Draw a rectangle" Click="ReaderShapeRect_Click"/>
-                                    <xt:XTButton x:Name="ReaderShapeCloudButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.shape_cloud}" Text="Cloud"
-                                                 ToolTip="Draw a revision cloud" Click="ReaderShapeCloud_Click"/>
-                                    <xt:XTButton x:Name="ReaderShapeOvalButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.shape_oval}" Text="Oval"
-                                                 ToolTip="Draw an oval" Click="ReaderShapeOval_Click"/>
-                                    <xt:XTButton x:Name="ReaderShapeArrowButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.shape_arrow}" Text="Arrow"
-                                                 ToolTip="Draw an arrow" Click="ReaderShapeArrow_Click"/>
-                                    <xt:XTButton x:Name="ReaderShapeLineButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.shape_line}" Text="Line"
-                                                 ToolTip="Draw a line" Click="ReaderShapeLine_Click"/>
-                                    <xt:XTButton x:Name="ReaderStampToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.stamp}" Text="Stamp"
-                                                 ToolTip="Stamps: approved, reviewed, your own text or image" Click="ReaderStampTool_Click"/>
-                                </StackPanel>
+                                <Grid VerticalAlignment="Center">
+                                    <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                                    <xt:XTButton x:Name="ReaderShapeRectButton" Grid.Row="0" Grid.Column="0" Style="{StaticResource UiMiniIconButton}"
+                                                 Icon="{StaticResource Ui.Icon.shape_rect}" ToolTip="Rectangle" Click="ReaderShapeRect_Click"/>
+                                    <xt:XTButton x:Name="ReaderShapeCloudButton" Grid.Row="0" Grid.Column="1" Style="{StaticResource UiMiniIconButton}"
+                                                 Icon="{StaticResource Ui.Icon.shape_cloud}" ToolTip="Cloud" Click="ReaderShapeCloud_Click"/>
+                                    <xt:XTButton x:Name="ReaderShapeOvalButton" Grid.Row="1" Grid.Column="0" Style="{StaticResource UiMiniIconButton}"
+                                                 Icon="{StaticResource Ui.Icon.shape_oval}" ToolTip="Oval" Click="ReaderShapeOval_Click"/>
+                                    <xt:XTButton x:Name="ReaderShapeArrowButton" Grid.Row="1" Grid.Column="1" Style="{StaticResource UiMiniIconButton}"
+                                                 Icon="{StaticResource Ui.Icon.shape_arrow}" ToolTip="Arrow" Click="ReaderShapeArrow_Click"/>
+                                    <xt:XTButton x:Name="ReaderShapeLineButton" Grid.Row="2" Grid.Column="0" Style="{StaticResource UiMiniIconButton}"
+                                                 Icon="{StaticResource Ui.Icon.shape_line}" ToolTip="Line" Click="ReaderShapeLine_Click"/>
+                                    <xt:XTButton x:Name="ReaderStampToolButton" Grid.Row="2" Grid.Column="1" Style="{StaticResource UiMiniIconButton}"
+                                                 Icon="{StaticResource Ui.Icon.stamp}" ToolTip="Stamp" Click="ReaderStampTool_Click"/>
+                                </Grid>
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Shapes"/>
                             </StackPanel>
                             <Border Style="{StaticResource UiToolbarSeparator}"/>
-                            <!-- Organize: thao tác trang thật — cùng handler với panel Pages -->
+                            <!-- Organize: thao tác trang thật — cùng handler với panel Pages. Merge cũng chỉ là 1 thao tác tổ chức
+                                 file, không cần nút to riêng — gộp chung vào đây, đổi icon khác Icon.merge cho khỏi trùng ý xoay/luồng. -->
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal">
                                     <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.insert}" Text="Insert"
@@ -184,6 +186,8 @@
                                                  ToolTip="Rotate the page(s) 90° right — saved to the file" Click="ReaderPageRotateRight_Click"/>
                                     <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.extract}" Text="Extract"
                                                  ToolTip="Extract the selected page(s) to a new file" Click="ReaderExtractPages_Click"/>
+                                    <xt:XTButton x:Name="ReaderMergeButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.layers}" Text="Merge"
+                                                 ToolTip="Open the Merge window: move or copy pages between files, merge, split and save" Click="ReaderShowMergeWindow_Click"/>
                                 </StackPanel>
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Organize"/>
                             </StackPanel>
@@ -335,6 +339,9 @@
                     <Rectangle x:Name="GripS" Style="{StaticResource ShapeGrip}" Cursor="SizeNS" Tag="S" PreviewMouseLeftButtonDown="Grip_MouseDown"/>
                     <Rectangle x:Name="GripSW" Style="{StaticResource ShapeGrip}" Cursor="SizeNESW" Tag="SW" PreviewMouseLeftButtonDown="Grip_MouseDown"/>
                     <Rectangle x:Name="GripW" Style="{StaticResource ShapeGrip}" Cursor="SizeWE" Tag="W" PreviewMouseLeftButtonDown="Grip_MouseDown"/>
+                    <!-- Line/Arrow: 2 grip đầu mút thay cho 8 ô (kéo tự do, không giữ khung chữ nhật). -->
+                    <Rectangle x:Name="GripLineA" Style="{StaticResource ShapeGrip}" Cursor="Cross" Tag="LineA" PreviewMouseLeftButtonDown="GripLine_MouseDown"/>
+                    <Rectangle x:Name="GripLineB" Style="{StaticResource ShapeGrip}" Cursor="Cross" Tag="LineB" PreviewMouseLeftButtonDown="GripLine_MouseDown"/>
                     <Rectangle x:Name="ReaderHighlightRubberBand" Visibility="Collapsed" IsHitTestVisible="False"
                                Fill="#66FFE600" Stroke="#FFC9A800" StrokeThickness="1"/>
                     <Rectangle x:Name="TextSelectDragRubber" Visibility="Collapsed" IsHitTestVisible="False"
@@ -525,7 +532,7 @@
                                  Margin="2,0,10,0" ToolTip="Continuous scrolling" Click="ReaderViewContinuous_Click"/>
                     <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.min}"
                                  ToolTip="Zoom out (-)" Click="ReaderZoomOut_Click"/>
-                    <Slider x:Name="ReaderZoomSlider" Width="90" Margin="4,0" VerticalAlignment="Center"
+                    <Slider x:Name="ReaderZoomSlider" Style="{StaticResource UiSlider}" Width="90" Margin="4,0" VerticalAlignment="Center"
                             Minimum="0.05" Maximum="4" IsSnapToTickEnabled="False" ValueChanged="ReaderZoomSlider_ValueChanged"/>
                     <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.plus}"
                                  ToolTip="Zoom in (+)" Click="ReaderZoomIn_Click"/>

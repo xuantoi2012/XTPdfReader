@@ -192,7 +192,7 @@ namespace XTPdfMergeApp
             if (IsOverlayBar(e.OriginalSource as DependencyObject)) return;
             // Grip resize nằm ngay trên hình đã chọn: để nguyên (không Handled) cho Grip_MouseDown của chính nó xử lý,
             // vì Preview đi từ gốc xuống — handler này chạy TRƯỚC handler của grip nếu không trả sớm ở đây.
-            if (e.OriginalSource is System.Windows.Shapes.Rectangle { Tag: string tag } && Array.IndexOf(new[] { "NW", "N", "NE", "E", "SE", "S", "SW", "W" }, tag) >= 0) return;
+            if (e.OriginalSource is System.Windows.Shapes.Rectangle { Tag: string tag } && Array.IndexOf(new[] { "NW", "N", "NE", "E", "SE", "S", "SW", "W", "LineA", "LineB" }, tag) >= 0) return;
 
             // Click ra ngoài ô nhập = xong (Image không nhận focus nên LostKeyboardFocus không tự bắn).
             if (_annotationEditor != null)
@@ -275,7 +275,7 @@ namespace XTPdfMergeApp
         private void ReaderContentHost_PreviewMouseMove(object sender, MouseEventArgs e)
         {
             Point point = e.GetPosition(ReaderContentHost);
-            if (UpdateAnnotationMove(point) || UpdateShapeDrag(point) || UpdateShapeResize(point))
+            if (UpdateAnnotationMove(point) || UpdateShapeDrag(point) || UpdateShapeResize(point) || UpdateLineResize(point))
             {
                 e.Handled = true;
                 return;
@@ -304,7 +304,7 @@ namespace XTPdfMergeApp
 
         private void ReaderContentHost_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (FinishAnnotationMove() || FinishShapeDrag(e.GetPosition(ReaderContentHost)) || FinishShapeResize())
+            if (FinishAnnotationMove() || FinishShapeDrag(e.GetPosition(ReaderContentHost)) || FinishShapeResize() || FinishLineResize())
             {
                 e.Handled = true;
                 return;

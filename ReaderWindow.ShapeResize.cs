@@ -17,6 +17,7 @@ namespace XTPdfMergeApp
     public partial class ReaderWindow
     {
         private Rectangle[] ShapeGrips => new[] { GripNW, GripN, GripNE, GripE, GripSE, GripS, GripSW, GripW };
+        private Rectangle[] LineGrips => new[] { GripLineA, GripLineB };
 
         private sealed class ShapeResizeDrag
         {
@@ -32,19 +33,44 @@ namespace XTPdfMergeApp
         /// <summary>Shows/positions the grips for the current selection — called from UpdateSelectionVisual whenever it runs.</summary>
         private void UpdateShapeGrips()
         {
-            bool show = _shapeResizeDrag == null && _annotationEditor == null && _annMove == null
-                && _selAnn is { Kind: QuickAnnotationKind.Shape } spec && !ShapeStyle.Decode(spec.Format).IsLine
-                && _selRow is { } row && TryPageToLayer(row, spec.U1, spec.V1, out Point tl) && TryPageToLayer(row, spec.U2, spec.V2, out Point br);
-            if (!show)
-            {
-                foreach (var g in ShapeGrips) g.Visibility = Visibility.Collapsed;
-                return;
-            }
+            bool selected = _shapeResizeDrag == null && _lineResizeDrag == null && _annotationEditor == null && _annMove == null
+                && _selAnn is { Kind: QuickAnnotationKind.Shape } && _selRow is { };
+            var style = selected ? ShapeStyle.Decode(((QuickAnnotationSpec)_selAnn!).Format) : default;
+            bool showBox = selected && !style.IsLine;
+            bool showLine = selected && style.IsLine;
 
-            TryPageToLayer(_selRow!, ((QuickAnnotationSpec)_selAnn!).U1, ((QuickAnnotationSpec)_selAnn!).V1, out Point a);
-            TryPageToLayer(_selRow!, ((QuickAnnotationSpec)_selAnn!).U2, ((QuickAnnotationSpec)_selAnn!).V2, out Point b);
-            PlaceGrips(a, b);
-            foreach (var g in ShapeGrips) g.Visibility = Visibility.Visible;
+            if (showBox && TryPageToLayer(_selRow!, ((QuickAnnotationSpec)_selAnn!).U1, ((QuickAnnotationSpec)_selAnn!).V1, out Point a) &&
+                TryPageToLayer(_selRow!, ((QuickAnnotationSpec)_selAnn!).U2, ((QuickAnnotationSpec)_selAnn!).V2, out Point b))
+            {
+                PlaceGrips(a, b);
+                foreach (var g in ShapeGrips) g.Visibility = Visibility.Visible;
+            }
+            else foreach (var g in ShapeGrips) g.Visibility = Visibility.Collapsed;
+
+            if (showLine)
+            {
+                var (tail, head) = GetLineEndpointsPixel(_selRow!, (QuickAnnotationSpec)_selAnn!, style);
+                Place(GripLineA, tail.X, tail.Y);
+                Place(GripLineB, head.X, head.Y);
+                foreach (var g in LineGrips) g.Visibility = Visibility.Visible;
+            }
+            else foreach (var g in LineGrips) g.Visibility = Visibility.Collapsed;
+        }
+
+        /// <summary>Where a Line/Arrow's 2 real endpoints sit on screen — same corners+pad math as drawing/hit-testing, just
+        /// converted to display-layer pixels instead of PDF user space.</summary>
+        private (Point Tail, Point Head) GetLineEndpointsPixel(PageRow row, QuickAnnotationSpec spec, ShapeStyle style)
+        {
+            var geometry = GetCachedPageAnnotations(row)?.Geometry ?? new PdfPageGeometry(0, 0, 612, 792, 0);
+            double dw = geometry.DisplayWidth, dh = geometry.DisplayHeight;
+            double w = (spec.U2 - spec.U1) * dw, h = (spec.V2 - spec.V1) * dh;
+            double pad = ShapeStyle.LinePad(style.Width * ShapeStyle.PageScale(dw));
+            (double X, double Y)[] corners = { (pad, pad), (w - pad, pad), (pad, h - pad), (w - pad, h - pad) };
+            var s = corners[style.Corner];
+            var e = corners[3 - style.Corner];
+            TryPageToLayer(row, spec.U1 + s.X / dw, spec.V1 + s.Y / dh, out Point tail);
+            TryPageToLayer(row, spec.U1 + e.X / dw, spec.V1 + e.Y / dh, out Point head);
+            return (tail, head);
         }
 
         private void PlaceGrips(Point a, Point b)
@@ -108,6 +134,93 @@ namespace XTPdfMergeApp
                 _selAnn = changed;
                 CommitAnnotationChange(drag.Row, new QuickAnnotationChange(s, changed), "Resize " + ShapeStyle.Decode(s.Format).Type.ToLowerInvariant());
             }
+            ReaderContinuousView.Redraw();
+            UpdateSelectionVisual();
+            return true;
+        }
+
+        // ── Line/Arrow: 2 endpoint grips, dragged freely (not tied to a rectangle) ─────
+
+        private sealed class LineResizeDrag
+        {
+            public required PageRow Row;
+            public required QuickAnnotationSpec Spec;
+            public required ShapeStyle Style;
+            public required bool DraggingTail; // true = GripLineA (tail) moves, false = GripLineB (head/arrow tip) moves
+            public required double FixedU, FixedV; // the OTHER endpoint, unchanged through the drag
+            public double U1, V1, U2, V2;
+            public int Corner;
+        }
+
+        private LineResizeDrag? _lineResizeDrag;
+
+        private void GripLine_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (_selAnn is not { Kind: QuickAnnotationKind.Shape } spec || _selRow is not { } row || sender is not Rectangle grip) return;
+            var style = ShapeStyle.Decode(spec.Format);
+            if (!style.IsLine) return;
+            e.Handled = true;
+
+            var geometry = GetCachedPageAnnotations(row)?.Geometry ?? new PdfPageGeometry(0, 0, 612, 792, 0);
+            double dw = geometry.DisplayWidth, dh = geometry.DisplayHeight;
+            double w = (spec.U2 - spec.U1) * dw, h = (spec.V2 - spec.V1) * dh;
+            double pad = ShapeStyle.LinePad(style.Width * ShapeStyle.PageScale(dw));
+            (double X, double Y)[] corners = { (pad, pad), (w - pad, pad), (pad, h - pad), (w - pad, h - pad) };
+            bool draggingTail = (string)grip.Tag == "LineA";
+            var fixedLocal = draggingTail ? corners[3 - style.Corner] : corners[style.Corner]; // the endpoint that stays put
+
+            _lineResizeDrag = new LineResizeDrag
+            {
+                Row = row, Spec = spec, Style = style, DraggingTail = draggingTail,
+                FixedU = spec.U1 + fixedLocal.X / dw, FixedV = spec.V1 + fixedLocal.Y / dh,
+                U1 = spec.U1, V1 = spec.V1, U2 = spec.U2, V2 = spec.V2, Corner = style.Corner
+            };
+            Controls.AnnotationLayer.Edit.HiddenName = spec.Name;
+            ReaderContentHost.CaptureMouse();
+            ReaderContinuousView.Redraw();
+        }
+
+        /// <summary>Called from the shared PreviewMouseMove alongside the box resize and move/draw drags.</summary>
+        private bool UpdateLineResize(Point pointInHost)
+        {
+            if (_lineResizeDrag is not { } drag) return false;
+            if (!TryGetPagePoint(drag.Row, pointInHost, clamp: true, out var current)) return true;
+
+            // "Dragged" plays the role CommitShapeAsync calls the drag-start point; "fixed" is the drag-end point —
+            // same corner formula either way, so tail and head both go through it, just swapped.
+            double draggedU = current.U, draggedV = current.V, fixedU = drag.FixedU, fixedV = drag.FixedV;
+            bool draggedIsTop = draggedV <= fixedV, draggedIsLeft = draggedU <= fixedU;
+            drag.Corner = draggedIsTop ? (draggedIsLeft ? 0 : 1) : (draggedIsLeft ? 2 : 3);
+            if (!drag.DraggingTail) drag.Corner = 3 - drag.Corner; // dragging the head: roles of "start"/"end" flip
+
+            double u1 = Math.Min(draggedU, fixedU), u2 = Math.Max(draggedU, fixedU), v1 = Math.Min(draggedV, fixedV), v2 = Math.Max(draggedV, fixedV);
+            var geometry = GetCachedPageAnnotations(drag.Row)?.Geometry ?? new PdfPageGeometry(0, 0, 612, 792, 0);
+            double dw = geometry.DisplayWidth, dh = geometry.DisplayHeight;
+            double pad = ShapeStyle.LinePad(drag.Style.Width * ShapeStyle.PageScale(dw));
+            drag.U1 = Math.Max(0, u1 - pad / dw); drag.U2 = Math.Min(1, u2 + pad / dw);
+            drag.V1 = Math.Max(0, v1 - pad / dh); drag.V2 = Math.Min(1, v2 + pad / dh);
+
+            if (!TryPageToLayer(drag.Row, draggedU, draggedV, out Point draggedPx) || !TryPageToLayer(drag.Row, fixedU, fixedV, out Point fixedPx)) return true;
+            var (a, b) = drag.DraggingTail ? (draggedPx, fixedPx) : (fixedPx, draggedPx); // a = tail, b = head (arrow tip)
+            ShowShapePreview(drag.Style, a, b, ShapePixelsPerPoint(drag.Row));
+            Place(drag.DraggingTail ? GripLineA : GripLineB, draggedPx.X, draggedPx.Y);
+            Place(drag.DraggingTail ? GripLineB : GripLineA, fixedPx.X, fixedPx.Y);
+            return true;
+        }
+
+        private bool FinishLineResize()
+        {
+            if (_lineResizeDrag is not { } drag) return false;
+            _lineResizeDrag = null;
+            HideShapePreview();
+            Controls.AnnotationLayer.Edit.HiddenName = null;
+            if (ReaderContentHost.IsMouseCaptured) ReaderContentHost.ReleaseMouseCapture();
+
+            var s = drag.Spec;
+            var newStyle = drag.Style with { Corner = drag.Corner };
+            var changed = Regenerated(s) with { U1 = drag.U1, V1 = drag.V1, U2 = drag.U2, V2 = drag.V2, Format = newStyle.Encode() };
+            _selAnn = changed;
+            CommitAnnotationChange(drag.Row, new QuickAnnotationChange(s, changed), "Resize " + newStyle.Type.ToLowerInvariant());
             ReaderContinuousView.Redraw();
             UpdateSelectionVisual();
             return true;

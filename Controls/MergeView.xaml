@@ -65,49 +65,9 @@
                 </Setter.Value>
             </Setter>
         </Style>
-        <Style TargetType="Slider">
+        <!-- Thanh trượt dùng style chung UiSlider (Resources/UiStyles.xaml) — trước đây định nghĩa riêng ở đây. -->
+        <Style TargetType="Slider" BasedOn="{StaticResource UiSlider}">
             <Setter Property="Minimum" Value="0"/>
-            <Setter Property="Height" Value="22"/>
-            <Setter Property="Focusable" Value="True"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Slider">
-                        <Grid Background="Transparent">
-                            <Border Height="4" CornerRadius="2" Background="{DynamicResource Ui.Border}" VerticalAlignment="Center"/>
-                            <Track x:Name="PART_Track" VerticalAlignment="Center">
-                                <Track.DecreaseRepeatButton>
-                                    <RepeatButton Command="Slider.DecreaseLarge" Focusable="False" IsTabStop="False">
-                                        <RepeatButton.Template>
-                                            <ControlTemplate TargetType="RepeatButton"><Border Height="4" CornerRadius="2" Background="{DynamicResource Ui.Accent}"/></ControlTemplate>
-                                        </RepeatButton.Template>
-                                    </RepeatButton>
-                                </Track.DecreaseRepeatButton>
-                                <Track.IncreaseRepeatButton>
-                                    <RepeatButton Command="Slider.IncreaseLarge" Focusable="False" IsTabStop="False">
-                                        <RepeatButton.Template>
-                                            <ControlTemplate TargetType="RepeatButton"><Border Height="22" Background="Transparent"/></ControlTemplate>
-                                        </RepeatButton.Template>
-                                    </RepeatButton>
-                                </Track.IncreaseRepeatButton>
-                                <Track.Thumb>
-                                    <Thumb Focusable="False" Width="16" Height="16">
-                                        <Thumb.Template>
-                                            <ControlTemplate TargetType="Thumb">
-                                                <Ellipse x:Name="Knob" Fill="{DynamicResource Ui.Surface}" Stroke="{DynamicResource Ui.Accent}" StrokeThickness="2"/>
-                                                <ControlTemplate.Triggers>
-                                                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Knob" Property="Fill" Value="{DynamicResource Ui.AccentSoft}"/></Trigger>
-                                                    <Trigger Property="IsDragging" Value="True"><Setter TargetName="Knob" Property="Fill" Value="{DynamicResource Ui.Accent}"/></Trigger>
-                                                </ControlTemplate.Triggers>
-                                            </ControlTemplate>
-                                        </Thumb.Template>
-                                    </Thumb>
-                                </Track.Thumb>
-                            </Track>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
         </Style>
     </UserControl.Resources>
 
