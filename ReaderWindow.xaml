@@ -30,14 +30,15 @@
     </xt:XTWindow.Resources>
 
     <xt:XTWindow.TitleBarLeftContent>
+        <!-- Quick access: bậc 3 icon (nhỏ hơn ribbon và thanh trái, lớn hơn icon trong trang panel). -->
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0">
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.newdoc}" Width="36" Height="34" IconSize="24" ToolTip="New blank PDF (Ctrl+N)" Click="ReaderNew_Click"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.folder}" Width="36" Height="34" IconSize="24" ToolTip="Open (Ctrl+O)" Click="ReaderOpenFiles_Click"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.save}" Width="36" Height="34" IconSize="24" ToolTip="Save (Ctrl+S)" Click="ReaderTabSave_Click"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.saveas}" Width="36" Height="34" IconSize="24" ToolTip="Save as… (Ctrl+Shift+S)" Click="ReaderTabSaveAs_Click"/>
-            <Border Width="1" Height="20" Margin="6,0" Background="{DynamicResource Ui.Border}"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.undo}" Width="36" Height="34" IconSize="24" ToolTip="Undo (Ctrl+Z)" Click="ReaderUndo_Click"/>
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.redo}" Width="36" Height="34" IconSize="24" ToolTip="Redo (Ctrl+Y)" Click="ReaderRedo_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.newdoc}" Width="30" Height="28" IconSize="18" ToolTip="New blank PDF (Ctrl+N)" Click="ReaderNew_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.folder}" Width="30" Height="28" IconSize="18" ToolTip="Open (Ctrl+O)" Click="ReaderOpenFiles_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.save}" Width="30" Height="28" IconSize="18" ToolTip="Save (Ctrl+S)" Click="ReaderTabSave_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.saveas}" Width="30" Height="28" IconSize="18" ToolTip="Save as… (Ctrl+Shift+S)" Click="ReaderTabSaveAs_Click"/>
+            <Border Width="1" Height="18" Margin="6,0" Background="{DynamicResource Ui.Border}"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.undo}" Width="30" Height="28" IconSize="18" ToolTip="Undo (Ctrl+Z)" Click="ReaderUndo_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.redo}" Width="30" Height="28" IconSize="18" ToolTip="Redo (Ctrl+Y)" Click="ReaderRedo_Click"/>
         </StackPanel>
     </xt:XTWindow.TitleBarLeftContent>
 

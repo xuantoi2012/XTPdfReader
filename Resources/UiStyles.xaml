@@ -55,7 +55,8 @@
         <Setter Property="Padding" Value="6,0"/>
         <Setter Property="Margin" Value="1,0"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
-        <Setter Property="IconSize" Value="24"/>
+        <!-- Bậc icon lớn nhất trong app (giống ribbon Foxit): ribbon > thanh trái > quick access title bar > icon trong trang panel. -->
+        <Setter Property="IconSize" Value="26"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
         <Setter Property="IconBrush" Value="{DynamicResource Ui.Icon}"/>
@@ -113,12 +114,12 @@
         </Style.Triggers>
     </Style>
 
-    <!-- ══ Nút thanh trái (Pages / Bookmarks / Layers): 56×54, icon 20 + chữ 11 ══ -->
+    <!-- ══ Nút thanh trái (Pages / Bookmarks / Layers): 56×54, icon bậc 2 (nhỏ hơn ribbon) + chữ 11 ══ -->
     <Style x:Key="UiRailButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiToolbarButton}">
         <Setter Property="Width" Value="56"/>
         <Setter Property="MinWidth" Value="56"/>
         <Setter Property="Height" Value="58"/>
-        <Setter Property="IconSize" Value="24"/>
+        <Setter Property="IconSize" Value="22"/>
         <Setter Property="Padding" Value="0"/>
         <Setter Property="Margin" Value="0,1"/>
         <Setter Property="HorizontalAlignment" Value="Center"/>
@@ -141,13 +142,13 @@
         </Style.Triggers>
     </Style>
 
-    <!-- ══ Nút hành động trong panel (Insert / Delete / Rotate / Extract): dàn đều, icon 19 + chữ 11 ══ -->
+    <!-- ══ Nút hành động trong panel (Insert / Delete / Rotate / Extract): dàn đều, icon bậc nhỏ nhất + chữ 11 ══ -->
     <Style x:Key="UiPanelAction" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiToolbarButton}">
         <Setter Property="MinWidth" Value="0"/>
         <Setter Property="Height" Value="46"/>
         <Setter Property="HorizontalAlignment" Value="Stretch"/>
         <Setter Property="Padding" Value="2,0"/>
-        <Setter Property="IconSize" Value="24"/>
+        <Setter Property="IconSize" Value="17"/>
     </Style>
 
     <!-- ══ Nút icon nhỏ (thanh trạng thái, đóng tab…) ══ -->
