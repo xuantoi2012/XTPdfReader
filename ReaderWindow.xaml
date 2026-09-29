@@ -307,10 +307,34 @@
                 <!-- Lớp tương tác chung của Typewriter/Ghi chú/Highlight: không Background nên không
                      chặn chuột; chỉ ô nhập chữ, khung kéo highlight, popup xem ghi chú nằm ở đây. -->
                 <Canvas x:Name="ReaderInteractionLayer">
+                    <Canvas.Resources>
+                        <Style x:Key="ShapeGrip" TargetType="Rectangle">
+                            <Setter Property="Width" Value="8"/>
+                            <Setter Property="Height" Value="8"/>
+                            <Setter Property="Fill" Value="White"/>
+                            <Setter Property="Stroke" Value="{DynamicResource Ui.Accent}"/>
+                            <Setter Property="StrokeThickness" Value="1.5"/>
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Setter Property="Panel.ZIndex" Value="5"/>
+                        </Style>
+                    </Canvas.Resources>
                     <Border x:Name="AnnotationSelectionBox" Visibility="Collapsed" IsHitTestVisible="False" BorderThickness="1.5" CornerRadius="3"
                             BorderBrush="{DynamicResource Ui.Accent}" Background="#1A2563EB"/>
-                    <Rectangle x:Name="ReaderShapeRubber" Visibility="Collapsed" IsHitTestVisible="False" Stroke="{DynamicResource Ui.Accent}" StrokeThickness="1.5" StrokeDashArray="4 3"/>
-                    <Line x:Name="ReaderShapeRubberLine" Visibility="Collapsed" IsHitTestVisible="False" Stroke="{DynamicResource Ui.Accent}" StrokeThickness="1.5" StrokeDashArray="4 3"/>
+                    <!-- Vẽ/resize hình (Rect/Cloud dùng Rectangle bo góc, Oval dùng Ellipse, Line/Arrow dùng Line + mũi tên): xem trước bằng
+                         chính màu/nét sẽ ghi vào PDF ngay khi kéo, không đợi thả chuột mới hiện. -->
+                    <Rectangle x:Name="ReaderShapeRubber" Visibility="Collapsed" IsHitTestVisible="False"/>
+                    <Ellipse x:Name="ReaderShapeOvalPreview" Visibility="Collapsed" IsHitTestVisible="False"/>
+                    <Line x:Name="ReaderShapeRubberLine" Visibility="Collapsed" IsHitTestVisible="False"/>
+                    <Polygon x:Name="ReaderShapeArrowHead" Visibility="Collapsed" IsHitTestVisible="False"/>
+                    <!-- Grip resize hình đã chọn (kiểu Foxit): 8 ô ở góc/cạnh, kéo trực tiếp để đổi kích thước. -->
+                    <Rectangle x:Name="GripNW" Style="{StaticResource ShapeGrip}" Cursor="SizeNWSE" Tag="NW" PreviewMouseLeftButtonDown="Grip_MouseDown"/>
+                    <Rectangle x:Name="GripN" Style="{StaticResource ShapeGrip}" Cursor="SizeNS" Tag="N" PreviewMouseLeftButtonDown="Grip_MouseDown"/>
+                    <Rectangle x:Name="GripNE" Style="{StaticResource ShapeGrip}" Cursor="SizeNESW" Tag="NE" PreviewMouseLeftButtonDown="Grip_MouseDown"/>
+                    <Rectangle x:Name="GripE" Style="{StaticResource ShapeGrip}" Cursor="SizeWE" Tag="E" PreviewMouseLeftButtonDown="Grip_MouseDown"/>
+                    <Rectangle x:Name="GripSE" Style="{StaticResource ShapeGrip}" Cursor="SizeNWSE" Tag="SE" PreviewMouseLeftButtonDown="Grip_MouseDown"/>
+                    <Rectangle x:Name="GripS" Style="{StaticResource ShapeGrip}" Cursor="SizeNS" Tag="S" PreviewMouseLeftButtonDown="Grip_MouseDown"/>
+                    <Rectangle x:Name="GripSW" Style="{StaticResource ShapeGrip}" Cursor="SizeNESW" Tag="SW" PreviewMouseLeftButtonDown="Grip_MouseDown"/>
+                    <Rectangle x:Name="GripW" Style="{StaticResource ShapeGrip}" Cursor="SizeWE" Tag="W" PreviewMouseLeftButtonDown="Grip_MouseDown"/>
                     <Rectangle x:Name="ReaderHighlightRubberBand" Visibility="Collapsed" IsHitTestVisible="False"
                                Fill="#66FFE600" Stroke="#FFC9A800" StrokeThickness="1"/>
                     <Rectangle x:Name="TextSelectDragRubber" Visibility="Collapsed" IsHitTestVisible="False"

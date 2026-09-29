@@ -69,6 +69,7 @@ namespace XTPdfMergeApp
         /// <summary>Keeps the selection box on the annotation while scrolling / zooming, and follows it after an edit or undo.</summary>
         private void UpdateSelectionVisual()
         {
+            UpdateShapeGrips();
             if (_selAnn is not { } spec || _selRow is not { } row || _annotationEditor != null)
             {
                 AnnotationSelectionBox.Visibility = Visibility.Collapsed;
