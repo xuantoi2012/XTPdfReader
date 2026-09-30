@@ -440,6 +440,33 @@ internal static class Program
             bool swappedAsExpected = Math.Abs(bboxW - rect.GetHeight()) < 1 && Math.Abs(bboxH - rect.GetWidth()) < 1;
             Check(swappedAsExpected, "Callout AP BBox stays in display-space units on a rotated page (not swapped to match /Rect)");
         }
+
+        // Callout kiểu mới (Foxit: mũi tên + hộp chữ là 2 đối tượng riêng) — hộp không còn tự vẽ đường dẫn, kích
+        // thước hộp lấy thẳng từ spec (chỉnh tay được), chữ phải tự xuống dòng theo bề ngang hộp.
+        string boxPath = System.IO.Path.Combine(Output, "callout-box.pdf");
+        using (var document = new PdfDocument(new PdfWriter(boxPath)))
+        {
+            var page = document.AddNewPage(new PageSize(400, 300));
+            var spec = new QuickAnnotationSpec("test-callout-box", QuickAnnotationKind.Callout, 1, .1, .1, .1, .1, "A long callout sentence that must wrap onto more than one line")
+            {
+                Format = PdfQuickAnnotationService.EncodeCalloutBox(TextFormat.Default.Encode())
+            };
+            var geometry = PdfQuickAnnotationService.GetGeometry(page);
+            var sized = spec with { U2 = spec.U1 + 90.0 / geometry.DisplayWidth, V2 = spec.V1 + 60.0 / geometry.DisplayHeight }; // hộp hẹp, ép phải xuống dòng
+            PdfQuickAnnotationService.AddGenerated(document, page, sized, new PdfQuickAnnotationService.FontSet());
+            var annotation = page.GetAnnotations().Single();
+            Check(annotation.GetPdfObject().Get(PdfName.CL) == null, "New-style callout box has no leader line (/CL) — the arrow is a separate object");
+            var ap = annotation.GetPdfObject().GetAsDictionary(PdfName.AP)!.GetAsStream(PdfName.N)!;
+            string content = System.Text.Encoding.ASCII.GetString(ap.GetBytes());
+            int showTextCount = System.Text.RegularExpressions.Regex.Matches(content, @"\bTj\b").Count;
+            Check(showTextCount > 1, "Callout box text wraps onto multiple lines to fit an explicit (manually resized) width");
+        }
+        using (var document = new PdfDocument(new PdfReader(boxPath)))
+        {
+            var page = document.GetPage(1);
+            var annotation = PdfQuickAnnotationService.ReadAnnotations(page, PdfQuickAnnotationService.GetGeometry(page), 1).Single();
+            Check(annotation.Kind == QuickAnnotationKind.Callout, "New-style callout box round-trips with the same Kind as the old leader style");
+        }
     }
 
     static void TestReplyAnnotation()

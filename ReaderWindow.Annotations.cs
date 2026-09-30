@@ -538,7 +538,12 @@ namespace XTPdfMergeApp
             }
             var page = await LoadPageAnnotationsAsync(row);
             if (page == null) return;
-            var changed = PdfQuickAnnotationService.WithMeasuredSize(Regenerated(existing) with { Text = text }, page.Geometry);
+            // Callout cũ (đường dẫn baked-in): tự co hộp theo chữ như trước. Callout mới (chỉ hộp, mũi tên riêng):
+            // giữ nguyên kích thước hộp người dùng đã kéo-giãn bằng tay — chỉ xuống dòng lại chữ cho khớp.
+            bool hasLeader = PdfQuickAnnotationService.DecodeCallout(existing.Format).HasLeader;
+            var changed = hasLeader
+                ? PdfQuickAnnotationService.WithMeasuredSize(Regenerated(existing) with { Text = text }, page.Geometry)
+                : Regenerated(existing) with { Text = text };
             CommitAnnotationChange(row, new QuickAnnotationChange(existing, changed), "Edit callout");
         }
 
@@ -801,10 +806,22 @@ namespace XTPdfMergeApp
             UpdateSelectionVisual();
             if (cancel) return;
 
-            string format = state.Kind == QuickAnnotationKind.Callout ? PdfQuickAnnotationService.EncodeCallout(state.TipU, state.TipV, _textFormat.Encode()) : state.Kind == QuickAnnotationKind.Typewriter ? _textFormat.Encode() : "";
+            string format = state.Kind == QuickAnnotationKind.Callout ? PdfQuickAnnotationService.EncodeCalloutBox(_textFormat.Encode()) : state.Kind == QuickAnnotationKind.Typewriter ? _textFormat.Encode() : "";
+            string label = state.Kind == QuickAnnotationKind.Comment ? "note" : state.Kind == QuickAnnotationKind.Callout ? "callout" : "typewriter";
+
+            // Callout mới (kiểu Foxit): 2 chú thích riêng — mũi tên (Shape) + hộp chữ — thêm cùng lúc, 1 bước Undo.
+            if (state.Kind == QuickAnnotationKind.Callout && state.Existing == null)
+            {
+                if (text.Length == 0) return;
+                var box = PdfQuickAnnotationService.WithMeasuredSize(new QuickAnnotationSpec(NewAnnotationName(), state.Kind,
+                    state.Row.PageNumber, state.U, state.V, state.U, state.V, text) { Format = format }, state.Geometry);
+                var arrow = BuildCalloutArrow(box, state.TipU, state.TipV, state.Geometry, state.Row.PageNumber);
+                CommitAnnotationChanges(state.Row, new[] { new QuickAnnotationChange(null, arrow), new QuickAnnotationChange(null, box) }, "Add callout");
+                return;
+            }
+
             QuickAnnotationChange change;
             string description;
-            string label = state.Kind == QuickAnnotationKind.Comment ? "note" : state.Kind == QuickAnnotationKind.Callout ? "callout" : "typewriter";
             if (state.Existing is not { } existing)
             {
                 if (text.Length == 0) return;
@@ -824,9 +841,12 @@ namespace XTPdfMergeApp
             else
             {
                 // Ghi chú: chỉ đổi /Contents, giữ icon gốc. Typewriter: chữ nằm trong appearance → vẽ lại từ spec.
+                // Callout: giữ nguyên hộp đã chỉnh tay (không đo lại theo chữ) — chỉ vẽ lại chữ (word-wrap) khớp hộp cũ.
                 var edited = state.Kind == QuickAnnotationKind.Comment
                     ? existing with { Text = text }
-                    : PdfQuickAnnotationService.WithMeasuredSize(Regenerated(existing) with { Text = text, Format = format }, state.Geometry);
+                    : state.Kind == QuickAnnotationKind.Callout
+                        ? Regenerated(existing) with { Text = text, Format = format }
+                        : PdfQuickAnnotationService.WithMeasuredSize(Regenerated(existing) with { Text = text, Format = format }, state.Geometry);
                 change = new QuickAnnotationChange(existing, edited);
                 description = "Edit " + label;
             }
@@ -835,14 +855,37 @@ namespace XTPdfMergeApp
 
         /// <summary>Callback chung của cả 3 công cụ: đưa thay đổi cho host ghi vào file + Undo/Redo.</summary>
         private void CommitAnnotationChange(PageRow row, QuickAnnotationChange change, string description)
+            => CommitAnnotationChanges(row, new[] { change }, description);
+
+        /// <summary>Như <see cref="CommitAnnotationChange"/> nhưng nhiều thay đổi cùng 1 lần ghi/1 bước Undo —
+        /// dùng cho callout mới (mũi tên Shape + hộp chữ là 2 chú thích riêng, thêm cùng lúc).</summary>
+        private void CommitAnnotationChanges(PageRow row, IReadOnlyList<QuickAnnotationChange> changes, string description)
         {
             if (EditHost == null) return;
             // Tác giả / thời điểm sửa (panel Comments, ghi vào /T, /M lúc Save) — chú thích giữ appearance gốc thì giữ nguyên.
-            if (change.Add is { ObjectNumber: 0 } add)
-                change = change with { Add = add with { Author = add.Author.Length > 0 ? add.Author : Environment.UserName, Date = DateTime.Now } };
-            _ = EditHost.ApplyAnnotationChangesAsync(row.SourcePath, new[] { change }, description);
+            var stamped = changes.Select(change => change.Add is { ObjectNumber: 0 } add
+                ? change with { Add = add with { Author = add.Author.Length > 0 ? add.Author : Environment.UserName, Date = DateTime.Now } }
+                : change).ToArray();
+            _ = EditHost.ApplyAnnotationChangesAsync(row.SourcePath, stamped, description);
         }
 
         private static string NewAnnotationName() => "xt-" + Guid.NewGuid().ToString("N");
+
+        /// <summary>Mũi tên (Shape Arrow) nối từ mép trên-trái hộp callout tới điểm đã chỉ ban đầu — cùng công thức
+        /// góc/đệm (Corner, LinePad) đang dùng khi người dùng tự kéo vẽ 1 Line/Arrow (<see cref="CommitShapeAsync"/>),
+        /// nên chọn/di/kéo-giãn/xoá mũi tên này về sau dùng lại nguyên hạ tầng Shape có sẵn, không cần code riêng.</summary>
+        private static QuickAnnotationSpec BuildCalloutArrow(QuickAnnotationSpec box, double tipU, double tipV, PdfPageGeometry geometry, int pageNumber)
+        {
+            double dw = geometry.DisplayWidth, dh = geometry.DisplayHeight;
+            double boxDispLeft = box.U1 * dw, width = (box.U2 - box.U1) * dw;
+            double attachU = (boxDispLeft + Math.Min(width * 0.25, 24.0)) / dw, attachV = box.V1;
+            var style = new ShapeStyle(ShapeStyle.Arrow, "#5B9BD5", 1.5, 0);
+            double pad = ShapeStyle.LinePad(style.Width * ShapeStyle.PageScale(dw));
+            bool startLeft = attachU <= tipU, startTop = attachV <= tipV;
+            style = style with { Corner = startTop ? (startLeft ? 0 : 1) : (startLeft ? 2 : 3) };
+            double u1 = Math.Max(0, Math.Min(attachU, tipU) - pad / dw), u2 = Math.Min(1, Math.Max(attachU, tipU) + pad / dw);
+            double v1 = Math.Max(0, Math.Min(attachV, tipV) - pad / dh), v2 = Math.Min(1, Math.Max(attachV, tipV) + pad / dh);
+            return new QuickAnnotationSpec(NewAnnotationName(), QuickAnnotationKind.Shape, pageNumber, u1, v1, u2, v2, "") { Format = style.Encode() };
+        }
     }
 }
