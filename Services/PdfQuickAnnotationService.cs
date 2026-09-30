@@ -692,15 +692,25 @@ namespace XTPdfMergeApp.Services
             return annot;
         }
 
+        /// <summary>Reply kiểu Word: chỉ 1 icon Note trên trang cho cả luồng (gốc + mọi reply) — reply không vẽ icon
+        /// riêng, chỉ tồn tại dưới dạng dữ liệu (/IRT liên kết chú thích gốc) để panel Comments/popup đọc lại.
+        /// Đặt /F Hidden để Foxit/Acrobat mở file cũng không tự vẽ icon riêng cho nó.</summary>
         private static void AddReply(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec)
         {
-            var reply = AddComment(doc, page, spec);
+            var geometry = GetGeometry(page);
+            var rect = DisplayBoxToUser(geometry, spec.U1, spec.V1, 1, 1);
+            var annot = new PdfTextAnnotation(rect);
+            annot.SetContents(new PdfString(spec.Text, PdfEncodings.UNICODE_BIG));
+            annot.GetPdfObject().Put(PdfName.F, new PdfNumber(PdfAnnotation.PRINT | PdfAnnotation.HIDDEN));
+            StampCommon(annot, spec);
+            page.AddAnnotation(annot);
+
             string parentName = spec.Format.StartsWith("R|", StringComparison.Ordinal) ? spec.Format[2..] : "";
             if (Find(page, parentName) is { } parent)
             {
-                reply.GetPdfObject().Put(PdfName.IRT, parent.GetPdfObject());
-                reply.GetPdfObject().Put(PdfName.RT, new PdfName("R"));
-                reply.GetPdfObject().SetModified();
+                annot.GetPdfObject().Put(PdfName.IRT, parent.GetPdfObject());
+                annot.GetPdfObject().Put(PdfName.RT, new PdfName("R"));
+                annot.GetPdfObject().SetModified();
             }
         }
 
