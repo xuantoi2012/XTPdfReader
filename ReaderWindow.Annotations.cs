@@ -232,9 +232,11 @@ namespace XTPdfMergeApp
                         SelectAnnotation(hit.Row, picked);
                         if (e.ClickCount >= 2 && picked.Kind == QuickAnnotationKind.Callout)
                             _ = EditCalloutAsync(hit.Row, picked);
-                        else if (e.ClickCount >= 2 && picked.Kind is QuickAnnotationKind.Typewriter or QuickAnnotationKind.Comment)
+                        else if (e.ClickCount >= 2 && picked.Kind == QuickAnnotationKind.Typewriter)
                             _ = OpenAnnotationEditorAsync(hit, picked.Kind, picked);
                         else
+                            // Ghi chú (icon Note): thả chuột không kéo = hiện popup ngay tại chỗ (kiểu Word) —
+                            // xem FinishAnnotationMove (chỉ khi move.Moved vẫn false, tức bấm chứ không kéo).
                             BeginAnnotationMove(hit, picked);
                     }
                     else
@@ -550,6 +552,31 @@ namespace XTPdfMergeApp
             var reply = new QuickAnnotationSpec(NewAnnotationName(), QuickAnnotationKind.Reply, row.PageNumber,
                 Math.Min(.95, source.U2 + .01), Math.Min(.95, source.V1 + .01), 0, 0, text) { Format = "R|" + source.Name };
             CommitAnnotationChange(row, new QuickAnnotationChange(null, PdfQuickAnnotationService.WithMeasuredSize(reply, page.Geometry)), "Reply to comment");
+        }
+
+        private CommentPopup? _commentPopup;
+
+        /// <summary>Bấm icon Note (không kéo) = popup ngay tại chỗ, kiểu Word: tác giả/ngày/nội dung + toàn bộ
+        /// reply (dàn phẳng theo thời gian, như CommentsPanel) + 1 ô Reply — khỏi cần mở panel Comments.</summary>
+        private void ShowCommentPopup(PageRow row, QuickAnnotationSpec noteSpec)
+        {
+            _commentPopup?.Close();
+            var page = GetCachedPageAnnotations(row);
+            var all = page?.Annotations ?? Array.Empty<QuickAnnotationSpec>();
+            CommentInfo ToInfo(QuickAnnotationSpec s) => new(row.SourcePath, row.PageNumber, s.Name, s.Kind, s.Author, s.Date, s.Text, s.Resolved);
+            var root = ToInfo(noteSpec);
+            var replies = all.Where(a => a.Kind == QuickAnnotationKind.Reply && a.Format.StartsWith("R|", StringComparison.Ordinal) && a.Format[2..] == noteSpec.Name)
+                .OrderBy(a => a.Date).Select(ToInfo).ToList();
+            if (!TryPageToLayer(row, noteSpec.U1, noteSpec.V1, out Point anchor)) return;
+            Point devicePoint = ReaderInteractionLayer.PointToScreen(anchor);
+            var fromDevice = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
+            Point screen = fromDevice.Transform(devicePoint);
+            var popup = CommentPopup.Show(this, screen, root, replies);
+            popup.ReplySubmitted += text => AddInlineReply(root, text);
+            popup.EditRequested += text => EditInlineComment(root, text);
+            popup.DeleteRequested += () => { DeleteInlineComment(root); SelectAnnotation(null, null); };
+            popup.ResolvedToggled += async resolved => { if (EditHost != null) await EditHost.SetCommentResolvedAsync(root.Path, root.Page, root.Name, resolved); };
+            _commentPopup = popup;
         }
 
         private async void EditInlineComment(CommentInfo info, string text)

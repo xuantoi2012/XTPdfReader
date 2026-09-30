@@ -142,7 +142,12 @@ namespace XTPdfMergeApp
                 AnnotationLayer.Edit.MoveName = null;
                 ReaderContinuousView.Redraw();
             }
-            if (!move.Moved || (Math.Abs(move.DeltaU) < 1e-6 && Math.Abs(move.DeltaV) < 1e-6)) { UpdateSelectionVisual(); return true; }
+            if (!move.Moved || (Math.Abs(move.DeltaU) < 1e-6 && Math.Abs(move.DeltaV) < 1e-6))
+            {
+                UpdateSelectionVisual();
+                if (!move.Moved && move.Spec.Kind == QuickAnnotationKind.Comment) ShowCommentPopup(move.Row, move.Spec);
+                return true;
+            }
 
             // Dời giữ nguyên appearance (và số đối tượng của chú thích lấy từ file: Save chỉ dịch toạ độ).
             var s = move.Spec;

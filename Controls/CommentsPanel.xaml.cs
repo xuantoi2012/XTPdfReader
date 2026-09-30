@@ -162,7 +162,7 @@ namespace XTPdfMergeApp.Controls
             return brushes;
         }
 
-        private static (string Initials, Brush Avatar) PersonStyle(string author)
+        internal static (string Initials, Brush Avatar) PersonStyle(string author)
         {
             string[] parts = author.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             string initials = parts.Length switch
