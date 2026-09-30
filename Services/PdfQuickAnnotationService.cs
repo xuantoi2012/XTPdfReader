@@ -693,8 +693,8 @@ namespace XTPdfMergeApp.Services
             var rect = DisplayBoxToUser(geometry, spec.U1, spec.V1, 1, 1);
             var annot = new PdfTextAnnotation(rect);
             annot.SetContents(new PdfString(spec.Text, PdfEncodings.UNICODE_BIG));
-            annot.GetPdfObject().Put(PdfName.F, new PdfNumber(PdfAnnotation.PRINT | PdfAnnotation.HIDDEN));
             StampCommon(annot, spec);
+            annot.SetFlags(PdfAnnotation.PRINT | PdfAnnotation.HIDDEN); // sau StampCommon: nó tự đặt /F = PRINT, sẽ đè mất HIDDEN nếu đặt trước
             page.AddAnnotation(annot);
 
             string parentName = spec.Format.StartsWith("R|", StringComparison.Ordinal) ? spec.Format[2..] : "";
@@ -784,10 +784,13 @@ namespace XTPdfMergeApp.Services
             var geometry = GetGeometry(page);
             var callout = DecodeCallout(spec.Format);
             var format = TextFormat.Decode(callout.TextFormat);
-            string[] lines = SplitLines(spec.Text);
             float size = (float)format.Size, lead = size * TypewriterLineHeight;
-            float width = Math.Max(100f, lines.Max(l => font.GetWidth(l, size)) + 2 * TypewriterPadding);
-            float height = Math.Max(28f, lines.Length * lead + 2 * TypewriterPadding);
+            // Hộp là spec.U1..V2 THẬT (người dùng kéo-giãn bằng tay qua grip) chứ không tự co theo chữ mỗi lần vẽ
+            // lại — vì vậy chữ phải tự xuống dòng (word-wrap) theo đúng bề ngang hộp, tràn quá cao thì bị cắt (clip),
+            // giống hệt cách 1 callout thật trong Foxit hoạt động.
+            float width = Math.Max(40f, (float)((spec.U2 - spec.U1) * geometry.DisplayWidth));
+            float height = Math.Max(20f, (float)((spec.V2 - spec.V1) * geometry.DisplayHeight));
+            string[] lines = WrapLines(SplitLines(spec.Text), font, size, Math.Max(4f, width - 2 * TypewriterPadding));
 
             // TOÀN BỘ hình học dưới đây tính bằng đơn vị HIỂN THỊ (trục X sang phải, trục Y XUỐNG DƯỚI — như
             // spec.U/V), CHỈ đổi sang user-space (trục Y lên trên, theo /Rotate trang) đúng 1 lần ở /Rect và /CL.
@@ -861,17 +864,43 @@ namespace XTPdfMergeApp.Services
                 .SetLineCapStyle(PdfCanvasConstants.LineCapStyle.ROUND).SetLineJoinStyle(PdfCanvasConstants.LineJoinStyle.ROUND)
                 .MoveTo(ltx, lty).LineTo(lax, lky).LineTo(lax, lay).Stroke();
             canvas.SetFillColor(fillColor).SetStrokeColor(borderColor).Rectangle(lox, loy, width, height).FillStroke();
-            canvas.BeginText().SetFontAndSize(font, size).SetFillColor(color)
+            canvas.SaveState().Rectangle(lox, loy, width, height).Clip().EndPath()
+                .BeginText().SetFontAndSize(font, size).SetFillColor(color)
                 .MoveText(lox + TypewriterPadding, loy + height - TypewriterPadding - size * 0.9f);
             for (int i = 0; i < lines.Length; i++)
             {
                 if (i > 0) canvas.MoveText(0, -lead);
                 canvas.ShowText(lines[i]);
             }
-            canvas.EndText().RestoreState().Release();
+            canvas.EndText().RestoreState().RestoreState().Release();
             annot.SetNormalAppearance(form.GetPdfObject());
 
             page.AddAnnotation(annot);
+        }
+
+        /// <summary>Xuống dòng kiểu "tham lam" (word-wrap) từng đoạn theo bề ngang chữ thật (font.GetWidth) —
+        /// một từ dài hơn cả hộp thì cứ để tràn 1 dòng riêng, không cắt giữa từ.</summary>
+        private static string[] WrapLines(string[] paragraphs, PdfFont font, float size, float maxWidth)
+        {
+            var result = new List<string>();
+            foreach (string paragraph in paragraphs)
+            {
+                string[] words = paragraph.Split(' ');
+                if (words.Length == 0 || (words.Length == 1 && words[0].Length == 0)) { result.Add(""); continue; }
+                string line = "";
+                foreach (string word in words)
+                {
+                    string candidate = line.Length == 0 ? word : line + " " + word;
+                    if (line.Length > 0 && font.GetWidth(candidate, size) > maxWidth)
+                    {
+                        result.Add(line);
+                        line = word;
+                    }
+                    else line = candidate;
+                }
+                result.Add(line);
+            }
+            return result.ToArray();
         }
 
         /// <summary>Writes a standard /Ink annotation, not a flattened image. The point list remains usable by

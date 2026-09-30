@@ -538,7 +538,8 @@ namespace XTPdfMergeApp
             }
             var page = await LoadPageAnnotationsAsync(row);
             if (page == null) return;
-            var changed = PdfQuickAnnotationService.WithMeasuredSize(Regenerated(existing) with { Text = text }, page.Geometry);
+            // Giữ nguyên kích thước hộp người dùng có thể đã kéo-giãn bằng tay (grip) — chỉ xuống dòng lại chữ cho khớp.
+            var changed = Regenerated(existing) with { Text = text };
             CommitAnnotationChange(row, new QuickAnnotationChange(existing, changed), "Edit callout");
         }
 

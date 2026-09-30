@@ -440,6 +440,29 @@ internal static class Program
             bool swappedAsExpected = Math.Abs(bboxW - rect.GetHeight()) < 1 && Math.Abs(bboxH - rect.GetWidth()) < 1;
             Check(swappedAsExpected, "Callout AP BBox stays in display-space units on a rotated page (not swapped to match /Rect)");
         }
+
+        // Callout vẫn là 1 object (mũi tên + hộp cùng 1 FreeText, đúng kiểu Foxit) nhưng hộp giờ lấy kích thước
+        // THẬT từ spec.U1..V2 (chỉnh tay được qua grip) thay vì tự co theo chữ mỗi lần vẽ — nên chữ phải word-wrap.
+        string resizedPath = System.IO.Path.Combine(Output, "callout-resized.pdf");
+        using (var document = new PdfDocument(new PdfWriter(resizedPath)))
+        {
+            var page = document.AddNewPage(new PageSize(400, 300));
+            var geometry = PdfQuickAnnotationService.GetGeometry(page);
+            var spec = new QuickAnnotationSpec("test-callout-resized", QuickAnnotationKind.Callout, 1, .1, .1,
+                .1 + 90.0 / geometry.DisplayWidth, .1 + 60.0 / geometry.DisplayHeight, // hộp hẹp, ép phải xuống dòng
+                "A long callout sentence that must wrap onto more than one line")
+            {
+                Format = PdfQuickAnnotationService.EncodeCallout(.6, .1, TextFormat.Default.Encode())
+            };
+            PdfQuickAnnotationService.AddGenerated(document, page, spec, new PdfQuickAnnotationService.FontSet());
+            var annotation = page.GetAnnotations().Single();
+            Check(PdfName.FreeText.Equals(annotation.GetSubtype()) && annotation.GetPdfObject().GetAsArray(PdfName.CL)?.Size() == 6,
+                "Manually resized callout is still 1 FreeText object with its leader line — not split in two");
+            var ap = annotation.GetPdfObject().GetAsDictionary(PdfName.AP)!.GetAsStream(PdfName.N)!;
+            string content = System.Text.Encoding.ASCII.GetString(ap.GetBytes());
+            int showTextCount = System.Text.RegularExpressions.Regex.Matches(content, @"\bTj\b").Count;
+            Check(showTextCount > 1, "Callout text wraps onto multiple lines to fit a manually resized (narrow) box");
+        }
     }
 
     static void TestReplyAnnotation()
@@ -453,6 +476,13 @@ internal static class Program
             PdfQuickAnnotationService.AddGenerated(document, page, PdfQuickAnnotationService.WithMeasuredSize(new QuickAnnotationSpec("reply", QuickAnnotationKind.Reply, 1, .3, .2, 0, 0, "Answer") { Format = "R|parent" }, geometry), new PdfQuickAnnotationService.FontSet());
             var reply = page.GetAnnotations().First(a => a.GetName()?.ToUnicodeString() == "reply");
             Check(reply.GetPdfObject().Get(PdfName.IRT) != null && reply.GetPdfObject().GetAsName(PdfName.RT)?.GetValue() == "R", "Reply writes standard IRT parent relationship");
+            // Word-style: chỉ 1 icon trên trang cho cả luồng — reply không tự vẽ icon riêng (Hidden), khác chú thích gốc.
+            const int hiddenFlag = 2; // iText.Kernel.Pdf.Annot.PdfAnnotation.HIDDEN
+            int flags = reply.GetPdfObject().GetAsNumber(PdfName.F)?.IntValue() ?? 0;
+            Check((flags & hiddenFlag) != 0, "Reply is flagged Hidden so it draws no icon of its own on the page");
+            var parent = page.GetAnnotations().First(a => a.GetName()?.ToUnicodeString() == "parent");
+            int parentFlags = parent.GetPdfObject().GetAsNumber(PdfName.F)?.IntValue() ?? 0;
+            Check((parentFlags & hiddenFlag) == 0, "The root comment (not a reply) still draws its one icon normally");
         }
     }
 
