@@ -232,11 +232,8 @@ namespace XTPdfMergeApp.Services
             var subtype = annot.GetSubtype();
             if (annot.GetPdfObject().ContainsKey(ShapeKey)) return QuickAnnotationKind.Shape;
             if (PdfName.FreeText.Equals(subtype))
-            {
-                string? f = annot.GetPdfObject().GetAsString(FormatKey)?.GetValue();
-                return f != null && (f.StartsWith("C|", StringComparison.Ordinal) || f.StartsWith("C0|", StringComparison.Ordinal))
+                return annot.GetPdfObject().GetAsString(FormatKey)?.GetValue().StartsWith("C|", StringComparison.Ordinal) == true
                     ? QuickAnnotationKind.Callout : QuickAnnotationKind.Typewriter;
-            }
             if (PdfName.Text.Equals(subtype)) return annot.GetPdfObject().Get(PdfName.IRT) != null ? QuickAnnotationKind.Reply : QuickAnnotationKind.Comment;
             if (PdfName.Highlight.Equals(subtype)) return QuickAnnotationKind.Highlight;
             if (PdfName.Underline.Equals(subtype)) return QuickAnnotationKind.Underline;
@@ -331,13 +328,8 @@ namespace XTPdfMergeApp.Services
                     break;
                 }
                 case QuickAnnotationKind.Callout:
-                {
-                    var callout = DecodeCallout(spec.Format);
-                    var font = fonts.For(TextFormat.Decode(callout.TextFormat));
-                    if (callout.HasLeader) AddCallout(doc, page, spec, font); // file cũ: 1 FreeText tự vẽ cả đường dẫn
-                    else AddCalloutBox(doc, page, spec, font); // mới: chỉ hộp chữ — mũi tên là 1 Shape riêng
+                    AddCallout(doc, page, spec, fonts.For(TextFormat.Decode(DecodeCallout(spec.Format).TextFormat)));
                     break;
-                }
                 case QuickAnnotationKind.Comment:
                     AddComment(doc, page, spec);
                     break;
@@ -882,78 +874,6 @@ namespace XTPdfMergeApp.Services
             page.AddAnnotation(annot);
         }
 
-        /// <summary>Callout kiểu mới: CHỈ là hộp chữ viền/nền xanh (không đường dẫn riêng — mũi tên đi kèm là 1
-        /// Shape Arrow độc lập, xem <see cref="ReaderWindow"/>/BuildCalloutArrow). Khác Typewriter/AddCallout cũ ở
-        /// chỗ kích thước hộp lấy THẲNG từ spec.U1..V2 (người dùng chỉnh tay bằng grip), không tự co theo chữ —
-        /// nên cần xuống dòng theo bề ngang hộp (word-wrap) và cắt (clip) phần chữ tràn ra ngoài.</summary>
-        private static void AddCalloutBox(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec, PdfFont font)
-        {
-            var geometry = GetGeometry(page);
-            var callout = DecodeCallout(spec.Format);
-            var format = TextFormat.Decode(callout.TextFormat);
-            float size = (float)format.Size, lead = size * TypewriterLineHeight;
-            float width = (float)Math.Max(20.0, (spec.U2 - spec.U1) * geometry.DisplayWidth);
-            float height = (float)Math.Max(16.0, (spec.V2 - spec.V1) * geometry.DisplayHeight);
-            float maxTextWidth = Math.Max(4f, width - 2 * TypewriterPadding);
-            string[] lines = WrapLines(SplitLines(spec.Text), font, size, maxTextWidth);
-
-            var rect = DisplayBoxToUser(geometry, spec.U1, spec.V1, width, height);
-            var annot = new PdfFreeTextAnnotation(rect, new PdfString(spec.Text, PdfEncodings.UNICODE_BIG));
-            var color = ParseColor(format.Color);
-            var rgb = color.GetColorValue();
-            annot.SetDefaultAppearance(new PdfString(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{rgb[0]:0.###} {rgb[1]:0.###} {rgb[2]:0.###} rg /Helv {size:0.##} Tf")));
-            annot.GetPdfObject().Put(FormatKey, new PdfString(spec.Format, PdfEncodings.UNICODE_BIG));
-            annot.GetPdfObject().Put(PdfName.BS, new PdfDictionary(new Dictionary<PdfName, PdfObject> { [PdfName.W] = new PdfNumber(1.2) }));
-            var borderColor = new DeviceRgb(0.357f, 0.608f, 0.835f);
-            var fillColor = new DeviceRgb(0.863f, 0.922f, 0.969f);
-            annot.GetPdfObject().Put(PdfName.C, new PdfArray(new float[] { 0.357f, 0.608f, 0.835f }));
-            annot.GetPdfObject().Put(PdfName.IC, new PdfArray(new float[] { 0.863f, 0.922f, 0.969f }));
-            if (geometry.Rotation != 0) annot.GetPdfObject().Put(PdfName.Rotate, new PdfNumber(geometry.Rotation));
-            StampCommon(annot, spec);
-
-            var form = new PdfFormXObject(new Rectangle(0, 0, width, height));
-            SetRotationMatrix(form, geometry.Rotation);
-            var canvas = new PdfCanvas(form, doc);
-            canvas.SaveState().SetFillColor(fillColor).SetStrokeColor(borderColor).SetLineWidth(1.2f)
-                .Rectangle(0.6f, 0.6f, width - 1.2f, height - 1.2f).FillStroke();
-            canvas.SaveState().Rectangle(0, 0, width, height).Clip().EndPath()
-                .BeginText().SetFontAndSize(font, size).SetFillColor(color)
-                .MoveText(TypewriterPadding, height - TypewriterPadding - size * 0.9f);
-            for (int i = 0; i < lines.Length; i++)
-            {
-                if (i > 0) canvas.MoveText(0, -lead);
-                canvas.ShowText(lines[i]);
-            }
-            canvas.EndText().RestoreState().RestoreState().Release();
-            annot.SetNormalAppearance(form.GetPdfObject());
-            page.AddAnnotation(annot);
-        }
-
-        /// <summary>Xuống dòng kiểu "tham lam" (word-wrap) từng đoạn theo bề ngang chữ thật (font.GetWidth) —
-        /// một từ dài hơn cả hộp thì cứ để tràn 1 dòng riêng, không cắt giữa từ.</summary>
-        private static string[] WrapLines(string[] paragraphs, PdfFont font, float size, float maxWidth)
-        {
-            var result = new List<string>();
-            foreach (string paragraph in paragraphs)
-            {
-                string[] words = paragraph.Split(' ');
-                if (words.Length == 0 || (words.Length == 1 && words[0].Length == 0)) { result.Add(""); continue; }
-                string line = "";
-                foreach (string word in words)
-                {
-                    string candidate = line.Length == 0 ? word : line + " " + word;
-                    if (line.Length > 0 && font.GetWidth(candidate, size) > maxWidth)
-                    {
-                        result.Add(line);
-                        line = word;
-                    }
-                    else line = candidate;
-                }
-                result.Add(line);
-            }
-            return result.ToArray();
-        }
-
         /// <summary>Writes a standard /Ink annotation, not a flattened image. The point list remains usable by
         /// Acrobat/Foxit, while the explicit appearance makes it render consistently in PDFium.</summary>
         private static void AddInk(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec)
@@ -1031,27 +951,20 @@ namespace XTPdfMergeApp.Services
         internal static string EncodeInkPoints(IEnumerable<(double U, double V)> points)
             => "I|" + string.Join(";", points.Select(p => p.U.ToString("0.#####", System.Globalization.CultureInfo.InvariantCulture) + "," + p.V.ToString("0.#####", System.Globalization.CultureInfo.InvariantCulture)));
 
-        /// <summary>Định dạng cũ (1 FreeText tự vẽ luôn đường dẫn) — vẫn đọc được để không hỏng file cũ, nhưng
-        /// không còn tạo mới: callout mới là 2 chú thích riêng (mũi tên Shape + hộp chữ <see cref="EncodeCalloutBox"/>).</summary>
         internal static string EncodeCallout(double tipU, double tipV, string textFormat)
             => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"C|{tipU:0.#####},{tipV:0.#####}|{textFormat}");
 
-        /// <summary>Hộp chữ callout kiểu mới: không có đường dẫn/điểm chỉ riêng (đó là 1 Shape Arrow tách biệt) —
-        /// kích thước hộp là spec.U1..V2 thật (chỉnh được bằng tay), không tự co theo chữ mỗi lần sửa.</summary>
-        internal static string EncodeCalloutBox(string textFormat) => "C0|" + textFormat;
-
-        internal static (double TipU, double TipV, string TextFormat, bool HasLeader) DecodeCallout(string format)
+        internal static (double TipU, double TipV, string TextFormat) DecodeCallout(string format)
         {
-            if (format.StartsWith("C0|", StringComparison.Ordinal)) return (0, 0, format[3..], false);
             if (format.StartsWith("C|", StringComparison.Ordinal))
             {
                 var parts = format[2..].Split('|', 2);
                 var point = parts[0].Split(',');
                 if (point.Length == 2 && double.TryParse(point[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double u) &&
                     double.TryParse(point[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v))
-                    return (u, v, parts.Length == 2 ? parts[1] : "", true);
+                    return (u, v, parts.Length == 2 ? parts[1] : "");
             }
-            return (0, 0, "", false);
+            return (0, 0, "");
         }
 
         public static string EncodeTextHighlight(System.Collections.Generic.IEnumerable<(double U1, double V1, double U2, double V2)> rects)

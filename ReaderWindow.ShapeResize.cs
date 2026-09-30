@@ -31,22 +31,17 @@ namespace XTPdfMergeApp
         private ShapeResizeDrag? _shapeResizeDrag;
 
         /// <summary>Shows/positions the grips for the current selection — called from UpdateSelectionVisual whenever it runs.</summary>
-        /// <summary>Callout mới (hộp chữ riêng, không đường dẫn) dùng lại đúng 8 grip hộp của Shape — chỉ khác là
-        /// không bao giờ có 2-grip đường thẳng (Callout không phải Line/Arrow).</summary>
-        private static bool IsResizableBox(QuickAnnotationSpec spec)
-            => spec.Kind == QuickAnnotationKind.Shape && !ShapeStyle.Decode(spec.Format).IsLine || spec.Kind == QuickAnnotationKind.Callout;
-
         private void UpdateShapeGrips()
         {
             if (_shapeResizeDrag != null || _lineResizeDrag != null || _annotationEditor != null || _annMove != null ||
-                _selAnn is not { } selected || _selRow is not { } row || selected.Kind is not (QuickAnnotationKind.Shape or QuickAnnotationKind.Callout))
+                _selAnn is not { Kind: QuickAnnotationKind.Shape } selected || _selRow is not { } row)
             {
                 foreach (var g in ShapeGrips) g.Visibility = Visibility.Collapsed;
                 foreach (var g in LineGrips) g.Visibility = Visibility.Collapsed;
                 return;
             }
 
-            var style = selected.Kind == QuickAnnotationKind.Shape ? ShapeStyle.Decode(selected.Format) : ShapeStyle.Default;
+            var style = ShapeStyle.Decode(selected.Format);
             if (!style.IsLine && TryPageToLayer(row, selected.U1, selected.V1, out Point a) &&
                 TryPageToLayer(row, selected.U2, selected.V2, out Point b))
             {
@@ -98,13 +93,11 @@ namespace XTPdfMergeApp
 
         private void Grip_MouseDown(object sender, MouseButtonEventArgs e)
         {
-            if (_selAnn is not { } spec || _selRow is not { } row || sender is not Rectangle grip || !IsResizableBox(spec)) return;
+            if (_selAnn is not { Kind: QuickAnnotationKind.Shape } spec || _selRow is not { } row || sender is not Rectangle grip) return;
             e.Handled = true;
-            // Callout không có ShapeStyle thật (format là "C0|...") — chỉ cần 1 kiểu bất kỳ để vẽ khung xem trước lúc kéo.
-            var style = spec.Kind == QuickAnnotationKind.Shape ? ShapeStyle.Decode(spec.Format) : new ShapeStyle(ShapeStyle.Rect, "#5B9BD5", 1.2, 0);
             _shapeResizeDrag = new ShapeResizeDrag
             {
-                Row = row, Spec = spec, Style = style, Handle = (string)grip.Tag,
+                Row = row, Spec = spec, Style = ShapeStyle.Decode(spec.Format), Handle = (string)grip.Tag,
                 U1 = spec.U1, V1 = spec.V1, U2 = spec.U2, V2 = spec.V2
             };
             Controls.AnnotationLayer.Edit.HiddenName = spec.Name;
@@ -142,8 +135,7 @@ namespace XTPdfMergeApp
             {
                 var changed = Regenerated(s) with { U1 = drag.U1, V1 = drag.V1, U2 = drag.U2, V2 = drag.V2 };
                 _selAnn = changed;
-                string kind = s.Kind == QuickAnnotationKind.Callout ? "callout" : ShapeStyle.Decode(s.Format).Type.ToLowerInvariant();
-                CommitAnnotationChange(drag.Row, new QuickAnnotationChange(s, changed), "Resize " + kind);
+                CommitAnnotationChange(drag.Row, new QuickAnnotationChange(s, changed), "Resize " + ShapeStyle.Decode(s.Format).Type.ToLowerInvariant());
             }
             ReaderContinuousView.Redraw();
             UpdateSelectionVisual();
