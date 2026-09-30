@@ -805,12 +805,11 @@ namespace XTPdfMergeApp.Services
             double boxDispRight = boxDispLeft + width, boxDispBottom = boxDispTop + height;
             double tipDispX = callout.TipU * dw, tipDispY = callout.TipV * dh;
 
-            // Đường dẫn nối vào mép trên hộp, hơi lệch trái (không đúng giữa) — kiểu Foxit. Có khúc gấp: đoạn chéo
-            // dài từ điểm chỉ tới 1 điểm "gối" sát hộp, rồi 1 đoạn ngắn vuông góc nối vào hộp — dễ đọc hơn hẳn 1
-            // đường chéo thẳng tuột thẳng vào giữa hộp.
-            double attachDispX = boxDispLeft + Math.Min(width * 0.25, 24.0);
-            const double kneeOffset = 14;
-            double kneeDispY = Math.Abs(tipDispY - boxDispTop) > kneeOffset ? boxDispTop + Math.Sign(tipDispY - boxDispTop) * kneeOffset : tipDispY;
+            // Đường dẫn = 1 đoạn THẲNG duy nhất, không khúc gấp — đúng như callout thật vẽ trong Foxit (đã mở Foxit
+            // PhantomPDF, vẽ thử 1 callout để so, xem Tests/... không có, chỉ quan sát tay): 1 đường chéo thẳng từ
+            // điểm chỉ tới điểm GẦN NHẤT trên biên hộp (không phải luôn góc trên-trái cố định như bản cũ).
+            double attachDispX = Math.Clamp(tipDispX, boxDispLeft, boxDispRight);
+            double attachDispY = Math.Clamp(tipDispY, boxDispTop, boxDispBottom);
 
             // /Rect (và AP) phải phủ luôn cả điểm chỉ + đường dẫn, không chỉ riêng hộp chữ — nếu không đường dẫn
             // sẽ bị cắt ở đúng mép hộp khi vẽ.
@@ -822,9 +821,7 @@ namespace XTPdfMergeApp.Services
                 unionDispLeft / dw, unionDispTop / dh, unionDispRight / dw, unionDispBottom / dh);
             var rect = new Rectangle((float)rLeft, (float)rBottom, (float)(rRight - rLeft), (float)(rTop - rBottom));
             var (tipX, tipY, _, _) = geometry.DisplayRectToUser(callout.TipU, callout.TipV, callout.TipU, callout.TipV);
-            double attachU = attachDispX / dw, boxTopV = boxDispTop / dh, kneeV = kneeDispY / dh;
-            var (attachX, boxTopY, _, _) = geometry.DisplayRectToUser(attachU, boxTopV, attachU, boxTopV);
-            var (_, kneeY, _, _) = geometry.DisplayRectToUser(attachU, kneeV, attachU, kneeV);
+            var (attachX, attachY, _, _) = geometry.DisplayRectToUser(attachDispX / dw, attachDispY / dh, attachDispX / dw, attachDispY / dh);
 
             var annot = new PdfFreeTextAnnotation(rect, new PdfString(spec.Text, PdfEncodings.UNICODE_BIG));
             var color = ParseColor(format.Color);
@@ -834,17 +831,18 @@ namespace XTPdfMergeApp.Services
             // Cố tình KHÔNG đặt /IT = FreeTextCallout (khác Typewriter): PDFium coi đây là tín hiệu "tự vẽ lại
             // appearance của tôi" cho callout (có lẽ vì có /CL) và đè hẳn lên /AP mình đã vẽ. Loại Callout vẫn
             // nhận ra được khi đọc lại nhờ tiền tố "C|" sẵn có trong <see cref="FormatKey"/> (xem DecodeCallout).
+            // /CL 4 số = 2 điểm = 1 đoạn thẳng (đúng dạng chuẩn PDF, không phải dạng "khớp gối" 3 điểm/6 số).
             annot.GetPdfObject().Put(PdfName.CL, new PdfArray(new PdfObject[]
             {
-                new PdfNumber(tipX), new PdfNumber(tipY), new PdfNumber(attachX), new PdfNumber(kneeY), new PdfNumber(attachX), new PdfNumber(boxTopY)
+                new PdfNumber(tipX), new PdfNumber(tipY), new PdfNumber(attachX), new PdfNumber(attachY)
             }));
             annot.GetPdfObject().Put(PdfName.BS, new PdfDictionary(new Dictionary<PdfName, PdfObject> { [PdfName.W] = new PdfNumber(1.2) }));
-            // Viền xanh + nền xanh nhạt (kiểu Foxit) thay vì trong suốt — dễ thấy hộp trên nền bản vẽ dày đặc nét,
-            // không ăn theo màu chữ người dùng chọn (_textFormat.Color, đổi riêng).
-            var borderColor = new DeviceRgb(0.357f, 0.608f, 0.835f);
-            var fillColor = new DeviceRgb(0.863f, 0.922f, 0.969f);
-            annot.GetPdfObject().Put(PdfName.C, new PdfArray(new float[] { 0.357f, 0.608f, 0.835f }));
-            annot.GetPdfObject().Put(PdfName.IC, new PdfArray(new float[] { 0.863f, 0.922f, 0.969f }));
+            // Viền + nền xanh nhạt kiểu Foxit — đo trực tiếp màu pixel trên 1 callout Foxit thật vẽ ra (RGB 117,157,184
+            // viền / 235,243,245 nền), không phải đoán mắt thường.
+            var borderColor = new DeviceRgb(0.459f, 0.616f, 0.722f);
+            var fillColor = new DeviceRgb(0.922f, 0.953f, 0.961f);
+            annot.GetPdfObject().Put(PdfName.C, new PdfArray(new float[] { 0.459f, 0.616f, 0.722f }));
+            annot.GetPdfObject().Put(PdfName.IC, new PdfArray(new float[] { 0.922f, 0.953f, 0.961f }));
             StampCommon(annot, spec);
 
             // AP thật (tự vẽ đường dẫn + hộp viền/nền + chữ) thay vì để PDFium tự sinh appearance từ /CL, /C, /IC —
@@ -858,11 +856,11 @@ namespace XTPdfMergeApp.Services
             float ToLocalY(double dispY) => (float)(unionDispHeight - (dispY - unionDispTop));
             float lox = ToLocalX(boxDispLeft), loy = ToLocalY(boxDispBottom); // góc dưới-trái của hộp, toạ độ cục bộ
             float ltx = ToLocalX(tipDispX), lty = ToLocalY(tipDispY);
-            float lax = ToLocalX(attachDispX), lay = ToLocalY(boxDispTop), lky = ToLocalY(kneeDispY);
+            float lax = ToLocalX(attachDispX), lay = ToLocalY(attachDispY);
 
             canvas.SaveState().SetStrokeColor(borderColor).SetLineWidth(1.2f)
                 .SetLineCapStyle(PdfCanvasConstants.LineCapStyle.ROUND).SetLineJoinStyle(PdfCanvasConstants.LineJoinStyle.ROUND)
-                .MoveTo(ltx, lty).LineTo(lax, lky).LineTo(lax, lay).Stroke();
+                .MoveTo(ltx, lty).LineTo(lax, lay).Stroke();
             canvas.SetFillColor(fillColor).SetStrokeColor(borderColor).Rectangle(lox, loy, width, height).FillStroke();
             canvas.SaveState().Rectangle(lox, loy, width, height).Clip().EndPath()
                 .BeginText().SetFontAndSize(font, size).SetFillColor(color)

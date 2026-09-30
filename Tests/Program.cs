@@ -399,9 +399,9 @@ internal static class Program
             };
             PdfQuickAnnotationService.AddGenerated(document, page, PdfQuickAnnotationService.WithMeasuredSize(spec, PdfQuickAnnotationService.GetGeometry(page)), new PdfQuickAnnotationService.FontSet());
             var annotation = page.GetAnnotations().Single();
-            // 6 số = 3 điểm (có khúc gấp gần hộp, kiểu Foxit/Acrobat) thay vì 4 số = đường thẳng 1 đoạn.
-            Check(PdfName.FreeText.Equals(annotation.GetSubtype()) && annotation.GetPdfObject().GetAsArray(PdfName.CL)?.Size() == 6,
-                "Callout writes FreeText plus a kneed leader line");
+            // 4 số = 2 điểm = 1 đoạn thẳng — đúng kiểu Foxit thật (đã mở Foxit vẽ thử để so: đường dẫn không có khúc gấp).
+            Check(PdfName.FreeText.Equals(annotation.GetSubtype()) && annotation.GetPdfObject().GetAsArray(PdfName.CL)?.Size() == 4,
+                "Callout writes FreeText plus a single straight leader line (no knee, matching real Foxit)");
             Check(annotation.GetPdfObject().GetAsArray(PdfName.C)?.Size() == 3 && annotation.GetPdfObject().GetAsArray(PdfName.IC)?.Size() == 3,
                 "Callout has a border colour and a fill colour (Foxit-style box, not transparent)");
         }
@@ -456,7 +456,7 @@ internal static class Program
             };
             PdfQuickAnnotationService.AddGenerated(document, page, spec, new PdfQuickAnnotationService.FontSet());
             var annotation = page.GetAnnotations().Single();
-            Check(PdfName.FreeText.Equals(annotation.GetSubtype()) && annotation.GetPdfObject().GetAsArray(PdfName.CL)?.Size() == 6,
+            Check(PdfName.FreeText.Equals(annotation.GetSubtype()) && annotation.GetPdfObject().GetAsArray(PdfName.CL)?.Size() == 4,
                 "Manually resized callout is still 1 FreeText object with its leader line — not split in two");
             var ap = annotation.GetPdfObject().GetAsDictionary(PdfName.AP)!.GetAsStream(PdfName.N)!;
             string content = System.Text.Encoding.ASCII.GetString(ap.GetBytes());
