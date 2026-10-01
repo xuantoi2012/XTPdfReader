@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -79,6 +79,9 @@ namespace XTPdfMergeApp
 
         private void SetReaderTool(ReaderTool tool)
         {
+            if (_readerPage is { } page && tool is not (ReaderTool.Hand or ReaderTool.Select) &&
+                !PdfPermissionDialog.Require(this, new[] { page.SourcePath },
+                    tool == ReaderTool.SnapShot ? PdfPermissionOperation.Copy : PdfPermissionOperation.Annotate)) return;
             CommitAnnotationEditor();
             CancelHighlightDrag();
             CancelInkDrag();
@@ -414,7 +417,7 @@ namespace XTPdfMergeApp
                 uri.Scheme.Equals(Uri.UriSchemeMailto, StringComparison.OrdinalIgnoreCase);
             if (!safeScheme)
             {
-                MessageBox.Show(this, $"This PDF link uses an unsupported protocol:\n{uri.Scheme}", "PDF link",
+                AppDialog.Show(this, $"This PDF link uses an unsupported protocol:\n{uri.Scheme}", "PDF link",
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -424,7 +427,7 @@ namespace XTPdfMergeApp
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "Could not open the link:\n" + ex.Message, "PDF link", MessageBoxButton.OK, MessageBoxImage.Error);
+                AppDialog.Show(this, "Could not open the link:\n" + ex.Message, "PDF link", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

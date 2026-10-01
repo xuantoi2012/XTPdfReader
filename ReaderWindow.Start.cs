@@ -15,7 +15,7 @@ using DocumentGroup = XTPdfMergeApp.Domain.WorkspaceDocument;
 namespace XTPdfMergeApp
 {
     /// <summary>
-    /// Màn hình Start (Recent, Workspaces), thanh vàng "file đổi trên đĩa" và bảng lệnh Ctrl+K của cửa sổ đọc
+    /// Màn hình Start (Recent, Quick tools), thanh vàng "file đổi trên đĩa" và bảng lệnh Ctrl+K của cửa sổ đọc
     /// (docs/UI_REDESIGN.md, P5).
     /// </summary>
     public partial class ReaderWindow
@@ -36,8 +36,11 @@ namespace XTPdfMergeApp
                 if (EditHost != null) _ = EditHost.OpenPathsAsync(new[] { path });
             };
             StartPage.OpenFolderRequested += OpenFolder;
-            StartPage.RestoreRequested += entry => _ = RestoreWorkspaceAsync(entry);
-            StartPage.CurrentFiles = () => (_groups.Select(g => g.SourcePath).ToList(), _readerGroup?.SourcePath);
+            StartPage.NewPdfRequested += () => ReaderNew_Click(this, new RoutedEventArgs());
+            StartPage.MergePdfRequested += () => ReaderShowMergeWindow_Click(this, new RoutedEventArgs());
+            StartPage.ExportPdfRequested += () => OpenExport(preferFlatten: false);
+            StartPage.PrintPdfRequested += () => ReaderPrint_Click(this, new RoutedEventArgs());
+            StartPage.HasActiveDocument = () => _readerGroup?.Pages.Count > 0;
             Loaded += (_, _) => { if (_groups.Count == 0) ShowStart(true); };
             _groups.CollectionChanged += (_, _) =>
             {
@@ -77,8 +80,8 @@ namespace XTPdfMergeApp
             using var dialog = new System.Windows.Forms.FolderBrowserDialog { Description = "Open every PDF in this folder", UseDescriptionForTitle = true };
             if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
             var files = Directory.GetFiles(dialog.SelectedPath, "*.pdf").OrderBy(f => f, StringComparer.CurrentCultureIgnoreCase).ToList();
-            if (files.Count == 0) { MessageBox.Show(this, "There are no PDF files in that folder.", "Open folder", MessageBoxButton.OK, MessageBoxImage.Information); return; }
-            if (files.Count > 12 && MessageBox.Show(this, $"Open all {files.Count} PDF files in this folder?", "Open folder", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            if (files.Count == 0) { AppDialog.Show(this, "There are no PDF files in that folder.", "Open folder", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+            if (files.Count > 12 && AppDialog.Show(this, $"Open all {files.Count} PDF files in this folder?", "Open folder", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             ShowStart(false);
             _ = EditHost.OpenPathsAsync(files);
         }
@@ -111,23 +114,6 @@ namespace XTPdfMergeApp
         }
 
         private void StartButton_Click(object sender, RoutedEventArgs e) => ShowStart(StartPage.Visibility != Visibility.Visible);
-
-        private async Task RestoreWorkspaceAsync(WorkspaceEntry entry)
-        {
-            if (EditHost == null) return;
-            var existing = entry.Files.Where(File.Exists).ToList();
-            int missing = entry.Files.Count - existing.Count;
-            ShowStart(false);
-            if (existing.Count > 0) await EditHost.OpenPathsAsync(existing);
-            if (entry.Active != null)
-            {
-                var active = _groups.FirstOrDefault(g => string.Equals(g.SourcePath, entry.Active, StringComparison.OrdinalIgnoreCase));
-                if (active != null && active.Pages.Count > 0) await ShowPageAsync(active, active.Pages[0], preserveZoomMode: true);
-            }
-            if (missing > 0)
-                MessageBox.Show(this, missing == 1 ? "1 file of this workspace was not found and was skipped." : $"{missing} files of this workspace were not found and were skipped.",
-                    "Restore workspace", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
 
         // ── Thanh "file đổi trên đĩa" ─────────────────────────────────
 
@@ -164,7 +150,7 @@ namespace XTPdfMergeApp
             var group = _readerGroup;
             if (group == null || EditHost == null) return;
             if (group.IsDirty &&
-                MessageBox.Show(this, $"\"{group.FileName}\" has unsaved changes that will be lost. Reload anyway?", "Reload",
+                AppDialog.Show(this, $"\"{group.FileName}\" has unsaved changes that will be lost. Reload anyway?", "Reload",
                     MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
             _changedOnDisk.Remove(group);
             UpdateDiskBanner();
@@ -190,7 +176,7 @@ namespace XTPdfMergeApp
             void Cmd(string title, string shortcut, string icon, Action run) => items.Add(new PaletteItem("Commands", title, shortcut, PaletteIcon(icon), run));
 
             Cmd("Open file…", "Ctrl+O", "folder", () => { if (EditHost != null) _ = EditHost.OpenFilesAsync(); });
-            Cmd("Start: recent files and workspaces", "", "clock", () => ShowStart(true));
+            Cmd("Start: recent files and quick tools", "", "clock", () => ShowStart(true));
             Cmd("Merge files…", "", "merge", () => ReaderShowMergeWindow_Click(this, new RoutedEventArgs()));
             if (_readerGroup != null)
             {
@@ -211,7 +197,6 @@ namespace XTPdfMergeApp
             }
             Cmd("Find in document…", "Ctrl+F", "search", OpenFind);
             if (_readerGroup != null) Cmd("Export / split PDF…", "Ctrl+Shift+E", "export", () => OpenExport(preferFlatten: false));
-            if (_readerGroup != null) Cmd("Make searchable (OCR)…", "", "selecttext", () => ReaderOcr_Click(this, new RoutedEventArgs()));
             if (_readerGroup != null) Cmd("Print…", "Ctrl+P", "print", () => ReaderPrint_Click(this, new RoutedEventArgs()));
             if (_readerGroup != null) Cmd("Document security and permissions…", "", "lock", () => ReaderSecurity_Click(this, new RoutedEventArgs()));
             Cmd("Undo", "Ctrl+Z", "undo", () => EditHost?.Undo());

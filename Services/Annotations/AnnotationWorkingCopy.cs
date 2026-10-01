@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using iText.Kernel.Pdf;
 
@@ -29,6 +28,8 @@ namespace XTPdfMergeApp.Services
             Directory.CreateDirectory(Folder);
             string copy = Path.Combine(Folder, $"{Path.GetFileNameWithoutExtension(path)}-{Guid.NewGuid():N}.pdf");
             await Task.Run(() => Write(path, copy, changes));
+            if (PdfThumbnailService.TryGetDocumentPassword(path) is { Length: > 0 } password)
+                await PdfThumbnailService.SetDocumentPasswordAsync(copy, password);
             if (_copies.TryGetValue(key, out var old)) TryDelete(old.Copy);
             _copies[key] = (version, copy);
             PdfLayerStateStore.CopyState(path, copy);
@@ -47,14 +48,11 @@ namespace XTPdfMergeApp.Services
 
         /// <summary>Writes <paramref name="changes"/> into <paramref name="path"/> itself (Save of annotations only): incremental update.</summary>
         public static void WriteInPlace(string path, IReadOnlyList<QuickAnnotationChange> changes)
-            => PdfPageEditService.EditInPlace(path, doc => PdfQuickAnnotationService.ApplyChanges(doc, changes));
+            => PdfPageEditService.EditInPlace(path, doc => PdfQuickAnnotationService.ApplyChanges(doc, changes), PdfPermissionOperation.Annotate);
 
         private static void Write(string path, string copy, IReadOnlyList<QuickAnnotationChange> changes)
         {
-            var properties = new ReaderProperties();
-            if (PdfThumbnailService.TryGetDocumentPassword(path) is { Length: > 0 } password)
-                properties.SetPassword(Encoding.UTF8.GetBytes(password));
-            using var reader = new PdfReader(path, properties);
+            using var reader = PdfSecurityService.AuthorizedReaderFor(path, PdfPermissionOperation.Annotate);
             using var writer = new PdfWriter(copy);
             using var doc = new PdfDocument(reader, writer, new StampingProperties().UseAppendMode());
             PdfQuickAnnotationService.ApplyChanges(doc, changes);

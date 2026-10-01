@@ -12,11 +12,9 @@ namespace XTPdfMergeApp.Controls
     /// <summary>1 dòng Recent.</summary>
     public sealed record RecentItem(string Path, string Name, string Folder, string Meta, bool Pinned, bool Missing);
 
-    public sealed record WorkspaceItem(WorkspaceEntry Entry, string Name, string Meta);
-
     public sealed record LocationItem(string Name, string Path);
 
-    /// <summary>Màn hình Start (docs/UI_REDESIGN.md, mockup 16): mở file, thư mục hay dùng, Recent (có ghim), Workspaces.</summary>
+    /// <summary>Màn hình Start: mở file, thư mục hay dùng, Recent (có ghim), công cụ nhanh.</summary>
     public partial class StartPage : UserControl
     {
         public StartPage()
@@ -29,9 +27,11 @@ namespace XTPdfMergeApp.Controls
         internal event Action<string?>? OpenDialogRequested;
         internal event Action<string>? OpenPathRequested;
         internal event Action? OpenFolderRequested;
-        internal event Action<WorkspaceEntry>? RestoreRequested;
-        /// <summary>Các file đang mở (thứ tự tab) và file đang xem — để lưu workspace.</summary>
-        internal Func<(IReadOnlyList<string> Files, string? Active)>? CurrentFiles { get; set; }
+        internal event Action? NewPdfRequested;
+        internal event Action? MergePdfRequested;
+        internal event Action? ExportPdfRequested;
+        internal event Action? PrintPdfRequested;
+        internal Func<bool>? HasActiveDocument { get; set; }
 
         internal void Reload()
         {
@@ -51,10 +51,9 @@ namespace XTPdfMergeApp.Controls
             RecentList.ItemsSource = recent.Select(ToItem).ToList();
             NoRecentText.Visibility = recent.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
-            var workspaces = WorkspaceStore.Items.Select(w => new WorkspaceItem(w, w.Name, w.Files.Count == 1 ? "1 file" : w.Files.Count + " files")).ToList();
-            WorkspaceList.ItemsSource = workspaces;
-            NoWorkspaceText.Visibility = workspaces.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            SaveWorkspaceButton.IsEnabled = (CurrentFiles?.Invoke().Files.Count ?? 0) > 0;
+            bool hasDocument = HasActiveDocument?.Invoke() == true;
+            ExportPdfButton.IsEnabled = PrintPdfButton.IsEnabled = hasDocument;
+            DocumentToolsHint.Visibility = hasDocument ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private static RecentItem ToItem(RecentFile r)
@@ -105,30 +104,9 @@ namespace XTPdfMergeApp.Controls
             Reload();
         }
 
-        private void SaveWorkspace_Click(object sender, RoutedEventArgs e)
-        {
-            var (files, active) = CurrentFiles?.Invoke() ?? (Array.Empty<string>(), null);
-            if (files.Count == 0) return;
-            string? name = TextPromptWindow.Ask(Window.GetWindow(this), "Save workspace", "Name for this workspace:", "");
-            if (name == null) return;
-            if (WorkspaceStore.Exists(name) &&
-                MessageBox.Show(Window.GetWindow(this), $"A workspace named \"{name}\" already exists. Replace it?", "Save workspace",
-                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-            WorkspaceStore.Upsert(new WorkspaceEntry(name, files.ToList(), active));
-            Reload();
-        }
-
-        private void RestoreWorkspace_Click(object sender, RoutedEventArgs e)
-        {
-            if ((sender as FrameworkElement)?.DataContext is WorkspaceItem item) RestoreRequested?.Invoke(item.Entry);
-        }
-
-        private void DeleteWorkspace_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        {
-            e.Handled = true;
-            if ((sender as FrameworkElement)?.DataContext is not WorkspaceItem item) return;
-            WorkspaceStore.Remove(item.Name);
-            Reload();
-        }
+        private void NewPdf_Click(object sender, RoutedEventArgs e) => NewPdfRequested?.Invoke();
+        private void MergePdf_Click(object sender, RoutedEventArgs e) => MergePdfRequested?.Invoke();
+        private void ExportPdf_Click(object sender, RoutedEventArgs e) => ExportPdfRequested?.Invoke();
+        private void PrintPdf_Click(object sender, RoutedEventArgs e) => PrintPdfRequested?.Invoke();
     }
 }

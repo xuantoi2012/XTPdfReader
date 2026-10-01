@@ -41,6 +41,15 @@ internal sealed unsafe class PdfiumInstance
     private readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, int, int, int, int, int, IntPtr, int> _renderPageBitmapStart;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int> _renderPageContinue;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, void> _renderPageClose;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, int> _getFormType;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr> _initForm;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, void> _exitForm;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> _formAfterLoadPage;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> _formBeforeClosePage;
+    private readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, int, int, int, int, int, int, void> _drawForm;
+    // Accessed only under this instance's native gate. Form handles never cross modules.
+    private readonly Dictionary<IntPtr, (IntPtr Handle, IntPtr Info)> _forms = new();
+    private readonly Dictionary<IntPtr, IntPtr> _pageForms = new();
     // Văn bản trang (tìm kiếm)
     private readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr> _textLoadPage;
     private readonly delegate* unmanaged[Cdecl]<IntPtr, void> _textClosePage;
@@ -87,6 +96,12 @@ internal sealed unsafe class PdfiumInstance
         _renderPageBitmapStart = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, int, int, int, int, int, IntPtr, int>)F("FPDF_RenderPageBitmap_Start");
         _renderPageContinue = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int>)F("FPDF_RenderPage_Continue");
         _renderPageClose = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("FPDF_RenderPage_Close");
+        _getFormType = (delegate* unmanaged[Cdecl]<IntPtr, int>)F("FPDF_GetFormType");
+        _initForm = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr>)F("FPDFDOC_InitFormFillEnvironment");
+        _exitForm = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("FPDFDOC_ExitFormFillEnvironment");
+        _formAfterLoadPage = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)F("FORM_OnAfterLoadPage");
+        _formBeforeClosePage = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)F("FORM_OnBeforeClosePage");
+        _drawForm = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, int, int, int, int, int, int, void>)F("FPDF_FFLDraw");
         _textLoadPage = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr>)F("FPDFText_LoadPage");
         _textClosePage = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("FPDFText_ClosePage");
         _textCountChars = (delegate* unmanaged[Cdecl]<IntPtr, int>)F("FPDFText_CountChars");
@@ -193,31 +208,62 @@ internal sealed unsafe class PdfiumInstance
         byte[] path = Utf8(filePath);
         if (string.IsNullOrEmpty(password))
         {
-            fixed (byte* p = path) return _loadDocument(p, null);
+            fixed (byte* p = path) return AttachForm(_loadDocument(p, null));
         }
         byte[] credentials = Utf8(password);
         fixed (byte* p = path)
-        fixed (byte* c = credentials) return _loadDocument(p, c);
+        fixed (byte* c = credentials) return AttachForm(_loadDocument(p, c));
     }
 
     /// <summary>fileAccess = FPDF_FILEACCESS* (xem LayeredDocumentSource).</summary>
     public IntPtr LoadCustomDocument(IntPtr fileAccess, string? password = null)
     {
-        if (string.IsNullOrEmpty(password)) return _loadCustomDocument(fileAccess, null);
+        if (string.IsNullOrEmpty(password)) return AttachForm(_loadCustomDocument(fileAccess, null));
         byte[] credentials = Utf8(password);
-        fixed (byte* c = credentials) return _loadCustomDocument(fileAccess, c);
+        fixed (byte* c = credentials) return AttachForm(_loadCustomDocument(fileAccess, c));
     }
 
     /// <summary>Document from a buffer that must stay pinned until <see cref="CloseDocument"/>.</summary>
-    public IntPtr LoadMemDocument(byte* data, long length) => _loadMemDocument64(data, (nuint)length, null);
+    public IntPtr LoadMemDocument(byte* data, long length) => AttachForm(_loadMemDocument64(data, (nuint)length, null));
+
+    private IntPtr AttachForm(IntPtr document)
+    {
+        if (document == IntPtr.Zero || _getFormType(document) != 1) return document; // AcroForm, including signatures.
+        // FPDF_FORMFILLINFO v1: int version, pointer alignment, 15 callbacks and the JS platform pointer.
+        // No JS platform/actions are installed: displaying forms does not execute document scripts.
+        int size = IntPtr.Size + 16 * IntPtr.Size;
+        IntPtr info = Marshal.AllocHGlobal(size);
+        new Span<byte>((void*)info, size).Clear();
+        Marshal.WriteInt32(info, 1);
+        IntPtr form = _initForm(document, info);
+        if (form == IntPtr.Zero) { Marshal.FreeHGlobal(info); _closeDocument(document); throw new InvalidOperationException("Could not initialize PDF form rendering."); }
+        _forms.Add(document, (form, info));
+        return document;
+    }
+
+    public void DrawWidgets(IntPtr bitmap, IntPtr page, int x, int y, int width, int height, int rotate, int flags)
+    {
+        if (_pageForms.TryGetValue(page, out var form)) _drawForm(form, bitmap, page, x, y, width, height, rotate, flags);
+    }
 
     /// <summary>FPDF_GetLastError ngay sau một lần mở thất bại (FPDF_ERR_*).</summary>
     public uint GetLastError() => _getLastError();
 
     /// <summary>Non-progressive render (small pages: annotation appearances).</summary>
     public void RenderPageBitmap(IntPtr bitmap, IntPtr page, int x, int y, int width, int height, int rotate, int flags)
-        => _renderPageBitmap(bitmap, page, x, y, width, height, rotate, flags);
-    public void CloseDocument(IntPtr document) => _closeDocument(document);
+    {
+        _renderPageBitmap(bitmap, page, x, y, width, height, rotate, flags);
+        DrawWidgets(bitmap, page, x, y, width, height, rotate, flags);
+    }
+    public void CloseDocument(IntPtr document)
+    {
+        if (_forms.Remove(document, out var form))
+        {
+            _exitForm(form.Handle);
+            Marshal.FreeHGlobal(form.Info);
+        }
+        _closeDocument(document);
+    }
     public int GetPageCount(IntPtr document) => _getPageCount(document);
 
     public bool GetPageSizeByIndex(IntPtr document, int pageIndex, out double width, out double height)
@@ -229,8 +275,21 @@ internal sealed unsafe class PdfiumInstance
         return ok != 0;
     }
 
-    public IntPtr LoadPage(IntPtr document, int pageIndex) => _loadPage(document, pageIndex);
-    public void ClosePage(IntPtr page) => _closePage(page);
+    public IntPtr LoadPage(IntPtr document, int pageIndex)
+    {
+        IntPtr page = _loadPage(document, pageIndex);
+        if (page != IntPtr.Zero && _forms.TryGetValue(document, out var form))
+        {
+            _pageForms[page] = form.Handle;
+            _formAfterLoadPage(page, form.Handle);
+        }
+        return page;
+    }
+    public void ClosePage(IntPtr page)
+    {
+        if (_pageForms.Remove(page, out var form)) _formBeforeClosePage(page, form);
+        _closePage(page);
+    }
     public double GetPageWidth(IntPtr page) => _getPageWidth(page);
     public double GetPageHeight(IntPtr page) => _getPageHeight(page);
 

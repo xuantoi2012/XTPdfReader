@@ -20,6 +20,23 @@ namespace XTPdfMergeApp.Services
             string mergeLayersNamePrefix = "",
             string collapseOtherLayersTo = "")
         {
+            string error = "";
+            try
+            {
+                PdfFileTransaction.Run(new[] { outputPath }, (_, stage) =>
+                {
+                    if (!TryMergeCore(inputPaths, stage, out error, log, mergeLayersByName, mergeLayersNamePrefix, collapseOtherLayersTo))
+                        throw new IOException(error);
+                });
+                errorMessage = "";
+                return true;
+            }
+            catch (Exception ex) { errorMessage = ex.Message; return false; }
+        }
+
+        private static bool TryMergeCore(IReadOnlyList<string> inputPaths, string outputPath, out string errorMessage,
+            Action<string>? log, bool mergeLayersByName, string mergeLayersNamePrefix, string collapseOtherLayersTo)
+        {
             errorMessage = "";
 
             if (inputPaths == null || inputPaths.Count == 0)
@@ -69,7 +86,7 @@ namespace XTPdfMergeApp.Services
 
                     try
                     {
-                        using var reader = new PdfReader(path);
+                        using var reader = PdfSecurityService.AuthorizedReaderFor(path, PdfPermissionOperation.Copy);
                         using var inDoc = new PdfDocument(reader);
 
                         int pages = inDoc.GetNumberOfPages();
@@ -153,6 +170,38 @@ namespace XTPdfMergeApp.Services
             CancellationToken cancellationToken = default,
             MergeOptions? options = null)
         {
+            string error = "";
+            try
+            {
+                PdfFileTransaction.Run(new[] { outputPath }, (_, stage) =>
+                {
+                    if (!TryMergePagesCore(pages, stage, out error, log, mergeLayersByName, mergeLayersNamePrefix,
+                        collapseOtherLayersTo, progress, cancellationToken, options))
+                    {
+                        if (cancellationToken.IsCancellationRequested) throw new OperationCanceledException(cancellationToken);
+                        throw new IOException(error);
+                    }
+                    cancellationToken.ThrowIfCancellationRequested();
+                });
+                errorMessage = "";
+                return true;
+            }
+            catch (OperationCanceledException) { errorMessage = ""; return false; }
+            catch (Exception ex) { errorMessage = ex.Message; return false; }
+        }
+
+        private static bool TryMergePagesCore(
+            IReadOnlyList<(string SourcePath, int PageNumber)> pages,
+            string outputPath,
+            out string errorMessage,
+            Action<string>? log = null,
+            bool mergeLayersByName = true,
+            string mergeLayersNamePrefix = "",
+            string collapseOtherLayersTo = "",
+            IProgress<(int Done, int Total)>? progress = null,
+            CancellationToken cancellationToken = default,
+            MergeOptions? options = null)
+        {
             errorMessage = "";
 
             if (pages == null || pages.Count == 0)
@@ -168,7 +217,7 @@ namespace XTPdfMergeApp.Services
                     if (!File.Exists(path))
                     { errorMessage = "Source file not found: " + path; return false; }
 
-                    var reader = new PdfReader(path);
+                    var reader = PdfSecurityService.AuthorizedReaderFor(path, PdfPermissionOperation.Copy);
                     readers[path] = (reader, new PdfDocument(reader));
                 }
 

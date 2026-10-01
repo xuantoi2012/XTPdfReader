@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
@@ -30,7 +31,44 @@ namespace XTPdfMergeApp.Services
 
     internal static class PdfSecurityService
     {
-        public static Task<PdfSecurityInfo> ReadAsync(string path) => Task.Run(() => Read(path));
+        private static readonly ConcurrentDictionary<string, (long Length, DateTime Stamp, string? Password, PdfSecurityInfo Info)> Cache = new(StringComparer.OrdinalIgnoreCase);
+        public static Task<PdfSecurityInfo> ReadAsync(string path) => Task.Run(() => ReadCached(path));
+
+        internal static PdfSecurityInfo ReadCached(string path)
+        {
+            try
+            {
+                path = Path.GetFullPath(path);
+                var file = new FileInfo(path);
+                string? password = PdfThumbnailService.TryGetDocumentPassword(path);
+                if (file.Exists && Cache.TryGetValue(path, out var cached) && cached.Length == file.Length && cached.Stamp == file.LastWriteTimeUtc && cached.Password == password)
+                    return cached.Info;
+                var info = Read(path);
+                if (file.Exists && info.Error == null)
+                {
+                    if (Cache.Count > 512) Cache.Clear();
+                    Cache[path] = (file.Length, file.LastWriteTimeUtc, password, info);
+                }
+                return info;
+            }
+            catch (Exception ex) { return new PdfSecurityInfo(false, false, false, false, false, false, false, ex.Message); }
+        }
+
+        internal static ReaderProperties ReaderPropertiesFor(string path)
+        {
+            var properties = new ReaderProperties();
+            if (PdfThumbnailService.TryGetDocumentPassword(path) is { Length: > 0 } password)
+                properties.SetPassword(Encoding.UTF8.GetBytes(password));
+            return properties;
+        }
+
+        internal static PdfReader AuthorizedReaderFor(string path, PdfPermissionOperation operation)
+        {
+            PdfPermissionPolicy.EnsureAllowed(path, operation);
+            // iText demands the owner password for all writes/copies. Lift that blanket check only
+            // AFTER checking the PDF's declared permission for this particular operation.
+            return new PdfReader(path, ReaderPropertiesFor(path)).SetUnethicalReading(true);
+        }
 
         private static PdfSecurityInfo Read(string path)
         {

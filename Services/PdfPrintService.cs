@@ -126,6 +126,8 @@ namespace XTPdfMergeApp.Services
 
         public static Task<bool> PrintAsync(PrintRequest request, IProgress<int>? progress = null) => Task.Run(() =>
         {
+            foreach (string path in request.Pages.Select(p => p.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase))
+                PdfPermissionPolicy.EnsureAllowed(path, PdfPermissionOperation.Print);
             var document = new PrintDocument();
             document.PrinterSettings.PrinterName = request.Printer;
             if (!document.PrinterSettings.IsValid) return false;

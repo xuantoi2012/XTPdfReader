@@ -625,7 +625,7 @@ namespace XTPdfMergeApp.Controls
         {
             if ((sender as FrameworkElement)?.DataContext is not PdfBookmarkNode node || _sourcePath is not { } path) return;
             string extra = node.Children.Count > 0 ? $" and its {node.Children.Count} sub-bookmark(s)" : "";
-            if (MessageBox.Show(Window.GetWindow(this), $"Delete \"{node.Title}\"{extra}?", "Delete bookmark",
+            if (AppDialog.Show(Window.GetWindow(this), $"Delete \"{node.Title}\"{extra}?", "Delete bookmark",
                     MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
             _ = RunOutlineEditAsync(path, () => PdfOutlineService.DeleteBookmark(path, node.Path));
         }
@@ -646,6 +646,8 @@ namespace XTPdfMergeApp.Controls
 
         private async Task RunOutlineEditAsync(string path, Func<bool> edit)
         {
+            if (!await PdfPermissionDialog.RequireAsync(Window.GetWindow(this), new[] { path }, PdfPermissionOperation.Modify)) return;
+            if (!await SignedPdfConfirmation.ConfirmAsync(Window.GetWindow(this), new[] { path }, "Update PDF bookmarks", true)) return;
             try
             {
                 AnnotationStore.ReleaseReader(path);

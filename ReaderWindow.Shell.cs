@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -27,6 +27,8 @@ namespace XTPdfMergeApp
             InitializeStart();
             InitializeMerge();
             InitializeFind();
+            InitializeRecovery();
+            InitializeToolbarOverflow();
             Closing += ReaderWindow_Closing;
             ReaderDocumentTabs.ItemsSource = _groups;
             ReaderSidePanel.PageActivated += row =>
@@ -74,6 +76,7 @@ namespace XTPdfMergeApp
         /// <summary>Gọi mỗi khi trang đang xem đổi (UpdateReaderChrome) — đồng bộ tab file + panel trái.</summary>
         private void OnReaderCurrentPageChanged(DocumentGroup group, PageRow row)
         {
+            ScheduleRecovery();
             EnsureLoadProgressTimer();
             _lastPageByGroup[group] = row;
             if (!ReferenceEquals(ReaderDocumentTabs.SelectedItem, group))
@@ -279,7 +282,7 @@ namespace XTPdfMergeApp
             if ((sender as FrameworkElement)?.DataContext is not DocumentGroup group || EditHost == null) return;
             if (group.IsDirty)
             {
-                var answer = MessageBox.Show(this, $"Save changes to \"{group.FileName}\" before closing?", "Unsaved changes",
+                var answer = AppDialog.Show(this, $"Save changes to \"{group.FileName}\" before closing?", "Unsaved changes",
                     MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
                 if (answer == MessageBoxResult.Cancel) return;
                 if (answer == MessageBoxResult.Yes && !await EditHost.SaveGroupAsync(group, saveAs: false)) return;
@@ -489,6 +492,7 @@ namespace XTPdfMergeApp
             var window = new Controls.MergeWindow { Owner = this };
             var view = window.View;
             view.DoneRequested += () => window.Hide();
+            view.HistoryStateChanged += (_, _) => ScheduleRecovery();
             view.OpenFileRequested += async () =>
             {
                 if (EditHost != null) await EditHost.OpenFilesAsync();
@@ -533,12 +537,16 @@ namespace XTPdfMergeApp
 
         private async void ReaderWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            if (!_closingConfirmed && _mergeWindow?.View.HasUnsavedDraft == true &&
+                AppDialog.Show(this, "The Merge window contains an unfinished draft. Close the app and discard it?\n\nChoose No to return to Merge and export the draft first.",
+                    "Unfinished merge draft", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            { e.Cancel = true; _mergeWindow.Show(); _mergeWindow.Activate(); return; }
             if (!_closingConfirmed && EditHost?.GetDirtyGroups() is { Count: > 0 } dirty)
             {
                 string question = dirty.Count == 1
                     ? $"Save changes to \"{dirty[0].FileName}\" before closing?"
                     : $"{dirty.Count} files have unsaved changes. Save them before closing?";
-                var answer = MessageBox.Show(this, question, "Unsaved changes", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+                var answer = AppDialog.Show(this, question, "Unsaved changes", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
                 if (answer == MessageBoxResult.Cancel) { e.Cancel = true; return; }
                 if (answer == MessageBoxResult.Yes)
                 {
@@ -551,6 +559,7 @@ namespace XTPdfMergeApp
                 }
             }
             _mergeWindow?.CloseForReal();
+            CompleteRecoveryClose();
             ShutdownReader();
         }
 
@@ -693,10 +702,14 @@ namespace XTPdfMergeApp
         private async void OpenExport(bool preferFlatten)
         {
             if (_readerGroup == null || _readerGroup.Pages.Count == 0) return;
-            var pages = await AnnotationWorkingCopy.MapAsync(_readerGroup.Pages.Select(p => (p.SourcePath, p.PageNumber)));
+            if (!await Controls.PdfPermissionDialog.RequireAsync(this, _readerGroup.Pages.Select(p => p.SourcePath), PdfPermissionOperation.Copy)) return;
+            List<(string SourcePath, int PageNumber)> pages;
+            try { pages = await AnnotationWorkingCopy.MapAsync(_readerGroup.Pages.Select(p => (p.SourcePath, p.PageNumber))); }
+            catch (Exception ex) { AppDialog.Show(this, "Could not prepare the PDF for export:\n" + ex.Message, "Export PDF", MessageBoxButton.OK, MessageBoxImage.Error); return; }
             string dir = System.IO.Path.GetDirectoryName(_readerGroup.SourcePath) ?? "";
             string baseName = System.IO.Path.GetFileNameWithoutExtension(_readerGroup.FileName);
-            var dialog = new Controls.ExportWindow(pages, baseName, System.IO.Directory.Exists(dir) ? dir : "", preferFlatten) { Owner = this };
+            var dialog = new Controls.ExportWindow(pages, baseName, System.IO.Directory.Exists(dir) ? dir : "", preferFlatten,
+                _readerGroup.Pages.Select(p => p.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase).ToList()) { Owner = this };
             if (dialog.ShowDialog() == true)
                 XTStyle.Controls.XTGrowl.Success(dialog.Written == 1 ? "Exported 1 file" : $"Exported {dialog.Written} files", this);
         }

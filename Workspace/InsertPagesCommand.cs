@@ -21,6 +21,7 @@ internal sealed class InsertPagesCommand : IWorkspaceCommand
     }
 
     public string Description { get; }
+    public IEnumerable<string> AffectedSources => CommandSources.Of(new[] { _target }, _pages);
     public IReadOnlyList<PagePlacement> Inserted => _pages;
 
     public void Execute()

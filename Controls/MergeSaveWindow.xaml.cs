@@ -140,7 +140,7 @@ namespace XTPdfMergeApp.Controls
             string name = NameBox.Text.Trim();
             if (name.Length == 0 || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             {
-                MessageBox.Show(this, "Enter a valid file name.", "Save merged file", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.Show(this, "Enter a valid file name.", "Save merged file", MessageBoxButton.OK, MessageBoxImage.Warning);
                 NameBox.Focus();
                 return;
             }
@@ -148,18 +148,18 @@ namespace XTPdfMergeApp.Controls
             string folder = FolderBox.Text.Trim();
             if (!Directory.Exists(folder))
             {
-                MessageBox.Show(this, "The folder does not exist.", "Save merged file", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.Show(this, "The folder does not exist.", "Save merged file", MessageBoxButton.OK, MessageBoxImage.Warning);
                 FolderBox.Focus();
                 return;
             }
             string output = Path.GetFullPath(Path.Combine(folder, name));
             if (_pages.Any(p => string.Equals(p.SourcePath, output, StringComparison.OrdinalIgnoreCase)))
             {
-                MessageBox.Show(this, "That file is one of the merged files. Choose a different name.", "Save merged file", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.Show(this, "That file is one of the merged files. Choose a different name.", "Save merged file", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             if (File.Exists(output) &&
-                MessageBox.Show(this, $"\"{name}\" already exists. Replace it?", "Save merged file", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                AppDialog.Show(this, $"\"{name}\" already exists. Replace it?", "Save merged file", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
 
             Options = CurrentOptions();
             AppSettings.MergeOptionsSaved = Options;

@@ -104,7 +104,7 @@ namespace XTPdfMergeApp.Controls
             }
             catch (Exception ex)
             {
-                MessageBox.Show(Window.GetWindow(this), "Could not import the image:\n" + ex.Message, "Import image", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.Show(Window.GetWindow(this), "Could not import the image:\n" + ex.Message, "Import image", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
     }

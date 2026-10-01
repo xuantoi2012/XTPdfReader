@@ -233,7 +233,7 @@ namespace XTPdfMergeApp.Controls
             foreach (var c in _all)
                 sb.Append(string.Join(",", Q(Path.GetFileName(c.Path)), c.Page, c.Kind, Q(c.Author), c.Date?.ToString("yyyy-MM-dd") ?? "", c.Resolved ? "Resolved" : "Open", Q(c.Text))).Append("\r\n");
             try { File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(true)); }
-            catch (Exception ex) { MessageBox.Show(Window.GetWindow(this), "Could not save the file:\n" + ex.Message, "Export summary", MessageBoxButton.OK, MessageBoxImage.Error); }
+            catch (Exception ex) { AppDialog.Show(Window.GetWindow(this), "Could not save the file:\n" + ex.Message, "Export summary", MessageBoxButton.OK, MessageBoxImage.Error); }
         }
     }
 }

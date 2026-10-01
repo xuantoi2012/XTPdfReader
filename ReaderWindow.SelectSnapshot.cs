@@ -99,6 +99,7 @@ namespace XTPdfMergeApp
         private void CopySelectedText()
         {
             if (_textSelection is not { } selection) return;
+            if (!Controls.PdfPermissionDialog.Require(this, new[] { selection.Row.SourcePath }, PdfPermissionOperation.Copy)) return;
             try
             {
                 Clipboard.SetText(selection.Text);
@@ -117,6 +118,7 @@ namespace XTPdfMergeApp
 
         private void BeginSnapshotDrag(PageHit hit)
         {
+            if (!Controls.PdfPermissionDialog.Require(this, new[] { hit.Row.SourcePath }, PdfPermissionOperation.Copy)) return;
             if (!TryPageToLayer(hit.Row, hit.U, hit.V, out Point start)) return;
             _snapshotDrag = new SnapshotDrag(hit.Row, hit.U, hit.V);
             ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;

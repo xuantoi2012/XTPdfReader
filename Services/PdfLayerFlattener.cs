@@ -11,7 +11,7 @@ namespace XTPdfMergeApp.Services
     /// <summary>
     /// "Flatten" theo View layer: xoá HẲN nội dung của các layer đang ẩn khỏi trang (khối <c>/OC … BDC … EMC</c>, XObject và annotation có /OC ẩn),
     /// đổi khối layer đang hiện thành marked content thường và bỏ /OCProperties — file kết quả không còn danh sách layer để bật/tắt.
-    /// Trang có ảnh nội tuyến (BI…EI) hoặc nội dung không phân tích được thì giữ nguyên nội dung và chỉ trả false (người gọi dùng cách "giữ layer").
+    /// Trang có ảnh nội tuyến (BI…EI) hoặc nội dung không phân tích được thì trả false; người gọi phải báo lỗi và giữ nguyên file đích.
     /// </summary>
     public static class PdfLayerFlattener
     {
@@ -25,7 +25,20 @@ namespace XTPdfMergeApp.Services
         {
             try
             {
-                using (var doc = new PdfDocument(new PdfReader(inputPath), new PdfWriter(outputPath, new WriterProperties().SetFullCompressionMode(true))))
+                PdfFileTransaction.Run(new[] { outputPath }, (_, stage) =>
+                {
+                    if (!FlattenCore(inputPath, stage, hiddenNames)) throw new IOException("Could not flatten the PDF layer content.");
+                });
+                return true;
+            }
+            catch { return false; }
+        }
+
+        private static bool FlattenCore(string inputPath, string outputPath, IReadOnlySet<string> hiddenNames)
+        {
+            try
+            {
+                using (var doc = new PdfDocument(PdfSecurityService.AuthorizedReaderFor(inputPath, PdfPermissionOperation.Copy), new PdfWriter(outputPath, new WriterProperties().SetFullCompressionMode(true))))
                 {
                     var hiddenOcgs = HiddenOcgs(doc, hiddenNames);
                     var visited = new HashSet<PdfStream>();
@@ -67,7 +80,7 @@ namespace XTPdfMergeApp.Services
         {
             if (oc == null) return false;
             if (!OCMD.Equals(oc.GetAsName(PdfName.Type))) return hidden.Contains(oc);
-            if (oc.Get(VE) != null) return false; // biểu thức hiển thị: coi như hiện (không phân tích)
+            if (oc.Get(VE) != null) throw new InvalidOperationException("Optional-content visibility expressions are not supported by layer flattening.");
             var members = new List<PdfDictionary>();
             var value = oc.Get(PdfName.OCGs);
             if (value is PdfDictionary single) members.Add(single);

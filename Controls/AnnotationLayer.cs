@@ -54,7 +54,7 @@ namespace XTPdfMergeApp.Controls
             foreach (var spec in annotations.Annotations)
             {
                 // Reply (như Word): chỉ hiện trong popup của chú thích gốc/panel Comments — không có icon riêng trên trang.
-                if (spec.Kind == QuickAnnotationKind.Reply) continue;
+                if (spec.Kind == QuickAnnotationKind.Reply || spec.Subtype == "Widget") continue; // Widgets are rendered on the source page by PDFium.
                 if (IsMultiplyHighlight(spec) || live && spec.Name == Edit.HiddenName) continue;
                 double du = 0, dv = 0;
                 if (live && spec.Name == Edit.MoveName) { du = Edit.MoveDU; dv = Edit.MoveDV; }

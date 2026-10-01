@@ -170,11 +170,15 @@ namespace XTPdfMergeApp.Services
         {
             originalLength = cache?.Length ?? new FileInfo(path).Length;
             var tail = new TailOnlyStream(originalLength);
+            var properties = new ReaderProperties();
+            if (PdfThumbnailService.TryGetDocumentPassword(path) is { Length: > 0 } password)
+                properties.SetPassword(Encoding.UTF8.GetBytes(password));
             using (var reader = cache != null
-                ? new PdfReader(new BlockCacheSource(cache), new ReaderProperties())
-                : new PdfReader(path))
+                ? new PdfReader(new BlockCacheSource(cache), properties)
+                : new PdfReader(path, properties))
             using (var writer = new PdfWriter(tail))
-            using (var doc = new PdfDocument(reader, writer, new StampingProperties().UseAppendMode()))
+            // This tail changes only the in-memory rendering view; no source file is written.
+            using (var doc = new PdfDocument(reader.SetUnethicalReading(true), writer, new StampingProperties().UseAppendMode()))
             {
                 var ocProperties = doc.GetCatalog().GetPdfObject().GetAsDictionary(PdfName.OCProperties);
                 var ocgs = ocProperties?.GetAsArray(PdfName.OCGs);

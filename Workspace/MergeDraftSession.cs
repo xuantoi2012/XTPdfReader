@@ -24,6 +24,17 @@ internal sealed class MergeDraftSession
     /// <summary>Bãi giữ trang; không bao giờ được đưa vào Merge all cho tới khi người dùng mở thành window.</summary>
     internal IEnumerable<WorkspaceDocument> TemporaryDocuments => _workspace.Documents.Where(IsTemporary);
     internal UndoRedoManager History => _workspace.History;
+    internal void Restore(IEnumerable<(WorkspaceDocument Document, bool Temporary)> documents)
+    {
+        _workspace = new PdfWorkspace();
+        _draftBySourceId.Clear();
+        _temporaryDocumentIds.Clear();
+        foreach (var (document, temporary) in documents)
+        {
+            _workspace.Documents.Add(document);
+            if (temporary) _temporaryDocumentIds.Add(document.DocumentId);
+        }
+    }
 
     internal void Begin(IEnumerable<WorkspaceDocument> sourceDocuments)
     {

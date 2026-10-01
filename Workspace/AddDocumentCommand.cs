@@ -19,6 +19,7 @@ internal sealed class AddDocumentCommand : IWorkspaceCommand
     }
 
     public string Description => "Create group";
+    public System.Collections.Generic.IEnumerable<string> AffectedSources => CommandSources.Of(new[] { _document });
 
     public void Execute()
     {

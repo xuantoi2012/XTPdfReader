@@ -69,8 +69,11 @@
                  sau các nhóm khác, để vùng trống bên phải tự co giãn. Xoay ở nhóm "Rotate view" là xoay KHUNG NHÌN; xoay THẬT nằm ở nhóm Organize.
                  Tag="Active" = công cụ đang bật. ══ -->
             <Border x:Name="ReaderToolbarBar" Grid.Row="0" Height="94" Background="{DynamicResource Ui.Surface}"
-                    BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1">
+                    BorderBrush="{DynamicResource Ui.ToolbarBorder}" BorderThickness="0,0,0,1">
                 <DockPanel Margin="12,0">
+                    <xt:XTButton x:Name="ReaderToolbarMore" DockPanel.Dock="Right" Style="{StaticResource UiIconButton}"
+                                 Icon="{StaticResource Ui.Icon.more}" Width="36" Height="36" Margin="8,0,0,0"
+                                 VerticalAlignment="Center" Visibility="Collapsed" ToolTip="More tools" Click="ReaderToolbarMore_Click"/>
                     <ScrollViewer x:Name="ReaderToolsScroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Focusable="False">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <!-- Tools -->
@@ -191,8 +194,6 @@
                                 <StackPanel Orientation="Horizontal">
                                     <xt:XTButton x:Name="ReaderFindButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.search}" Text="Find"
                                                  ToolTip="Find in document (Ctrl+F)" Click="ReaderFind_Click"/>
-                                    <xt:XTButton x:Name="ReaderOcrButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.selecttext}" Text="OCR"
-                                                 ToolTip="Create a searchable copy with offline Windows OCR" Click="ReaderOcr_Click"/>
                                     <xt:XTButton x:Name="ReaderPrintButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.print}" Text="Print"
                                                  ToolTip="Print (Ctrl+P)" Click="ReaderPrint_Click"/>
                                     <xt:XTButton x:Name="ReaderSecurityButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.lock}" Text="Protect"
@@ -207,8 +208,8 @@
 
             <!-- Tab các file đang mở, dưới toolbar. Bấm tab = chuyển file, × = đóng file, + = mở thêm file. -->
             <StackPanel x:Name="ReaderDocumentTabsRow" Grid.Row="1">
-            <ListBox x:Name="ReaderDocumentTabs" Height="36" BorderThickness="0,0,0,1" Padding="8,0,8,0"
-                     BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Chip}"
+            <ListBox x:Name="ReaderDocumentTabs" Height="36" BorderThickness="0,0,0,1" Padding="0,0,8,0"
+                     BorderBrush="{DynamicResource Ui.ToolbarBorder}" Background="{DynamicResource Ui.TabStrip}"
                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
                      ItemContainerStyle="{StaticResource UiTabItem}"
                      SelectionChanged="ReaderDocumentTabs_SelectionChanged"
@@ -220,7 +221,7 @@
                             <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Focusable="False">
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
                                     <xt:XTButton x:Name="StartButton" Style="{StaticResource UiTabButton}" Icon="{StaticResource Ui.Icon.home}" Text="Start"
-                                                 VerticalAlignment="Bottom" Margin="0,0,1,0" ToolTip="Home: recent files and workspaces" Tag="Active"
+                                                 VerticalAlignment="Bottom" Margin="0" ToolTip="Home: recent files and quick tools" Tag="Active"
                                                  Click="StartButton_Click"/>
                                     <ItemsPresenter/>
                                     <xt:XTButton Style="{StaticResource UiTabAddButton}" Icon="{StaticResource Ui.Icon.plus}" IconSize="16"
@@ -252,14 +253,14 @@
                             </StackPanel.ContextMenu>
                             <Viewbox Width="15" Height="15" VerticalAlignment="Center">
                                 <Canvas Width="24" Height="24">
-                                    <Path Data="{StaticResource Ui.Icon.file}" Fill="{DynamicResource Ui.Muted}"/>
+                                    <Path Data="{StaticResource Ui.Icon.documentF}" Fill="{DynamicResource Ui.Brand}"/>
                                 </Canvas>
                             </Viewbox>
                             <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" MaxWidth="220" Margin="8,0,0,0" VerticalAlignment="Center"/>
                             <Ellipse Width="7" Height="7" Margin="8,0,0,0" VerticalAlignment="Center" Fill="{DynamicResource Ui.Warn}"
                                      ToolTip="Unsaved changes (Ctrl+S to save)"
                                      Visibility="{Binding IsDirty, Converter={StaticResource BoolToVis}}"/>
-                            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.close}" Width="20" Height="20"
+                            <xt:XTButton Style="{StaticResource UiTabCloseButton}" Icon="{StaticResource Ui.Icon.close}" Width="20" Height="20"
                                          IconSize="11" Margin="8,0,0,0" ToolTip="Close file" Click="ReaderCloseDocument_Click"/>
                         </StackPanel>
                     </DataTemplate>
@@ -492,7 +493,7 @@
             </Grid>
             </Grid>
 
-            <!-- Màn hình Start (Recent, Quick locations, Workspaces): tự hiện khi chưa mở file nào, hoặc bấm nút đồng hồ ở dải tab. -->
+            <!-- Màn hình Start (Recent, Quick locations, Quick tools): tự hiện khi chưa mở file nào. -->
             <ctl:StartPage x:Name="StartPage" Grid.Row="2" Visibility="Collapsed"/>
 
             <!-- Bảng lệnh Ctrl+K: phủ toàn cửa sổ, nền mờ; bấm ra ngoài hoặc Esc để đóng. -->

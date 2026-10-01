@@ -21,6 +21,7 @@ internal sealed class RemovePagesCommand : IWorkspaceCommand
     }
 
     public string Description => "Delete pages";
+    public IEnumerable<string> AffectedSources => CommandSources.Of(new[] { _document }, _pages);
     public void Execute()
     {
         _documentIndex = _workspace.Documents.IndexOf(_document);
@@ -37,4 +38,3 @@ internal sealed class RemovePagesCommand : IWorkspaceCommand
             _document.Pages.Insert(Math.Clamp(item.Index, 0, _document.Pages.Count), item.Page);
     }
 }
-

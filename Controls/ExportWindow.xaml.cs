@@ -14,15 +14,18 @@ namespace XTPdfMergeApp.Controls
     public partial class ExportWindow : XTWindow
     {
         private readonly IReadOnlyList<(string Path, int Page)> _pages;
+        private readonly IReadOnlyList<string> _sourcePaths;
         private readonly string _baseName;
         private readonly HashSet<string> _hiddenNames;
         private List<ExportPart> _parts = new();
         private int _planVersion;
         private bool _ready;
 
-        internal ExportWindow(IReadOnlyList<(string Path, int Page)> pages, string baseName, string defaultFolder, bool preferFlatten)
+        internal ExportWindow(IReadOnlyList<(string Path, int Page)> pages, string baseName, string defaultFolder, bool preferFlatten,
+            IReadOnlyList<string>? sourcePaths = null)
         {
             _pages = pages;
+            _sourcePaths = sourcePaths ?? pages.Select(p => p.Path).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             _baseName = baseName;
             InitializeComponent();
             _hiddenNames = PdfExportService.CurrentHiddenNames(pages.Select(p => p.Path));
@@ -92,27 +95,30 @@ namespace XTPdfMergeApp.Controls
             string folder = FolderBox.Text.Trim();
             if (!Directory.Exists(folder))
             {
-                MessageBox.Show(this, "The folder does not exist.", "Export PDF", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.Show(this, "The folder does not exist.", "Export PDF", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             var enabled = _parts.Where(p => p.Enabled).ToList();
-            var clash = enabled.Where(p => _pages.Any(x => string.Equals(x.Path, Path.Combine(folder, p.FileName), StringComparison.OrdinalIgnoreCase))).ToList();
+            var clash = enabled.Where(p => _sourcePaths.Any(path => string.Equals(path, Path.Combine(folder, p.FileName), StringComparison.OrdinalIgnoreCase))).ToList();
             if (clash.Count > 0)
             {
-                MessageBox.Show(this, $"\"{clash[0].FileName}\" is one of the source files. Choose another folder.", "Export PDF", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.Show(this, $"\"{clash[0].FileName}\" is one of the source files. Choose another folder.", "Export PDF", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             var existing = enabled.Where(p => File.Exists(Path.Combine(folder, p.FileName))).ToList();
             if (existing.Count > 0 &&
-                MessageBox.Show(this, existing.Count == 1 ? $"\"{existing[0].FileName}\" already exists. Replace it?" : $"{existing.Count} files already exist. Replace them?",
+                AppDialog.Show(this, existing.Count == 1 ? $"\"{existing[0].FileName}\" already exists. Replace it?" : $"{existing.Count} files already exist. Replace them?",
                     "Export PDF", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
 
+            if (!await SignedPdfConfirmation.ConfirmAsync(this,
+                _sourcePaths, "Export PDF files", false,
+                enabled.Select(part => Path.Combine(folder, part.FileName)))) return;
             ExportButton.IsEnabled = false;
             var progress = new Progress<(int Done, int Total)>(p => SummaryText.Text = $"Exporting… {p.Done} of {p.Total}");
             var (written, error) = await PdfExportService.ExportAsync(_parts, folder, FlattenLayers.IsChecked == true, _hiddenNames, SizeOptimized.IsChecked == true, progress);
             if (error.Length > 0)
             {
-                MessageBox.Show(this, $"Exported {written} of {enabled.Count} files.\n\n{error}", "Export PDF", MessageBoxButton.OK, MessageBoxImage.Error);
+                AppDialog.Show(this, $"Exported {written} of {enabled.Count} files.\n\n{error}", "Export PDF", MessageBoxButton.OK, MessageBoxImage.Error);
                 ExportButton.IsEnabled = true;
                 return;
             }

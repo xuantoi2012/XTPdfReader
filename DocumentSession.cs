@@ -47,6 +47,8 @@ namespace XTPdfMergeApp
 
         /// <summary>Cửa sổ làm owner cho hộp thoại — luôn là cửa sổ đọc chính.</summary>
         private static Window? OwnerWindow => Application.Current?.MainWindow;
+        private static bool CanModifyGroup(DocumentGroup group)
+            => !File.Exists(group.SourcePath) || Controls.PdfPermissionDialog.Require(OwnerWindow, new[] { group.SourcePath }, PdfPermissionOperation.Modify);
 
         /// <summary>XTGrowl's legacy signature does not mark its optional owner as nullable; call its
         /// ownerless overload during startup/shutdown rather than passing a nullable window through.</summary>
@@ -64,6 +66,52 @@ namespace XTPdfMergeApp
         public event Action? ThumbnailScanRequested;
         /// <summary>Số file/trạng thái mở file đổi (thanh trạng thái cửa sổ ghép).</summary>
         public event Action? StatusChanged;
+        internal (long Length, DateTime Stamp)? RecoveryStamp(string path)
+            => _diskStamps.TryGetValue(Path.GetFullPath(path), out var stamp) ? (stamp.Length, stamp.Utc) : null;
+
+        internal async Task<(Dictionary<string, string> Paths, Dictionary<string, int> Counts, List<string> Skipped)> RestoreSourcesAsync(SavedSession saved)
+        {
+            var paths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var skipped = new List<string>();
+            var probes = new List<DocumentGroup>();
+            foreach (var source in saved.Sources)
+            {
+                if (!SessionRecoveryStore.SourceUnchanged(source)) { skipped.Add(source.Path); continue; }
+                string path = source.Path;
+                if (source.Embedded is { } bytes)
+                {
+                    string folder = Path.Combine(SessionRecoveryStore.Folder, "sources");
+                    Directory.CreateDirectory(folder);
+                    path = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".pdf");
+                    await File.WriteAllBytesAsync(path, bytes);
+                }
+                var existing = _groups.FirstOrDefault(g => string.Equals(g.SourcePath, path, StringComparison.OrdinalIgnoreCase));
+                var opened = existing ?? await AddFileAsGroup(path, recordRecent: false);
+                if (opened == null) { skipped.Add(source.Path); continue; }
+                if (existing == null) probes.Add(opened);
+                paths[source.Path] = path;
+                counts[source.Path] = opened.Pages.Count;
+                if (source.Changes.Count > 0 && !AnnotationStore.HasPending(path))
+                {
+                    var permissions = await PdfSecurityService.ReadAsync(path);
+                    if (PdfPermissionPolicy.Allows(permissions, PdfPermissionOperation.Annotate))
+                    {
+                        var command = new AnnotationEditCommand("Recovered annotations", path, source.Changes);
+                        Workspace.History.Execute(command);
+                    }
+                    else skipped.Add(source.Path + " (annotations restricted)");
+                }
+            }
+            foreach (var probe in probes) _groups.Remove(probe);
+            foreach (var document in saved.Documents)
+            {
+                var restored = SessionRecoveryStore.RestoreDocument(document, Workspace, paths, counts);
+                if (restored.Pages.Count > 0) _groups.Add(restored);
+            }
+            NotifyStatusChanged();
+            return (paths, counts, skipped);
+        }
         /// <summary>Vừa Undo/Redo (cửa sổ ghép bỏ selection cũ).</summary>
         public event Action? HistoryApplied;
 
@@ -159,7 +207,7 @@ namespace XTPdfMergeApp
             var tasks = paths
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Select(AddFileAsGroup)
+                .Select(path => AddFileAsGroup(path))
                 .ToArray();
 
             return Task.WhenAll(tasks);
@@ -167,7 +215,7 @@ namespace XTPdfMergeApp
 
         /// <returns>Group vừa mở xong (đã có trang), hoặc null nếu file đã có window riêng / đang mở
         /// dở / không đọc được.</returns>
-        internal async Task<DocumentGroup?> AddFileAsGroup(string fullPath)
+        internal async Task<DocumentGroup?> AddFileAsGroup(string fullPath, bool recordRecent = true)
         {
             if (string.IsNullOrWhiteSpace(fullPath)) return null;
 
@@ -226,7 +274,7 @@ namespace XTPdfMergeApp
 
                 await _dispatcher.InvokeAsync(() => FinishOpeningGroup(placeholder, fullPath, openResult));
                 RefreshDiskStamp(fullPath);
-                if (openResult.PageCount > 0 && !BlankPageService.IsBlankFile(fullPath)) RecentFilesStore.NoteOpened(fullPath, openResult.PageCount);
+                if (recordRecent && openResult.PageCount > 0 && !BlankPageService.IsBlankFile(fullPath)) RecentFilesStore.NoteOpened(fullPath, openResult.PageCount);
                 return await _dispatcher.InvokeAsync(() =>
                     _groups.Contains(placeholder) && placeholder.Pages.Count > 0 ? placeholder : null);
             }
@@ -330,13 +378,14 @@ namespace XTPdfMergeApp
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Margin = new Thickness(0, 18, 0, 0)
             };
-            var cancel = new System.Windows.Controls.Button { Content = "Cancel", MinWidth = 82, IsCancel = true };
-            var open = new System.Windows.Controls.Button { Content = "Open", MinWidth = 82, IsDefault = true, Margin = new Thickness(8, 0, 0, 0) };
+            var cancel = new XTStyle.Controls.XTButton { Text = "Cancel", MinWidth = 92, Height = 36, IsCancel = true };
+            var open = new XTStyle.Controls.XTButton { Text = "Open", MinWidth = 92, Height = 36, IsDefault = true, Margin = new Thickness(8, 0, 0, 0) };
+            open.SetResourceReference(FrameworkElement.StyleProperty, "UiPrimaryButton");
             buttons.Children.Add(cancel);
             buttons.Children.Add(open);
             panel.Children.Add(buttons);
 
-            var dialog = new Window
+            var dialog = new XTStyle.Controls.XTWindow
             {
                 Title = "Password required",
                 Content = panel,
@@ -347,6 +396,12 @@ namespace XTPdfMergeApp
                 WindowStartupLocation = OwnerWindow == null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner,
                 Owner = OwnerWindow
             };
+            dialog.TitleBarMode = XTStyle.Controls.TitleBarMode.Dialog;
+            dialog.TitleIcon = Application.Current?.TryFindResource("App.Icon.Logo");
+            dialog.TitleIconBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 112, 24));
+            dialog.SetResourceReference(System.Windows.Controls.Control.BackgroundProperty, "Ui.Surface");
+            dialog.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty, "Ui.Text");
+            dialog.UseLayoutRounding = dialog.SnapsToDevicePixels = true;
             open.Click += (_, _) => dialog.DialogResult = true;
             dialog.Loaded += (_, _) => passwordBox.Focus();
             return dialog.ShowDialog() == true ? passwordBox.Password : null;
@@ -435,10 +490,11 @@ namespace XTPdfMergeApp
                 .Select(g => (Path: g.Key, Pages: (IReadOnlyCollection<int>)g.Select(p => p.PageNumber).Distinct().ToList()))
                 .ToList();
             if (targets.Count == 0) return;
+            if (!await Controls.PdfPermissionDialog.RequireAsync(OwnerWindow, targets.Select(t => t.Path), PdfPermissionOperation.Modify)) return;
 
             if (!await ApplySourceRotationAsync(targets, deltaDegrees)) return;
             _workspace.History.Record(new RotateSourcePagesCommand(deltaDegrees,
-                targets.Sum(t => t.Pages.Count), delta => ApplySourceRotationAsync(targets, delta)));
+                targets.Sum(t => t.Pages.Count), delta => ApplySourceRotationAsync(targets, delta), targets.Select(t => t.Path).ToList()));
         }
 
         private async Task<bool> ApplySourceRotationAsync(
@@ -456,6 +512,7 @@ namespace XTPdfMergeApp
         Task IReaderPageEditHost.ApplyAnnotationChangesAsync(string path, IReadOnlyList<QuickAnnotationChange> changes, string description)
         {
             if (changes.Count == 0) return Task.CompletedTask;
+            if (!Controls.PdfPermissionDialog.Require(OwnerWindow, new[] { path }, PdfPermissionOperation.Annotate)) return Task.CompletedTask;
             _workspace.Execute(new AnnotationEditCommand(description, path, changes.ToList()));
             NotifyStatusChanged();
             return Task.CompletedTask;
@@ -500,22 +557,30 @@ namespace XTPdfMergeApp
             catch { return; }
             if (_groups.Any(g => g.Pages.Any(p => string.Equals(p.SourcePath, output, StringComparison.OrdinalIgnoreCase))))
             {
-                MessageBox.Show(OwnerWindow, "That file is open or used by an open window. Choose a different name.",
+                AppDialog.Show(OwnerWindow, "That file is open or used by an open window. Choose a different name.",
                     "Export PDF", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
+            if (!await Controls.SignedPdfConfirmation.ConfirmAsync(OwnerWindow,
+                pageList.Select(p => p.SourcePath), "Export PDF with this layer view", false, new[] { output })) return;
             string error = "";
             bool ok = await Task.Run(() =>
             {
-                if (!XTPdfMerger.TryMergePages(pageList, output, out var e, null, mergeLayersByName: true)) { error = e; return false; }
-                try { PdfLayerService.SetDefaultVisibilityByName(output, hiddenNames); return true; }
+                try
+                {
+                    PdfFileTransaction.Run(new[] { output }, (_, stage) =>
+                    {
+                        if (!XTPdfMerger.TryMergePages(pageList, stage, out var e, null, mergeLayersByName: true)) throw new IOException(e);
+                        PdfLayerService.SetDefaultVisibilityByName(stage, hiddenNames);
+                    });
+                    return true;
+                }
                 catch (Exception ex) { error = ex.Message; return false; }
             });
             if (!ok)
             {
-                TryDelete(output);
-                MessageBox.Show(OwnerWindow, "Could not export the file:\n" + error, "Export PDF", MessageBoxButton.OK, MessageBoxImage.Error);
+                AppDialog.Show(OwnerWindow, "Could not export the file:\n" + error, "Export PDF", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
             ShowSuccess("Exported " + Path.GetFileName(output));
@@ -564,6 +629,8 @@ namespace XTPdfMergeApp
 
             string output = dialog.OutputPath;
             var options = dialog.Options;
+            if (!await Controls.SignedPdfConfirmation.ConfirmAsync(OwnerWindow,
+                pageList.Select(p => p.SourcePath), "Merge PDFs", false, new[] { output })) return;
             string error = "";
             Mouse.OverrideCursor = Cursors.Wait;
             bool ok;
@@ -577,11 +644,11 @@ namespace XTPdfMergeApp
                     return r;
                 });
             }
+            catch (Exception ex) { ok = false; error = ex.Message; }
             finally { Mouse.OverrideCursor = null; }
             if (!ok)
             {
-                TryDelete(output);
-                MessageBox.Show(OwnerWindow, "Could not merge the files:\n" + error, "Merge", MessageBoxButton.OK, MessageBoxImage.Error);
+                AppDialog.Show(OwnerWindow, "Could not merge the files:\n" + error, "Merge", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
             ShowSuccess($"Merged {pageList.Count} pages into {Path.GetFileName(output)}");
@@ -627,17 +694,19 @@ namespace XTPdfMergeApp
             NotifyStatusChanged();
         }
 
-        public void Undo()
+        public async void Undo()
         {
             if (!_workspace.History.CanUndo) return;
-            _workspace.History.Undo();
+            try { await _workspace.History.UndoAsync(); }
+            catch (Exception ex) { AppDialog.Show(OwnerWindow, ex.Message, "Could not undo", MessageBoxButton.OK, MessageBoxImage.Error); }
             AfterHistoryChange();
         }
 
-        public void Redo()
+        public async void Redo()
         {
             if (!_workspace.History.CanRedo) return;
-            _workspace.History.Redo();
+            try { await _workspace.History.RedoAsync(); }
+            catch (Exception ex) { AppDialog.Show(OwnerWindow, ex.Message, "Could not redo", MessageBoxButton.OK, MessageBoxImage.Error); }
             AfterHistoryChange();
         }
 
@@ -645,6 +714,7 @@ namespace XTPdfMergeApp
 
         void IReaderPageEditHost.DeletePages(DocumentGroup group, IReadOnlyList<PageRow> pages)
         {
+            if (!CanModifyGroup(group)) return;
             if (pages.Count == 0 || !_groups.Contains(group)) return;
             _workspace.Execute(new RemovePagesCommand(_workspace, group, pages));
             if (!_groups.Contains(group)) ReaderWindow.Instance?.NotifyGroupRemoved(group);
@@ -659,30 +729,41 @@ namespace XTPdfMergeApp
             IReadOnlyList<(string Path, IReadOnlyCollection<int> Pages)> targets,
             Action<string, IReadOnlyCollection<int>> edit, bool geometryChanged)
         {
+            if (!await Controls.PdfPermissionDialog.RequireAsync(OwnerWindow, targets.Select(t => t.Path), PdfPermissionOperation.Modify)) return false;
+            if (!await Controls.SignedPdfConfirmation.ConfirmAsync(OwnerWindow,
+                targets.Select(t => t.Path), "Edit PDF pages", true)) return false;
             await _sourceEditGate.WaitAsync();
+            var suspensions = new List<IDisposable>();
             try
             {
-                foreach (var (path, pages) in targets)
+                foreach (var path in targets.Select(t => t.Path).Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    AnnotationStore.ReleaseReader(path);
+                    suspensions.Add(await PdfThumbnailService.SuspendDocumentAsync(path, TimeSpan.FromSeconds(3)));
+                }
+                var byPath = targets.ToDictionary(t => Path.GetFullPath(t.Path), t => t.Pages, StringComparer.OrdinalIgnoreCase);
+                await PdfFileTransaction.RunAsync(byPath.Keys.ToList(), async (path, stage) =>
                 {
                     try
                     {
-                        AnnotationStore.ReleaseReader(path);
-                        using (await PdfThumbnailService.SuspendDocumentAsync(path, TimeSpan.FromSeconds(3)))
-                            await Task.Run(() => edit(path, pages));
+                        await Task.Run(() => File.Copy(path, stage));
+                        if (PdfThumbnailService.TryGetDocumentPassword(path) is { Length: > 0 } password)
+                            await PdfThumbnailService.SetDocumentPasswordAsync(stage, password);
+                        await Task.Run(() => edit(stage, byPath[path]));
                     }
-                    catch (Exception ex)
-                    {
-                        InvalidateSourcePageRenders(path, pages, geometryChanged);
-                        MessageBox.Show(OwnerWindow, $"Could not write the file:\n{path}\n\n{ex.Message}", "Edit PDF",
-                            MessageBoxButton.OK, MessageBoxImage.Error);
-                        return false;
-                    }
-                    InvalidateSourcePageRenders(path, pages, geometryChanged);
-                }
+                    finally { await PdfThumbnailService.ForgetDocumentPasswordAsync(stage); }
+                });
                 return true;
+            }
+            catch (Exception ex)
+            {
+                AppDialog.Show(OwnerWindow, ex.Message, "Could not edit PDF pages", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
             }
             finally
             {
+                foreach (var suspension in suspensions) suspension.Dispose();
+                foreach (var (path, pages) in targets) InvalidateSourcePageRenders(path, pages, geometryChanged);
                 _sourceEditGate.Release();
             }
         }
@@ -730,6 +811,7 @@ namespace XTPdfMergeApp
         /// <summary>Copy/Cut: chỉ ghi nhớ. Cut không xoá trang cho tới khi Paste (lúc đó trang được di chuyển, có Undo).</summary>
         void IReaderPageEditHost.CopyPages(DocumentGroup source, IReadOnlyList<PageRow> pages, bool cut)
         {
+            if (!Controls.PdfPermissionDialog.Require(OwnerWindow, pages.Select(p => p.SourcePath), PdfPermissionOperation.Copy) || cut && !CanModifyGroup(source)) return;
             if (pages.Count == 0) return;
             _clipPages = pages.ToList();
             _clipSource = source;
@@ -738,6 +820,7 @@ namespace XTPdfMergeApp
 
         IReadOnlyList<PageRow> IReaderPageEditHost.PastePages(DocumentGroup target, int insertIndex)
         {
+            if (!CanModifyGroup(target)) return Array.Empty<PageRow>();
             if (_clipPages is not { Count: > 0 } || !_groups.Contains(target)) return Array.Empty<PageRow>();
             var pages = _clipPages.ToList();
             bool move = _clipCut && _clipSource != null && _groups.Contains(_clipSource)
@@ -751,6 +834,8 @@ namespace XTPdfMergeApp
         IReadOnlyList<PageRow> IReaderPageEditHost.MovePages(DocumentGroup source, DocumentGroup target,
             IReadOnlyList<PageRow> pages, int insertIndex, bool copy)
         {
+            if (!CanModifyGroup(target) || !copy && !CanModifyGroup(source) ||
+                !Controls.PdfPermissionDialog.Require(OwnerWindow, pages.Select(p => p.SourcePath), PdfPermissionOperation.Copy)) return Array.Empty<PageRow>();
             if (pages.Count == 0 || !_groups.Contains(source) || !_groups.Contains(target)) return Array.Empty<PageRow>();
             var command = new MovePagesCommand(_workspace, source, target, pages, insertIndex, copy);
             _workspace.Execute(command);
@@ -768,6 +853,7 @@ namespace XTPdfMergeApp
         /// <summary>Chèn 1 trang trắng cùng khổ với <paramref name="reference"/> tại <paramref name="insertIndex"/>.</summary>
         async Task<IReadOnlyList<PageRow>> IReaderPageEditHost.InsertBlankPageAsync(DocumentGroup target, int insertIndex, PageRow reference)
         {
+            if (!CanModifyGroup(target)) return Array.Empty<PageRow>();
             if (!_groups.Contains(target)) return Array.Empty<PageRow>();
             double width = reference.PageWidthPoints ?? 0, height = reference.PageHeightPoints ?? 0;
             string blank = await Task.Run(() =>
@@ -827,16 +913,27 @@ namespace XTPdfMergeApp
             string target = group.SourcePath;
             if (IsTempWindow(group)) saveAs = true;
             if (!saveAs && !group.IsDirty) return true;
+            if (!saveAs && !await Controls.PdfPermissionDialog.RequireAsync(OwnerWindow, new[] { target },
+                    group.OnlyAnnotationsDirty ? PdfPermissionOperation.Annotate : PdfPermissionOperation.Modify)) return false;
+            if (!saveAs && !group.OnlyAnnotationsDirty && (await PdfSecurityService.ReadAsync(target)).IsEncrypted)
+            {
+                if (AppDialog.Show(OwnerWindow, "Page structure changes require rewriting this PDF. Save as an unprotected copy instead?\n\nThe original encrypted file keeps its password and permissions.",
+                    "Save protected PDF", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return false;
+                saveAs = true;
+            }
 
             if (!saveAs && _groups.Any(g => !ReferenceEquals(g, group) &&
                     g.Pages.Any(p => string.Equals(p.SourcePath, target, StringComparison.OrdinalIgnoreCase))))
             {
-                var answer = MessageBox.Show(OwnerWindow,
+                var answer = AppDialog.Show(OwnerWindow,
                     "Other windows use pages from this file, so it cannot be overwritten safely.\n\nSave as a new file instead?",
                     "Save", MessageBoxButton.YesNo, MessageBoxImage.Question);
                 if (answer != MessageBoxResult.Yes) return false;
                 saveAs = true;
             }
+
+            if (!await Controls.SignedPdfConfirmation.ConfirmAsync(OwnerWindow,
+                group.Pages.Select(p => p.SourcePath), saveAs ? "Save a PDF copy" : "Save PDF changes", !saveAs)) return false;
 
             // Only annotations changed and the window is exactly its own file: write them into the file (incremental update, fast).
             if (!saveAs && group.OnlyAnnotationsDirty &&
@@ -846,6 +943,7 @@ namespace XTPdfMergeApp
             List<(string SourcePath, int PageNumber)> pageList;
             Mouse.OverrideCursor = Cursors.Wait;
             try { pageList = await AnnotationWorkingCopy.MapAsync(group.Pages.Select(p => (p.SourcePath, p.PageNumber))); }
+            catch (Exception ex) { AppDialog.Show(OwnerWindow, "Could not prepare the PDF for saving:\n" + ex.Message, "Save", MessageBoxButton.OK, MessageBoxImage.Error); return false; }
             finally { Mouse.OverrideCursor = null; }
             return saveAs ? await SaveGroupAsNewFileAsync(group, pageList) : await OverwriteSourceFileAsync(group, target, pageList);
         }
@@ -864,7 +962,7 @@ namespace XTPdfMergeApp
             }
             catch (Exception ex)
             {
-                MessageBox.Show(OwnerWindow, $"Could not write the file:\n{target}\n\n{ex.Message}", "Save", MessageBoxButton.OK, MessageBoxImage.Error);
+                AppDialog.Show(OwnerWindow, $"Could not write the file:\n{target}\n\n{ex.Message}", "Save", MessageBoxButton.OK, MessageBoxImage.Error);
                 return false;
             }
             finally
@@ -876,7 +974,7 @@ namespace XTPdfMergeApp
             // The page images do not change (they are rendered without annotations); the annotations are now read from the file.
             AnnotationStore.FileRewritten(target, keepPending: false);
             AnnotationWorkingCopy.Forget(target);
-            _workspace.History.Clear();
+            _workspace.History.DiscardForSource(target);
             AfterHistoryChange();
             ReaderWindow.Instance?.ReaderSidePanel.OnSourceEdited(target);
             ShowSuccess("Saved " + Path.GetFileName(target));
@@ -901,11 +999,14 @@ namespace XTPdfMergeApp
             catch { return false; }
             if (_groups.Any(g => g.Pages.Any(p => string.Equals(p.SourcePath, output, StringComparison.OrdinalIgnoreCase))))
             {
-                MessageBox.Show(OwnerWindow, "That file is open or used by an open window. Choose a different name.",
+                AppDialog.Show(OwnerWindow, "That file is open or used by an open window. Choose a different name.",
                     "Save as", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return false;
             }
 
+            // Source consent was obtained before preparing annotation working copies. Check an existing destination separately.
+            if (!await Controls.SignedPdfConfirmation.ConfirmAsync(OwnerWindow,
+                Array.Empty<string>(), "Replace an existing PDF with this copy", false, new[] { output })) return false;
             string error = "";
             bool ok = await Task.Run(() =>
             {
@@ -915,7 +1016,7 @@ namespace XTPdfMergeApp
             });
             if (!ok)
             {
-                MessageBox.Show(OwnerWindow, "Could not save the file:\n" + error, "Save as", MessageBoxButton.OK, MessageBoxImage.Error);
+                AppDialog.Show(OwnerWindow, "Could not save the file:\n" + error, "Save as", MessageBoxButton.OK, MessageBoxImage.Error);
                 return false;
             }
 
@@ -929,21 +1030,6 @@ namespace XTPdfMergeApp
 
         private async Task<bool> OverwriteSourceFileAsync(DocumentGroup group, string target, List<(string SourcePath, int PageNumber)> pageList)
         {
-            string temp = target + ".xtsave.tmp", backup = target + ".xtsave.bak";
-            string error = "";
-            bool ok = await Task.Run(() =>
-            {
-                bool r = XTPdfMerger.TryMergePages(pageList, temp, out var e, null, mergeLayersByName: true);
-                error = e;
-                return r;
-            });
-            if (!ok)
-            {
-                TryDelete(temp);
-                MessageBox.Show(OwnerWindow, "Could not save the file:\n" + error, "Save", MessageBoxButton.OK, MessageBoxImage.Error);
-                return false;
-            }
-
             int oldMax = group.Pages.Where(p => string.Equals(p.SourcePath, target, StringComparison.OrdinalIgnoreCase))
                 .Select(p => p.PageNumber).DefaultIfEmpty(0).Max();
             int keepIndex = ReaderWindow.Instance?.CurrentPageIndexIn(group) ?? 0;
@@ -953,19 +1039,21 @@ namespace XTPdfMergeApp
             {
                 AnnotationStore.ReleaseReader(target);
                 using (await PdfThumbnailService.SuspendDocumentAsync(target, TimeSpan.FromSeconds(3)))
-                    await Task.Run(() => File.Replace(temp, target, backup, ignoreMetadataErrors: true));
+                    await Task.Run(() => PdfFileTransaction.Run(new[] { target }, (_, stage) =>
+                    {
+                        if (!XTPdfMerger.TryMergePages(pageList, stage, out string error, null, mergeLayersByName: true))
+                            throw new IOException(error);
+                    }));
             }
             catch (Exception ex)
             {
-                TryDelete(temp);
-                MessageBox.Show(OwnerWindow, $"Could not write the file:\n{target}\n\n{ex.Message}", "Save", MessageBoxButton.OK, MessageBoxImage.Error);
+                AppDialog.Show(OwnerWindow, $"Could not write the file:\n{target}\n\n{ex.Message}", "Save", MessageBoxButton.OK, MessageBoxImage.Error);
                 return false;
             }
             finally
             {
                 _sourceEditGate.Release();
             }
-            TryDelete(backup);
 
             // Đặt lại window theo file vừa lưu: trang 1..N của file mới, mốc "đã lưu" mới, lịch sử cũ không còn đúng.
             int count = pageList.Count;
@@ -977,7 +1065,7 @@ namespace XTPdfMergeApp
             AnnotationWorkingCopy.Forget(target);
             group.SetBaseline();
             UpdateAnnotationDirty();
-            _workspace.History.Clear();
+            _workspace.History.DiscardForSource(target);
             InvalidateSourcePageRenders(target, Enumerable.Range(1, Math.Max(oldMax, count)).ToList(), geometryChanged: true);
             ReaderWindow.Instance?.OnGroupSaved(group, target, keepIndex);
             ReleaseUnusedPdfDocuments();
@@ -986,16 +1074,11 @@ namespace XTPdfMergeApp
             return true;
         }
 
-        private static void TryDelete(string path)
-        {
-            try { if (File.Exists(path)) File.Delete(path); }
-            catch { /* file tạm/sao lưu: bỏ qua */ }
-        }
-
         // ── Chèn trang từ file khác ────────────────────────────────────────
 
         async Task IReaderPageEditHost.InsertPagesFromFileAsync(DocumentGroup target, int insertIndex)
         {
+            if (!CanModifyGroup(target)) return;
             using var dlg = new System.Windows.Forms.OpenFileDialog
             {
                 Title = "Choose a PDF to insert pages from",
@@ -1010,6 +1093,7 @@ namespace XTPdfMergeApp
 
             var existing = _groups.FirstOrDefault(g =>
                 string.Equals(g.SourcePath, fullPath, StringComparison.OrdinalIgnoreCase));
+            if (existing != null && !await Controls.PdfPermissionDialog.RequireAsync(OwnerWindow, new[] { fullPath }, PdfPermissionOperation.Copy)) return;
             if (ReferenceEquals(existing, target))
             {
                 // Chèn chính file đang xem vào chính nó → nhân bản toàn bộ trang tại vị trí chọn.
@@ -1028,11 +1112,12 @@ namespace XTPdfMergeApp
                 var opened = await AddFileAsGroup(fullPath);
                 if (opened == null)
                 {
-                    MessageBox.Show(OwnerWindow, "Could not open the file:\n" + fullPath, "Insert pages",
+                    AppDialog.Show(OwnerWindow, "Could not open the file:\n" + fullPath, "Insert pages",
                         MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
                 if (!_groups.Contains(target)) return;
+                if (!await Controls.PdfPermissionDialog.RequireAsync(OwnerWindow, new[] { fullPath }, PdfPermissionOperation.Copy)) return;
                 _workspace.Execute(new MergeDocumentsCommand(_workspace, new[] { target, opened }, null, insertIndex));
             }
 
@@ -1062,12 +1147,16 @@ namespace XTPdfMergeApp
 
             if (pages.Any(p => string.Equals(Path.GetFullPath(p.SourcePath), Path.GetFullPath(outputPath), StringComparison.OrdinalIgnoreCase)))
             {
-                MessageBox.Show(OwnerWindow, "You cannot overwrite the source file that is currently open.", "Export pages",
+                AppDialog.Show(OwnerWindow, "You cannot overwrite the source file that is currently open.", "Export pages",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            var pageList = await AnnotationWorkingCopy.MapAsync(pages.Select(p => (p.SourcePath, p.PageNumber)));
+            if (!await Controls.SignedPdfConfirmation.ConfirmAsync(OwnerWindow,
+                pages.Select(p => p.SourcePath), "Export selected pages", false, new[] { outputPath })) return;
+            List<(string SourcePath, int PageNumber)> pageList;
+            try { pageList = await AnnotationWorkingCopy.MapAsync(pages.Select(p => (p.SourcePath, p.PageNumber))); }
+            catch (Exception ex) { AppDialog.Show(OwnerWindow, "Could not prepare pages for export:\n" + ex.Message, "Export pages", MessageBoxButton.OK, MessageBoxImage.Error); return; }
             string err = "";
             // Cùng máy ghép trang của nút Lưu; chỉ gộp layer trùng TÊN (không đổi tên/collapse layer
             // như khi lưu bản ghép) — xuất trang phải giữ nguyên layer như file gốc.
@@ -1075,11 +1164,11 @@ namespace XTPdfMergeApp
                 mergeLayersByName: true));
             if (!ok)
             {
-                MessageBox.Show(OwnerWindow, "Export failed:\n" + err, "Export pages", MessageBoxButton.OK, MessageBoxImage.Error);
+                AppDialog.Show(OwnerWindow, "Export failed:\n" + err, "Export pages", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
 
-            var openResult = MessageBox.Show(OwnerWindow,
+            var openResult = AppDialog.Show(OwnerWindow,
                 $"Exported {pages.Count} page{(pages.Count == 1 ? "" : "s")} to:\n{outputPath}\n\nOpen the file now?",
                 "Export pages", MessageBoxButton.YesNo, MessageBoxImage.Information);
             if (openResult == MessageBoxResult.Yes)

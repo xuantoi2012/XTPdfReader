@@ -39,7 +39,11 @@ namespace XTPdfMergeApp.Services
         /// <summary>Mở file, cho <paramref name="edit"/> sửa, rồi NỐI bản cập nhật (incremental update) vào cuối chính file đó.
         /// Không đọc cả file vào RAM, không chép lại phần cũ ra file tạm: file 165 MB chỉ được ghi thêm vài KB.</summary>
         public static void EditInPlace(string path, Action<PdfDocument> edit)
+            => EditInPlace(path, edit, PdfPermissionOperation.Modify);
+
+        internal static void EditInPlace(string path, Action<PdfDocument> edit, PdfPermissionOperation operation)
         {
+            PdfPermissionPolicy.EnsureAllowed(path, operation);
             var update = new MemoryStream();
             long length;
             var source = new SharedFileSource(path);
@@ -50,7 +54,7 @@ namespace XTPdfMergeApp.Services
                 var properties = new ReaderProperties();
                 if (PdfThumbnailService.TryGetDocumentPassword(path) is { Length: > 0 } password)
                     properties.SetPassword(Encoding.UTF8.GetBytes(password));
-                using var doc = new PdfDocument(new PdfReader(source, properties), new PdfWriter(new TailStream(length, update)),
+                using var doc = new PdfDocument(new PdfReader(source, properties).SetUnethicalReading(true), new PdfWriter(new TailStream(length, update)),
                     new StampingProperties().UseAppendMode());
                 edit(doc);
             }

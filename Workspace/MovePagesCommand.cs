@@ -32,6 +32,7 @@ internal sealed class MovePagesCommand : IWorkspaceCommand
     public IReadOnlyList<PagePlacement> InsertedPages => _inserted ?? [];
 
     public string Description => _copy ? "Copy pages" : "Move pages";
+    public IEnumerable<string> AffectedSources => CommandSources.Of(new[] { _source, _target }, _requested);
 
     public void Execute()
     {

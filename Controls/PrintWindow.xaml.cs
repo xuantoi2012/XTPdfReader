@@ -250,13 +250,13 @@ namespace XTPdfMergeApp.Controls
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "Printing failed:\n" + ex.Message, "Print", MessageBoxButton.OK, MessageBoxImage.Error);
+                AppDialog.Show(this, "Printing failed:\n" + ex.Message, "Print", MessageBoxButton.OK, MessageBoxImage.Error);
                 PrintButton.IsEnabled = true;
                 return;
             }
             if (!ok)
             {
-                MessageBox.Show(this, "The selected printer is not available.", "Print", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.Show(this, "The selected printer is not available.", "Print", MessageBoxButton.OK, MessageBoxImage.Warning);
                 PrintButton.IsEnabled = true;
                 return;
             }

@@ -93,63 +93,16 @@ namespace XTPdfMergeApp
 
         private void ReaderFind_Click(object sender, RoutedEventArgs e) => OpenFind();
 
-        /// <summary>Tạo bản sao searchable qua Windows OCR; không ghi đè file nguồn hoặc working copy đang mở.</summary>
-        private async void ReaderOcr_Click(object sender, RoutedEventArgs e)
-        {
-            string? path = _readerPage?.SourcePath ?? _readerGroup?.SourcePath;
-            if (string.IsNullOrWhiteSpace(path)) return;
-            if (_readerGroup is { IsDirty: true } && string.Equals(_readerGroup.SourcePath, path, StringComparison.OrdinalIgnoreCase))
-            {
-                MessageBox.Show(this, "Save the current document changes before OCR. OCR always uses the saved PDF and creates a separate searchable copy.",
-                    "Save before OCR", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            var security = await PdfSecurityService.ReadAsync(path);
-            if (security.Error != null)
-            {
-                MessageBox.Show(this, "Could not read this PDF for OCR:\n" + security.Error, "OCR", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-            if (security.IsEncrypted)
-            {
-                MessageBox.Show(this, "OCR of encrypted PDFs is not available yet because the searchable copy must preserve the document protection. Remove protection first, then OCR the copy.",
-                    "OCR", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            var open = await PdfThumbnailService.TryGetPageCountAsync(path);
-            if (open.PageCount <= 0)
-            {
-                MessageBox.Show(this, "Could not determine the page count for OCR.", "OCR", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-
-            int currentPage = Math.Clamp(_readerPage?.PageNumber ?? 1, 1, open.PageCount);
-            var dialog = new Controls.PdfOcrWindow(path, open.PageCount, currentPage) { Owner = this };
-            if (dialog.ShowDialog() != true || dialog.OutputPath is not { } output) return;
-
-            XTStyle.Controls.XTGrowl.Success("Created searchable PDF copy", this);
-            if (EditHost != null && MessageBox.Show(this, "Open the searchable copy now?", "OCR complete", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
-                await EditHost.OpenPathsAsync(new[] { output });
-        }
-
         /// <summary>In các trang của window đang xem (hộp thoại Print).</summary>
         private async void ReaderPrint_Click(object sender, RoutedEventArgs e)
         {
             if (_readerGroup == null || _readerGroup.Pages.Count == 0) return;
             var sourcePaths = _readerGroup.Pages.Select(p => p.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            foreach (var security in await System.Threading.Tasks.Task.WhenAll(sourcePaths.Select(PdfSecurityService.ReadAsync)))
-            {
-                if (security.Error == null && !security.CanPrint)
-                {
-                    MessageBox.Show(this, "This PDF does not grant permission to print with the current password.",
-                        "Print restricted", MessageBoxButton.OK, MessageBoxImage.Information);
-                    return;
-                }
-            }
+            if (!await Controls.PdfPermissionDialog.RequireAsync(this, sourcePaths, PdfPermissionOperation.Print)) return;
             // Unsaved annotations are printed too: files with edits are read from their working copy.
-            var pages = await AnnotationWorkingCopy.MapAsync(_readerGroup.Pages.Select(p => (p.SourcePath, p.PageNumber)));
+            List<(string SourcePath, int PageNumber)> pages;
+            try { pages = await AnnotationWorkingCopy.MapAsync(_readerGroup.Pages.Select(p => (p.SourcePath, p.PageNumber))); }
+            catch (Exception ex) { AppDialog.Show(this, "Could not prepare the PDF for printing:\n" + ex.Message, "Print", MessageBoxButton.OK, MessageBoxImage.Error); return; }
             int current = _readerPage == null ? 0 : Math.Max(0, _readerGroup.Pages.IndexOf(_readerPage));
             var dialog = new Controls.PrintWindow(pages, current) { Owner = this };
             if (dialog.ShowDialog() == true) XTStyle.Controls.XTGrowl.Success("Sent to the printer", this);
@@ -165,13 +118,14 @@ namespace XTPdfMergeApp
 
             if (info.IsEncrypted && !info.IsOwner)
             {
-                MessageBox.Show(this, "This file was opened with a user password. Enter its owner password when opening the file before changing protection.",
+                AppDialog.Show(this, "This file was opened with a user password. Enter its owner password when opening the file before changing protection.",
                     "Protect PDF", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
             var options = Controls.PdfProtectionWindow.Ask(this, info);
             if (options == null) return;
+            if (!await Controls.SignedPdfConfirmation.ConfirmAsync(this, new[] { path }, "Change PDF protection", true)) return;
             try
             {
                 AnnotationStore.ReleaseReader(path);
@@ -186,7 +140,7 @@ namespace XTPdfMergeApp
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "Could not change PDF protection:\n" + ex.Message, "Protect PDF", MessageBoxButton.OK, MessageBoxImage.Error);
+                AppDialog.Show(this, "Could not change PDF protection:\n" + ex.Message, "Protect PDF", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

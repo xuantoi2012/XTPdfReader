@@ -129,6 +129,12 @@ internal sealed class WorkspaceDocument : INotifyPropertyChanged
     }
 
     internal string? CaptureDisplayName() => _displayName;
+    internal IReadOnlyList<(string Path, int Page)> CaptureBaseline() => _baseline?.ToList() ?? [];
+    internal void RestoreBaseline(IEnumerable<(string Path, int Page)> baseline)
+    {
+        _baseline = baseline.ToList();
+        UpdateDirty();
+    }
 
     internal void RestoreDisplayName(string? name)
     {

@@ -30,6 +30,7 @@ namespace XTPdfMergeApp.Services
         /// <summary>FPDF_ANNOT — vẽ cả annotation (typewriter, ghi chú, highlight…). Thiếu cờ này thì annotation
         /// ghi vào file không bao giờ hiện trong Viewer/thumbnail.</summary>
         private const int FpdfAnnot = 0x01;
+        private const int FpdfPrinting = 0x800;
         private const int FpdfLcdText = 0x02;
         private const int FpdfNoNativeText = 0x04;
         private const int FpdfRenderLimitedImageCache = 0x200;

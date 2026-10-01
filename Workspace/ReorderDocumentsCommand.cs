@@ -17,6 +17,7 @@ internal sealed class ReorderDocumentsCommand : IWorkspaceCommand
     }
 
     public string Description => "Reorder files";
+    public System.Collections.Generic.IEnumerable<string> AffectedSources => CommandSources.Of(new[] { _document });
     public void Execute()
     {
         _oldIndex = _workspace.Documents.IndexOf(_document);

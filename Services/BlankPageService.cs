@@ -23,7 +23,7 @@ internal static class BlankPageService
     {
         try
         {
-            using var reader = new PdfReader(path);
+            using var reader = new PdfReader(path, PdfSecurityService.ReaderPropertiesFor(path));
             using var document = new PdfDocument(reader);
             if (pageNumber < 1 || pageNumber > document.GetNumberOfPages()) return null;
             var size = document.GetPage(pageNumber).GetPageSizeWithRotation();

@@ -21,11 +21,11 @@ namespace XTPdfMergeApp.Controls;
 /// Chế độ Cuộn liên tục kiểu Foxit: MỘT vùng vẽ duy nhất, không ListBox/phần tử cho từng trang.
 /// - Vị trí mọi trang là phép tính (<see cref="ContinuousViewport"/>): cuộn/zoom chỉ đổi vài con số rồi vẽ lại ngay
 ///   khung hình kế tiếp.
-/// - Mỗi khung hình vẽ các trang đang hiện bằng ảnh TỐT NHẤT đang có của trang (ảnh nhỏ 340 px, ảnh trang ≤ 2304 px,
-///   vùng nét khi zoom sâu) co giãn vào đúng khung trang — không bao giờ để trống trang đã có ảnh, kể cả giữa lúc zoom.
-///   Ảnh nét mới tới thì thay vào; ảnh cũ nằm yên tới lúc đó.
-/// - Việc vẽ PDFium được xin sau khi khung nhìn đứng yên một nhịp (cuộn nhanh / đang zoom thì chưa xin), huỷ khi trang
-///   rời khu vực quanh khung nhìn.
+/// - Mỗi khung hình dùng ảnh đủ đọc tốt nhất đang có (ảnh trang ≤ 2304 px, vùng nét khi zoom sâu).
+///   Thumbnail 340 px chỉ hiện khi trang đủ nhỏ; không phóng thumbnail thô lên vùng đọc.
+///   Giữ ảnh đủ đọc cũ trong lúc chờ ảnh nét mới.
+/// - Trang đang hiện luôn được xin vẽ ngay ở độ phân giải cần dùng dù đang cuộn;
+///   chỉ việc tải trước và đổi độ phân giải khi zoom mới chờ ổn định một nhịp.
 /// </summary>
 public sealed class ContinuousPdfView : Grid
 {
@@ -37,19 +37,19 @@ public sealed class ContinuousPdfView : Grid
     /// <summary>Ảnh trang cả trang tối đa (như chế độ 1 trang); zoom sâu hơn thì vẽ vùng đang nhìn.</summary>
     private const int MaxPageBitmapWidth = 2304;
     private const int MinPageBitmapWidth = 512;
+    /// <summary>Ảnh đầu tiên trong vùng đọc phải đủ rõ; thumbnail sidebar 340 px chỉ dùng cho trang hiện rất nhỏ.</summary>
+    internal const int ReadablePageBitmapWidth = 1024;
     /// <summary>Trang hiện nhỏ hơn chừng này (px thiết bị) thì ảnh nhỏ 340 px của thumbnail đã đủ nét.</summary>
     private const double PreviewSufficientPx = ThumbnailCache.RenderThumbnailWidthPx * 1.05;
     /// <summary>Độ phân giải vùng nét lượng tử hoá theo bậc 400 px — zoom nhích 1% không phải vẽ lại.</summary>
     private const int RegionResolutionQuantum = 400;
     private const int MaxRegionFullWidth = 16000;
-    /// <summary>Cuộn nhanh hơn chừng này (khung nhìn/giây) thì chưa xin vẽ gì — trang đang lướt qua sẽ rời màn hình trước
-    /// khi kịp vẽ; đứng yên <see cref="SettleMilliseconds"/> thì xin cho đúng các trang đang hiện.</summary>
+    /// <summary>Cuộn nhanh: chỉ vẽ các trang đang hiện, chờ <see cref="SettleMilliseconds"/> rồi tải trước trang kế.</summary>
     private const double FastScrollViewportsPerSecond = 4;
     private const int SettleMilliseconds = 40;
     /// <summary>Đang zoom: chờ zoom đứng yên chừng này mới xin ảnh ở độ phân giải mới (giữa chừng chỉ co giãn ảnh có sẵn).</summary>
     private const int ZoomSettleMilliseconds = 60;
-    private const int PrefetchSharpPages = 2;
-    private const int PrefetchPreviewPages = 4;
+    private const int PrefetchPages = 4;
     /// <summary>Trang ngoài [đầu − n, cuối + n] quanh khung nhìn: huỷ việc đang vẽ, bỏ ảnh riêng của view.</summary>
     private const int KeepPages = 4;
 
@@ -110,8 +110,10 @@ public sealed class ContinuousPdfView : Grid
         _surface.MouseUp += (_, e) => { if (_panning) { EndPan(); e.Handled = true; } };
         _surface.LostMouseCapture += (_, _) => _panning = false;
 
-        _updateTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
-            { Interval = TimeSpan.FromMilliseconds(40) };
+        // Chỉ lập lịch công việc async, không rasterize trên UI thread. Ưu tiên Render
+        // để dòng MouseWheel/MouseMove liên tục không bỏ đói yêu cầu nét.
+        _updateTimer = new DispatcherTimer(DispatcherPriority.Render, Dispatcher)
+            { Interval = TimeSpan.FromMilliseconds(16) };
         _updateTimer.Tick += (_, _) => { _updateTimer.Stop(); UpdateRequests(); };
         Unloaded += (_, _) => CancelAll();
         IsVisibleChanged += (_, _) => { if (IsVisible) ScheduleUpdate(immediate: true); };
@@ -429,15 +431,19 @@ public sealed class ContinuousPdfView : Grid
             }
         }
         ViewChanged?.Invoke();
-        ScheduleUpdate(immediate: kind == ChangeKind.Navigate);
+        ScheduleUpdate(immediate: kind is ChangeKind.Navigate or ChangeKind.UserScroll);
     }
+
+    private bool _updateQueued;
 
     private void ScheduleUpdate(bool immediate = false)
     {
         if (immediate)
         {
             _updateTimer.Stop();
-            _ = Dispatcher.InvokeAsync(UpdateRequests, DispatcherPriority.Background);
+            if (_updateQueued) return;
+            _updateQueued = true;
+            _ = Dispatcher.InvokeAsync(() => { _updateQueued = false; UpdateRequests(); }, DispatcherPriority.Render);
             return;
         }
         if (!_updateTimer.IsEnabled) _updateTimer.Start();
@@ -615,7 +621,7 @@ public sealed class ContinuousPdfView : Grid
 
             _states.TryGetValue(row, out var state);
             _bases.Clear();
-            if (BestBitmap(row, state) is { } bitmap)
+            if (BestBitmap(row, state) is { } bitmap && IsReadableBitmap(bitmap, content.Width * dpi))
             {
                 dc.DrawImage(bitmap, content);
                 _bases.Add(new AnnotationLayer.BaseImage(bitmap, new Rect(0, 0, 1, 1)));
@@ -643,6 +649,9 @@ public sealed class ContinuousPdfView : Grid
                 Math.Max(0, outer.Width - 1 / dpi), Math.Max(0, outer.Height - 1 / dpi)));
         }
     }
+
+    private static bool IsReadableBitmap(BitmapSource bitmap, double displayedWidthPx)
+        => bitmap.PixelWidth >= Math.Min(ReadablePageBitmapWidth, displayedWidthPx) * 0.85;
 
     private static Rect Snap(Rect r, double dpi)
     {
@@ -680,18 +689,13 @@ public sealed class ContinuousPdfView : Grid
         if (_pages.Count == 0 || _vp.ViewportHeight <= 0 || !IsVisible) return;
         long now = Stopwatch.GetTimestamp();
         double sinceScroll = (now - _lastScrollTimestamp) * 1000.0 / Stopwatch.Frequency;
-        if (_fastScroll)
+        bool scrollSettling = _fastScroll && sinceScroll < SettleMilliseconds;
+        if (_fastScroll && !scrollSettling)
         {
-            if (sinceScroll < SettleMilliseconds)
-            {
-                _updateTimer.Interval = TimeSpan.FromMilliseconds(SettleMilliseconds - sinceScroll + 5);
-                _updateTimer.Start();
-                return;
-            }
             _fastScroll = false;
             ScrollSettled?.Invoke();
         }
-        _updateTimer.Interval = TimeSpan.FromMilliseconds(40);
+        _updateTimer.Interval = TimeSpan.FromMilliseconds(16);
         double sinceZoom = (now - _lastZoomTimestamp) * 1000.0 / Stopwatch.Frequency;
         bool zoomSettling = sinceZoom < ZoomSettleMilliseconds;
 
@@ -699,11 +703,17 @@ public sealed class ContinuousPdfView : Grid
         if (firstSlot < 0 || lastSlot >= _slots.Length) return;
         int first = _slots[firstSlot], last = _slots[lastSlot];
         int keepFirst = Math.Max(0, first - KeepPages), keepLast = Math.Min(_pages.Count - 1, last + KeepPages);
+        int renderFirst = first - (!scrollSettling && _scrollDirection < 0 ? PrefetchPages : 0);
+        int renderLast = last + (!scrollSettling && _scrollDirection >= 0 ? PrefetchPages : 0);
 
         // Trang đã rời khu vực quanh khung nhìn: huỷ việc vẽ, trả ảnh (ảnh trang còn trong cache chung của ReaderWindow).
         foreach (var (row, state) in _states.ToArray())
         {
-            if (_indexOf.TryGetValue(row, out int index) && index >= keepFirst && index <= keepLast) continue;
+            if (_indexOf.TryGetValue(row, out int index) && index >= keepFirst && index <= keepLast)
+            {
+                if (index < renderFirst || index > renderLast) state.CancelAll();
+                continue;
+            }
             state.CancelAll();
             _states.Remove(row);
         }
@@ -714,13 +724,13 @@ public sealed class ContinuousPdfView : Grid
             hot.Add((_pages[i].SourcePath, _pages[i].PageNumber));
         PdfThumbnailService.SetHotPages(hot);
 
-        // Trang đang hiện: ảnh nhỏ nếu chưa có gì, rồi ảnh trang đúng độ phân giải, rồi vùng nét khi zoom sâu.
+        // Trang đang hiện: xin thẳng ảnh đúng độ phân giải, rồi vùng nét khi zoom sâu.
         for (int i = first; i <= last; i++)
         {
             var row = _pages[i];
             var state = StateOf(row);
-            bool hasImage = BestBitmap(row, state) != null;
-            if (!hasImage) RequestPreview(row, state, PdfRenderPriority.Visible);
+            var best = BestBitmap(row, state);
+            bool hasImage = best != null;
 
             double needed = row.LayoutWidth * _vp.Zoom * dpi;
             int pageWidth = PageBitmapWidth(needed);
@@ -731,7 +741,9 @@ public sealed class ContinuousPdfView : Grid
             }
             // Đang zoom: trang đã có ảnh thì co giãn ảnh đó, chưa xin độ phân giải mới (mỗi nấc zoom một lượt vẽ là lãng phí).
             else if (!(zoomSettling && hasImage) && NeedsPageBitmap(row, state, pageWidth))
+            {
                 RequestPage(row, state, pageWidth, PdfRenderPriority.Visible);
+            }
 
             if (needed > MaxPageBitmapWidth * 1.03)
             {
@@ -752,23 +764,28 @@ public sealed class ContinuousPdfView : Grid
             _updateTimer.Start();
             return;
         }
+        if (scrollSettling)
+        {
+            _updateTimer.Start();
+            return;
+        }
 
-        // Tải trước theo hướng cuộn: ảnh nét 2 trang kế, ảnh nhỏ 4 trang kế.
+        // Tải trước bốn trang theo hướng cuộn, cùng độ phân giải với trang đang đọc.
         int dir = _scrollDirection >= 0 ? 1 : -1;
         int edge = dir > 0 ? last : first;
-        for (int step = 1; step <= PrefetchPreviewPages; step++)
+        for (int step = 1; step <= PrefetchPages; step++)
         {
             int i = edge + dir * step;
             if (i < 0 || i >= _pages.Count) break;
             var row = _pages[i];
             var state = StateOf(row);
-            if (BestBitmap(row, state) == null) RequestPreview(row, state, PdfRenderPriority.Thumbnail);
             double needed = row.LayoutWidth * _vp.Zoom * dpi;
-            if (step <= PrefetchSharpPages && needed > PreviewSufficientPx)
+            if (needed > PreviewSufficientPx)
             {
                 int pageWidth = PageBitmapWidth(needed);
                 if (NeedsPageBitmap(row, state, pageWidth)) RequestPage(row, state, pageWidth, PdfRenderPriority.Background);
             }
+            else if (BestBitmap(row, state) == null) RequestPreview(row, state, PdfRenderPriority.Thumbnail);
         }
     }
 
@@ -837,13 +854,20 @@ public sealed class ContinuousPdfView : Grid
     {
         string layers = PdfLayerStateStore.GetToken(row.SourcePath);
         BitmapSource? bmp = null;
+        bool renderCancelled = false;
         try { bmp = await renderer(row, width, priority, cts.Token).WaitAsync(cts.Token); }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) { renderCancelled = true; }
         catch (Exception ex) { Debug.WriteLine($"[ContinuousPdfView] page render failed: {ex.Message}"); }
         bool cancelled = cts.IsCancellationRequested;
         if (ReferenceEquals(state.PageCts, cts)) state.PageCts = null;
         cts.Dispose();
         if (cancelled || !IsLive(row, state, version)) return;
+        if (renderCancelled)
+        {
+            // Another placement can cancel a shared render. This is not a failed PDF page.
+            ScheduleUpdate();
+            return;
+        }
         if (bmp == null)
         {
             state.FailedWidth = width; // không xin lại mãi trang không vẽ được
@@ -856,6 +880,7 @@ public sealed class ContinuousPdfView : Grid
         state.BitmapVersion = version;
         if (row.ReaderBitmap is not { } existing || existing.PixelWidth <= bmp.PixelWidth) row.ReaderBitmap = bmp;
         if (IsOnScreen(row)) _surface.InvalidateVisual();
+        ScheduleUpdate(); // hoàn tất trang này: tiếp tục tải trước mà không cần chờ một lần cuộn/zoom khác
     }
 
     private void RequestRegion(int slot, PageRow row, PageState state, double neededPx)

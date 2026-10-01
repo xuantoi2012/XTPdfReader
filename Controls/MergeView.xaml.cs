@@ -41,6 +41,8 @@ namespace XTPdfMergeApp.Controls
         private bool _layoutChosen; // false = tự chọn layout theo số cửa sổ
         private bool _updatingLayoutButtons;
         private bool _isExporting;
+        private bool _restoredDraft;
+        internal bool HasUnsavedDraft => _restoredDraft || _draft?.History.CanUndo == true || _draft?.Documents.Any(d => d.IsDirty) == true;
 
         public MergeView()
         {
@@ -63,12 +65,24 @@ namespace XTPdfMergeApp.Controls
 
         internal bool CanUndo => _draft?.History.CanUndo == true;
         internal bool CanRedo => _draft?.History.CanRedo == true;
+        internal List<SavedDocument> CaptureDraft() => _draft == null ? new() : SessionRecoveryStore.CaptureDocuments(_draft.Documents, _draft.IsTemporary);
+        internal void RestoreDraft(IEnumerable<(DocumentGroup Document, bool Temporary)> documents)
+        {
+            _restoredDraft = true;
+            CancelTempThumbnailRequests();
+            _draft = new MergeDraftSession();
+            _draft.Restore(documents);
+            _draft.History.StateChanged += (_, _) => HistoryStateChanged?.Invoke(this, EventArgs.Empty);
+            Sync();
+            HistoryStateChanged?.Invoke(this, EventArgs.Empty);
+        }
         internal string? UndoDescription => _draft?.History.UndoDescription;
         internal string? RedoDescription => _draft?.History.RedoDescription;
 
         /// <summary>Tạo lại bản nháp từ tab đang mở. Thao tác trong Merge chỉ sửa bản này.</summary>
         internal void BeginSession(IEnumerable<DocumentGroup> groups)
         {
+            _restoredDraft = false;
             CancelTempThumbnailRequests();
             _draft = new MergeDraftSession();
             _draft.Begin(groups);
@@ -87,6 +101,7 @@ namespace XTPdfMergeApp.Controls
             entry.Minimized = false;
             entry.LastActive = ++_tick;
             Relayout();
+            HistoryStateChanged?.Invoke(this, EventArgs.Empty);
         }
 
         // ── Đồng bộ với danh sách file ────────────────────────────────
@@ -110,6 +125,7 @@ namespace XTPdfMergeApp.Controls
             _entries.Sort((a, b) => _draft.Documents.IndexOf(a.Window.Group).CompareTo(_draft.Documents.IndexOf(b.Window.Group)));
             WindowListButton.Text = _entries.Count == 1 ? "1 window" : $"{_entries.Count} windows";
             Relayout();
+            HistoryStateChanged?.Invoke(this, EventArgs.Empty);
         }
 
         private void Hook(MergeMiniWindow window)
@@ -602,6 +618,8 @@ namespace XTPdfMergeApp.Controls
             if (!System.IO.Directory.Exists(folder)) folder = System.IO.Path.GetDirectoryName(pages[0].SourcePath) ?? "";
             var dialog = new MergeSaveWindow(pages, folder) { Owner = Window.GetWindow(this) };
             if (dialog.ShowDialog() != true) return;
+            if (!await SignedPdfConfirmation.ConfirmAsync(Window.GetWindow(this), pages.Select(p => p.SourcePath),
+                "Merge PDFs", false, new[] { dialog.OutputPath })) return;
 
             string error = "";
             Mouse.OverrideCursor = Cursors.Wait;
@@ -614,11 +632,11 @@ namespace XTPdfMergeApp.Controls
                     XTPdfMerger.TryMergePages(pages, dialog.OutputPath, out error, null,
                         mergeLayersByName: dialog.Options.MergeLayers, options: dialog.Options));
             }
+            catch (Exception ex) { ok = false; error = ex.Message; }
             finally { _isExporting = false; Mouse.OverrideCursor = null; }
             if (!ok)
             {
-                try { if (System.IO.File.Exists(dialog.OutputPath)) System.IO.File.Delete(dialog.OutputPath); } catch { }
-                MessageBox.Show(Window.GetWindow(this), "Could not create the PDF:\n" + error, "Merge", MessageBoxButton.OK, MessageBoxImage.Error);
+                AppDialog.Show(Window.GetWindow(this), "Could not create the PDF:\n" + error, "Merge", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
             XTStyle.Controls.XTGrowl.Success($"Created {System.IO.Path.GetFileName(dialog.OutputPath)}", Window.GetWindow(this));

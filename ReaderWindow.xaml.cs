@@ -260,9 +260,8 @@ namespace XTPdfMergeApp
         // 1.25 (25%/nấc) trước đây quá lớn — mỗi nấc lăn chuột nhảy ảnh rõ rệt, cảm giác giật cục.
         // Foxit/Chrome PDF dùng bước nhỏ hơn nhiều (~8-10%/nấc) để zoom mượt hơn.
         private const double ReaderZoomStep = 1.08;
-        private static readonly object _readerCacheLock = new();
-        private static readonly BitmapMemoryCache<(string Path, int Page, int Width, string Layers)> _readerCache = new(ReaderCacheBudgetBytes);
-        private static readonly Dictionary<(string Path, int Page, int Width, string Layers), Task<BitmapSource?>> _readerLoads = new();
+        private static readonly ReaderPageRenderCache _readerCache = new(ReaderCacheBudgetBytes,
+            (key, priority, token) => PdfThumbnailService.RenderPageAsync(key.Path, key.Page - 1, key.Width, token, priority, key.Layers));
         private DocumentGroup? _readerGroup;
         private PageRow? _readerPage;
         private double _readerZoom = 1.0;
@@ -285,12 +284,12 @@ namespace XTPdfMergeApp
 
         internal static (int Cache, int Inflight, long Bytes) GetReaderCacheStats()
         {
-            lock (_readerCacheLock) return (_readerCache.Count, _readerLoads.Count, _readerCache.Bytes);
+            return _readerCache.Stats;
         }
 
         internal static void ReleaseUnusedSources(HashSet<string> active)
         {
-            lock (_readerCacheLock) _readerCache.RemoveWhere(key => !active.Contains(key.Path));
+            _readerCache.Invalidate(key => !active.Contains(key.Path));
         }
 
         private CancellationTokenSource _readerPageCts = new();
@@ -301,40 +300,7 @@ namespace XTPdfMergeApp
             // Key kèm "phiên bản trạng thái layer" của file — xem PdfLayerStateStore / MainWindow.ThumbnailKey.
             var key = RenderCacheKeys.ReaderPage(source.Path, source.Page, width ?? 2304);
             var token = cancellationToken.CanBeCanceled ? cancellationToken : _readerPageCts.Token;
-            lock (_readerCacheLock)
-            {
-                if (_readerCache.TryGetValue(key, out var cached)) return Task.FromResult<BitmapSource?>(cached);
-                if (_readerLoads.TryGetValue(key, out var existing)) return existing;
-                var completion = new TaskCompletionSource<BitmapSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
-                _readerLoads[key] = completion.Task;
-                _ = Task.Run(async () =>
-                {
-                    try { completion.TrySetResult(await RenderAndCacheReaderAsync(key, token, prefetch, completion.Task)); }
-                    catch (Exception ex) { completion.TrySetException(ex); }
-                });
-                return completion.Task;
-            }
-        }
-
-        private static async Task<BitmapSource?> RenderAndCacheReaderAsync(
-            (string Path, int Page, int Width, string Layers) key, CancellationToken token, bool prefetch, Task<BitmapSource?> owner)
-        {
-            BitmapSource? bmp = null;
-            try
-            {
-                bmp = await PdfThumbnailService.RenderPageAsync(key.Path, key.Page - 1, key.Width, token,
-                    prefetch ? PdfRenderPriority.Background : PdfRenderPriority.Visible, key.Layers).ConfigureAwait(false);
-                return token.IsCancellationRequested ? null : bmp;
-            }
-            finally
-            {
-                lock (_readerCacheLock)
-                {
-                    if (bmp != null && !token.IsCancellationRequested) _readerCache.Set(key, bmp);
-                    if (_readerLoads.TryGetValue(key, out var current) && ReferenceEquals(current, owner))
-                        _readerLoads.Remove(key);
-                }
-            }
+            return _readerCache.GetAsync(key, prefetch ? PdfRenderPriority.Background : PdfRenderPriority.Visible, token);
         }
 
         /// <summary>Hiện docked Viewer trong MainWindow.</summary>
@@ -359,7 +325,7 @@ namespace XTPdfMergeApp
             _readerPrefetchCts.Cancel();
             _readerPrefetchCts.Dispose();
             _readerPrefetchCts = new();
-            lock (_readerCacheLock) _readerCache.Clear();
+            _readerCache.Clear();
             PdfThumbnailService.ReleaseCachedPages();
             ShowEmptyReaderState();
             ReaderContinuousView.SetDocument(null, ReaderContinuousView.Zoom);
@@ -869,12 +835,7 @@ namespace XTPdfMergeApp
             bool Matches(string p, int page) =>
                 pages.Contains(page) && string.Equals(p, path, StringComparison.OrdinalIgnoreCase);
 
-            lock (_readerCacheLock)
-            {
-                _readerCache.RemoveWhere(key => Matches(key.Path, key.Page));
-                foreach (var key in _readerLoads.Keys.Where(key => Matches(key.Path, key.Page)).ToList())
-                    _readerLoads.Remove(key);
-            }
+            _readerCache.Invalidate(key => Matches(key.Path, key.Page));
             // Xoay trang đổi khổ (DocumentSession đã xoá PageWidthPoints): đọc lại kích thước thật cho bố cục.
             if (geometryChanged && _readerGroup != null) _ = EnsureContinuousPageSizesAsync(_readerGroup);
 

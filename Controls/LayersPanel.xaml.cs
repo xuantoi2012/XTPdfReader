@@ -222,11 +222,11 @@ namespace XTPdfMergeApp.Controls
             if (name == null) return;
             if (name is DefaultViewName or AllLayersName)
             {
-                MessageBox.Show(OwnerWindow, "That name is reserved. Choose a different name.", "Save layer view", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.Show(OwnerWindow, "That name is reserved. Choose a different name.", "Save layer view", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             if (LayerViewStore.Exists(name) &&
-                MessageBox.Show(OwnerWindow, $"A view named \"{name}\" already exists. Replace it?", "Save layer view",
+                AppDialog.Show(OwnerWindow, $"A view named \"{name}\" already exists. Replace it?", "Save layer view",
                     MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             LayerViewStore.Upsert(_scope.Snapshot(name));
             UpdateViewButton();

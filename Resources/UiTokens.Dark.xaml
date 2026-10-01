@@ -28,6 +28,11 @@
     <!-- Brush riêng của thiết kế mới (docs/UI_REDESIGN.md, mục 4). -->
     <SolidColorBrush x:Key="Ui.Bg" Color="#171A1F"/>
     <SolidColorBrush x:Key="Ui.Surface" Color="#20242B"/>
+    <SolidColorBrush x:Key="Ui.TabStrip" Color="#1C2026"/>
+    <SolidColorBrush x:Key="Ui.TabSurface" Color="#404A59"/>
+    <SolidColorBrush x:Key="Ui.ToolbarBorder" Color="#3E4856"/>
+    <SolidColorBrush x:Key="Ui.TabSeparator" Color="#596575"/>
+    <SolidColorBrush x:Key="Ui.Brand" Color="#F97316"/>
     <SolidColorBrush x:Key="Ui.Panel" Color="#1C2026"/>
     <SolidColorBrush x:Key="Ui.Border" Color="#2F353E"/>
     <SolidColorBrush x:Key="Ui.Text" Color="#E8EBF0"/>
@@ -35,7 +40,7 @@
     <SolidColorBrush x:Key="Ui.Icon" Color="#D6DBE4"/>
     <SolidColorBrush x:Key="Ui.Pressed" Color="#363E4A"/>
     <SolidColorBrush x:Key="Ui.Hover" Color="#2A3039"/>
-    <SolidColorBrush x:Key="Ui.View" Color="#0F1114"/>
+    <SolidColorBrush x:Key="Ui.View" Color="#303846"/>
     <SolidColorBrush x:Key="Ui.Chip" Color="#2A3039"/>
     <SolidColorBrush x:Key="Ui.Accent" Color="#6EA8FF"/>
     <SolidColorBrush x:Key="Ui.AccentSoft" Color="#33445E"/>

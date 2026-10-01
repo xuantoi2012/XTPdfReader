@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
              xmlns:local="clr-namespace:XTPdfMergeApp.Controls"
-             FontFamily="Segoe UI" FontSize="13">
+             FontFamily="Segoe UI" FontSize="13" Background="{DynamicResource Ui.Panel}">
     <UserControl.Resources>
         <!-- Thẻ hàng (Recent, Quick locations): viền mảnh, hover nền theo theme. -->
         <Style x:Key="CardRow" TargetType="Border">
@@ -21,8 +21,16 @@
             </Style.Triggers>
         </Style>
 
+        <Style x:Key="RecentCardRow" TargetType="Border" BasedOn="{StaticResource CardRow}">
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="BorderBrush" Value="{DynamicResource Ui.Border}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <DataTemplate DataType="{x:Type local:RecentItem}">
-            <Border Style="{StaticResource CardRow}" Padding="12,10" MouseLeftButtonUp="Recent_MouseLeftButtonUp" ToolTip="{Binding Path}">
+            <Border Style="{StaticResource RecentCardRow}" Padding="12,10" MouseLeftButtonUp="Recent_MouseLeftButtonUp" ToolTip="{Binding Path}">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
@@ -32,7 +40,7 @@
                     <Border Width="40" Height="48" CornerRadius="4" Background="{DynamicResource Ui.AccentSoft}" Margin="0,0,14,0">
                         <Viewbox Width="20" Height="20">
                             <Canvas Width="24" Height="24">
-                                <Path Data="{StaticResource Ui.Icon.file}" Fill="{DynamicResource Ui.Accent}"/>
+                                <Path Data="{StaticResource Ui.Icon.documentF}" Fill="{DynamicResource Ui.Brand}"/>
                             </Canvas>
                         </Viewbox>
                     </Border>
@@ -41,7 +49,7 @@
                         <TextBlock Text="{Binding Folder}" FontSize="11.5" TextTrimming="CharacterEllipsis" Margin="0,2,0,0" Foreground="{DynamicResource Ui.Muted}"/>
                         <TextBlock x:Name="Meta" Text="{Binding Meta}" FontSize="11.5" Margin="0,2,0,0" Foreground="{DynamicResource Ui.Muted}"/>
                     </StackPanel>
-                    <Border Grid.Column="2" Width="30" Height="30" Background="Transparent" Cursor="Hand" VerticalAlignment="Center"
+                    <Border x:Name="PinHost" Grid.Column="2" Width="30" Height="30" Background="Transparent" Cursor="Hand" VerticalAlignment="Center"
                             MouseLeftButtonUp="Pin_MouseLeftButtonUp" ToolTip="Pin to the top">
                         <Viewbox Width="17" Height="17">
                             <Canvas Width="24" Height="24">
@@ -56,58 +64,69 @@
                     <Setter TargetName="Star" Property="Data" Value="{StaticResource Ui.Icon.star.Fill}"/>
                     <Setter TargetName="Star" Property="Fill" Value="{DynamicResource Ui.Accent}"/>
                 </DataTrigger>
+                <Trigger SourceName="PinHost" Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Star" Property="Fill" Value="{DynamicResource Ui.Brand}"/>
+                </Trigger>
                 <DataTrigger Binding="{Binding Missing}" Value="True">
                     <Setter TargetName="Meta" Property="Foreground" Value="{DynamicResource Ui.Warn}"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
 
-        <DataTemplate DataType="{x:Type local:WorkspaceItem}">
-            <Border Margin="0,0,0,10" Padding="12" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="1" CornerRadius="8"
-                    Background="{DynamicResource Ui.Bg}">
-                <StackPanel>
-                    <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                        <Viewbox Width="18" Height="18" Margin="0,0,8,0">
-                            <Canvas Width="24" Height="24">
-                                <Path Data="{StaticResource Ui.Icon.workspace}" Fill="{DynamicResource Ui.Accent}"/>
-                            </Canvas>
-                        </Viewbox>
-                        <TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                                   Foreground="{DynamicResource Ui.Text}" ToolTip="{Binding Name}"/>
-                        <Border Grid.Column="2" Width="24" Height="24" Background="Transparent" Cursor="Hand" MouseLeftButtonUp="DeleteWorkspace_MouseLeftButtonUp"
-                                ToolTip="Delete this workspace">
-                            <Viewbox Width="14" Height="14">
-                                <Canvas Width="24" Height="24">
-                                    <Path Data="{StaticResource Ui.Icon.close.Bold}" Fill="{DynamicResource Ui.Muted}"/>
-                                </Canvas>
-                            </Viewbox>
+        <Style x:Key="QuickToolCard" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource Ui.Surface}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Ui.Border}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="14,14"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Card" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
                         </Border>
-                    </Grid>
-                    <TextBlock Text="{Binding Meta}" FontSize="11.5" Margin="0,6,0,10" Foreground="{DynamicResource Ui.Muted}"/>
-                    <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Restore" Click="RestoreWorkspace_Click"/>
-                </StackPanel>
-            </Border>
-        </DataTemplate>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Card" Property="Background" Value="{DynamicResource Ui.Hover}"/></Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource Ui.Brand}"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Card" Property="Opacity" Value="0.45"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
-    <!-- 3 cột (maximize có đủ chỗ): trái = mở file/vị trí nhanh, giữa = Recent (thẻ cuộn riêng, không cuộn cả trang),
-         phải = Workspaces. Mỗi cột cuộn riêng nên danh sách Recent dài không kéo cả Quick locations/Workspaces ra khỏi màn hình. -->
-    <Grid Background="{DynamicResource Ui.Panel}">
+    <!-- Cột co giãn cân đối, khoảng cách 24 DIP; mỗi cột cuộn riêng. -->
+    <Grid Margin="32,32,32,24" MaxWidth="1600">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="380"/>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="320"/>
+            <ColumnDefinition Width="1.1*"/>
+            <ColumnDefinition Width="24"/>
+            <ColumnDefinition Width="1.45*"/>
+            <ColumnDefinition Width="24"/>
+            <ColumnDefinition Width="1*"/>
         </Grid.ColumnDefinitions>
 
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="48,36,20,24">
-                <TextBlock x:Name="TitleText" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
-                <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+            <StackPanel>
+                <Grid x:Name="StartBrandHeader">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Viewbox Width="32" Height="32" Margin="0,0,12,0" VerticalAlignment="Center">
+                        <Canvas Width="24" Height="24">
+                            <Rectangle Width="24" Height="24" RadiusX="6" RadiusY="6" Fill="White"/>
+                            <Path Data="{StaticResource App.Icon.Logo}" Fill="{DynamicResource Ui.Brand}"/>
+                        </Canvas>
+                    </Viewbox>
+                    <TextBlock x:Name="TitleText" Grid.Column="1" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{DynamicResource Ui.Text}"/>
+                </Grid>
+                <WrapPanel Margin="0,18,0,0">
                     <xt:XTButton Style="{StaticResource UiPrimaryButton}" Icon="{StaticResource Ui.Icon.folder}" Text="Open file…  Ctrl+O" Height="38" Click="OpenFile_Click"/>
                     <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Open folder…" Height="38" Margin="10,0,0,0" Padding="16,0" Click="OpenFolder_Click"
                                  ToolTip="Open every PDF in a folder"/>
-                </StackPanel>
+                </WrapPanel>
                 <Border Height="140" Margin="0,18,0,0" CornerRadius="12" BorderThickness="2" BorderBrush="{DynamicResource Ui.Border}">
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                         <Viewbox Width="28" Height="28" HorizontalAlignment="Center">
@@ -139,9 +158,9 @@
         </ScrollViewer>
 
         <!-- Recent: thẻ riêng có viền + cuộn riêng bên trong, không phải cuộn cả trang Start. -->
-        <DockPanel Grid.Column="1" Margin="20,36,20,24" LastChildFill="True">
-            <Grid DockPanel.Dock="Top">
-                <TextBlock Text="Recent" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
+        <DockPanel Grid.Column="2" LastChildFill="True">
+            <Grid DockPanel.Dock="Top" Height="32">
+                <TextBlock Text="Recent" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
                 <xt:XTButton HorizontalAlignment="Right" Style="{StaticResource UiGhostButton}" Text="Clear list" Height="26" Padding="10,0"
                              ToolTip="Remove the files that are not pinned" Click="ClearRecent_Click"/>
             </Grid>
@@ -155,22 +174,38 @@
             </Border>
         </DockPanel>
 
-        <!-- Workspaces: cột riêng thứ 3, cũng có thẻ + cuộn riêng. -->
-        <DockPanel Grid.Column="2" Margin="0,36,48,24" LastChildFill="True">
-            <StackPanel DockPanel.Dock="Top">
-                <TextBlock Text="Workspaces" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
-                <xt:XTButton x:Name="SaveWorkspaceButton" HorizontalAlignment="Stretch" Style="{StaticResource UiGhostButton}" Text="Save open files as workspace…"
-                             Height="30" Margin="0,10,0,0" Click="SaveWorkspace_Click"/>
-            </StackPanel>
-            <Border Margin="0,12,0,0" CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
-                    <StackPanel>
-                        <ItemsControl x:Name="WorkspaceList"/>
-                        <TextBlock x:Name="NoWorkspaceText" Text="A workspace remembers the set of open files so you can restore it in one click." TextWrapping="Wrap"
-                                   Foreground="{DynamicResource Ui.Muted}" Visibility="Collapsed"/>
-                    </StackPanel>
-                </ScrollViewer>
-            </Border>
+        <DockPanel Grid.Column="4" LastChildFill="True">
+            <TextBlock DockPanel.Dock="Top" Text="Quick tools" Height="32" VerticalAlignment="Center" Padding="0,6,0,0"
+                       FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,12,0,0">
+                <StackPanel>
+                    <Button Style="{StaticResource QuickToolCard}" Click="NewPdf_Click" ToolTip="Create a blank PDF (Ctrl+N)">
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Viewbox Width="24" Height="24" HorizontalAlignment="Left"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.newdoc}" Fill="{DynamicResource Ui.Brand}"/></Canvas></Viewbox>
+                            <StackPanel Grid.Column="1"><TextBlock Text="New PDF" FontWeight="SemiBold"/><TextBlock Text="Create a blank document" FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" Foreground="{DynamicResource Ui.Muted}"/></StackPanel>
+                        </Grid>
+                    </Button>
+                    <Button Style="{StaticResource QuickToolCard}" Click="MergePdf_Click" ToolTip="Merge files and organize pages">
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Viewbox Width="24" Height="24" HorizontalAlignment="Left"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.merge}" Fill="{DynamicResource Ui.Brand}"/></Canvas></Viewbox>
+                            <StackPanel Grid.Column="1"><TextBlock Text="Merge PDFs" FontWeight="SemiBold"/><TextBlock Text="Combine files and arrange pages" FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" Foreground="{DynamicResource Ui.Muted}"/></StackPanel>
+                        </Grid>
+                    </Button>
+                    <Button x:Name="ExportPdfButton" Style="{StaticResource QuickToolCard}" Click="ExportPdf_Click" ToolTip="Export or split the current document (Ctrl+Shift+E)">
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Viewbox Width="24" Height="24" HorizontalAlignment="Left"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.export}" Fill="{DynamicResource Ui.Brand}"/></Canvas></Viewbox>
+                            <StackPanel Grid.Column="1"><TextBlock Text="Split / Export" FontWeight="SemiBold"/><TextBlock Text="Save selected pages as new PDFs" FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" Foreground="{DynamicResource Ui.Muted}"/></StackPanel>
+                        </Grid>
+                    </Button>
+                    <Button x:Name="PrintPdfButton" Style="{StaticResource QuickToolCard}" Click="PrintPdf_Click" ToolTip="Print the current document (Ctrl+P)">
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Viewbox Width="24" Height="24" HorizontalAlignment="Left"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.print}" Fill="{DynamicResource Ui.Brand}"/></Canvas></Viewbox>
+                            <StackPanel Grid.Column="1"><TextBlock Text="Print PDF" FontWeight="SemiBold"/><TextBlock Text="Choose pages and print settings" FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" Foreground="{DynamicResource Ui.Muted}"/></StackPanel>
+                        </Grid>
+                    </Button>
+                    <TextBlock x:Name="DocumentToolsHint" Text="Open a PDF to split, export or print." FontSize="11.5" TextWrapping="Wrap" Margin="2,4,2,0" Foreground="{DynamicResource Ui.Muted}"/>
+                </StackPanel>
+            </ScrollViewer>
         </DockPanel>
     </Grid>
 </UserControl>

@@ -27,6 +27,7 @@ internal sealed class MergeDocumentsCommand : IWorkspaceCommand
 
     public string Description => _insertIndex.HasValue ? "Insert pages from file"
         : !string.IsNullOrWhiteSpace(_newName) ? "Merge all files" : "Merge selected files";
+    public IEnumerable<string> AffectedSources => CommandSources.Of(_documents);
 
     public void Execute()
     {

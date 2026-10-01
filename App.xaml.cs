@@ -85,7 +85,7 @@ namespace XTPdfMergeApp
                 logTimer.Tick += (_, _) => DiagnosticsLog.Snapshot("snapshot", DiagnosticsReport.Build());
                 logTimer.Start();
             }
-            if (incomingPaths.Length > 0) _ = _reader.Session.OpenFilesInReaderAsync(incomingPaths);
+            _ = _reader.StartSessionAsync(incomingPaths);
 
             // Chờ 1 chút cho app ổn định rồi mới âm thầm kiểm tra bản mới ở nền — không chặn khởi động, không
             // làm gì nếu chạy từ debug/không mạng/chưa có release (xem AppUpdateService).

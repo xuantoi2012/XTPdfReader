@@ -11,6 +11,7 @@ internal sealed class RemoveDocumentCommand : IWorkspaceCommand
     public RemoveDocumentCommand(PdfWorkspace workspace, WorkspaceDocument document)
     { _workspace = workspace; _document = document; }
     public string Description => "Close file";
+    public System.Collections.Generic.IEnumerable<string> AffectedSources => CommandSources.Of(new[] { _document });
     public void Execute()
     {
         _index = _workspace.Documents.IndexOf(_document);

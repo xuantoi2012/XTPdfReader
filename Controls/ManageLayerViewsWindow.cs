@@ -71,7 +71,7 @@ internal sealed class ManageLayerViewsWindow : XTWindow
     private void Delete()
     {
         if (Selected is not { } name) return;
-        if (MessageBox.Show(this, $"Delete the view \"{name}\"?", "Delete view", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        if (AppDialog.Show(this, $"Delete the view \"{name}\"?", "Delete view", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         LayerViewStore.Remove(name);
         Reload();
     }

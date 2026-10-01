@@ -348,6 +348,9 @@ public static partial class PdfThumbnailService
             }
             token.ThrowIfCancellationRequested();
             if (status != 2 || pixels == IntPtr.Zero || stride <= 0) return null;
+            using (await EnterPdfiumGateAsync(pdfium, priority, token).ConfigureAwait(false))
+                pdfium.DrawWidgets(bitmap, page.Handle, -x, -y, fullWidth, fullHeight, 0,
+                    (withAnnotations ? FpdfAnnot | FpdfPrinting : 0) | FpdfRenderLimitedImageCache);
             // Snapshot only a completed image. WPF copies from the native buffer outside
             // the global PDFium gate; ownership stays here until that copy is complete.
             long copyStart = Stopwatch.GetTimestamp();

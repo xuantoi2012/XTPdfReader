@@ -18,7 +18,7 @@ using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas;
 
-internal static class Program
+internal static partial class Program
 {
     static readonly string Output = System.IO.Path.Combine(AppContext.BaseDirectory, "results");
     static int _checks;
@@ -34,6 +34,31 @@ internal static class Program
             foreach (var assembly in new[] { typeof(PdfThumbnailService).Assembly, typeof(Program).Assembly })
                 NativeLibrary.SetDllImportResolver(assembly, (name, _, _) => name == "pdfium" ? NativeLibrary.Load(dll) : IntPtr.Zero);
             int inspectArg = Array.IndexOf(args, "--inspect-file");
+            int signatureArg = Array.IndexOf(args, "--signature-info");
+            if (signatureArg >= 0)
+            {
+                var info = PdfSignatureService.ReadAsync(args[signatureArg + 1]).GetAwaiter().GetResult();
+                Console.WriteLine($"Signatures: {info.SignatureCount}; Certified: {info.IsCertified}; Error: {info.Error ?? "none"}");
+                return info.Error == null ? 0 : 1;
+            }
+            int signedRenderArg = Array.IndexOf(args, "--render-signed-file");
+            if (signedRenderArg >= 0)
+            {
+                RenderSignedSampleAsync(args[signedRenderArg + 1]).GetAwaiter().GetResult();
+                return 0;
+            }
+            if (args.Contains("--dialog-preview"))
+            {
+                TestAppDialogs(preview: true);
+                return 0;
+            }
+            if (args.Contains("--scroll-quality"))
+            {
+                TestReaderRenderHandoffAsync().GetAwaiter().GetResult();
+                TestContinuousScrollQuality();
+                Console.WriteLine($"PASS ({_checks} scroll quality checks)");
+                return 0;
+            }
             if (inspectArg >= 0)
             {
                 string src = System.IO.Path.GetFullPath(args[inspectArg + 1]);
@@ -89,6 +114,13 @@ internal static class Program
             {
                 TestCacheAndOwnership(); TestBulkPages(); TestPresentationQueue(); TestViewportScheduling(); TestRetainedRefinement(); TestViewportMotion(); TestTwoPageLayout(); TestReaderZoomMath(); TestPrintRasterPlan(); TestOutlineEditing(); TestSquigglyAnnotation(); TestInkAnnotation(); TestCalloutAnnotation(); TestReplyAnnotation(); TestAutoCadShxTextFiltered(); TestPdfLinksAsync().GetAwaiter().GetResult(); TestPdfSecurityAsync().GetAwaiter().GetResult(); TestPdfProtectionRewriteAsync().GetAwaiter().GetResult();
                 TestGateAsync().GetAwaiter().GetResult();
+                TestSignaturePresenceAsync().GetAwaiter().GetResult();
+                TestWidgetRenderingAsync().GetAwaiter().GetResult();
+                TestSaveSafetyAsync().GetAwaiter().GetResult();
+                TestAppDialogs();
+                TestReaderRenderHandoffAsync().GetAwaiter().GetResult();
+                TestContinuousScrollQuality();
+                TestRecoveryAndToolbarUi();
             }
             RunNativeAsync(baseline).GetAwaiter().GetResult();
             Console.WriteLine($"PASS ({_checks} checks) {(baseline ? "baseline" : "optimized")}");

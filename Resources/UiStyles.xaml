@@ -22,20 +22,25 @@
         <Setter Property="Fill" Value="Transparent"/>
     </Style>
 
-    <!-- ══ Nút toolbar: icon trên, chữ 11 px dưới ══ -->
+    <!-- ══ Nút toolbar: vùng nhãn cố định để chữ 1/2 dòng không làm lệch hàng icon ══ -->
     <ControlTemplate x:Key="UiToolbarButtonTemplate" TargetType="{x:Type xt:XTButton}">
         <Border x:Name="Bd" CornerRadius="6" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                <Viewbox Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}" HorizontalAlignment="Center">
+            <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="26"/>
+                </Grid.RowDefinitions>
+                <Viewbox x:Name="ToolbarIcon" Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}" HorizontalAlignment="Center">
                     <Canvas Width="24" Height="24">
                         <Path x:Name="Tint" Fill="{DynamicResource Ui.Accent}" Opacity="0.3" Visibility="Collapsed"
                               Data="{Binding IconData, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource UiIconTint}}"/>
                         <Path Data="{TemplateBinding IconData}" Fill="{TemplateBinding IconBrush}"/>
                     </Canvas>
                 </Viewbox>
-                <TextBlock Text="{TemplateBinding Text}" Foreground="{TemplateBinding Foreground}" FontSize="11"
-                           TextAlignment="Center" HorizontalAlignment="Center" TextWrapping="Wrap" Margin="0,2,0,0"/>
-            </StackPanel>
+                <TextBlock x:Name="ToolbarLabel" Grid.Row="1" Text="{TemplateBinding Text}" Foreground="{TemplateBinding Foreground}" FontSize="11"
+                           TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Top" TextWrapping="Wrap"
+                           LineHeight="12" LineStackingStrategy="BlockLineHeight" Margin="0,2,0,0"/>
+            </Grid>
         </Border>
         <ControlTemplate.Triggers>
             <Trigger Property="Tag" Value="Active">
@@ -123,12 +128,12 @@
         </Style.Triggers>
     </Style>
 
-    <!-- ══ Nút thanh trái (Pages / Bookmarks / Layers): 56×54, icon bậc 2 (nhỏ hơn ribbon) + chữ 11 ══ -->
+    <!-- ══ Nút thanh trái (Pages / Bookmarks / Layers): 56×58, icon 24 px + chữ 11 ══ -->
     <Style x:Key="UiRailButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiToolbarButton}">
         <Setter Property="Width" Value="56"/>
         <Setter Property="MinWidth" Value="56"/>
         <Setter Property="Height" Value="58"/>
-        <Setter Property="IconSize" Value="22"/>
+        <Setter Property="IconSize" Value="24"/>
         <Setter Property="Padding" Value="0"/>
         <Setter Property="Margin" Value="0,1"/>
         <Setter Property="HorizontalAlignment" Value="Center"/>
@@ -399,36 +404,32 @@
 
     <!-- ══ Nút "Start" trong dải tab file: trông và bật/tắt giống hệt 1 tab file (UiTabItem) ══ -->
     <ControlTemplate x:Key="UiTabButtonTemplate" TargetType="{x:Type xt:XTButton}">
-        <Border x:Name="Bd" Padding="12,0,12,0" Height="34" BorderThickness="0,0,0,3" BorderBrush="Transparent" Background="Transparent" SnapsToDevicePixels="True">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <Viewbox Width="15" Height="15" VerticalAlignment="Center">
-                    <Canvas Width="24" Height="24">
-                        <Path Data="{TemplateBinding IconData}" Fill="{TemplateBinding IconBrush}"/>
-                    </Canvas>
-                </Viewbox>
-                <TextBlock x:Name="Tx" Text="{TemplateBinding Text}" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{TemplateBinding Foreground}"/>
-            </StackPanel>
-        </Border>
+        <Grid Height="34" SnapsToDevicePixels="True">
+            <Border x:Name="Bd" Padding="12,0,12,3" Background="Transparent">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Viewbox Width="15" Height="15" VerticalAlignment="Center">
+                        <Canvas Width="24" Height="24">
+                            <Path Data="{TemplateBinding IconData}" Fill="{TemplateBinding IconBrush}"/>
+                        </Canvas>
+                    </Viewbox>
+                    <TextBlock x:Name="Tx" Text="{TemplateBinding Text}" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{TemplateBinding Foreground}"/>
+                </StackPanel>
+            </Border>
+            <Border x:Name="ActiveLine" Height="3" VerticalAlignment="Bottom" Background="Transparent" IsHitTestVisible="False"/>
+            <Border x:Name="TabSeparator" Width="1" Height="18" HorizontalAlignment="Right" VerticalAlignment="Center"
+                    Background="{DynamicResource Ui.TabSeparator}" IsHitTestVisible="False"/>
+        </Grid>
         <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
-                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Border}"/>
-                <Setter TargetName="Bd" Property="BorderThickness" Value="1"/>
             </Trigger>
             <Trigger Property="Tag" Value="Active">
-                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Surface}"/>
-                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.TabSurface}"/>
+                <Setter TargetName="ActiveLine" Property="Background" Value="{DynamicResource Ui.Accent}"/>
+                <Setter TargetName="TabSeparator" Property="Visibility" Value="Collapsed"/>
                 <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.Text}"/>
                 <Setter TargetName="Tx" Property="FontWeight" Value="SemiBold"/>
             </Trigger>
-            <MultiTrigger>
-                <MultiTrigger.Conditions>
-                    <Condition Property="IsMouseOver" Value="True"/>
-                    <Condition Property="Tag" Value="Active"/>
-                </MultiTrigger.Conditions>
-                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
-                <Setter TargetName="Bd" Property="BorderThickness" Value="1"/>
-            </MultiTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
@@ -440,56 +441,65 @@
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
         <Setter Property="IconBrush" Value="{DynamicResource Ui.Muted}"/>
-    </Style>
-
-    <!-- Nút + nằm trong dải tab: cùng phản hồi hover rõ ràng như tab Start/tab file. -->
-    <Style x:Key="UiTabAddButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiIconButton}">
+        <Setter Property="Margin" Value="0"/>
         <Style.Triggers>
-            <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+            <Trigger Property="Tag" Value="Active">
                 <Setter Property="IconBrush" Value="{DynamicResource Ui.Text}"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource Ui.Border}"/>
-                <Setter Property="BorderThickness" Value="1"/>
             </Trigger>
         </Style.Triggers>
     </Style>
 
-    <!-- ══ Tab file (ListBoxItem): nền mặt khi chọn, gạch accent 2 px dưới chân ══ -->
+    <!-- Đóng/mở tab: chỉ đổi màu icon, giữ nền trong suốt cả khi hover và nhấn. -->
+    <Style x:Key="UiTabCloseButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiIconButton}">
+        <Setter Property="BorderThickness" Value="0"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Brand}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Ui.Brand}"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Brand}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Ui.Brand}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="UiTabAddButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiTabCloseButton}"/>
+
+    <!-- ══ Tab file (ListBoxItem): nền mặt khi chọn, gạch accent 3 px dưới chân ══ -->
     <Style x:Key="UiTabItem" TargetType="ListBoxItem">
         <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
         <Setter Property="Height" Value="34"/>
-        <Setter Property="Margin" Value="0,0,1,0"/>
+        <Setter Property="Margin" Value="0"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ListBoxItem">
-                    <Border x:Name="Bd" Padding="12,0,6,0" BorderThickness="0,0,0,3" BorderBrush="Transparent" Background="Transparent" SnapsToDevicePixels="True">
-                        <ContentPresenter VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" TextElement.FontWeight="{TemplateBinding FontWeight}"/>
-                    </Border>
+                    <Grid SnapsToDevicePixels="True">
+                        <Border x:Name="Bd" Padding="12,0,6,3" Background="Transparent">
+                            <ContentPresenter VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" TextElement.FontWeight="{TemplateBinding FontWeight}"/>
+                        </Border>
+                        <Border x:Name="ActiveLine" Height="3" VerticalAlignment="Bottom" Background="Transparent" IsHitTestVisible="False"/>
+                        <Border x:Name="TabSeparator" Width="1" Height="18" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                Background="{DynamicResource Ui.TabSeparator}" IsHitTestVisible="False"/>
+                    </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Border}"/>
-                            <Setter TargetName="Bd" Property="BorderThickness" Value="1"/>
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Surface}"/>
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.TabSurface}"/>
+                            <Setter TargetName="ActiveLine" Property="Background" Value="{DynamicResource Ui.Accent}"/>
+                            <Setter TargetName="TabSeparator" Property="Visibility" Value="Collapsed"/>
                             <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
                             <Setter Property="FontWeight" Value="SemiBold"/>
                         </Trigger>
-                        <MultiTrigger>
-                            <MultiTrigger.Conditions>
-                                <Condition Property="IsMouseOver" Value="True"/>
-                                <Condition Property="IsSelected" Value="True"/>
-                            </MultiTrigger.Conditions>
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
-                            <Setter TargetName="Bd" Property="BorderThickness" Value="1"/>
-                        </MultiTrigger>
                         <!-- Kéo trang lên tab: tab sáng lên (giữ ~0,5 s thì chuyển sang tab đó, thả lên tab = thêm vào cuối). -->
                         <Trigger Property="Tag" Value="DropHover">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
+                            <Setter TargetName="ActiveLine" Property="Background" Value="{DynamicResource Ui.Accent}"/>
                             <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -663,6 +673,6 @@
     <Style x:Key="UiToolbarSeparator" TargetType="Border">
         <Setter Property="Width" Value="1"/>
         <Setter Property="Margin" Value="8,6,8,16"/>
-        <Setter Property="Background" Value="{DynamicResource Ui.Border}"/>
+        <Setter Property="Background" Value="{DynamicResource Ui.ToolbarBorder}"/>
     </Style>
 </ResourceDictionary>

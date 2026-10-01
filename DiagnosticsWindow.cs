@@ -119,7 +119,7 @@ namespace XTPdfMergeApp
         private void CopyText()
         {
             try { Clipboard.SetText(DiagnosticsReport.Build()); }
-            catch (Exception ex) { MessageBox.Show(this, "Không copy được: " + ex.Message, Title); }
+            catch (Exception ex) { AppDialog.Show(this, "Không copy được: " + ex.Message, Title); }
         }
 
         private void SaveText()
@@ -131,7 +131,7 @@ namespace XTPdfMergeApp
             };
             if (dialog.ShowDialog(this) != true) return;
             try { File.WriteAllText(dialog.FileName, DiagnosticsReport.Build()); }
-            catch (Exception ex) { MessageBox.Show(this, "Không lưu được: " + ex.Message, Title); }
+            catch (Exception ex) { AppDialog.Show(this, "Không lưu được: " + ex.Message, Title); }
         }
     }
 }

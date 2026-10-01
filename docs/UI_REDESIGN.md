@@ -27,7 +27,7 @@ copy/cut/paste, di chuyển, kéo thả, sang tab khác), Layers + saved Views +
 Export/Split, Settings, Start screen (Recent, Workspaces), thanh báo file đổi trên đĩa, Command palette (Ctrl+K), cửa sổ Merge mới,
 Merge save options.
 
-**Chưa làm (đã loại khỏi mockup):** Compare, Measure, ngôn ngữ tiếng Việt, OCR, chữ ký số, Chụp ảnh/Vẽ hình/Đính kèm file.
+**Chưa làm (đã loại khỏi mockup):** Compare, Measure, ngôn ngữ tiếng Việt, chữ ký số, Chụp ảnh/Vẽ hình/Đính kèm file.
 
 ## 3. Màn hình → tiến độ
 
@@ -174,3 +174,5 @@ zoom vào ~1,0 s, cuộn 40 nấc ~0,05 s, RAM khi dùng 620–660 MB private WS
 - Merge: the "Temp window" button is gone; drop pages on the dock or the empty area and the Temp window appears.
 - Shapes (Foxit style): rectangle, cloud, oval, arrow, line (`ReaderWindow.Shapes.cs`, `ShapeStyle`), colour + width bar, selectable/movable like other annotations (outline hit-test).
 - Highlight has **Text** (drag across words, one rectangle per line, PDFium text API) and **Area** modes.
+
+OCR was removed from the app on 2026-10-01 at the user's request (toolbar, command palette, dialog and service). It is outside the development scope.

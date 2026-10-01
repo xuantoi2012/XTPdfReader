@@ -148,38 +148,35 @@ namespace XTPdfMergeApp.Services
             IReadOnlySet<string> hiddenNames, bool optimize, IProgress<(int Done, int Total)>? progress = null)
         {
             var enabled = parts.Where(p => p.Enabled).ToList();
-            int written = 0;
-            foreach (var part in enabled)
+            int prepared = 0;
+            try
             {
-                progress?.Report((written, enabled.Count));
-                string output = Path.Combine(folder, part.FileName);
-                string error = "";
-                bool ok = await Task.Run(() =>
+                var byOutput = enabled.ToDictionary(part => Path.GetFullPath(Path.Combine(folder, part.FileName)), StringComparer.OrdinalIgnoreCase);
+                await PdfFileTransaction.RunAsync(byOutput.Keys.ToList(), (output, stage) => Task.Run(() =>
                 {
+                    var part = byOutput[output];
+                    progress?.Report((prepared, enabled.Count));
                     var options = new MergeOptions(false, true, true, false, optimize);
-                    if (!XTPdfMerger.TryMergePages(part.Pages.Select(p => (p.Path, p.Page)).ToList(), output, out error, null, true, options: options)) return false;
+                    if (!XTPdfMerger.TryMergePages(part.Pages.Select(p => (p.Path, p.Page)).ToList(), stage, out var error, null, true, options: options))
+                        throw new IOException(error);
+                    string temp = stage + ".flat.tmp";
                     try
                     {
                         if (flatten)
                         {
-                            string temp = output + ".flat.tmp";
-                            if (PdfLayerFlattener.Flatten(output, temp, hiddenNames)) File.Move(temp, output, overwrite: true);
-                            else if (hiddenNames.Count > 0) PdfLayerService.SetDefaultVisibilityByName(output, hiddenNames); // không flatten được: giữ layer, View làm mặc định
+                            if (!PdfLayerFlattener.Flatten(stage, temp, hiddenNames))
+                                throw new IOException("Could not flatten layers in \"" + part.FileName + "\". No files were exported. Choose Keep layers if you want an editable copy.");
+                            File.Move(temp, stage, overwrite: true);
                         }
-                        else if (hiddenNames.Count > 0) PdfLayerService.SetDefaultVisibilityByName(output, hiddenNames);
-                        return true;
+                        else if (hiddenNames.Count > 0) PdfLayerService.SetDefaultVisibilityByName(stage, hiddenNames);
+                        prepared++;
                     }
-                    catch (Exception ex) { error = ex.Message; return false; }
-                });
-                if (!ok)
-                {
-                    try { if (File.Exists(output)) File.Delete(output); } catch { }
-                    return (written, error);
-                }
-                written++;
+                    finally { try { if (File.Exists(temp)) File.Delete(temp); } catch { } }
+                }));
             }
-            progress?.Report((written, enabled.Count));
-            return (written, "");
+            catch (Exception ex) { return (0, ex.Message); }
+            progress?.Report((enabled.Count, enabled.Count));
+            return (enabled.Count, "");
         }
     }
 }

@@ -104,6 +104,7 @@ namespace XTPdfMergeApp
 
         private void BeginAnnotationMove(PageHit hit, QuickAnnotationSpec spec)
         {
+            if (!Controls.PdfPermissionDialog.Require(this, new[] { hit.Row.SourcePath }, PdfPermissionOperation.Annotate)) return;
             _annMove = new AnnotationMove { Row = hit.Row, Spec = spec, StartU = hit.U, StartV = hit.V };
             ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;
             ReaderContentHost.CaptureMouse();
@@ -185,6 +186,7 @@ namespace XTPdfMergeApp
 
         private void CopyAnnotationText(QuickAnnotationSpec spec)
         {
+            if (_selRow is { } row && !Controls.PdfPermissionDialog.Require(this, new[] { row.SourcePath }, PdfPermissionOperation.Copy)) return;
             if (string.IsNullOrWhiteSpace(spec.Text)) return;
             try { Clipboard.SetText(spec.Text); }
             catch { XTStyle.Controls.XTGrowl.Error("Could not copy the annotation text.", this); }
