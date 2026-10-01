@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -57,7 +57,7 @@ namespace XTPdfMergeApp
             };
             ReaderSidePanel.CommentReplySubmitted += (c, text) => AddInlineReply(c, text);
             ReaderSidePanel.CommentEditRequested += (c, text) => EditInlineComment(c, text);
-            ReaderSidePanel.CommentDeleteRequested += DeleteInlineComment;
+            ReaderSidePanel.CommentDeleteRequested += c => DeleteInlineComment(c);
             ReaderSidePanel.LayerHiddenChanged += OnLayerHiddenChanged;
             ReaderSidePanel.ExportLayerViewRequested += OnExportLayerView;
             ReaderSidePanel.SourceFileWritten += path => Session.RefreshDiskStamp(path);

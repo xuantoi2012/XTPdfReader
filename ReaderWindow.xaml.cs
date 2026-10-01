@@ -163,6 +163,12 @@ namespace XTPdfMergeApp
                 e.Handled = true;
                 return;
             }
+            if (_calloutPlacement != null && e.Key == Key.Escape)
+            {
+                CancelCalloutPlacement();
+                e.Handled = true;
+                return;
+            }
             if (_selAnn != null && e.Key == Key.Escape)
             {
                 SelectAnnotation(null, null);

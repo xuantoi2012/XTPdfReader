@@ -246,7 +246,7 @@ namespace XTPdfMergeApp
                 var edit = new MenuItem { Header = "Edit text" };
                 edit.Click += (_, _) =>
                 {
-                    if (picked.Kind == QuickAnnotationKind.Callout) _ = EditCalloutAsync(hit.Row, picked);
+                    if (picked.Kind == QuickAnnotationKind.Comment) ShowCommentPopup(hit.Row, picked);
                     else _ = OpenAnnotationEditorAsync(hit, picked.Kind, picked);
                 };
                 menu.Items.Add(edit);
@@ -254,7 +254,12 @@ namespace XTPdfMergeApp
             if (picked.Kind != QuickAnnotationKind.Reply)
             {
                 var reply = new MenuItem { Header = "Reply…" };
-                reply.Click += (_, _) => _ = ReplyToAnnotationAsync(hit, picked);
+                reply.Click += (_, _) =>
+                {
+                    // Ghi chú: trả lời ngay trong popup luồng (kiểu Word) thay vì hộp thoại rời.
+                    if (picked.Kind == QuickAnnotationKind.Comment) ShowCommentPopup(hit.Row, picked, focusReply: true);
+                    else _ = ReplyToAnnotationAsync(hit, picked);
+                };
                 menu.Items.Add(reply);
             }
             if (picked.Selectable)

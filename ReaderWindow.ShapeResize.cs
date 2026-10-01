@@ -60,6 +60,17 @@ namespace XTPdfMergeApp
                 foreach (var g in LineGrips) g.Visibility = Visibility.Visible;
             }
             else foreach (var g in LineGrips) g.Visibility = Visibility.Collapsed;
+
+            // Callout: thêm 1 grip ở đầu mũi tên (như Foxit) — kéo để đổi điểm chỉ, hộp đứng yên.
+            if (selected.Kind == QuickAnnotationKind.Callout)
+            {
+                var tip = PdfQuickAnnotationService.DecodeCallout(selected.Format);
+                if (TryPageToLayer(row, tip.TipU, tip.TipV, out Point tipPx))
+                {
+                    Place(GripLineA, tipPx.X, tipPx.Y);
+                    GripLineA.Visibility = Visibility.Visible;
+                }
+            }
         }
 
         /// <summary>Where a Line/Arrow's 2 real endpoints sit on screen — same corners+pad math as drawing/hit-testing, just
@@ -165,6 +176,12 @@ namespace XTPdfMergeApp
 
         private void GripLine_MouseDown(object sender, MouseButtonEventArgs e)
         {
+            if (_selAnn is { Kind: QuickAnnotationKind.Callout } callout && _selRow is { } calloutRow && sender == GripLineA)
+            {
+                e.Handled = true;
+                BeginCalloutTipDrag(calloutRow, callout);
+                return;
+            }
             if (_selAnn is not { Kind: QuickAnnotationKind.Shape } spec || _selRow is not { } row || sender is not Rectangle grip) return;
             var style = ShapeStyle.Decode(spec.Format);
             if (!style.IsLine) return;

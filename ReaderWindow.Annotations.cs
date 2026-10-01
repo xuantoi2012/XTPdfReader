@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -83,6 +83,7 @@ namespace XTPdfMergeApp
             CancelHighlightDrag();
             CancelInkDrag();
             CancelShapeDrag();
+            CancelCalloutPlacement();
             _readerTool = tool;
             if (tool != ReaderTool.Hand) SelectAnnotation(null, null);
             UpdateFormatBarVisibility();
@@ -231,7 +232,7 @@ namespace XTPdfMergeApp
                         Focus();
                         SelectAnnotation(hit.Row, picked);
                         if (e.ClickCount >= 2 && picked.Kind == QuickAnnotationKind.Callout)
-                            _ = EditCalloutAsync(hit.Row, picked);
+                            _ = OpenAnnotationEditorAsync(hit, picked.Kind, picked);
                         else if (e.ClickCount >= 2 && picked.Kind == QuickAnnotationKind.Typewriter)
                             _ = OpenAnnotationEditorAsync(hit, picked.Kind, picked);
                         else
@@ -255,13 +256,18 @@ namespace XTPdfMergeApp
 
                 case ReaderTool.Comment:
                     e.Handled = true;
-                    _ = OpenAnnotationEditorAsync(hit, QuickAnnotationKind.Comment,
-                        FindAnnotationAt(page, hit, QuickAnnotationKind.Comment));
+                    // Như Word: bấm ghi chú có sẵn = mở luồng của nó; chỗ trống = thẻ soạn ghi chú mới (Post / Cancel).
+                    if (FindAnnotationAt(page, hit, QuickAnnotationKind.Comment) is { } existingNote)
+                    {
+                        SelectAnnotation(hit.Row, existingNote);
+                        ShowCommentPopup(hit.Row, existingNote);
+                    }
+                    else ComposeNote(hit);
                     break;
 
                 case ReaderTool.Callout:
                     e.Handled = true;
-                    _ = PlaceCalloutAsync(hit);
+                    BeginCalloutPlacement(hit, e.GetPosition(ReaderContentHost));
                     break;
 
                 case ReaderTool.Pencil:
@@ -328,7 +334,7 @@ namespace XTPdfMergeApp
                 e.Handled = true;
                 return;
             }
-            if (UpdateInkDrag(point))
+            if (UpdateInkDrag(point) || UpdateCalloutPlacement(point) || UpdateCalloutTipDrag(point))
             {
                 e.Handled = true;
                 return;
@@ -365,7 +371,7 @@ namespace XTPdfMergeApp
                 e.Handled = true;
                 return;
             }
-            if (FinishInkDrag())
+            if (FinishInkDrag() || ReleaseCalloutPlacement(e.GetPosition(ReaderContentHost)) || FinishCalloutTipDrag())
             {
                 e.Handled = true;
                 return;
@@ -513,36 +519,214 @@ namespace XTPdfMergeApp
             if (ReaderContentHost.IsMouseCaptured) ReaderContentHost.ReleaseMouseCapture();
         }
 
-        /// <summary>Callout kiểu Foxit: 1 cú bấm là có ngay hộp (không cần bấm lần 2 chọn góc hộp) — hộp đặt lệch
-        /// lên-phải so với điểm chỉ theo 1 khoảng cố định, người dùng gõ chữ luôn.</summary>
-        private async Task PlaceCalloutAsync(PageHit tip)
+        // ── Callout: làm theo Foxit (đã mở Foxit thử) ─────────────────────
+        // Bấm lần 1 = đầu mũi tên; rê chuột thấy đường dẫn + khung hộp chạy theo; bấm lần 2 (hoặc giữ chuột kéo
+        // rồi thả) = chỗ đặt hộp chữ → gõ chữ luôn tại chỗ. Esc / đổi công cụ = bỏ. Bấm đúp callout có sẵn = sửa chữ
+        // ngay trong hộp (không mở hộp thoại). Chọn callout: 8 grip hộp + 1 grip ở đầu mũi tên kéo được.
+
+        private sealed class CalloutPlacement
         {
-            var page = await LoadPageAnnotationsAsync(tip.Row);
-            if (page == null) return;
-            double boxU = Math.Clamp(tip.U + .025, 0, .72);
-            double boxV = Math.Clamp(tip.V - .04, 0, .85);
-            _annotationEditor = new AnnotationEditorState { Row = tip.Row, Kind = QuickAnnotationKind.Callout, U = boxU, V = boxV, Geometry = page.Geometry, TipU = tip.U, TipV = tip.V };
-            ReaderAnnotationEditor.Text = ""; ApplyEditorFormat(); ReaderAnnotationEditor.Background = new SolidColorBrush(Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF));
-            ReaderAnnotationEditor.TextWrapping = TextWrapping.Wrap; ReaderAnnotationEditor.Width = 240; ReaderAnnotationEditor.MinHeight = 72; ReaderAnnotationEditor.Visibility = Visibility.Visible;
-            PositionAnnotationEditor(); ReaderAnnotationEditor.Focus();
+            public required PageRow Row { get; init; }
+            public required double TipU { get; init; }
+            public required double TipV { get; init; }
+            public required Point Start { get; init; }
+            public bool Pressed { get; set; } = true;
+            public bool Dragged { get; set; }
         }
 
-        private async Task EditCalloutAsync(PageRow row, QuickAnnotationSpec existing)
+        private CalloutPlacement? _calloutPlacement;
+        private const double CalloutDefaultWidthPoints = 150, CalloutDefaultHeightPoints = 24;
+
+        private void BeginCalloutPlacement(PageHit hit, Point pointInHost)
         {
-            var prompt = new TextPromptWindow("Edit callout", "Callout text:", existing.Text, null) { Owner = this };
-            if (prompt.ShowDialog() != true || prompt.Value is not { } text || text == existing.Text) return;
-            if (string.IsNullOrWhiteSpace(text))
+            ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;
+            if (_calloutPlacement is { } pending)
             {
-                CommitAnnotationChange(row, new QuickAnnotationChange(existing, null), "Delete callout");
+                // Bấm lần 2 = đặt hộp (bấm sang trang khác thì kẹp về trang có mũi tên).
+                FinishCalloutPlacement(pending, pointInHost);
                 return;
             }
-            var page = await LoadPageAnnotationsAsync(row);
-            if (page == null) return;
-            // Giữ nguyên kích thước hộp người dùng có thể đã kéo-giãn bằng tay (grip) — chỉ xuống dòng lại chữ cho khớp.
-            var changed = Regenerated(existing) with { Text = text };
-            CommitAnnotationChange(row, new QuickAnnotationChange(existing, changed), "Edit callout");
+            if (!TryPageToLayer(hit.Row, hit.U, hit.V, out Point tip)) return;
+            _calloutPlacement = new CalloutPlacement { Row = hit.Row, TipU = hit.U, TipV = hit.V, Start = pointInHost };
+            ReaderInkPreview.Points.Clear();
+            ReaderInkPreview.Points.Add(tip);
+            ReaderInkPreview.Points.Add(tip);
+            ReaderInkPreview.Visibility = Visibility.Visible;
+            ReaderContentHost.CaptureMouse();
         }
 
+        /// <summary>Đầu hộp (u, v trên trang) khi đặt ở điểm chuột: hộp nằm về phía chuột so với mũi tên, như Foxit.</summary>
+        private (double U, double V) CalloutBoxOrigin(CalloutPlacement p, PageHit at, PdfPageGeometry geometry)
+        {
+            double w = CalloutDefaultWidthPoints / Math.Max(1, geometry.DisplayWidth);
+            double h = CalloutDefaultHeightPoints / Math.Max(1, geometry.DisplayHeight);
+            double u = at.U >= p.TipU ? at.U : at.U - w;
+            double v = at.V - h / 2;
+            return (Math.Clamp(u, 0, Math.Max(0, 1 - w)), Math.Clamp(v, 0, Math.Max(0, 1 - h)));
+        }
+
+        private bool UpdateCalloutPlacement(Point pointInHost)
+        {
+            if (_calloutPlacement is not { } p) return false;
+            if (p.Pressed && (pointInHost - p.Start).Length > 6) p.Dragged = true;
+            if (GetCachedPageAnnotations(p.Row)?.Geometry is not { } geometry || !TryGetPagePoint(p.Row, pointInHost, clamp: true, out var at)) return true;
+            var (u, v) = CalloutBoxOrigin(p, at, geometry);
+            double w = CalloutDefaultWidthPoints / geometry.DisplayWidth, h = CalloutDefaultHeightPoints / geometry.DisplayHeight;
+            if (!TryPageToLayer(p.Row, u, v, out Point a) || !TryPageToLayer(p.Row, u + w, v + h, out Point b) ||
+                !TryPageToLayer(p.Row, p.TipU, p.TipV, out Point tip)) return true;
+            // Đường dẫn nối tới điểm gần nhất trên biên hộp — đúng cách AddCallout vẽ khi ghi.
+            double left = Math.Min(a.X, b.X), right = Math.Max(a.X, b.X), top = Math.Min(a.Y, b.Y), bottom = Math.Max(a.Y, b.Y);
+            var attach = new Point(Math.Clamp(tip.X, left, right), Math.Clamp(tip.Y, top, bottom));
+            ReaderInkPreview.Points[1] = attach;
+            Canvas.SetLeft(ReaderHighlightRubberBand, left);
+            Canvas.SetTop(ReaderHighlightRubberBand, top);
+            ReaderHighlightRubberBand.Width = right - left;
+            ReaderHighlightRubberBand.Height = bottom - top;
+            ReaderHighlightRubberBand.Visibility = Visibility.Visible;
+            return true;
+        }
+
+        /// <summary>Thả chuột: đã kéo = đặt hộp tại chỗ thả; chỉ bấm = chờ cú bấm thứ 2 (chuột thả tự do, không giữ capture).</summary>
+        private bool ReleaseCalloutPlacement(Point pointInHost)
+        {
+            if (_calloutPlacement is not { Pressed: true } p) return false;
+            p.Pressed = false;
+            if (p.Dragged) FinishCalloutPlacement(p, pointInHost);
+            else if (ReaderContentHost.IsMouseCaptured) ReaderContentHost.ReleaseMouseCapture();
+            return true;
+        }
+
+        private void FinishCalloutPlacement(CalloutPlacement p, Point pointInHost)
+        {
+            CancelCalloutPlacement();
+            _ = OpenNewCalloutAsync(p, pointInHost);
+        }
+
+        private async Task OpenNewCalloutAsync(CalloutPlacement p, Point pointInHost)
+        {
+            var page = await LoadPageAnnotationsAsync(p.Row);
+            if (page == null || _annotationEditor != null || !TryGetPagePoint(p.Row, pointInHost, clamp: true, out var at)) return;
+            var (u, v) = CalloutBoxOrigin(p, at, page.Geometry);
+            _annotationEditor = new AnnotationEditorState
+            {
+                Row = p.Row, Kind = QuickAnnotationKind.Callout, U = u, V = v, Geometry = page.Geometry,
+                TipU = p.TipU, TipV = p.TipV, BoxWidthPoints = CalloutDefaultWidthPoints
+            };
+            ShowCalloutEditor("");
+        }
+
+        private void ShowCalloutEditor(string text)
+        {
+            var editor = ReaderAnnotationEditor;
+            editor.Text = text;
+            LoadFormatBar();
+            ApplyEditorFormat();
+            // Nền + viền giống hộp callout sẽ ghi (xanh nhạt kiểu Foxit), chữ tự xuống dòng theo bề ngang hộp.
+            editor.Background = new SolidColorBrush(Color.FromRgb(0xEB, 0xF3, 0xF5));
+            editor.TextWrapping = TextWrapping.Wrap;
+            editor.MinHeight = 0;
+            editor.Visibility = Visibility.Visible;
+            UpdateFormatBarVisibility();
+            UpdateSelectionVisual();
+            PositionAnnotationEditor();
+            editor.CaretIndex = editor.Text.Length;
+            editor.Focus();
+            _ = Dispatcher.InvokeAsync(() => { if (_annotationEditor != null) editor.Focus(); }, System.Windows.Threading.DispatcherPriority.Input);
+        }
+
+        private void CancelCalloutPlacement()
+        {
+            if (_calloutPlacement == null) return;
+            _calloutPlacement = null;
+            ReaderInkPreview.Visibility = Visibility.Collapsed;
+            ReaderInkPreview.Points.Clear();
+            ReaderHighlightRubberBand.Visibility = Visibility.Collapsed;
+            if (ReaderContentHost.IsMouseCaptured) ReaderContentHost.ReleaseMouseCapture();
+        }
+
+        // Kéo grip ở đầu mũi tên của callout đang chọn: hộp đứng yên, chỉ điểm chỉ đổi.
+        private sealed record CalloutTipDrag(PageRow Row, QuickAnnotationSpec Spec);
+        private CalloutTipDrag? _calloutTipDrag;
+        private (double U, double V) _calloutTipDragPoint;
+
+        private void BeginCalloutTipDrag(PageRow row, QuickAnnotationSpec spec)
+        {
+            _calloutTipDrag = new CalloutTipDrag(row, spec);
+            var tip = PdfQuickAnnotationService.DecodeCallout(spec.Format);
+            _calloutTipDragPoint = (tip.TipU, tip.TipV);
+            ReaderInkPreview.Points.Clear();
+            ReaderInkPreview.Points.Add(default);
+            ReaderInkPreview.Points.Add(default);
+            ReaderInkPreview.Visibility = Visibility.Visible;
+            ReaderContentHost.CaptureMouse();
+        }
+
+        private bool UpdateCalloutTipDrag(Point pointInHost)
+        {
+            if (_calloutTipDrag is not { } drag) return false;
+            var s = drag.Spec;
+            if (!TryGetPagePoint(drag.Row, pointInHost, clamp: true, out var at) ||
+                !TryPageToLayer(drag.Row, at.U, at.V, out Point tip) ||
+                !TryPageToLayer(drag.Row, s.U1, s.V1, out Point a) || !TryPageToLayer(drag.Row, s.U2, s.V2, out Point b)) return true;
+            _calloutTipDragPoint = (at.U, at.V);
+            ReaderInkPreview.Points[0] = tip;
+            ReaderInkPreview.Points[1] = new Point(Math.Clamp(tip.X, Math.Min(a.X, b.X), Math.Max(a.X, b.X)), Math.Clamp(tip.Y, Math.Min(a.Y, b.Y), Math.Max(a.Y, b.Y)));
+            Place(GripLineA, tip.X, tip.Y);
+            return true;
+        }
+
+        private bool FinishCalloutTipDrag()
+        {
+            if (_calloutTipDrag is not { } drag) return false;
+            _calloutTipDrag = null;
+            ReaderInkPreview.Visibility = Visibility.Collapsed;
+            ReaderInkPreview.Points.Clear();
+            if (ReaderContentHost.IsMouseCaptured) ReaderContentHost.ReleaseMouseCapture();
+            var s = drag.Spec;
+            var old = PdfQuickAnnotationService.DecodeCallout(s.Format);
+            var (u, v) = _calloutTipDragPoint;
+            if (Math.Abs(u - old.TipU) > 1e-6 || Math.Abs(v - old.TipV) > 1e-6)
+            {
+                var changed = Regenerated(s) with { Format = PdfQuickAnnotationService.EncodeCallout(u, v, old.TextFormat) };
+                _selAnn = changed;
+                CommitAnnotationChange(drag.Row, new QuickAnnotationChange(s, changed), "Move callout arrow");
+            }
+            UpdateSelectionVisual();
+            return true;
+        }
+
+        // ── Ghi chú: popup kiểu Word ─────────────────────────────────────
+
+        /// <summary>Toạ độ màn hình (đơn vị WPF) của 1 điểm trên trang — để đặt popup nổi.</summary>
+        private bool TryPageToScreen(PageRow row, double u, double v, out Point screen)
+        {
+            screen = default;
+            if (!TryPageToLayer(row, u, v, out Point anchor)) return false;
+            Point devicePoint = ReaderInteractionLayer.PointToScreen(anchor);
+            var fromDevice = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
+            screen = fromDevice.Transform(devicePoint);
+            return true;
+        }
+
+        /// <summary>Công cụ Note bấm vào chỗ trống: thẻ soạn kiểu Word ngay cạnh điểm bấm; Post mới tạo ghi chú (Cancel = không tạo gì).</summary>
+        private void ComposeNote(PageHit hit)
+        {
+            _commentPopup?.Close();
+            ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;
+            if (!TryPageToScreen(hit.Row, hit.U, hit.V, out Point screen)) return;
+            var popup = CommentPopup.Compose(this, screen, Environment.UserName);
+            popup.Posted += text => _ = AddNoteAsync(hit, text);
+            _commentPopup = popup;
+        }
+
+        private async Task AddNoteAsync(PageHit hit, string text)
+        {
+            var page = await LoadPageAnnotationsAsync(hit.Row);
+            if (page == null) return;
+            var spec = PdfQuickAnnotationService.WithMeasuredSize(new QuickAnnotationSpec(NewAnnotationName(), QuickAnnotationKind.Comment,
+                hit.Row.PageNumber, hit.U, hit.V, hit.U, hit.V, text), page.Geometry);
+            CommitAnnotationChange(hit.Row, new QuickAnnotationChange(null, spec), "Add note");
+        }
         private async void AddInlineReply(CommentInfo parent, string text)
         {
             var row = _readerGroup?.Pages.FirstOrDefault(p => string.Equals(p.SourcePath, parent.Path, StringComparison.OrdinalIgnoreCase) && p.PageNumber == parent.Page);
@@ -559,23 +743,25 @@ namespace XTPdfMergeApp
 
         /// <summary>Bấm icon Note (không kéo) = popup ngay tại chỗ, kiểu Word: tác giả/ngày/nội dung + toàn bộ
         /// reply (dàn phẳng theo thời gian, như CommentsPanel) + 1 ô Reply — khỏi cần mở panel Comments.</summary>
-        private void ShowCommentPopup(PageRow row, QuickAnnotationSpec noteSpec)
+        private void ShowCommentPopup(PageRow row, QuickAnnotationSpec noteSpec, bool focusReply = false)
         {
             _commentPopup?.Close();
+            ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;
             var page = GetCachedPageAnnotations(row);
             var all = page?.Annotations ?? Array.Empty<QuickAnnotationSpec>();
             CommentInfo ToInfo(QuickAnnotationSpec s) => new(row.SourcePath, row.PageNumber, s.Name, s.Kind, s.Author, s.Date, s.Text, s.Resolved);
             var root = ToInfo(noteSpec);
             var replies = all.Where(a => a.Kind == QuickAnnotationKind.Reply && a.Format.StartsWith("R|", StringComparison.Ordinal) && a.Format[2..] == noteSpec.Name)
                 .OrderBy(a => a.Date).Select(ToInfo).ToList();
-            if (!TryPageToLayer(row, noteSpec.U1, noteSpec.V1, out Point anchor)) return;
-            Point devicePoint = ReaderInteractionLayer.PointToScreen(anchor);
-            var fromDevice = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
-            Point screen = fromDevice.Transform(devicePoint);
-            var popup = CommentPopup.Show(this, screen, root, replies);
+            if (!TryPageToScreen(row, noteSpec.U2, noteSpec.V1, out Point screen)) return;
+            var popup = CommentPopup.Show(this, screen, root, replies, focusReply);
             popup.ReplySubmitted += text => AddInlineReply(root, text);
-            popup.EditRequested += text => EditInlineComment(root, text);
-            popup.DeleteRequested += () => { DeleteInlineComment(root); SelectAnnotation(null, null); };
+            popup.EditRequested += (item, text) => EditInlineComment(item, text);
+            popup.DeleteRequested += item =>
+            {
+                DeleteInlineComment(item, withReplies: item.Name == root.Name);
+                if (item.Name == root.Name) SelectAnnotation(null, null);
+            };
             popup.ResolvedToggled += async resolved => { if (EditHost != null) await EditHost.SetCommentResolvedAsync(root.Path, root.Page, root.Name, resolved); };
             _commentPopup = popup;
         }
@@ -590,12 +776,19 @@ namespace XTPdfMergeApp
             CommitAnnotationChange(row, new QuickAnnotationChange(current, changed), "Edit comment");
         }
 
-        private async void DeleteInlineComment(CommentInfo info)
+        /// <summary>Xoá 1 mục; <paramref name="withReplies"/> = "Delete thread" của Word: gốc + mọi reply trong 1 bước Undo.</summary>
+        private async void DeleteInlineComment(CommentInfo info, bool withReplies = false)
         {
             var row = _readerGroup?.Pages.FirstOrDefault(p => string.Equals(p.SourcePath, info.Path, StringComparison.OrdinalIgnoreCase) && p.PageNumber == info.Page);
             var page = row == null ? null : await LoadPageAnnotationsAsync(row);
             var current = page?.Annotations.FirstOrDefault(a => a.Name == info.Name);
-            if (row != null && current != null) CommitAnnotationChange(row, new QuickAnnotationChange(current, null), "Delete comment");
+            if (row == null || page == null || current == null || EditHost == null) return;
+            var changes = new List<QuickAnnotationChange> { new(current, null) };
+            if (withReplies)
+                changes.AddRange(page.Annotations
+                    .Where(a => a.Kind == QuickAnnotationKind.Reply && a.Format.StartsWith("R|", StringComparison.Ordinal) && a.Format[2..] == current.Name)
+                    .Select(a => new QuickAnnotationChange(a, null)));
+            _ = EditHost.ApplyAnnotationChangesAsync(row.SourcePath, changes, withReplies ? "Delete thread" : "Delete comment");
         }
 
         // ── Highlight: kéo 1 hình chữ nhật ──────────────────────────────
@@ -664,6 +857,8 @@ namespace XTPdfMergeApp
             public required PdfPageGeometry Geometry { get; init; }
             public double TipU { get; init; }
             public double TipV { get; init; }
+            /// <summary>Callout: bề ngang hộp (pt) — ô nhập xuống dòng đúng như chữ sẽ vẽ trong hộp.</summary>
+            public double BoxWidthPoints { get; init; }
             public QuickAnnotationSpec? Existing { get; init; }
         }
 
@@ -675,6 +870,22 @@ namespace XTPdfMergeApp
             ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;
             var page = await LoadPageAnnotationsAsync(hit.Row);
             if (page == null || _annotationEditor != null) return;
+
+            if (kind == QuickAnnotationKind.Callout && existing != null)
+            {
+                // Sửa chữ ngay trong hộp như Foxit (bấm đúp): ô nhập đè đúng hộp, callout gốc ẩn trong lúc sửa.
+                var callout = PdfQuickAnnotationService.DecodeCallout(existing.Format);
+                _textFormat = TextFormat.Decode(callout.TextFormat);
+                _annotationEditor = new AnnotationEditorState
+                {
+                    Row = hit.Row, Kind = kind, U = existing.U1, V = existing.V1, Geometry = page.Geometry, Existing = existing,
+                    TipU = callout.TipU, TipV = callout.TipV, BoxWidthPoints = (existing.U2 - existing.U1) * page.Geometry.DisplayWidth
+                };
+                AnnotationLayer.Edit.HiddenName = existing.Name;
+                ReaderContinuousView.Redraw();
+                ShowCalloutEditor(existing.Text);
+                return;
+            }
 
             // Sửa cái đã có: neo đúng góc trên-trái của nó. Tạo mới: neo tại điểm bấm.
             _annotationEditor = new AnnotationEditorState
@@ -742,6 +953,8 @@ namespace XTPdfMergeApp
             {
                 // Khớp cỡ chữ + lề 2pt của annotation sẽ ghi → chữ gõ nằm đúng chỗ chữ sau khi ghi.
                 ReaderAnnotationEditor.FontSize = Math.Max(6, _textFormat.Size * pixelsPerPoint);
+                if (state.Kind == QuickAnnotationKind.Callout)
+                    ReaderAnnotationEditor.Width = Math.Max(60, state.BoxWidthPoints * pixelsPerPoint);
                 left = anchor.X;
                 top = anchor.Y;
             }
@@ -825,9 +1038,13 @@ namespace XTPdfMergeApp
             else
             {
                 // Ghi chú: chỉ đổi /Contents, giữ icon gốc. Typewriter: chữ nằm trong appearance → vẽ lại từ spec.
-                var edited = state.Kind == QuickAnnotationKind.Comment
-                    ? existing with { Text = text }
-                    : PdfQuickAnnotationService.WithMeasuredSize(Regenerated(existing) with { Text = text, Format = format }, state.Geometry);
+                // Callout: giữ nguyên hộp (người dùng có thể đã kéo-giãn bằng grip), chỉ xuống dòng lại chữ cho khớp.
+                var edited = state.Kind switch
+                {
+                    QuickAnnotationKind.Comment => existing with { Text = text },
+                    QuickAnnotationKind.Callout => Regenerated(existing) with { Text = text, Format = format },
+                    _ => PdfQuickAnnotationService.WithMeasuredSize(Regenerated(existing) with { Text = text, Format = format }, state.Geometry)
+                };
                 change = new QuickAnnotationChange(existing, edited);
                 description = "Edit " + label;
             }
