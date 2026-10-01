@@ -41,6 +41,9 @@
     <PackageReference Include="itext.bouncy-castle-adapter" Version="9.6.0" />
     <PackageReference Include="bblanchon.PDFium.Win32" Version="147.0.7690" />
     <PackageReference Include="VirtualizingWrapPanel" Version="2.5.2" />
+    <!-- Installer + tu cap nhat (Velopack): Run() phai la dong dau tien trong OnStartup (App.xaml.cs),
+         truoc moi logic khac, de bat dung cac co lenh ma trinh cai/go cai/cap nhat goi khi chay app. -->
+    <PackageReference Include="Velopack" Version="0.*" />
   </ItemGroup>
 
   <ItemGroup>

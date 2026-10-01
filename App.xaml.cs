@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using Velopack;
 using XTPdfMergeApp.Services;
 
 namespace XTPdfMergeApp
@@ -36,6 +37,11 @@ namespace XTPdfMergeApp
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+
+            // PHẢI đứng đầu tiên: Velopack tự bắt các cờ --veloapp-install/--veloapp-updated/--veloapp-uninstall
+            // mà trình cài/gỡ/cập nhật gọi app kèm theo (tạo/xoá shortcut...) rồi tự thoát luôn nếu gặp — chạy
+            // sau logic khác (single-instance mutex, mở cửa sổ...) sẽ làm các bước đó chạy nhầm lúc cài/gỡ.
+            VelopackApp.Build().Run();
 
             // Cửa sổ đọc (ReaderWindow) là cửa sổ chính: đóng nó = thoát app (nó tự đóng cửa sổ ghép phụ).
             ShutdownMode = ShutdownMode.OnMainWindowClose;
