@@ -10,3 +10,7 @@ obj/
 
 TestResults/
 *.log
+
+# Ket qua build cua Packaging/Release/Build-Release.ps1 - sinh lai moi lan, khong commit.
+Packaging/Release/_publish/
+Packaging/Release/_release/

@@ -86,6 +86,10 @@ namespace XTPdfMergeApp
                 logTimer.Start();
             }
             if (incomingPaths.Length > 0) _ = _reader.Session.OpenFilesInReaderAsync(incomingPaths);
+
+            // Chờ 1 chút cho app ổn định rồi mới âm thầm kiểm tra bản mới ở nền — không chặn khởi động, không
+            // làm gì nếu chạy từ debug/không mạng/chưa có release (xem AppUpdateService).
+            _ = Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(_ => AppUpdateService.CheckInBackgroundAsync());
         }
 
         private static void LogUnhandledException(string kind, Exception? ex)
