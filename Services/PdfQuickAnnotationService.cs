@@ -58,6 +58,12 @@ namespace XTPdfMergeApp.Services
                     PdfQuickAnnotationService.TextHighlightRects(format).Select(r => (r.U1 + du, r.V1 + dv, r.U2 + du, r.V2 + dv)));
             else if (Kind == QuickAnnotationKind.Ink && format.StartsWith("I|", StringComparison.Ordinal))
                 format = PdfQuickAnnotationService.EncodeInkPoints(PdfQuickAnnotationService.InkPoints(format).Select(p => (p.U + du, p.V + dv)));
+            else if (Kind == QuickAnnotationKind.Callout && format.StartsWith("C|", StringComparison.Ordinal))
+            {
+                // Dời callout = dời cả mũi tên (như Foxit), không chỉ hộp.
+                var callout = PdfQuickAnnotationService.DecodeCallout(format);
+                format = PdfQuickAnnotationService.EncodeCallout(callout.TipU + du, callout.TipV + dv, callout.TextFormat);
+            }
             return this with { U1 = U1 + du, V1 = V1 + dv, U2 = U2 + du, V2 = V2 + dv, Format = format };
         }
     }
@@ -134,11 +140,24 @@ namespace XTPdfMergeApp.Services
                 if (subtype == null || PdfName.Popup.Equals(subtype) || PdfName.Link.Equals(subtype)) continue;
                 int flags = annot.GetFlags();
                 if ((flags & (PdfAnnotation.HIDDEN | PdfAnnotation.NO_VIEW)) != 0) continue;
+                // AutoCAD xuất PDF: chữ dùng font SHX (không nhúng được outline chữ thật) được thay bằng 1 annotation
+                // phủ đúng vùng chữ đó (đã thấy tận mắt trên file thật: /Subtype /Square, không phải /Text — AutoCAD
+                // không cố định subtype, nên so theo /T thay vì subtype), tên tác giả CỐ ĐỊNH "AutoCAD SHX Text" —
+                // chỉ để tìm/copy được chữ đó, không phải ghi chú thật của ai cả. Acrobat/Bluebeam đều ẩn loại này
+                // khỏi danh sách comment; bản vẽ kỹ thuật xuất từ AutoCAD có thể có HÀNG NGHÌN cái (mỗi số kích
+                // thước/cao độ trên bản vẽ 1 cái) — không lọc sẽ ngập panel Comments (thấy "Comments (4460)" trên
+                // file thật 165MB) và hàng nghìn annotation "Other" đó vẫn được chọn/hit-test được, cản việc đặt
+                // chú thích mới ở đúng chỗ.
+                if (string.Equals(annot.GetPdfObject().GetAsString(PdfName.T)?.ToUnicodeString(), "AutoCAD SHX Text", StringComparison.Ordinal))
+                    continue;
                 QuickAnnotationKind kind = KindOf(annot) ?? QuickAnnotationKind.Other;
                 var rect = annot.GetRectangle()?.ToRectangle();
                 if (rect == null || rect.GetWidth() <= 0 && rect.GetHeight() <= 0) continue;
                 var (u1, v1, u2, v2) = geometry.UserRectToDisplay(rect.GetLeft(), rect.GetBottom(), rect.GetRight(), rect.GetTop());
                 var obj = annot.GetPdfObject();
+                string? calloutFormat = null;
+                if (kind == QuickAnnotationKind.Callout)
+                    (u1, v1, u2, v2, calloutFormat) = ReadCalloutBox(obj, geometry, (u1, v1, u2, v2));
                 var reference = obj.GetIndirectReference();
                 string name = annot.GetName()?.ToUnicodeString() is { Length: > 0 } nm ? nm
                     : reference != null ? $"#o{reference.GetObjNumber()}_{reference.GetGenNumber()}" : "#i" + i;
@@ -150,6 +169,7 @@ namespace XTPdfMergeApp.Services
                         QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut or QuickAnnotationKind.Squiggly => ReadQuadFormat(annot, geometry),
                         QuickAnnotationKind.Shape => obj.GetAsString(ShapeKey)?.ToUnicodeString() ?? "",
                         QuickAnnotationKind.Ink => ReadInkFormat(annot, geometry),
+                        QuickAnnotationKind.Callout => calloutFormat!,
                         _ => obj.GetAsString(FormatKey)?.ToUnicodeString() ?? ""
                     },
                     ObjectNumber = reference?.GetObjNumber() ?? 0,
@@ -164,6 +184,26 @@ namespace XTPdfMergeApp.Services
                 });
             }
             return result;
+        }
+
+        private static readonly PdfName CalloutBoxKey = new("XTBox");
+
+        /// <summary>Callout đọc từ file: /Rect phủ cả hộp LẪN mũi tên, nên hộp thật lấy từ /XTBox (user-space, dời cùng /Rect
+        /// khi Translate) và điểm chỉ lấy từ /CL (điểm đầu) — không tin toạ độ điểm chỉ lưu sẵn trong chuỗi /XTFormat vì
+        /// dời chú thích tại chỗ (Translate) chỉ dịch các mảng toạ độ. File cũ chưa có /XTBox: giữ /Rect như trước.</summary>
+        private static (double U1, double V1, double U2, double V2, string Format) ReadCalloutBox(PdfDictionary obj, PdfPageGeometry geometry, (double U1, double V1, double U2, double V2) rect)
+        {
+            var stored = DecodeCallout(obj.GetAsString(FormatKey)?.ToUnicodeString() ?? "");
+            double tipU = stored.TipU, tipV = stored.TipV;
+            if (obj.GetAsArray(PdfName.CL) is { } cl && cl.Size() >= 2 && cl.GetAsNumber(0) is { } cx && cl.GetAsNumber(1) is { } cy)
+            {
+                var tip = geometry.UserRectToDisplay(cx.DoubleValue(), cy.DoubleValue(), cx.DoubleValue(), cy.DoubleValue());
+                (tipU, tipV) = (tip.U1, tip.V1);
+            }
+            var box = rect;
+            if (obj.GetAsArray(CalloutBoxKey) is { } b && b.Size() == 4 && b.GetAsNumber(0) is { } l && b.GetAsNumber(1) is { } bo && b.GetAsNumber(2) is { } r && b.GetAsNumber(3) is { } t)
+                box = geometry.UserRectToDisplay(l.DoubleValue(), bo.DoubleValue(), r.DoubleValue(), t.DoubleValue());
+            return (box.U1, box.V1, box.U2, box.V2, EncodeCallout(tipU, tipV, stored.TextFormat));
         }
 
         private static string ColorOf(PdfArray? c)
@@ -400,7 +440,7 @@ namespace XTPdfMergeApp.Services
                     if (array.GetAsNumber(i + 1) is { } y) array.Set(i + 1, new PdfNumber(y.DoubleValue() + dy));
                 }
             }
-            foreach (var key in new[] { PdfName.Rect, PdfName.QuadPoints, PdfName.L, PdfName.Vertices, PdfName.CL })
+            foreach (var key in new[] { PdfName.Rect, PdfName.QuadPoints, PdfName.L, PdfName.Vertices, PdfName.CL, CalloutBoxKey })
                 Shift(obj.GetAsArray(key));
             if (obj.GetAsArray(PdfName.InkList) is { } ink)
                 for (int i = 0; i < ink.Size(); i++) Shift(ink.GetAsArray(i));
@@ -836,6 +876,8 @@ namespace XTPdfMergeApp.Services
             {
                 new PdfNumber(tipX), new PdfNumber(tipY), new PdfNumber(attachX), new PdfNumber(attachY)
             }));
+            var (bLeft, bBottom, bRight, bTop) = geometry.DisplayRectToUser(boxDispLeft / dw, boxDispTop / dh, boxDispRight / dw, boxDispBottom / dh);
+            annot.GetPdfObject().Put(CalloutBoxKey, new PdfArray(new double[] { bLeft, bBottom, bRight, bTop }));
             annot.GetPdfObject().Put(PdfName.BS, new PdfDictionary(new Dictionary<PdfName, PdfObject> { [PdfName.W] = new PdfNumber(1.2) }));
             // Viền + nền xanh nhạt kiểu Foxit — đo trực tiếp màu pixel trên 1 callout Foxit thật vẽ ra (RGB 117,157,184
             // viền / 235,243,245 nền), không phải đoán mắt thường.

@@ -87,7 +87,7 @@ internal static class Program
             }
             if (!baseline)
             {
-                TestCacheAndOwnership(); TestBulkPages(); TestPresentationQueue(); TestViewportScheduling(); TestRetainedRefinement(); TestViewportMotion(); TestTwoPageLayout(); TestReaderZoomMath(); TestPrintRasterPlan(); TestOutlineEditing(); TestSquigglyAnnotation(); TestInkAnnotation(); TestCalloutAnnotation(); TestReplyAnnotation(); TestPdfLinksAsync().GetAwaiter().GetResult(); TestPdfSecurityAsync().GetAwaiter().GetResult(); TestPdfProtectionRewriteAsync().GetAwaiter().GetResult();
+                TestCacheAndOwnership(); TestBulkPages(); TestPresentationQueue(); TestViewportScheduling(); TestRetainedRefinement(); TestViewportMotion(); TestTwoPageLayout(); TestReaderZoomMath(); TestPrintRasterPlan(); TestOutlineEditing(); TestSquigglyAnnotation(); TestInkAnnotation(); TestCalloutAnnotation(); TestReplyAnnotation(); TestAutoCadShxTextFiltered(); TestPdfLinksAsync().GetAwaiter().GetResult(); TestPdfSecurityAsync().GetAwaiter().GetResult(); TestPdfProtectionRewriteAsync().GetAwaiter().GetResult();
                 TestGateAsync().GetAwaiter().GetResult();
             }
             RunNativeAsync(baseline).GetAwaiter().GetResult();
@@ -412,6 +412,16 @@ internal static class Program
             Check(annotation.Kind == QuickAnnotationKind.Callout && annotation.Text == "Check this detail", "Callout round-trips as editable text");
             var leader = PdfQuickAnnotationService.DecodeCallout(annotation.Format);
             Check(Math.Abs(leader.TipU - .2) < .01 && Math.Abs(leader.TipV - .55) < .01, "Callout preserves its target point");
+            // /Rect phủ cả mũi tên; hộp đọc lại phải là hộp chữ thật (bắt đầu ở .42,.18), không phình ra tới điểm chỉ.
+            Check(Math.Abs(annotation.U1 - .42) < .005 && Math.Abs(annotation.V1 - .18) < .005, "Callout reloads its text box, not the box+arrow /Rect");
+
+            // Dời tại chỗ (giữ appearance gốc): đọc lại thì cả hộp lẫn điểm chỉ đều dời theo.
+            var moved = annotation.Translate(.1, .05);
+            PdfQuickAnnotationService.ApplyChanges(document, new[] { new QuickAnnotationChange(annotation, moved) });
+            var reread = PdfQuickAnnotationService.ReadAnnotations(page, PdfQuickAnnotationService.GetGeometry(page), 1).Single();
+            var movedTip = PdfQuickAnnotationService.DecodeCallout(reread.Format);
+            Check(Math.Abs(reread.U1 - .52) < .005 && Math.Abs(movedTip.TipU - .3) < .005 && Math.Abs(movedTip.TipV - .6) < .005,
+                "Moving a callout moves its box and its arrow tip together");
         }
 
         // Trang xoay 90°/270° (thường gặp ở bản vẽ kỹ thuật khổ ngang lưu trong khung giấy dọc): DisplayRectToUser
@@ -483,6 +493,43 @@ internal static class Program
             var parent = page.GetAnnotations().First(a => a.GetName()?.ToUnicodeString() == "parent");
             int parentFlags = parent.GetPdfObject().GetAsNumber(PdfName.F)?.IntValue() ?? 0;
             Check((parentFlags & hiddenFlag) == 0, "The root comment (not a reply) still draws its one icon normally");
+        }
+    }
+
+    /// <summary>Bản vẽ AutoCAD xuất PDF: chữ font SHX được thay bằng annotation /Square phủ đúng vùng chữ, tác giả
+    /// cố định "AutoCAD SHX Text" — chỉ để tìm/copy chữ, không phải comment thật. 1 file bản vẽ kỹ thuật có thể có
+    /// hàng nghìn cái (xem file thật 165MB: "Comments (4460)" trước khi lọc) — phải loại khỏi ReadAnnotations chứ
+    /// không phải lọc ở panel, vì chúng còn Selectable (chặn đặt chú thích mới/làm chậm trang).</summary>
+    static void TestAutoCadShxTextFiltered()
+    {
+        string path = System.IO.Path.Combine(Output, "autocad-shx.pdf");
+        using (var document = new PdfDocument(new PdfWriter(path)))
+        {
+            var page = document.AddNewPage(new PageSize(400, 300));
+
+            void AddRawSquare(string name, string author)
+            {
+                var obj = new PdfDictionary();
+                obj.Put(PdfName.Type, PdfName.Annot);
+                obj.Put(PdfName.Subtype, PdfName.Square);
+                obj.Put(PdfName.Rect, new PdfArray(new iText.Kernel.Geom.Rectangle(50, 50, 30, 10)));
+                obj.Put(PdfName.NM, new PdfString(name));
+                obj.Put(PdfName.T, new PdfString(author, iText.IO.Font.PdfEncodings.UNICODE_BIG));
+                obj.Put(PdfName.Contents, new PdfString("1.72", iText.IO.Font.PdfEncodings.UNICODE_BIG));
+                var annot = iText.Kernel.Pdf.Annot.PdfAnnotation.MakeAnnotation(obj);
+                page.AddAnnotation(annot);
+            }
+
+            AddRawSquare("shx1", "AutoCAD SHX Text");
+            AddRawSquare("shx2", "AutoCAD SHX Text");
+            AddRawSquare("real", "condu"); // chú thích thật (hoặc Square app khác tạo) — không được lọc theo
+        }
+        using (var document = new PdfDocument(new PdfReader(path)))
+        {
+            var page = document.GetPage(1);
+            var annotations = PdfQuickAnnotationService.ReadAnnotations(page, PdfQuickAnnotationService.GetGeometry(page), 1);
+            Check(annotations.Count == 1 && annotations[0].Author == "condu",
+                "AutoCAD SHX Text squares are filtered out of ReadAnnotations, a real Square annotation is not");
         }
     }
 
