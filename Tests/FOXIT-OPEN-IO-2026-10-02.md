@@ -81,3 +81,37 @@ and `MaxRegionFullWidth` 65,536. Regions only rasterize the visible viewport, so
 The zoom slider is now on a square-root scale so it stays usable at low zoom. Checked visually at 1,166%: vector text
 edges are crisp. Not checked: 3,200% itself, other page sizes (A0 layouts exceed the 65,536 px cap earlier and then
 upscale), and rotated pages at extreme zoom.
+
+## Zoom "pixel jump" between two sharpening passes
+
+Reported by the user: while zooming, Reader visibly changes pixels between two renders, Foxit does not.
+
+`Tests/Measure-GuiLatency.ps1 -Mode zoom` now compares full-resolution pixels (640x420 crop, no sub-sampling; the first
+version sampled every 6th pixel and missed thin CAD lines entirely) on a drawing page (page 31), 14 Ctrl+wheel zoom-in
+and 14 zoom-out steps. "Jump" = pixels that still differ between the first changed frame and the finished image.
+
+Cause found in `ContinuousPdfView.UpdateRequests`: after each zoom step the old image was only scaled for 60 ms
+(`ZoomSettleMilliseconds`), then a new page image was requested whenever the 256 px size bucket changed, even though the
+image on screen was still large enough. Each replacement is a fresh raster whose thin lines differ from the old image
+shrunk by WPF, so it reads as a jump (27,000-50,000 pixels, ~170 ms) every 2-4 notches. First attempt (render 25%
+larger) did not help for that reason: it still replaced the image at every bucket change.
+
+Fix: hysteresis. A page image is only re-rendered when it is about to fall below 1.1x the needed width, and then 2x
+larger (`PageLowWater`, `PageRefreshHeadroom`; first render stays 1.25x so a new page is not slower). A sharp region is
+reused while it is 1.06-3x the needed width and covers the visible part, compared in page fractions
+(`RegionLowWater`/`RegionHighWater`); new regions are rendered 1.6x larger. `ZoomSettleMilliseconds` is 24 ms.
+
+| 14 zoom-in steps, drawing page | Before | After | Foxit |
+|---|---:|---:|---:|
+| Steps where the image jumps | 4 (every ~3 notches) | 2 | 3 |
+| Duration of those jumps | ~180 ms | ~150-170 ms | 30-115 ms |
+| Zoom-out steps with a jump | 0 | 0 | 4 |
+| p90 ready time, all 28 steps | 178 ms | 34 ms | 1,765 ms (first steps are slow) |
+
+New page / revisit / pan latency is unchanged (three repeat runs: PageDown 31-60 ms, far jump 170-179 ms, one 446 ms
+outlier, revisit 31-53 ms). Memory in the same runs was 371-515 MB private. Regression suite passes (391 checks) after
+four tests that hard-coded the old width formula were updated (expected widths, the region helper, one fixture
+threshold, and a "fresh crop" area check relaxed from >= 100% to >= 90% of the original; a reused band is under 60%).
+
+Not solved: two zoom-in steps in 14 still replace the image once, and each lasts longer than Foxit's. Next idea if it
+is still visible: cross-fade the old and new image over ~80 ms instead of swapping.

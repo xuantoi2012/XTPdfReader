@@ -102,7 +102,7 @@ internal static partial class Program
         var host = new Window { Content = view, Width = 1320, Height = 700, WindowStyle = WindowStyle.None,
             ResizeMode = ResizeMode.NoResize, ShowActivated = false, ShowInTaskbar = false, Left = -32000, Top = -32000 };
         host.Show(); host.UpdateLayout();
-        int expectedWidth = (int)Math.Min(2304, Math.Ceiling(1200 * VisualTreeHelper.GetDpi(view).DpiScaleX / 256) * 256);
+        int expectedWidth = (int)Math.Min(2304, Math.Ceiling(1200 * VisualTreeHelper.GetDpi(view).DpiScaleX * ContinuousPdfView.ZoomHeadroom / 256) * 256);
         var sharp = Bitmap(expectedWidth, (int)Math.Round(expectedWidth * .4)); sharp.Freeze();
         var pages = Enumerable.Range(1, 12).Select(i => new PagePlacement
         {

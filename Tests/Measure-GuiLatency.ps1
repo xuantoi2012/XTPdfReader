@@ -12,14 +12,14 @@ public static class Lat {
   [DllImport("user32.dll")] public static extern void mouse_event(uint f, int dx, int dy, int data, UIntPtr extra);
   [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
-  public static Rectangle Region(IntPtr h) { RECT r; GetWindowRect(h, out r); int w = r.R - r.L, hh = r.B - r.T;
-    return new Rectangle(r.L + (int)(w * 0.22), r.T + (int)(hh * 0.18), (int)(w * 0.70), (int)(hh * 0.70)); }
+  public static Rectangle Region(IntPtr h) { RECT r; GetWindowRect(h, out r); int w = r.R - r.L, hh = r.B - r.T; int cw = 640, ch = 420;
+    return new Rectangle(r.L + (w - cw) / 2 + 40, r.T + (hh - ch) / 2 + 30, cw, ch); }
   static Bitmap bmp; static Graphics g;
   public static byte[] Grab(Rectangle rc) {
     if (bmp == null || bmp.Width != rc.Width || bmp.Height != rc.Height) { bmp = new Bitmap(rc.Width, rc.Height, PixelFormat.Format32bppRgb); g = Graphics.FromImage(bmp); }
     g.CopyFromScreen(rc.Location, Point.Empty, rc.Size);
     var d = bmp.LockBits(new Rectangle(0, 0, rc.Width, rc.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
-    int step = 6; int nx = rc.Width / step, ny = rc.Height / step; var o = new byte[nx * ny];
+    int step = 1; int nx = rc.Width / step, ny = rc.Height / step; var o = new byte[nx * ny];
     unsafe { byte* p = (byte*)d.Scan0; for (int y = 0; y < ny; y++) for (int x = 0; x < nx; x++) { byte* q = p + (y * step) * d.Stride + (x * step) * 4; o[y * nx + x] = (byte)((q[0] + q[1] * 2 + q[2]) >> 2); } }
     bmp.UnlockBits(d); return o; }
   public static int Diff(byte[] a, byte[] b) { int n = 0; for (int i = 0; i < a.Length; i++) { int d = a[i] - b[i]; if (d > 24 || d < -24) n++; } return n; }
@@ -30,11 +30,13 @@ public static class Lat {
     var baseline = Grab(rc); var sw = Stopwatch.StartNew(); act();
     var frames = new System.Collections.Generic.List<byte[]>(); var times = new System.Collections.Generic.List<double>();
     while (sw.Elapsed.TotalMilliseconds < windowMs) { frames.Add(Grab(rc)); times.Add(sw.Elapsed.TotalMilliseconds); }
-    var fin = frames[frames.Count - 1]; int thr = 8, tol = 12;
-    double first = -1; for (int i = 0; i < frames.Count; i++) if (Diff(frames[i], baseline, tol) > thr) { first = times[i]; break; }
+    var fin = frames[frames.Count - 1]; int thr = 12, tol = 16;
+    double first = -1; int firstIdx = -1; for (int i = 0; i < frames.Count; i++) if (Diff(frames[i], baseline, tol) > thr) { first = times[i]; firstIdx = i; break; }
     int ready = frames.Count - 1; while (ready > 0 && Diff(frames[ready - 1], fin, tol) <= thr) ready--;
-    return string.Format("{0:F0},{1:F0},{2}", first, times[ready], frames.Count);
-  }
+    // bursts = separate visual updates (changes more than 30 ms apart); jump = samples that still differ between the first changed frame and the finished image
+    int bursts = 0; double lastChange = -1000; for (int i = 1; i < frames.Count; i++) if (Diff(frames[i], frames[i - 1], 6) > 3) { if (times[i] - lastChange > 30) bursts++; lastChange = times[i]; }
+    int jump = firstIdx >= 0 ? Diff(frames[firstIdx], fin, tol) : 0;
+    return string.Format("{0:F0},{1:F0},{2},{3},{4}", first, times[ready], frames.Count, bursts, jump);  }
 }
 '@ -CompilerParameters $cp
 
@@ -47,11 +49,15 @@ $h = $p.MainWindowHandle
 [void][Lat]::SetForegroundWindow($h); Start-Sleep -Seconds $LoadWaitSec
 $rc = [Lat]::Region($h)
 [Lat]::SetCursorPos($rc.X + [int]($rc.Width/2), $rc.Y + [int]($rc.Height/2)) | Out-Null
-$rows = @('step,first_change_ms,settle_ms,frames')
+$rows = @('step,first_change_ms,settle_ms,frames,bursts,jump_samples')
 function Step($name,[scriptblock]$act,$quiet=250,$max=2500){ [void][Lat]::SetForegroundWindow($h); $r=[Lat]::Measure($rc,[Action]$act,$quiet,$max); $script:rows += "$name,$r"; Start-Sleep -Milliseconds 700 }
 $send={ param($k) [System.Windows.Forms.SendKeys]::SendWait($k) }
 
-if($Mode -eq 'deep'){
+if($Mode -eq 'zoom'){
+foreach($k in 1..30){ [System.Windows.Forms.SendKeys]::SendWait('{PGDN}'); Start-Sleep -Milliseconds 150 }; Start-Sleep -Seconds 3
+foreach($i in 1..14){ Step "zin-$i" { Wheel 120 $true } 250 2500 }
+foreach($i in 1..14){ Step "zout-$i" { Wheel -120 $true } 250 2500 }
+} elseif($Mode -eq 'deep'){
 function Notches($n,$d){ for($k=0;$k -lt $n;$k++){ Wheel $d $true; Start-Sleep -Milliseconds 25 } }
 Step 'deep-zoomin-10'  { Notches 10 120 } 250 4000
 Step 'deep-zoomin-+10' { Notches 10 120 } 250 4000
@@ -85,6 +91,8 @@ $rows | Set-Content $Out
 $p.Refresh(); "peak private MB: $([int]($p.PrivateMemorySize64/1MB))" | Add-Content "$Out.log"
 [void]$p.CloseMainWindow(); Start-Sleep -Seconds 4; if(-not $p.HasExited){ $p.Refresh(); [void]$p.CloseMainWindow(); Start-Sleep 3 }
 "exited=$($p.HasExited)" | Add-Content "$Out.log"
+
+
 
 
 

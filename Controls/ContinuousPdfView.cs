@@ -44,6 +44,9 @@ public sealed class ContinuousPdfView : Grid
     /// <summary>Độ phân giải vùng nét lượng tử hoá theo bậc 400 px — zoom nhích 1% không phải vẽ lại.</summary>
     private const int RegionResolutionQuantum = 400;
     private const int MaxRegionFullWidth = 65536;
+    /// <summary>Vùng nét vẽ dư 60% so với cỡ đang cần (xem <see cref="ZoomHeadroom"/>); vùng chỉ phủ khung nhìn nên tốn thêm ~2,5× điểm ảnh.</summary>
+    private const double RegionHeadroom = 1.6;
+    private const double RegionLowWater = 1.06, RegionHighWater = 3.0;
     internal const long RegionCacheBudgetBytes = 16L * 1024 * 1024;
     private static readonly object RegionCacheLock = new();
     private static readonly BitmapMemoryCache<CachedRegionKey> RegionCache = new(RegionCacheBudgetBytes);
@@ -52,7 +55,7 @@ public sealed class ContinuousPdfView : Grid
     private const double FastScrollViewportsPerSecond = 4;
     private const int SettleMilliseconds = 40;
     /// <summary>Đang zoom: chờ zoom đứng yên chừng này mới xin ảnh ở độ phân giải mới (giữa chừng chỉ co giãn ảnh có sẵn).</summary>
-    private const int ZoomSettleMilliseconds = 60;
+    private const int ZoomSettleMilliseconds = 24;
     internal int PrefetchPageCount { get; set; } = 4;
     internal bool KeepPrefetchedNativePages { get; set; }
     internal bool PreferViewportRegions { get; set; } = true;
@@ -781,8 +784,11 @@ public sealed class ContinuousPdfView : Grid
                 if (state.Preview == null && row.Thumbnail == null) RequestPreview(row, state, PdfRenderPriority.Visible);
             }
             // Đang zoom: trang đã có ảnh thì co giãn ảnh đó, chưa xin độ phân giải mới (mỗi nấc zoom một lượt vẽ là lãng phí).
-            else if (!(zoomSettling && hasImage) && NeedsPageBitmap(row, state, pageWidth))
+            else if (!(zoomSettling && hasImage) && NeedsPageBitmap(row, state, pageWidth, needed))
             {
+                // Đã có ảnh (sắp thiếu): vẽ dư nhiều hơn để vài nấc zoom kế tiếp không phải vẽ lại.
+                if (state.Bitmap != null && pageWidth < MaxPageBitmapWidth && needed <= MaxPageBitmapWidth * 1.03)
+                    pageWidth = PageBitmapWidth(needed, PageRefreshHeadroom);
                 RequestPage(row, state, pageWidth, PdfRenderPriority.Visible);
             }
 
@@ -824,25 +830,38 @@ public sealed class ContinuousPdfView : Grid
             if (needed > PreviewSufficientPx)
             {
                 int pageWidth = PreferredPageBitmapWidth(needed, PreferViewportRegions);
-                if (NeedsPageBitmap(row, state, pageWidth)) RequestPage(row, state, pageWidth, PdfRenderPriority.Background);
+                if (NeedsPageBitmap(row, state, pageWidth, needed)) RequestPage(row, state, pageWidth, PdfRenderPriority.Background);
             }
             else if (BestBitmap(row, state) == null) RequestPreview(row, state, PdfRenderPriority.Thumbnail);
         }
     }
 
-    private static int PageBitmapWidth(double neededPx)
-        => (int)Math.Clamp(Math.Ceiling(neededPx / 256) * 256, MinPageBitmapWidth, MaxPageBitmapWidth);
+    /// <summary>Vẽ dư độ phân giải so với cỡ đang cần: vài nấc zoom kế tiếp chỉ phóng NHỎ xuống ảnh đã nét, nên không có khoảng mờ
+    /// rồi "nhảy" nét giữa hai mức zoom (đo 02/10 trên trang bản vẽ: mỗi ~3 nấc có 1 lần mờ ~180 ms, 27.000–49.000 điểm ảnh đổi).</summary>
+    internal const double ZoomHeadroom = 1.25;
+
+    private static int PageBitmapWidth(double neededPx, double headroom = ZoomHeadroom)
+        => (int)Math.Clamp(Math.Ceiling(neededPx * headroom / 256) * 256, MinPageBitmapWidth, MaxPageBitmapWidth);
 
     internal static int PreferredPageBitmapWidth(double neededPx, bool viewportFirst)
         // A readable fallback is sufficient while the high-zoom viewport region refines.
         => viewportFirst && neededPx > MaxPageBitmapWidth * 1.03
             ? ReadablePageBitmapWidth : PageBitmapWidth(neededPx);
 
-    private static bool NeedsPageBitmap(PageRow row, PageState state, int width)
+    /// <summary>Ảnh trang hiện có còn đủ dùng khi nó không nhỏ hơn cỡ cần × hệ số này: chưa thay ảnh, nên không có cú "nhảy" do thay ảnh
+    /// (ảnh vẽ mới có nét đậm/nhạt khác ảnh cũ bị thu nhỏ). Chỉ vẽ lại khi sắp thiếu, và vẽ dư <see cref="PageRefreshHeadroom"/>.</summary>
+    private const double PageLowWater = 1.10;
+    private const double PageRefreshHeadroom = 2.0;
+
+    private static bool NeedsPageBitmap(PageRow row, PageState state, int width, double neededPx)
     {
         if (state.Bitmap is { } bmp && state.BitmapVersion == state.Version &&
             string.Equals(state.BitmapLayers, PdfLayerStateStore.GetToken(row.SourcePath), StringComparison.Ordinal))
-            return bmp.PixelWidth < width * 0.97;
+        {
+            if (bmp.PixelWidth >= width * 0.97) return false;
+            // Chế độ vùng nét (width = ảnh dự phòng 1024 px) đã xử lý ở trên; ở đây chỉ còn cỡ theo zoom.
+            return bmp.PixelWidth < Math.Min(neededPx * PageLowWater, MaxPageBitmapWidth);
+        }
         return state.FailedWidth != width || state.FailedVersion != state.Version;
     }
 
@@ -950,15 +969,18 @@ public sealed class ContinuousPdfView : Grid
         var (ub, vb) = Unrotate(dx1, dy1);
         double fx0 = Math.Min(ua, ub), fx1 = Math.Max(ua, ub), fy0 = Math.Min(va, vb), fy1 = Math.Max(va, vb);
         int fullWidth = (int)Math.Min(MaxRegionFullWidth,
-            Math.Ceiling(Math.Min(neededPx, MaxRegionFullWidth) / RegionResolutionQuantum) * RegionResolutionQuantum);
+            Math.Ceiling(Math.Min(neededPx * RegionHeadroom, MaxRegionFullWidth) / RegionResolutionQuantum) * RegionResolutionQuantum);
         double aspect = row.LayoutHeight / Math.Max(1, row.LayoutWidth);
         int fullHeight = Math.Max(1, (int)Math.Round(fullWidth * aspect));
         string layers = PdfLayerStateStore.GetToken(row.SourcePath);
 
-        bool Covers(RegionKey k) => k.FullWidth == fullWidth && k.FullHeight == fullHeight && k.Version == state.Version &&
-            string.Equals(k.Layers, layers, StringComparison.Ordinal) &&
-            k.X <= fx0 * fullWidth + 0.5 && k.Y <= fy0 * fullHeight + 0.5 &&
-            k.X + k.Width >= fx1 * fullWidth - 0.5 && k.Y + k.Height >= fy1 * fullHeight - 0.5;
+        // Vùng cũ còn dùng được nếu nó không bị phóng to (>= cỡ cần × RegionLowWater) và không dư quá nhiều, và phủ phần đang nhìn
+        // (so theo phân số trang, vì vùng vẽ ở độ phân giải khác vẫn được vẽ lên đúng chỗ): zoom nhích không thay ảnh → không nhảy nét.
+        double minWidth = Math.Min(neededPx * RegionLowWater, MaxRegionFullWidth), maxWidth = Math.Max(neededPx * RegionHighWater, minWidth);
+        bool Covers(RegionKey k) => k.Version == state.Version && string.Equals(k.Layers, layers, StringComparison.Ordinal) &&
+            k.FullWidth >= minWidth * 0.995 && k.FullWidth <= maxWidth &&
+            k.X <= fx0 * k.FullWidth + 0.5 && k.Y <= fy0 * k.FullHeight + 0.5 &&
+            k.X + k.Width >= fx1 * k.FullWidth - 0.5 && k.Y + k.Height >= fy1 * k.FullHeight - 0.5;
 
         if (state.Regions.Any(r => Covers(r.Key))) return;
         var source = RenderCacheKeys.Thumbnail(row.SourcePath, row.PageNumber);

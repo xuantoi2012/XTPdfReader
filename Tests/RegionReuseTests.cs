@@ -177,7 +177,7 @@ internal static partial class Program
             int beforeEdit = calls.Count;
             view.InvalidatePages(r => ReferenceEquals(r, row), dropImages: false); Wait();
             Check(calls.Count == beforeEdit + 1 && calls[^1].Length == 1 &&
-                calls[^1].Sum(r => (long)r.Width * r.Height) >= originalArea,
+                calls[^1].Sum(r => (long)r.Width * r.Height) >= originalArea * .9, // a full crop (a reused missing band is under 60%); the edge-clipped crop after the pan can be a few percent smaller
                 "Source invalidation renders a fresh crop instead of composing pixels from an old document version");
             int beforeLayer = calls.Count;
             PdfLayerStateStore.SetHidden(row.SourcePath, new HashSet<string> { "fixture-layer" }, new HashSet<string>());

@@ -32,8 +32,9 @@ internal static partial class Program
         if (state.GetType().GetField("RegionCts")!.GetValue(state) != null) return false;
         int quantum = (int)typeof(ContinuousPdfView).GetField("RegionResolutionQuantum", BindingFlags.Static | BindingFlags.NonPublic)!.GetRawConstantValue()!;
         int maximum = (int)typeof(ContinuousPdfView).GetField("MaxRegionFullWidth", BindingFlags.Static | BindingFlags.NonPublic)!.GetRawConstantValue()!;
+        double headroom = (double)typeof(ContinuousPdfView).GetField("RegionHeadroom", BindingFlags.Static | BindingFlags.NonPublic)!.GetRawConstantValue()!;
         double needed = row.LayoutWidth * view.Zoom * VisualTreeHelper.GetDpi(view).DpiScaleX;
-        int fullWidth = (int)Math.Min(maximum, Math.Ceiling(Math.Min(needed, maximum) / quantum) * quantum);
+        int fullWidth = (int)Math.Min(maximum, Math.Ceiling(Math.Min(needed * headroom, maximum) / quantum) * quantum);
         if (!view.TryGetPageRect(row, out var pageRect)) return false;
         var visible = Rect.Intersect(pageRect, new Rect(0, 0, view.Surface.ActualWidth, view.Surface.ActualHeight));
         if (visible.IsEmpty || visible.Width <= 0 || visible.Height <= 0) return false;
@@ -70,7 +71,8 @@ internal static partial class Program
         new ReaderTuningOptions().Validate();
         Check(new ContinuousPdfView().PreferViewportRegions && ReaderTuningOptionsDefaultsMatch(),
             "Production and no-override profiling default to the measured viewport-first policy");
-        Check(ContinuousPdfView.PreferredPageBitmapWidth(1200, true) == 1280 &&
+        // Renders 25% above the needed width (ZoomHeadroom) so the next zoom steps shrink a sharp image instead of enlarging a soft one.
+        Check(ContinuousPdfView.PreferredPageBitmapWidth(1200, true) == 1536 &&
             ContinuousPdfView.PreferredPageBitmapWidth(2200, true) == 2304,
             "Viewport-first rendering preserves full screen resolution at normal zoom");
         Check(ContinuousPdfView.PreferredPageBitmapWidth(6600, true) == 1024 &&

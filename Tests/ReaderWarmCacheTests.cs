@@ -54,7 +54,7 @@ internal static partial class Program
             view.PageRenderer = (r, width, priority, token) =>
             {
                 requests++;
-                return width <= 640 ? Task.FromResult<BitmapSource?>(warm) : refinement.Task.WaitAsync(token);
+                return width <= 768 ? Task.FromResult<BitmapSource?>(warm) : refinement.Task.WaitAsync(token); // 768 = 500 px needed x 1.25 headroom, rounded up; the 640 px warm bitmap answers it
             };
             view.SetDocument(new[] { row }, .5);
             Pump(TimeSpan.FromMilliseconds(80));
