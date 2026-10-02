@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -627,7 +628,53 @@ public sealed class ContinuousPdfView : Grid
 
     // ── Vẽ ─────────────────────────────────────────────────────────────────
 
+    /// <summary>Thời gian mờ dần (ms) khi ảnh trang/vùng nét nét hơn thay ảnh đang hiện: ảnh mới vẽ lại từ đầu nên nét mảnh khác ảnh cũ
+    /// bị thu nhỏ; đổi tức thì thì mắt thấy "nhảy", mờ dần thì không. 0 = tắt (đổi tức thì như trước).</summary>
+    internal static int CrossFadeMilliseconds { get; set; } =
+        int.TryParse(Environment.GetEnvironmentVariable("XTPDF_CROSSFADE_MS"), out int fadeMs) ? Math.Clamp(fadeMs, 0, 1000) : 100;
+
+    /// <summary>Ảnh cũ chỉ được giữ làm nền mờ dần khi nó là ảnh trang thật (không phải thumbnail/ảnh xem trước nhỏ): trang mới mở
+    /// không bị kéo dài thêm vì mờ dần từ thumbnail.</summary>
+    private const int CrossFadeMinPreviousWidth = 820;
+
+    private sealed class FadeState
+    {
+        public BitmapSource? Current, Previous;
+        public long SwitchTimestamp;
+    }
+
+    private sealed class FirstShown { public long Timestamp; }
+
+    private readonly ConditionalWeakTable<PageRow, FadeState> _fades = new();
+    private static readonly ConditionalWeakTable<BitmapSource, FirstShown> RegionFirstShown = new();
+    private bool _fadeAnimating, _fadeTickQueued;
+
+    private static double FadeAlpha(long since, int fadeMs)
+    {
+        double t = Stopwatch.GetElapsedTime(since).TotalMilliseconds / fadeMs;
+        if (t >= 1) return 1;
+        return t <= 0 ? 0 : t * t * (3 - 2 * t); // smoothstep
+    }
+
+    private void QueueFadeFrame()
+    {
+        if (_fadeTickQueued) return;
+        _fadeTickQueued = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+        {
+            _fadeTickQueued = false;
+            _surface.InvalidateVisual();
+        }));
+    }
+
     private void Draw(DrawingContext dc)
+    {
+        _fadeAnimating = false;
+        try { DrawPages(dc); }
+        finally { if (_fadeAnimating) QueueFadeFrame(); }
+    }
+
+    private void DrawPages(DrawingContext dc)
     {
         double width = _surface.ActualWidth, height = _surface.ActualHeight;
         // Nền do Grid (Background) vẽ; hình chữ nhật trong suốt để cả vùng nhận chuột (kéo ở khe giữa trang cũng pan được).
@@ -659,12 +706,14 @@ public sealed class ContinuousPdfView : Grid
 
             _states.TryGetValue(row, out var state);
             _bases.Clear();
+            bool hasBase = false;
             if (BestBitmap(row, state) is { } bitmap &&
                 // Keep a previously rendered page through zoom refinement, never an enlarged sidebar thumbnail.
                 (ReuseRenderedImages && bitmap.PixelWidth >= MinPageBitmapWidth || IsReadableBitmap(bitmap, content.Width * dpi)))
             {
-                dc.DrawImage(bitmap, content);
+                DrawPageImage(dc, row, bitmap, content);
                 _bases.Add(new AnnotationLayer.BaseImage(bitmap, new Rect(0, 0, 1, 1)));
+                hasBase = true;
             }
             if (state is { Regions.Count: > 0 })
             {
@@ -672,11 +721,22 @@ public sealed class ContinuousPdfView : Grid
                 foreach (var region in state.Regions)
                 {
                     var k = region.Key;
+                    // Vùng nét mới hiện lên trên nền đã có (ảnh trang hoặc vùng cũ): mờ dần thay vì đổi tức thì.
+                    double alpha = 1;
+                    if (CrossFadeMilliseconds > 0 && hasBase)
+                    {
+                        var firstShown = RegionFirstShown.GetValue(region.Bitmap, _ => new FirstShown { Timestamp = Stopwatch.GetTimestamp() });
+                        alpha = FadeAlpha(firstShown.Timestamp, CrossFadeMilliseconds);
+                        if (alpha < 1) _fadeAnimating = true;
+                    }
+                    if (alpha < 1) dc.PushOpacity(alpha);
                     dc.DrawImage(region.Bitmap, new Rect(
                         content.X + content.Width * k.X / k.FullWidth,
                         content.Y + content.Height * k.Y / k.FullHeight,
                         content.Width * k.Width / k.FullWidth,
                         content.Height * k.Height / k.FullHeight));
+                    if (alpha < 1) dc.Pop();
+                    hasBase = true;
                     _bases.Add(new AnnotationLayer.BaseImage(region.Bitmap,
                         new Rect((double)k.X / k.FullWidth, (double)k.Y / k.FullHeight, (double)k.Width / k.FullWidth, (double)k.Height / k.FullHeight)));
                 }
@@ -688,6 +748,38 @@ public sealed class ContinuousPdfView : Grid
             dc.DrawRectangle(null, BorderPen, new Rect(outer.X + 0.5 / dpi, outer.Y + 0.5 / dpi,
                 Math.Max(0, outer.Width - 1 / dpi), Math.Max(0, outer.Height - 1 / dpi)));
         }
+    }
+
+    /// <summary>Vẽ ảnh trang; khi nó thay một ảnh trang thật thấp hơn thì mờ dần từ ảnh cũ sang ảnh mới.</summary>
+    private void DrawPageImage(DrawingContext dc, PageRow row, BitmapSource bitmap, Rect content)
+    {
+        if (CrossFadeMilliseconds <= 0) { dc.DrawImage(bitmap, content); return; }
+        var fade = _fades.GetOrCreateValue(row);
+        if (!ReferenceEquals(fade.Current, bitmap))
+        {
+            if (fade.Current != null && fade.Current.PixelWidth >= CrossFadeMinPreviousWidth && bitmap.PixelWidth > fade.Current.PixelWidth)
+            {
+                fade.Previous = fade.Current;
+                fade.SwitchTimestamp = Stopwatch.GetTimestamp();
+            }
+            else fade.Previous = null;
+            fade.Current = bitmap;
+        }
+        if (fade.Previous != null)
+        {
+            double alpha = FadeAlpha(fade.SwitchTimestamp, CrossFadeMilliseconds);
+            if (alpha < 1)
+            {
+                _fadeAnimating = true;
+                dc.DrawImage(fade.Previous, content);
+                dc.PushOpacity(alpha);
+                dc.DrawImage(bitmap, content);
+                dc.Pop();
+                return;
+            }
+            fade.Previous = null;
+        }
+        dc.DrawImage(bitmap, content);
     }
 
     private static bool IsReadableBitmap(BitmapSource bitmap, double displayedWidthPx)

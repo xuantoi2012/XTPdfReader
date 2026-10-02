@@ -35,8 +35,8 @@ public static class Lat {
     int ready = frames.Count - 1; while (ready > 0 && Diff(frames[ready - 1], fin, tol) <= thr) ready--;
     // bursts = separate visual updates (changes more than 30 ms apart); jump = samples that still differ between the first changed frame and the finished image
     int bursts = 0; double lastChange = -1000; for (int i = 1; i < frames.Count; i++) if (Diff(frames[i], frames[i - 1], 6) > 3) { if (times[i] - lastChange > 30) bursts++; lastChange = times[i]; }
-    int jump = firstIdx >= 0 ? Diff(frames[firstIdx], fin, tol) : 0;
-    return string.Format("{0:F0},{1:F0},{2},{3},{4}", first, times[ready], frames.Count, bursts, jump);  }
+    int jump = firstIdx >= 0 ? Diff(frames[firstIdx], fin, tol) : 0; int maxStep = 0; for (int i = 1; i < frames.Count; i++) { if (times[i] < 70) continue; int d = Diff(frames[i], frames[i - 1], tol); if (d > maxStep) maxStep = d; }
+    return string.Format("{0:F0},{1:F0},{2},{3},{4},{5}", first, times[ready], frames.Count, bursts, jump, maxStep);  }
 }
 '@ -CompilerParameters $cp
 
@@ -49,7 +49,7 @@ $h = $p.MainWindowHandle
 [void][Lat]::SetForegroundWindow($h); Start-Sleep -Seconds $LoadWaitSec
 $rc = [Lat]::Region($h)
 [Lat]::SetCursorPos($rc.X + [int]($rc.Width/2), $rc.Y + [int]($rc.Height/2)) | Out-Null
-$rows = @('step,first_change_ms,settle_ms,frames,bursts,jump_samples')
+$rows = @('step,first_change_ms,settle_ms,frames,bursts,jump_samples,max_step')
 function Step($name,[scriptblock]$act,$quiet=250,$max=2500){ [void][Lat]::SetForegroundWindow($h); $r=[Lat]::Measure($rc,[Action]$act,$quiet,$max); $script:rows += "$name,$r"; Start-Sleep -Milliseconds 700 }
 $send={ param($k) [System.Windows.Forms.SendKeys]::SendWait($k) }
 
@@ -91,6 +91,8 @@ $rows | Set-Content $Out
 $p.Refresh(); "peak private MB: $([int]($p.PrivateMemorySize64/1MB))" | Add-Content "$Out.log"
 [void]$p.CloseMainWindow(); Start-Sleep -Seconds 4; if(-not $p.HasExited){ $p.Refresh(); [void]$p.CloseMainWindow(); Start-Sleep 3 }
 "exited=$($p.HasExited)" | Add-Content "$Out.log"
+
+
 
 
 

@@ -115,3 +115,24 @@ threshold, and a "fresh crop" area check relaxed from >= 100% to >= 90% of the o
 
 Not solved: two zoom-in steps in 14 still replace the image once, and each lasts longer than Foxit's. Next idea if it
 is still visible: cross-fade the old and new image over ~80 ms instead of swapping.
+
+## Cross-fade for image swaps
+
+`ContinuousPdfView.CrossFadeMilliseconds` (100 by default, `XTPDF_CROSSFADE_MS=0` turns it off): when a sharper page
+image replaces a real page image (previous width >= 820 px, so thumbnails do not slow a newly opened page), or a sharp
+region appears over existing content, the old image stays underneath and the new one fades in with a smoothstep ramp.
+Frames are requested only while a fade runs. New unit test `TestCrossFade` (blended frames exist with 100 ms, none with
+0 ms, both end on the new image); regression suite 393 checks.
+
+GUI check (`-Mode zoom`, `max_step` = largest change between two consecutive frames after the first 70 ms, two rounds
+per setting, same build, only the environment variable differs):
+
+| Swap step | Fade off | Fade 100 ms | Time to finish |
+|---|---:|---:|---:|
+| zin-12 (page image replaced) | 29,700 px | 11,300-12,800 px | 151-181 -> 218-231 ms |
+| zin-3 (50,015 px both ways) | 50,015 | 50,015 | unchanged |
+
+So an in-place replacement now changes by ~60% less per frame, at the cost of finishing ~70 ms later. The zin-3 event is
+not reduced; it is probably content appearing for the first time (instant by design) but that was not verified.
+The earlier `jump_samples` column and the unfiltered `max_step` are dominated by the zoom motion itself and should not be
+used to judge the fade.

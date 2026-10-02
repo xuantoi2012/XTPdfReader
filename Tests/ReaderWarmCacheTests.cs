@@ -35,6 +35,62 @@ internal static partial class Program
             "Source invalidation removes every retained resolution of the page");
     }
 
+    /// <summary>Cross-fade: a sharper page image replacing an adequate one blends in instead of switching in one frame; 0 ms disables it.</summary>
+    static void TestCrossFade()
+    {
+        if (Application.Current == null) CreateReaderTestApplication();
+        int saved = ContinuousPdfView.CrossFadeMilliseconds;
+        try
+        {
+            var (blended0, final0) = Run(0);
+            var (blended100, final100) = Run(100);
+            Check(blended0 == 0 && final0, "With cross-fade disabled the sharper image replaces the old one in a single step");
+            Check(blended100 >= 1 && final100, $"A sharper page image fades in over the old one (blended frames={blended100}) and ends fully on the new image");
+        }
+        finally { ContinuousPdfView.CrossFadeMilliseconds = saved; }
+
+        (int Blended, bool Final) Run(int fadeMs)
+        {
+            ContinuousPdfView.CrossFadeMilliseconds = fadeMs;
+            var view = new ContinuousPdfView { PrefetchPageCount = 0 };
+            var host = new Window { Content = view, Width = 1320, Height = 700, WindowStyle = WindowStyle.None,
+                ResizeMode = ResizeMode.NoResize, ShowActivated = false, ShowInTaskbar = false, Left = -32000, Top = -32000 };
+            host.Show(); host.UpdateLayout(); Pump(TimeSpan.FromMilliseconds(60));
+            try
+            {
+                static BitmapSource Solid(int width, byte b, byte g, byte r)
+                {
+                    var data = new byte[width * (width * 2 / 5) * 4];
+                    for (int i = 0; i < data.Length; i += 4) { data[i] = b; data[i + 1] = g; data[i + 2] = r; data[i + 3] = 255; }
+                    var bmp = BitmapSource.Create(width, width * 2 / 5, 96, 96, PixelFormats.Bgra32, null, data, width * 4); bmp.Freeze();
+                    return bmp;
+                }
+                var red = Solid(1024, 0, 0, 255); var blue = Solid(2304, 255, 0, 0);
+                var sharp = new TaskCompletionSource<BitmapSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var row = new PagePlacement { SourcePath = "crossfade-fixture.pdf", PageNumber = 1, BaseWidth = 1000, AspectRatio = .4 };
+                view.PageRenderer = (_, width, _, token) => width <= 1280 ? Task.FromResult<BitmapSource?>(red) : sharp.Task.WaitAsync(token);
+                view.SetDocument(new[] { row }, 1);
+                Pump(TimeSpan.FromMilliseconds(150));
+                view.ZoomKeepTop(2);
+                Pump(TimeSpan.FromMilliseconds(150)); // the sharper request is now waiting
+                sharp.SetResult(blue);
+                int blended = 0; byte[] last = new byte[4];
+                for (int i = 0; i < 25; i++)
+                {
+                    Pump(TimeSpan.FromMilliseconds(16));
+                    var frame = new RenderTargetBitmap((int)view.Surface.ActualWidth, (int)view.Surface.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                    frame.Render(view.Surface);
+                    view.TryGetPageRect(row, out var rect);
+                    var visible = Rect.Intersect(rect, new Rect(0, 0, view.Surface.ActualWidth, view.Surface.ActualHeight));
+                    frame.CopyPixels(new Int32Rect((int)(visible.X + visible.Width / 2), (int)(visible.Y + visible.Height / 2), 1, 1), last, 4, 0);
+                    if (last[0] > 25 && last[2] > 25) blended++;
+                }
+                return (blended, last[0] > 240 && last[2] < 15);
+            }
+            finally { view.CancelAll(); host.Close(); }
+        }
+    }
+
     static void TestReaderWarmImages()
     {
         if (Application.Current == null) CreateReaderTestApplication();
