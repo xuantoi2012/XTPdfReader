@@ -62,6 +62,23 @@ namespace XTPdfMergeApp.Services
             catch { return false; }
         }
 
+        /// <summary>Ổ cố định cục bộ: không chép nền cả file sang file tạm, chỉ nạp khối PDFium thật sự đọc (cộng vài khối đọc trước).
+        /// Đo 02/10 trên file 165 MB: Foxit chỉ đọc 6 MB lúc mở, bản chép nền đọc 176 MB (và ghi 165 MB file tạm).
+        /// XTPDF_LAZY_LOCAL=0 trả về hành vi chép nền như cũ để so sánh.</summary>
+        internal static readonly bool LazyLocal = Environment.GetEnvironmentVariable("XTPDF_LAZY_LOCAL") != "0";
+
+        private static bool IsFixedLocalDrive(string normalizedPath)
+        {
+            try
+            {
+                if (normalizedPath.StartsWith(@"\\", StringComparison.Ordinal)) return false;
+                string? root = Path.GetPathRoot(normalizedPath);
+                if (string.IsNullOrEmpty(root)) return false;
+                return _localRoots.GetOrAdd(root, r => new DriveInfo(r).DriveType == DriveType.Fixed);
+            }
+            catch { return false; }
+        }
+
         private static readonly ConcurrentDictionary<string, PdfBlockCache> _entries = new(StringComparer.OrdinalIgnoreCase);
         private static long _reservedBytes;
 
@@ -133,7 +150,8 @@ namespace XTPdfMergeApp.Services
                     continue;
                 }
                 Interlocked.Increment(ref _created);
-                created.StartBackgroundRead();
+                if (LazyLocal && IsFixedLocalDrive(normalizedPath)) created.SetLazy();
+                else created.StartBackgroundRead();
                 if (created.TryAddRef()) return created; // 1 tham chiếu của registry + 1 của người gọi
                 // (vừa bị Invalidate ngay sau khi thêm — thử lại từ đầu)
             }
@@ -235,6 +253,27 @@ namespace XTPdfMergeApp.Services
         public DateTime LastWriteUtc { get; }
         public bool IsComplete => Volatile.Read(ref _presentCount) == _present.Length;
 
+        // Chế độ lười (ổ cục bộ): không có luồng đọc nền, khối chỉ vào file tạm khi PDFium đọc tới. Giao diện coi như "đã sẵn sàng".
+        private volatile bool _lazy;
+        public bool IsLazy => _lazy;
+
+        // File tạm thưa: ghi khối ở offset xa không bắt NTFS ghi số 0 cho cả đoạn phía trước (nhảy tới cuối file không tốn ghi hàng trăm MB).
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool DeviceIoControl(IntPtr handle, uint code, IntPtr inBuf, uint inSize, IntPtr outBuf, uint outSize, out uint returned, IntPtr overlapped);
+
+        internal void SetLazy()
+        {
+            try
+            {
+                bool added = false;
+                _store.DangerousAddRef(ref added);
+                try { DeviceIoControl(_store.DangerousGetHandle(), 0x000900C4 /* FSCTL_SET_SPARSE */, IntPtr.Zero, 0, IntPtr.Zero, 0, out _, IntPtr.Zero); }
+                finally { if (added) _store.DangerousRelease(); }
+            }
+            catch { /* không đánh dấu được: vẫn đúng, chỉ có thể ghi dư khi nhảy xa */ }
+            _lazy = true;
+        }
+
         internal bool TryAddRef()
         {
             while (true)
@@ -259,14 +298,48 @@ namespace XTPdfMergeApp.Services
         public unsafe bool CopyTo(long position, IntPtr destination, int count)
         {
             if (!EnsureRange(position, count)) return false;
-            return ReadStore(new Span<byte>((void*)destination, count), position);
+            return ReadSmall(new Span<byte>((void*)destination, count), position);
         }
 
         /// <summary>Chép [position, position+count) sang mảng (iText đọc /OCProperties).</summary>
         public bool CopyTo(long position, byte[] destination, int offset, int count)
         {
             if (!EnsureRange(position, count)) return false;
-            return ReadStore(destination.AsSpan(offset, count), position);
+            return ReadSmall(destination.AsSpan(offset, count), position);
+        }
+
+        // Cửa sổ đọc trước theo luồng: PDFium và iText đọc cực nhiều lần rất nhỏ (iText từng byte; đo 02/10: ~800.000 lệnh đọc, TB ~65 byte,
+        // khi mở file 165 MB — Foxit chỉ ~3.000). Mỗi lệnh là 1 RandomAccess.Read; ở đây lần đọc nhỏ được trả từ bộ nhớ, cửa sổ chỉ nạp
+        // lại khi ra khỏi vùng. Cửa sổ nằm gọn trong MỘT khối đã Present (khối Present không bao giờ đổi) nên không thể đọc nhầm vùng
+        // chưa nạp của file tạm thưa.
+        private const int SmallReadLimit = 4096, WindowSize = 64 * 1024;
+
+        private sealed class ReadWindow
+        {
+            public PdfBlockCache? Owner;
+            public long Start;
+            public int Length;
+            public readonly byte[] Buffer = new byte[WindowSize];
+        }
+
+        [ThreadStatic] private static ReadWindow? t_window;
+
+        private bool ReadSmall(Span<byte> destination, long position)
+        {
+            int count = destination.Length;
+            if (count > SmallReadLimit) return ReadStore(destination, position);
+
+            var win = t_window ??= new ReadWindow();
+            if (!ReferenceEquals(win.Owner, this) || position < win.Start || position + count > win.Start + win.Length)
+            {
+                long blockEnd = (position / BlockSize + 1) * BlockSize;
+                int length = (int)Math.Min(Math.Min(WindowSize, blockEnd - position), Length - position);
+                if (length < count) return ReadStore(destination, position); // cắt ngang ranh giới khối: đọc thẳng
+                if (!ReadStore(win.Buffer.AsSpan(0, length), position)) { win.Owner = null; return false; }
+                win.Owner = this; win.Start = position; win.Length = length;
+            }
+            win.Buffer.AsSpan((int)(position - win.Start), count).CopyTo(destination);
+            return true;
         }
 
         private bool ReadStore(Span<byte> destination, long position)
@@ -484,7 +557,7 @@ namespace XTPdfMergeApp.Services
         }
 
         /// <summary>Phần trăm file đã có trong RAM (thanh trạng thái / bảng Debug).</summary>
-        public double LoadedFraction => _present.Length == 0 ? 1 : Volatile.Read(ref _presentCount) / (double)_present.Length;
+        public double LoadedFraction => _lazy || _present.Length == 0 ? 1 : Volatile.Read(ref _presentCount) / (double)_present.Length;
     }
 
     /// <summary>Nguồn đọc theo vị trí của <see cref="PdfBlockCache"/>.</summary>
