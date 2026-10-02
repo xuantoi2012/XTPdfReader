@@ -21,4 +21,12 @@
   <PropertyGroup Condition="Exists('obj\BaselinePdfThumbnailService.cs')">
     <DefineConstants>$(DefineConstants);HAS_BASELINE</DefineConstants>
   </PropertyGroup>
+  <Target Name="CopyTestPdfiumInstances" AfterTargets="Build">
+    <ItemGroup>
+      <_TestPdfium Include="$(OutDir)runtimes\win-x64\native\pdfium.dll" />
+      <_TestPdfiumCopy Include="1;2;3;4;5;6;7" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_TestPdfium)" DestinationFiles="$(OutDir)pdfium.dll" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_TestPdfium)" DestinationFiles="$(OutDir)pdfium_%(_TestPdfiumCopy.Identity).dll" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

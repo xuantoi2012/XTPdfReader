@@ -33,6 +33,52 @@ internal static partial class Program
                 .First(path => path.Contains("win-x64", StringComparison.OrdinalIgnoreCase));
             foreach (var assembly in new[] { typeof(PdfThumbnailService).Assembly, typeof(Program).Assembly })
                 NativeLibrary.SetDllImportResolver(assembly, (name, _, _) => name == "pdfium" ? NativeLibrary.Load(dll) : IntPtr.Zero);
+            int tabsProfile = Array.IndexOf(args, "--multi-tab-profile");
+            int warmProfile = Array.IndexOf(args, "--warm-cache-profile");
+            int regionProfile = Array.IndexOf(args, "--region-pan-profile");
+            if (regionProfile >= 0)
+            {
+                int manifest = Array.IndexOf(args, "--profile-sources");
+                ProfileRegionPan(args[regionProfile + 1], bool.Parse(args[regionProfile + 2]), int.Parse(args[regionProfile + 3]), args[manifest + 1], args.Contains("--profile-quick"), args.Contains("--profile-quality"));
+                return 0;
+            }
+            int retentionProfile = Array.IndexOf(args, "--retention-profile");
+            if (retentionProfile >= 0)
+            {
+                int manifest = Array.IndexOf(args, "--profile-sources");
+                ProfileReaderRetention(args[retentionProfile + 1], int.Parse(args[retentionProfile + 2]), args[manifest + 1]);
+                return 0;
+            }
+            if (warmProfile >= 0)
+            {
+                int manifest = Array.IndexOf(args, "--profile-sources");
+                ProfileWarmCache(args[warmProfile + 1], bool.Parse(args[warmProfile + 2]), args[manifest + 1]);
+                return 0;
+            }
+            int backgroundProfile = Array.IndexOf(args, "--background-heavy-profile");
+            if (backgroundProfile >= 0)
+            {
+                int sourceManifest = Array.IndexOf(args, "--profile-sources");
+                int tuningOptions = Array.IndexOf(args, "--profile-tuning");
+                ProfileHeavyFilesInBackground(args.Length > backgroundProfile + 1 ? args[backgroundProfile + 1] : "default",
+                    args.Length > backgroundProfile + 2 ? int.Parse(args[backgroundProfile + 2]) : 4,
+                    sourceManifest >= 0 ? args[sourceManifest + 1] : null,
+                    tuningOptions >= 0 ? args[tuningOptions + 1] : null,
+                    coldDeepProbe: args.Contains("--cold-deep-check"));
+                return 0;
+            }
+            int tabsLayout = Array.IndexOf(args, "--multi-tab-layout");
+            if (tabsLayout >= 0)
+            {
+                TestMultipleTabLayout(args[tabsLayout + 1]);
+                Console.WriteLine($"PASS ({_checks} multi-tab checks)");
+                return 0;
+            }
+            if (tabsProfile >= 0)
+            {
+                ProfileMultipleTabs(args[tabsProfile + 1], args.Length > tabsProfile + 2 ? args[tabsProfile + 2] : "current");
+                return 0;
+            }
             int inspectArg = Array.IndexOf(args, "--inspect-file");
             int signatureArg = Array.IndexOf(args, "--signature-info");
             if (signatureArg >= 0)
@@ -54,9 +100,19 @@ internal static partial class Program
             }
             if (args.Contains("--scroll-quality"))
             {
+                TestRegionReuseAsync().GetAwaiter().GetResult();
+                TestRegionReuseViewer();
                 TestReaderRenderHandoffAsync().GetAwaiter().GetResult();
+                TestReaderLargerCacheAsync().GetAwaiter().GetResult();
                 TestContinuousScrollQuality();
+                TestReaderWarmImages();
                 Console.WriteLine($"PASS ({_checks} scroll quality checks)");
+                return 0;
+            }
+            if (args.Contains("--pool-policy"))
+            {
+                TestPdfiumPoolPolicy();
+                Console.WriteLine($"PASS ({_checks} pool policy checks)");
                 return 0;
             }
             if (inspectArg >= 0)
@@ -104,6 +160,9 @@ internal static partial class Program
                 Console.WriteLine(RenderDiagnostics.Summary);
                 return 0;
             }
+            bool backgroundRegression = args.Contains("--background-regression");
+            if (backgroundRegression)
+                Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.BelowNormal;
             bool baseline = args.Contains("--baseline");
             if (baseline && !HasBaselineRenderer())
             {
@@ -112,15 +171,21 @@ internal static partial class Program
             }
             if (!baseline)
             {
+                TestPdfiumPoolPolicy();
+                TestReaderTuningAudit();
+                TestHotDocumentRetention();
+                TestIdleDocumentRetirementAsync().GetAwaiter().GetResult();
+                TestReaderPreviewRetentionAsync().GetAwaiter().GetResult();
                 TestCacheAndOwnership(); TestBulkPages(); TestPresentationQueue(); TestViewportScheduling(); TestRetainedRefinement(); TestViewportMotion(); TestTwoPageLayout(); TestReaderZoomMath(); TestPrintRasterPlan(); TestOutlineEditing(); TestSquigglyAnnotation(); TestInkAnnotation(); TestCalloutAnnotation(); TestReplyAnnotation(); TestAutoCadShxTextFiltered(); TestPdfLinksAsync().GetAwaiter().GetResult(); TestPdfSecurityAsync().GetAwaiter().GetResult(); TestPdfProtectionRewriteAsync().GetAwaiter().GetResult();
                 TestGateAsync().GetAwaiter().GetResult();
                 TestSignaturePresenceAsync().GetAwaiter().GetResult();
                 TestWidgetRenderingAsync().GetAwaiter().GetResult();
                 TestSaveSafetyAsync().GetAwaiter().GetResult();
-                TestAppDialogs();
+                if (!backgroundRegression) TestAppDialogs();
                 TestReaderRenderHandoffAsync().GetAwaiter().GetResult();
-                TestContinuousScrollQuality();
-                TestRecoveryAndToolbarUi();
+                TestRegionReuseAsync().GetAwaiter().GetResult(); TestRegionReuseViewer();
+                TestContinuousScrollQuality(); TestReaderLargerCacheAsync().GetAwaiter().GetResult(); TestReaderWarmImages();
+                if (!backgroundRegression) TestRecoveryAndToolbarUi();
             }
             RunNativeAsync(baseline).GetAwaiter().GetResult();
             Console.WriteLine($"PASS ({_checks} checks) {(baseline ? "baseline" : "optimized")}");
@@ -133,6 +198,27 @@ internal static partial class Program
     {
         if (!condition) throw new Exception(message);
         _checks++;
+    }
+
+    static void TestPdfiumPoolPolicy()
+    {
+        const string setting = "XTPDF_PDFIUM_INSTANCES";
+        string? previous = Environment.GetEnvironmentVariable(setting);
+        int balanced = Math.Clamp(Environment.ProcessorCount / 2, 1, 2);
+        try
+        {
+            Environment.SetEnvironmentVariable(setting, null);
+            Check(PdfiumPool.DesiredCount == balanced, "Default pool caps replicas at two for balanced native memory");
+            foreach (int count in new[] { -1, 0, 1, 2, 3, 4, 6, 8, 9 })
+            {
+                Environment.SetEnvironmentVariable(setting, count.ToString());
+                Check(PdfiumPool.DesiredCount == Math.Clamp(count, 1, PdfiumPool.MaxInstances),
+                    $"Explicit pool override {count} remains clamped to the supported range");
+            }
+            Environment.SetEnvironmentVariable(setting, "invalid");
+            Check(PdfiumPool.DesiredCount == balanced, "Invalid pool override falls back to balanced default");
+        }
+        finally { Environment.SetEnvironmentVariable(setting, previous); }
     }
 
     static BitmapSource Bitmap(int width = 100, int height = 100)
@@ -159,6 +245,8 @@ internal static partial class Program
         Check(cache.ContainsKey(1) && !cache.ContainsKey(2) && cache.Bytes == 80_000, "Byte budget/LRU");
         cache.Set(1, Bitmap(50, 50));
         Check(cache.Bytes == 50_000, "Replacement byte accounting");
+        Check(cache.TryFind(k => k == 3, out int match, out _) && match == 3 &&
+            !cache.TryFind(k => k == 9, out _, out _), "Matching cache lookup distinguishes live images from misses");
         cache.Clear();
         cache.Set(1, Bitmap(), _ => true); cache.Set(2, Bitmap(), _ => true); cache.Set(3, Bitmap(), _ => true);
         Check(cache.Count == 3, "Visible tiles survive temporary budget overflow");

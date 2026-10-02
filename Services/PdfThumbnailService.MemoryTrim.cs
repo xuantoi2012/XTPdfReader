@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace XTPdfMergeApp.Services;
 
@@ -24,6 +25,7 @@ namespace XTPdfMergeApp.Services;
 /// 1,8–2 s so với 0,4–0,6 s khi còn ấm — vì vậy các ngưỡng không quá ngắn.
 /// Biến môi trường (để đo): XTPDF_DOC_IDLE_S (0 = tắt luật C), XTPDF_WARM_FILES (0 = tắt luật C2), XTPDF_PRIVATE_BUDGET_MB (0 = tắt), XTPDF_SYSTEM_LOAD_PCT,
 /// XTPDF_RECYCLE_PAGES (0 = tắt luật A), XTPDF_IDLE_TRIM_S (0 = tắt luật B).
+/// XTPDF_HOT_DOCUMENT_COPIES: sau lúc rảnh giữ 1 document ấm cho file nóng (0 = giữ chính sách cũ); không huỷ lease đang có người dùng.
 /// </summary>
 public static partial class PdfThumbnailService
 {
@@ -31,6 +33,7 @@ public static partial class PdfThumbnailService
     internal static readonly int IdleTrimSeconds = EnvInt("XTPDF_IDLE_TRIM_S", 20, 0, 3600);
     internal static readonly int IdleTrimAllSeconds = Math.Max(IdleTrimSeconds, EnvInt("XTPDF_IDLE_TRIM_ALL_S", 90, 0, 3600));
     internal static readonly int DocumentIdleSeconds = EnvInt("XTPDF_DOC_IDLE_S", 15, 0, 3600);
+    internal static readonly int HotDocumentCopies = EnvInt("XTPDF_HOT_DOCUMENT_COPIES", 1, 0, PdfiumPool.MaxInstances);
     internal static volatile int WarmFiles = EnvInt("XTPDF_WARM_FILES", 2, 0, 64); // Settings đổi được lúc chạy (AppSettings.ApplyRuntime)
     internal static readonly int PrivateBudgetMb = EnvInt("XTPDF_PRIVATE_BUDGET_MB", 1500, 0, 1 << 20);
     internal static readonly int SystemLoadPercent = EnvInt("XTPDF_SYSTEM_LOAD_PCT", 80, 0, 100);
@@ -54,6 +57,12 @@ public static partial class PdfThumbnailService
             if (_parsedPages.ContainsKey((path, index, instance.Index))) return true;
         return false;
     }
+
+    internal static IReadOnlySet<int> SelectHotDocumentOwners(
+        IEnumerable<(int Instance, bool HasFocus, int VisibleHotPages, int HotPages, long LastUse)> candidates, int limit)
+        => candidates.OrderByDescending(c => c.HasFocus).ThenByDescending(c => c.VisibleHotPages)
+            .ThenByDescending(c => c.HotPages).ThenByDescending(c => c.LastUse)
+            .ThenBy(c => c.Instance).Take(Math.Max(0, limit)).Select(c => c.Instance).ToHashSet();
 
     private static void NoteNativeActivity() => Volatile.Write(ref _lastNativeActivity, Stopwatch.GetTimestamp());
 
@@ -92,6 +101,7 @@ public static partial class PdfThumbnailService
 
             // Luật C/D theo từng document (path, bản).
             var keyPick = new HashSet<DocumentKey>(new DocumentKeyComparer());
+            var duplicatePick = new HashSet<DocumentKey>(new DocumentKeyComparer());
             long staleTicks = Stopwatch.Frequency * (long)DocumentIdleSeconds;
             HashSet<string>? warm = null;
             if (WarmFiles > 0)
@@ -112,24 +122,72 @@ public static partial class PdfThumbnailService
                 else if (stale && instances[key.Instance].Load == 0) keyPick.Add(key);
             }
 
-            if (instancePick.Count == 0 && keyPick.Count == 0) return;
-            started = true;
-            TrimDocumentsAsync(key => instancePick.Contains(key.Instance) || keyPick.Contains(key)).ContinueWith(_ =>
+            // Bitmap caches survive native retirement. After interaction has stopped, keep the
+            // replica covering hot foreground pages, not a second copy of the same PDF's resources.
+            if (idle && HotDocumentCopies > 0)
             {
-                foreach (var instance in instances)
-                    if (instancePick.Contains(instance.Index)) instance.ResetParsedSinceTrim();
-                foreach (var key in keyPick) _docLastUse.TryRemove(key, out long _);
-                Interlocked.Add(ref _trimmedDocuments, instancePick.Count + keyPick.Count);
-                DiagnosticsLog.Event($"thu hồi document PDFium: bản {string.Join(",", instancePick)} + {keyPick.Count} document cũ" +
-                                     (pressure ? $" (áp lực: {pressureReason})" : "") + $" (rảnh {idleSeconds:0} s)");
-                Interlocked.Exchange(ref _trimRunning, 0);
-            });
+                var focus = Volatile.Read(ref _hotPageFocus);
+                foreach (var group in _documentCache.Keys.Where(k => hotPaths.Contains(k.Path.ToUpperInvariant()))
+                             .GroupBy(k => k.Path, StringComparer.OrdinalIgnoreCase))
+                {
+                    var owners = SelectHotDocumentOwners(group.Select(k => (k.Instance,
+                        focus != null && focus.Path == k.Path.ToUpperInvariant() && _parsedPages.ContainsKey((focus.Path, focus.Index, k.Instance)),
+                        Volatile.Read(ref _hotPages).Count(h => h.Path == k.Path.ToUpperInvariant() &&
+                            _parsedPages.TryGetValue((h.Path, h.Index, k.Instance), out byte visible) && visible != 0),
+                        Volatile.Read(ref _hotPages).Count(h => h.Path == k.Path.ToUpperInvariant() &&
+                            _parsedPages.ContainsKey((h.Path, h.Index, k.Instance))),
+                        _docLastUse.TryGetValue(k, out long last) ? last : 0L)), HotDocumentCopies);
+                    foreach (var key in group)
+                        if (!owners.Contains(key.Instance) && key.Instance < instances.Count && instances[key.Instance].Load == 0)
+                            duplicatePick.Add(key);
+                }
+            }
+
+            if (instancePick.Count == 0 && keyPick.Count == 0 && duplicatePick.Count == 0) return;
+            started = true;
+            _ = FinishTrimAsync();
+
+            async Task FinishTrimAsync()
+            {
+                try
+                {
+                    await TrimDocumentsAsync(key => instancePick.Contains(key.Instance) || keyPick.Contains(key)).ConfigureAwait(false);
+                    int duplicates = await TrimIdleDuplicatesAsync(duplicatePick).ConfigureAwait(false);
+                    foreach (var instance in instances)
+                        if (instancePick.Contains(instance.Index)) instance.ResetParsedSinceTrim();
+                    foreach (var key in keyPick) _docLastUse.TryRemove(key, out long _);
+                    Interlocked.Add(ref _trimmedDocuments, instancePick.Count + keyPick.Count + duplicates);
+                    DiagnosticsLog.Event($"thu hồi document PDFium: bản {string.Join(",", instancePick)} + {keyPick.Count} document cũ + {duplicates} bản trùng" +
+                                         (pressure ? $" (áp lực: {pressureReason})" : "") + $" (rảnh {idleSeconds:0} s)");
+                }
+                catch { /* best effort; retry on a later tick */ }
+                finally { Interlocked.Exchange(ref _trimRunning, 0); }
+            }
         }
         catch { }
         finally
         {
             if (!started) Interlocked.Exchange(ref _trimRunning, 0);
         }
+    }
+
+    private static async Task<int> TrimIdleDuplicatesAsync(IEnumerable<DocumentKey> keys)
+    {
+        var closed = new List<Task>();
+        foreach (var key in keys)
+        {
+            if (!_documentCache.TryGetValue(key, out var lazy) || !lazy.IsValueCreated || !lazy.Value.IsCompletedSuccessfully) continue;
+            var lease = lazy.Value.Result;
+            if (lease == null) continue;
+            if (!lease.TryRetireIdle(() => !_shuttingDown && lease.Pdfium.Load == 0 &&
+                Stopwatch.GetElapsedTime(Volatile.Read(ref _lastNativeActivity)).TotalSeconds >= IdleTrimSeconds &&
+                _documentCache.TryRemove(new KeyValuePair<DocumentKey, Lazy<Task<PdfDocumentLease?>>>(key, lazy)))) continue;
+            _docLastUse.TryRemove(key, out _);
+            closed.Add(lease.NativeClosed);
+        }
+        if (closed.Count > 0)
+            await Task.WhenAll(closed).WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        return closed.Count;
     }
 
     private static bool UnderMemoryPressure(out string reason)

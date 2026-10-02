@@ -128,6 +128,8 @@ namespace XTPdfMergeApp.Services
             private int _activeUsers;
             private bool _disposeRequested;
             private bool _closed;
+            private bool _idlePolicyRetired;
+            public bool IdlePolicyRetired => Volatile.Read(ref _idlePolicyRetired);
             private readonly CancellationTokenSource _retired = new();
             private readonly TaskCompletionSource _nativeClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
             public CancellationToken RetiredToken => _retired.Token;
@@ -184,6 +186,20 @@ namespace XTPdfMergeApp.Services
                 }
 
                 if (closeNow) QueueCloseNativeDocument();
+            }
+
+            public bool TryRetireIdle(Func<bool> removeFromCache)
+            {
+                lock (_lifetimeGate)
+                {
+                    if (_activeUsers != 0 || _disposeRequested || _closed || !removeFromCache()) return false;
+                    Volatile.Write(ref _idlePolicyRetired, true);
+                    _disposeRequested = true;
+                    _closed = true;
+                }
+                _retired.Cancel();
+                QueueCloseNativeDocument();
+                return true;
             }
 
             private void ReleaseUsage()
@@ -322,8 +338,9 @@ namespace XTPdfMergeApp.Services
                 if (usage != null) return new PdfOpenResult(usage.Lease.PageCount, PdfOpenFailure.None);
                 return new PdfOpenResult(0, _openFailures.TryGetValue(normalized, out var failure) ? failure : PdfOpenFailure.Unknown);
             }
-            catch
+            catch (Exception ex)
             {
+                DiagnosticsLog.Event("page count failed: " + ex);
                 return new PdfOpenResult(0, PdfOpenFailure.Unknown);
             }
             finally
@@ -669,6 +686,10 @@ namespace XTPdfMergeApp.Services
                     return usage;
                 }
 
+                // A new request may have read the lease immediately before an idle-only retirement.
+                // Retry that benign race; explicit source closure/editing still invalidates stale work.
+                if (lease.IdlePolicyRetired && attempt < 2 && !_shuttingDown) continue;
+
                 // Closing the document invalidates this request. A subsequent explicit open
                 // obtains a fresh lease; stale work must not reopen the file in the background.
                 return null;
@@ -747,8 +768,9 @@ namespace XTPdfMergeApp.Services
                 Interlocked.Increment(ref pdfium.OpenDocuments);
                 return new PdfDocumentLease(pdfium, pdfPath, document, pageCount, layerToken, source);
             }
-            catch
+            catch (Exception ex)
             {
+                DiagnosticsLog.Event("document open failed: " + ex);
                 _openFailures[pdfPath] = PdfOpenFailure.Unknown;
                 if (document != IntPtr.Zero && pdfium != null)
                 {

@@ -113,10 +113,7 @@ internal static partial class Program
         var app = Application.Current;
         if (app == null)
         {
-            var themedApp = new App();
-            themedApp.InitializeComponent();
-            themedApp.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            app = themedApp;
+            app = CreateReaderTestApplication();
         }
         foreach (var kind in new[] { MessageBoxButton.OK, MessageBoxButton.OKCancel, MessageBoxButton.YesNo, MessageBoxButton.YesNoCancel })
         {

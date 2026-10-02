@@ -429,12 +429,13 @@ internal sealed unsafe class PdfiumInstance
 
 /// <summary>
 /// K bản PDFium chạy song song: bản 0 là pdfium.dll gốc, bản i là pdfium_i.dll (bản sao file, tạo lúc build).
-/// K = biến môi trường XTPDF_PDFIUM_INSTANCES nếu có (để so sánh), mặc định clamp(số nhân / 2, 1, 4). Bản sao nào
+/// K = biến môi trường XTPDF_PDFIUM_INSTANCES nếu có (để so sánh), mặc định clamp(số nhân / 2, 1, 2). Bản sao nào
 /// thiếu / không nạp được thì pool chạy với ít bản hơn (tối thiểu 1 — như trước bước 3).
 /// </summary>
 internal static class PdfiumPool
 {
     public const int MaxInstances = 8;
+    internal static int CachedPagePenalty { get; set; } = 3;
 
     private static readonly Lazy<PdfiumInstance[]> _instances = new(Create, LazyThreadSafetyMode.ExecutionAndPublication);
 
@@ -448,7 +449,8 @@ internal static class PdfiumPool
         {
             if (int.TryParse(Environment.GetEnvironmentVariable("XTPDF_PDFIUM_INSTANCES"), out int forced))
                 return Math.Clamp(forced, 1, MaxInstances);
-            return Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
+            // Repeated heavy-file tests: more replicas mainly increase native memory, not reading throughput.
+            return Math.Clamp(Environment.ProcessorCount / 2, 1, 2);
         }
     }
 
@@ -502,7 +504,7 @@ internal static class PdfiumPool
         foreach (var instance in instances)
         {
             if (reserveFirst && instance == instances[0]) continue;
-            int score = instance.Load * 4 + (hasPage(instance) ? 0 : 3) + (hasDocument(instance) ? 0 : 1);
+            int score = instance.Load * 4 + (hasPage(instance) ? 0 : CachedPagePenalty) + (hasDocument(instance) ? 0 : 1);
             if (score < bestScore)
             {
                 best = instance;

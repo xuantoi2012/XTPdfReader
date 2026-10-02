@@ -27,6 +27,9 @@ internal static class RenderDiagnostics
     internal static readonly Timing DocumentOpen = new(), NativeWait = new(), PageOpen = new(), RasterSlice = new(),
         BitmapCopy = new(), PresentationWait = new(), PresentationWork = new(), PageQueue = new(), BufferQueue = new(),
         FileBufferRead = new(), FileBlockRead = new();
+    internal static event Action<string, int, int>? NativePageParsed;
+    internal static void RecordNativePageParsed(string path, int page, int instance)
+        => NativePageParsed?.Invoke(path, page, instance);
     public static string Summary =>
         $"Timing avg/max ms (session): gate {NativeWait}, page queue {PageQueue}, buffer {BufferQueue}\n" +
         $"Doc open {DocumentOpen}, page load/parse {PageOpen}, raster slice {RasterSlice}, WPF copy {BitmapCopy}\n" +

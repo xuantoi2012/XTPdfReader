@@ -58,21 +58,7 @@ namespace XTPdfMergeApp
 
         private bool _autoStart;
 
-        /// <summary>"Start" is a template part of the file-tab ListBox (x:Name inside ControlTemplate), not a generated field —
-        /// fetched once via FindName, like any other named part.</summary>
-        private XTButton? _startButton;
-        private XTButton StartButtonElement
-        {
-            get
-            {
-                if (_startButton == null)
-                {
-                    ReaderDocumentTabs.ApplyTemplate();
-                    _startButton = (XTButton)ReaderDocumentTabs.Template.FindName("StartButton", ReaderDocumentTabs);
-                }
-                return _startButton;
-            }
-        }
+        private XTButton StartButtonElement => ReaderStartButton;
 
         private void OpenFolder()
         {
@@ -96,10 +82,15 @@ namespace XTPdfMergeApp
                 StartPage.Reload();
             }
             StartPage.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            // Start covers the viewer without changing its WPF visibility.
+            ReaderContinuousView.IsRenderingSuspended = show;
+            if (show) StopNearbyThumbnailWarmup();
+            else if (_readerGroup != null) ScheduleNearbyThumbnailWarmup();
             StartButtonElement.Tag = show ? "Active" : null;
             // Only one tab lit at a time: the ListBox keeps its own selection highlight independent of Start's, so it has
             // to be cleared/restored by hand — a real TabControl wouldn't need this, but the file tabs predate this button.
             _syncingDocumentTabs = true;
+            if (!show) UpdateDocumentTabs(_readerGroup);
             ReaderDocumentTabs.SelectedItem = show ? null : _readerGroup;
             _syncingDocumentTabs = false;
             UpdateToolbarVisibility();

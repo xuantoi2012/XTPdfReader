@@ -208,7 +208,17 @@
 
             <!-- Tab các file đang mở, dưới toolbar. Bấm tab = chuyển file, × = đóng file, + = mở thêm file. -->
             <StackPanel x:Name="ReaderDocumentTabsRow" Grid.Row="1">
-            <ListBox x:Name="ReaderDocumentTabs" Height="36" BorderThickness="0,0,0,1" Padding="0,0,8,0"
+            <Border Height="36" Background="{DynamicResource Ui.TabStrip}" BorderBrush="{DynamicResource Ui.ToolbarBorder}" BorderThickness="0,0,0,1">
+            <Grid x:Name="ReaderDocumentTabsStrip" SizeChanged="ReaderDocumentTabsStrip_SizeChanged" ClipToBounds="True">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <xt:XTButton x:Name="ReaderStartButton" Style="{StaticResource UiTabButton}" Icon="{StaticResource Ui.Icon.home}" Text="Start"
+                             Width="76" VerticalAlignment="Bottom" ToolTip="Home: recent files and quick tools" Tag="Active" Click="StartButton_Click"/>
+            <ListBox x:Name="ReaderDocumentTabs" Grid.Column="1" Height="35" BorderThickness="0" Padding="0"
                      BorderBrush="{DynamicResource Ui.ToolbarBorder}" Background="{DynamicResource Ui.TabStrip}"
                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
                      ItemContainerStyle="{StaticResource UiTabItem}"
@@ -218,31 +228,27 @@
                     <ControlTemplate TargetType="ListBox">
                         <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
-                            <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Focusable="False">
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
-                                    <xt:XTButton x:Name="StartButton" Style="{StaticResource UiTabButton}" Icon="{StaticResource Ui.Icon.home}" Text="Start"
-                                                 VerticalAlignment="Bottom" Margin="0" ToolTip="Home: recent files and quick tools" Tag="Active"
-                                                 Click="StartButton_Click"/>
-                                    <ItemsPresenter/>
-                                    <xt:XTButton Style="{StaticResource UiTabAddButton}" Icon="{StaticResource Ui.Icon.plus}" IconSize="16"
-                                                 VerticalAlignment="Center" Margin="4,0,0,0" ToolTip="Open another file (Ctrl+O)"
-                                                 Click="ReaderOpenFiles_Click"/>
-                                </StackPanel>
-                            </ScrollViewer>
+                            <ItemsPresenter/>
                         </Border>
                     </ControlTemplate>
                 </ListBox.Template>
                 <ListBox.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal"/>
+                        <UniformGrid Rows="1"/>
                     </ItemsPanelTemplate>
                 </ListBox.ItemsPanel>
                 <ListBox.ItemTemplate>
                     <DataTemplate>
-                        <StackPanel Orientation="Horizontal" MaxWidth="290" Background="Transparent" ToolTip="{Binding SourcePath}"
+                        <Grid Background="Transparent" ToolTip="{Binding SourcePath}"
                                     PreviewMouseRightButtonDown="ReaderTab_PreviewMouseRightButtonDown"
                                     PreviewMouseLeftButtonDown="ReaderTab_PreviewMouseLeftButtonDown">
-                            <StackPanel.ContextMenu>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.ContextMenu>
                                 <ContextMenu>
                                     <MenuItem Header="Save" InputGestureText="Ctrl+S" Click="ReaderTabSave_Click"/>
                                     <MenuItem Header="Save as…" InputGestureText="Ctrl+Shift+S" Click="ReaderTabSaveAs_Click"/>
@@ -250,22 +256,30 @@
                                     <MenuItem Header="Open in default app" Click="ReaderOpenExternal_Click"/>
                                     <MenuItem Header="Close" Click="ReaderCloseDocument_Click"/>
                                 </ContextMenu>
-                            </StackPanel.ContextMenu>
+                            </Grid.ContextMenu>
                             <Viewbox Width="15" Height="15" VerticalAlignment="Center">
                                 <Canvas Width="24" Height="24">
                                     <Path Data="{StaticResource Ui.Icon.documentF}" Fill="{DynamicResource Ui.Brand}"/>
                                 </Canvas>
                             </Viewbox>
-                            <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" MaxWidth="220" Margin="8,0,0,0" VerticalAlignment="Center"/>
-                            <Ellipse Width="7" Height="7" Margin="8,0,0,0" VerticalAlignment="Center" Fill="{DynamicResource Ui.Warn}"
+                            <TextBlock Grid.Column="1" Text="{Binding FileName}" TextTrimming="CharacterEllipsis" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                            <Ellipse Grid.Column="2" Width="7" Height="7" Margin="8,0,0,0" VerticalAlignment="Center" Fill="{DynamicResource Ui.Warn}"
                                      ToolTip="Unsaved changes (Ctrl+S to save)"
                                      Visibility="{Binding IsDirty, Converter={StaticResource BoolToVis}}"/>
-                            <xt:XTButton Style="{StaticResource UiTabCloseButton}" Icon="{StaticResource Ui.Icon.close}" Width="20" Height="20"
+                            <xt:XTButton Grid.Column="3" Style="{StaticResource UiTabCloseButton}" Icon="{StaticResource Ui.Icon.close}" Width="20" Height="20"
                                          IconSize="11" Margin="8,0,0,0" ToolTip="Close file" Click="ReaderCloseDocument_Click"/>
-                        </StackPanel>
+                        </Grid>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
+                <xt:XTButton x:Name="ReaderTabsOverflowButton" Grid.Column="2" Style="{StaticResource UiTabAddButton}"
+                             Icon="{StaticResource Ui.Icon.tablist}" Width="32" Height="34" IconSize="18" Visibility="Collapsed"
+                             ToolTip="All open tabs" Click="ReaderTabsOverflow_Click"/>
+                <xt:XTButton x:Name="ReaderAddTabButton" Grid.Column="3" Style="{StaticResource UiTabAddButton}"
+                             Icon="{StaticResource Ui.Icon.plus}" Width="32" Height="34" IconSize="16" ToolTip="Open another file (Ctrl+O)"
+                             Click="ReaderOpenFiles_Click"/>
+            </Grid>
+            </Border>
 
             <!-- Thanh vàng: file đang xem đã bị đổi trên đĩa (Reload / Ignore). -->
             <Border x:Name="DiskChangedBanner" Visibility="Collapsed" Height="40" Padding="16,0"

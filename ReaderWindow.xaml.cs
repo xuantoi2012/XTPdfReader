@@ -61,17 +61,20 @@ namespace XTPdfMergeApp
         {
             var reader = GetReaderCacheStats();
             var continuous = ReaderContinuousView.MemoryStats;
+            var retained = Controls.ContinuousPdfView.CachedRegionStats;
             int pageCount = _readerGroup?.Pages.Count ?? 0;
             int current = _readerGroup != null && _readerPage != null ? _readerGroup.Pages.IndexOf(_readerPage) : -1;
             return new DiagnosticsReport.ViewerStats(
                 reader.Cache, reader.Bytes, reader.Inflight,
-                0, 0,
+                retained.Count, retained.Bytes,
                 continuous.Pages, continuous.Regions, continuous.RegionBytes,
                 _readerTwoPageMode ? "Two-page" : _readerContinuousMode ? "Continuous" : "Single page", _readerZoom, current, pageCount);
         }
 
         internal void ShutdownReader()
         {
+            StopNearbyThumbnailWarmup();
+            _loadProgressTimer?.Stop();
             ReaderContinuousView.CancelAll();
             _readerPageCts.Cancel();
             _readerPrefetchCts.Cancel();
@@ -92,6 +95,7 @@ namespace XTPdfMergeApp
         /// nào đang focus, phím tắt ở đây chỉ bao giờ tới tay khi Viewer thật sự đang active.</summary>
         private void ReaderWindow_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (HandleDocumentTabKey(e)) { e.Handled = true; return; }
             if (e.Key == Key.F1)
             {
                 Controls.KeyboardShortcutsWindow.ShowFor(this);
@@ -290,6 +294,7 @@ namespace XTPdfMergeApp
         internal static void ReleaseUnusedSources(HashSet<string> active)
         {
             _readerCache.Invalidate(key => !active.Contains(key.Path));
+            Controls.ContinuousPdfView.ReleaseUnusedRegionSources(active);
         }
 
         private CancellationTokenSource _readerPageCts = new();
@@ -314,6 +319,7 @@ namespace XTPdfMergeApp
         /// <summary>Ẩn docked Viewer và dọn state đang xem.</summary>
         public void HideReader()
         {
+            StopNearbyThumbnailWarmup();
             PdfThumbnailService.SetHotPages(Array.Empty<(string, int)>());
             CommitAnnotationEditor(cancel: true);
             CancelHighlightDrag();
@@ -488,6 +494,7 @@ namespace XTPdfMergeApp
             // Ảnh trang dùng chung cache với chế độ 1 trang (_readerCache): trang đã xem ở chế độ nào cũng không vẽ lại.
             view.PageRenderer = (row, width, priority, token) => GetReaderLoadTask((row.SourcePath, row.PageNumber),
                 prefetch: priority != PdfRenderPriority.Visible, token, width);
+            view.CachedPageProvider = (row, width) => _readerCache.TryGetDisplayImage(RenderCacheKeys.ReaderPage(row.SourcePath, row.PageNumber, width));
             view.CurrentPageChanged += index =>
             {
                 if (_readerGroup == null || !ReferenceEquals(view.Pages, _readerGroup.Pages) || index >= view.Pages.Count) return;
@@ -519,6 +526,9 @@ namespace XTPdfMergeApp
             bool groupChanged = !ReferenceEquals(_readerGroup, group);
             if (!bound)
             {
+                ReaderContinuousView.SetDocument(null, ReaderContinuousView.Zoom);
+                if (!ReaderContinuousView.IsRenderingSuspended)
+                    PdfThumbnailService.SetHotPages(new[] { (row.SourcePath, row.PageNumber) });
                 _readerPageCts.Cancel();
                 _readerPageCts.Dispose();
                 _readerPageCts = new();
@@ -836,6 +846,7 @@ namespace XTPdfMergeApp
                 pages.Contains(page) && string.Equals(p, path, StringComparison.OrdinalIgnoreCase);
 
             _readerCache.Invalidate(key => Matches(key.Path, key.Page));
+            Controls.ContinuousPdfView.InvalidateCachedRegions(Matches);
             // Xoay trang đổi khổ (DocumentSession đã xoá PageWidthPoints): đọc lại kích thước thật cho bố cục.
             if (geometryChanged && _readerGroup != null) _ = EnsureContinuousPageSizesAsync(_readerGroup);
 

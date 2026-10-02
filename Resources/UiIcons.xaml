@@ -233,4 +233,5 @@
     <Geometry x:Key="Ui.Icon.textbox.Tint">F1 M22.5,7.5 v9 a0.75,0.75 0 0 1 -0.75,0.75 H2.25 a0.75,0.75 0 0 1 -0.75,-0.75 V7.5 a0.75,0.75 0 0 1 0.75,-0.75 H21.75 A0.75,0.75 0 0 1 22.5,7.5 Z</Geometry>
     <!-- App logo: rounded square (accent colour) with a cut-out stylised F; title bar. -->
     <Geometry x:Key="App.Icon.Logo">F0 M6,0 H18 A6,6 0 0 1 24,6 V18 A6,6 0 0 1 18,24 H6 A6,6 0 0 1 0,18 V6 A6,6 0 0 1 6,0 Z M7,6.3 Q7,5 8.3,5 L16.7,5 Q18,5 17.49,6.19 L17.01,7.31 Q16.5,8.5 15.2,8.5 L12,8.5 Q11,8.5 11,9.5 L11,9.5 Q11,10.5 12,10.5 L14.2,10.5 Q15.5,10.5 15.06,11.72 L14.74,12.58 Q14.3,13.8 13,13.8 L12.3,13.8 Q11,13.8 11,15.1 L11,17.7 Q11,19 9.7,19 L8.3,19 Q7,19 7,17.7 Z</Geometry>
+    <Geometry x:Key="Ui.Icon.tablist">F1 M4,5 H20 V7 H4 Z M4,11 H20 V13 H4 Z M4,17 H20 V19 H4 Z</Geometry>
 </ResourceDictionary>

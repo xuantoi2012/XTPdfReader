@@ -128,12 +128,33 @@
         </Style.Triggers>
     </Style>
 
-    <!-- ══ Nút thanh trái (Pages / Bookmarks / Layers): 56×58, icon 24 px + chữ 11 ══ -->
+    <ControlTemplate x:Key="UiRailButtonTemplate" TargetType="{x:Type xt:XTButton}">
+        <Border CornerRadius="6" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+            <Viewbox Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Canvas Width="24" Height="24">
+                    <Path x:Name="Tint" Fill="{DynamicResource Ui.Accent}" Opacity="0.3" Visibility="Collapsed"
+                          Data="{Binding IconData, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource UiIconTint}}"/>
+                    <Path Data="{TemplateBinding IconData}" Fill="{TemplateBinding IconBrush}"/>
+                </Canvas>
+            </Viewbox>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="Tag" Value="Active">
+                <Setter TargetName="Tint" Property="Visibility" Value="Visible"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.42"/>
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <!-- Icon-only sidebar rail; labels remain available as tooltips. -->
     <Style x:Key="UiRailButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiToolbarButton}">
-        <Setter Property="Width" Value="56"/>
-        <Setter Property="MinWidth" Value="56"/>
-        <Setter Property="Height" Value="58"/>
-        <Setter Property="IconSize" Value="24"/>
+        <Setter Property="Template" Value="{StaticResource UiRailButtonTemplate}"/>
+        <Setter Property="Width" Value="36"/>
+        <Setter Property="MinWidth" Value="36"/>
+        <Setter Property="Height" Value="40"/>
+        <Setter Property="IconSize" Value="22"/>
         <Setter Property="Padding" Value="0"/>
         <Setter Property="Margin" Value="0,1"/>
         <Setter Property="HorizontalAlignment" Value="Center"/>
@@ -470,6 +491,7 @@
 
     <!-- ══ Tab file (ListBoxItem): nền mặt khi chọn, gạch accent 3 px dưới chân ══ -->
     <Style x:Key="UiTabItem" TargetType="ListBoxItem">
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
         <Setter Property="Foreground" Value="{DynamicResource Ui.Muted}"/>
         <Setter Property="Height" Value="34"/>
         <Setter Property="Margin" Value="0"/>
@@ -479,7 +501,7 @@
                 <ControlTemplate TargetType="ListBoxItem">
                     <Grid SnapsToDevicePixels="True">
                         <Border x:Name="Bd" Padding="12,0,6,3" Background="Transparent">
-                            <ContentPresenter VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" TextElement.FontWeight="{TemplateBinding FontWeight}"/>
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" TextElement.FontWeight="{TemplateBinding FontWeight}"/>
                         </Border>
                         <Border x:Name="ActiveLine" Height="3" VerticalAlignment="Bottom" Background="Transparent" IsHitTestVisible="False"/>
                         <Border x:Name="TabSeparator" Width="1" Height="18" HorizontalAlignment="Right" VerticalAlignment="Center"

@@ -44,12 +44,36 @@ public sealed class ContinuousPdfView : Grid
     /// <summary>Độ phân giải vùng nét lượng tử hoá theo bậc 400 px — zoom nhích 1% không phải vẽ lại.</summary>
     private const int RegionResolutionQuantum = 400;
     private const int MaxRegionFullWidth = 16000;
+    internal const long RegionCacheBudgetBytes = 16L * 1024 * 1024;
+    private static readonly object RegionCacheLock = new();
+    private static readonly BitmapMemoryCache<CachedRegionKey> RegionCache = new(RegionCacheBudgetBytes);
+    private static long _regionCacheGeneration;
     /// <summary>Cuộn nhanh: chỉ vẽ các trang đang hiện, chờ <see cref="SettleMilliseconds"/> rồi tải trước trang kế.</summary>
     private const double FastScrollViewportsPerSecond = 4;
     private const int SettleMilliseconds = 40;
     /// <summary>Đang zoom: chờ zoom đứng yên chừng này mới xin ảnh ở độ phân giải mới (giữa chừng chỉ co giãn ảnh có sẵn).</summary>
     private const int ZoomSettleMilliseconds = 60;
-    private const int PrefetchPages = 4;
+    internal int PrefetchPageCount { get; set; } = 4;
+    internal bool KeepPrefetchedNativePages { get; set; }
+    internal bool PreferViewportRegions { get; set; } = true;
+    internal bool ReuseRenderedImages { get; set; } = true;
+    internal bool ReuseRegionOverlap { get; set; } = true;
+    private bool _renderingSuspended;
+    internal bool IsRenderingSuspended
+    {
+        get => _renderingSuspended;
+        set
+        {
+            if (_renderingSuspended == value) return;
+            _renderingSuspended = value;
+            if (value)
+            {
+                CancelAll();
+                PdfThumbnailService.SetHotPages(Array.Empty<(string, int)>());
+            }
+            else ScheduleUpdate(immediate: true);
+        }
+    }
     /// <summary>Trang ngoài [đầu − n, cuối + n] quanh khung nhìn: huỷ việc đang vẽ, bỏ ảnh riêng của view.</summary>
     private const int KeepPages = 4;
 
@@ -123,6 +147,8 @@ public sealed class ContinuousPdfView : Grid
 
     /// <summary>Vẽ 1 trang cả trang ở chiều rộng pixel cho trước (ReaderWindow: cache ảnh trang dùng chung với chế độ 1 trang).</summary>
     internal Func<PageRow, int, PdfRenderPriority, CancellationToken, Task<BitmapSource?>>? PageRenderer { get; set; }
+    internal Func<PageRow, int, BitmapSource?>? CachedPageProvider { get; set; }
+    internal Func<PageRow, int, int, IReadOnlyList<Int32Rect>, CancellationToken, string, Task<List<BitmapSource?>>>? RegionRenderer { get; set; }
 
     public double MinZoom { get; set; } = 0.05;
     public double MaxZoom { get; set; } = 4.0;
@@ -167,6 +193,9 @@ public sealed class ContinuousPdfView : Grid
         _single = 0;
         RebuildIndex();
         _vp.SetPages(BaseSizes(), Math.Clamp(zoom, MinZoom, MaxZoom));
+        // Mixed-size pages are centered in the document strip; at a restored deep zoom
+        // its left edge may put the selected page entirely outside the viewport.
+        _vp.SetOffset(_vp.MaxOffsetX / 2, 0);
         _currentPage = _pages.Count > 0 ? 0 : -1;
         OnViewChanged(ChangeKind.Navigate);
     }
@@ -352,6 +381,9 @@ public sealed class ContinuousPdfView : Grid
     /// (xoay trang) — ảnh cũ sai tỉ lệ, bỏ ngay; false: ảnh cũ vẫn hiện tới khi ảnh mới xong.</summary>
     internal void InvalidatePages(Func<PageRow, bool> match, bool dropImages)
     {
+        foreach (var row in _pages.Where(match))
+            InvalidateCachedRegions((path, page) => page == row.PageNumber &&
+                string.Equals(path, row.SourcePath, StringComparison.OrdinalIgnoreCase));
         // Ảnh Reader của trang (dùng chung với chế độ 1 trang) là nội dung cũ; ảnh riêng của view vẫn hiện tạm tới khi có ảnh mới.
         foreach (var row in _pages)
             if (match(row)) row.ReaderBitmap = null;
@@ -372,14 +404,16 @@ public sealed class ContinuousPdfView : Grid
         get
         {
             int regions = 0;
-            long bytes = 0;
+            HashSet<BitmapSource> images;
+            lock (RegionCacheLock) images = new(RegionCache.Bitmaps, ReferenceEqualityComparer.Instance);
             foreach (var state in _states.Values)
                 foreach (var region in state.Regions)
                 {
                     regions++;
-                    bytes += (long)region.Bitmap.PixelWidth * region.Bitmap.PixelHeight * 4;
+                    images.Add(region.Bitmap);
                 }
-            return (_states.Count, regions, bytes);
+            // Live regions often share the LRU bitmap; count their storage only once.
+            return (_states.Count, regions, images.Sum(BitmapMemoryCache<int>.SizeOf));
         }
     }
 
@@ -438,6 +472,7 @@ public sealed class ContinuousPdfView : Grid
 
     private void ScheduleUpdate(bool immediate = false)
     {
+        if (_renderingSuspended) return;
         if (immediate)
         {
             _updateTimer.Stop();
@@ -621,7 +656,9 @@ public sealed class ContinuousPdfView : Grid
 
             _states.TryGetValue(row, out var state);
             _bases.Clear();
-            if (BestBitmap(row, state) is { } bitmap && IsReadableBitmap(bitmap, content.Width * dpi))
+            if (BestBitmap(row, state) is { } bitmap &&
+                // Keep a previously rendered page through zoom refinement, never an enlarged sidebar thumbnail.
+                (ReuseRenderedImages && bitmap.PixelWidth >= MinPageBitmapWidth || IsReadableBitmap(bitmap, content.Width * dpi)))
             {
                 dc.DrawImage(bitmap, content);
                 _bases.Add(new AnnotationLayer.BaseImage(bitmap, new Rect(0, 0, 1, 1)));
@@ -686,7 +723,7 @@ public sealed class ContinuousPdfView : Grid
 
     private void UpdateRequests()
     {
-        if (_pages.Count == 0 || _vp.ViewportHeight <= 0 || !IsVisible) return;
+        if (_renderingSuspended || _pages.Count == 0 || _vp.ViewportHeight <= 0 || !IsVisible) return;
         long now = Stopwatch.GetTimestamp();
         double sinceScroll = (now - _lastScrollTimestamp) * 1000.0 / Stopwatch.Frequency;
         bool scrollSettling = _fastScroll && sinceScroll < SettleMilliseconds;
@@ -702,9 +739,10 @@ public sealed class ContinuousPdfView : Grid
         var (firstSlot, lastSlot) = _vp.VisibleRange();
         if (firstSlot < 0 || lastSlot >= _slots.Length) return;
         int first = _slots[firstSlot], last = _slots[lastSlot];
+        int prefetchPages = Math.Clamp(PrefetchPageCount, 0, KeepPages);
         int keepFirst = Math.Max(0, first - KeepPages), keepLast = Math.Min(_pages.Count - 1, last + KeepPages);
-        int renderFirst = first - (!scrollSettling && _scrollDirection < 0 ? PrefetchPages : 0);
-        int renderLast = last + (!scrollSettling && _scrollDirection >= 0 ? PrefetchPages : 0);
+        int renderFirst = first - (!scrollSettling && _scrollDirection < 0 ? prefetchPages : 0);
+        int renderLast = last + (!scrollSettling && _scrollDirection >= 0 ? prefetchPages : 0);
 
         // Trang đã rời khu vực quanh khung nhìn: huỷ việc vẽ, trả ảnh (ảnh trang còn trong cache chung của ReaderWindow).
         foreach (var (row, state) in _states.ToArray())
@@ -720,9 +758,12 @@ public sealed class ContinuousPdfView : Grid
 
         double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
         var hot = new List<(string, int)>();
-        for (int i = Math.Max(0, first - 1); i <= Math.Min(_pages.Count - 1, last + 1); i++)
+        int hotFirst = KeepPrefetchedNativePages ? Math.Min(first - 1, renderFirst) : first - 1;
+        int hotLast = KeepPrefetchedNativePages ? Math.Max(last + 1, renderLast) : last + 1;
+        for (int i = Math.Max(0, hotFirst); i <= Math.Min(_pages.Count - 1, hotLast); i++)
             hot.Add((_pages[i].SourcePath, _pages[i].PageNumber));
-        PdfThumbnailService.SetHotPages(hot);
+        var focusRow = _currentPage >= 0 && _currentPage < _pages.Count ? _pages[_currentPage] : _pages[first];
+        PdfThumbnailService.SetHotPages(hot, (focusRow.SourcePath, focusRow.PageNumber));
 
         // Trang đang hiện: xin thẳng ảnh đúng độ phân giải, rồi vùng nét khi zoom sâu.
         for (int i = first; i <= last; i++)
@@ -733,7 +774,7 @@ public sealed class ContinuousPdfView : Grid
             bool hasImage = best != null;
 
             double needed = row.LayoutWidth * _vp.Zoom * dpi;
-            int pageWidth = PageBitmapWidth(needed);
+            int pageWidth = PreferredPageBitmapWidth(needed, PreferViewportRegions);
             // Zoom nhỏ (nhiều trang trên màn hình): ảnh nhỏ đã đủ nét, không vẽ ảnh trang cho từng trang.
             if (needed <= PreviewSufficientPx)
             {
@@ -747,7 +788,7 @@ public sealed class ContinuousPdfView : Grid
 
             if (needed > MaxPageBitmapWidth * 1.03)
             {
-                if (!zoomSettling) RequestRegion(SlotOf(i), row, state, needed);
+                RequestRegion(SlotOf(i), row, state, needed, renderMissing: !zoomSettling);
             }
             else if (state.Regions.Count > 0 || state.RegionCts != null)
             {
@@ -773,7 +814,7 @@ public sealed class ContinuousPdfView : Grid
         // Tải trước bốn trang theo hướng cuộn, cùng độ phân giải với trang đang đọc.
         int dir = _scrollDirection >= 0 ? 1 : -1;
         int edge = dir > 0 ? last : first;
-        for (int step = 1; step <= PrefetchPages; step++)
+        for (int step = 1; step <= prefetchPages; step++)
         {
             int i = edge + dir * step;
             if (i < 0 || i >= _pages.Count) break;
@@ -782,7 +823,7 @@ public sealed class ContinuousPdfView : Grid
             double needed = row.LayoutWidth * _vp.Zoom * dpi;
             if (needed > PreviewSufficientPx)
             {
-                int pageWidth = PageBitmapWidth(needed);
+                int pageWidth = PreferredPageBitmapWidth(needed, PreferViewportRegions);
                 if (NeedsPageBitmap(row, state, pageWidth)) RequestPage(row, state, pageWidth, PdfRenderPriority.Background);
             }
             else if (BestBitmap(row, state) == null) RequestPreview(row, state, PdfRenderPriority.Thumbnail);
@@ -791,6 +832,11 @@ public sealed class ContinuousPdfView : Grid
 
     private static int PageBitmapWidth(double neededPx)
         => (int)Math.Clamp(Math.Ceiling(neededPx / 256) * 256, MinPageBitmapWidth, MaxPageBitmapWidth);
+
+    internal static int PreferredPageBitmapWidth(double neededPx, bool viewportFirst)
+        // A readable fallback is sufficient while the high-zoom viewport region refines.
+        => viewportFirst && neededPx > MaxPageBitmapWidth * 1.03
+            ? ReadablePageBitmapWidth : PageBitmapWidth(neededPx);
 
     private static bool NeedsPageBitmap(PageRow row, PageState state, int width)
     {
@@ -802,7 +848,20 @@ public sealed class ContinuousPdfView : Grid
 
     private PageState StateOf(PageRow row)
     {
-        if (!_states.TryGetValue(row, out var state)) _states[row] = state = new PageState();
+        if (!_states.TryGetValue(row, out var state))
+        {
+            _states[row] = state = new PageState();
+            var bitmap = ReuseRenderedImages ? row.ReaderBitmap : null;
+            var cached = ReuseRenderedImages ? CachedPageProvider?.Invoke(row, MinPageBitmapWidth) : null;
+            if (cached != null && (bitmap == null || cached.PixelWidth > bitmap.PixelWidth)) bitmap = cached;
+            if (bitmap != null)
+            {
+                state.Bitmap = bitmap;
+                state.BitmapLayers = PdfLayerStateStore.GetToken(row.SourcePath);
+                state.BitmapVersion = state.Version;
+                _surface.InvalidateVisual();
+            }
+        }
         return state;
     }
 
@@ -883,7 +942,7 @@ public sealed class ContinuousPdfView : Grid
         ScheduleUpdate(); // hoàn tất trang này: tiếp tục tải trước mà không cần chờ một lần cuộn/zoom khác
     }
 
-    private void RequestRegion(int slot, PageRow row, PageState state, double neededPx)
+    private void RequestRegion(int slot, PageRow row, PageState state, double neededPx, bool renderMissing = true)
     {
         if (!_vp.VisibleFraction(slot, out double dx0, out double dy0, out double dx1, out double dy1)) return;
         // Phần đang hiện → phân số trên trang theo hướng của trang (vùng vẽ PDFium không xoay).
@@ -902,6 +961,24 @@ public sealed class ContinuousPdfView : Grid
             k.X + k.Width >= fx1 * fullWidth - 0.5 && k.Y + k.Height >= fy1 * fullHeight - 0.5;
 
         if (state.Regions.Any(r => Covers(r.Key))) return;
+        var source = RenderCacheKeys.Thumbnail(row.SourcePath, row.PageNumber);
+        CachedRegionKey cachedKey;
+        BitmapSource? cachedBitmap;
+        cachedKey = default;
+        cachedBitmap = null;
+        if (ReuseRenderedImages)
+            lock (RegionCacheLock)
+                RegionCache.TryFind(k => k.Path == source.Path && k.Page == source.Page && Covers(k.Region with { Version = state.Version }),
+                    out cachedKey, out cachedBitmap);
+        if (cachedBitmap != null)
+        {
+            state.CancelRegion();
+            state.Regions.Add(new RegionImage(cachedKey.Region with { Version = state.Version }, cachedBitmap));
+            while (state.Regions.Count > 2) state.Regions.RemoveAt(0);
+            _surface.InvalidateVisual();
+            return;
+        }
+        if (!renderMissing) return;
         if (state.RegionCts != null && state.RegionPending is { } pending)
         {
             if (Covers(pending)) return;
@@ -916,20 +993,57 @@ public sealed class ContinuousPdfView : Grid
 
         var (x, y, w, h) = ContinuousViewport.Region(fx0, fy0, fx1, fy1, fullWidth, fullHeight);
         var key = new RegionKey(fullWidth, fullHeight, x, y, w, h, layers, state.Version);
+        var target = new Int32Rect(x, y, w, h);
+        var pieces = new List<ViewportRegionReuse.Piece>();
+        if (ReuseRenderedImages && ReuseRegionOverlap)
+        {
+            foreach (var region in state.Regions)
+                if (Compatible(region.Key)) pieces.Add(ViewportRegionReuse.CachedPiece(ToRect(region.Key), region.Bitmap, fullWidth, fullHeight, target));
+            lock (RegionCacheLock)
+                if (RegionCache.TryFind(k => k.Path == source.Path && k.Page == source.Page &&
+                    Compatible(k.Region with { Version = state.Version }) &&
+                    !ViewportRegionReuse.Intersect(target, ToRect(k.Region)).IsEmpty, out cachedKey, out cachedBitmap) &&
+                    pieces.All(p => !ReferenceEquals(p.Bitmap, cachedBitmap)))
+                    pieces.Add(ViewportRegionReuse.CachedPiece(ToRect(cachedKey.Region), cachedBitmap, fullWidth, fullHeight, target));
+        }
+        var missing = ViewportRegionReuse.Plan(target, pieces);
+        bool reuseOverlap = missing.Length == 0 || missing.Length != 1 || missing[0] != target;
+        if (!reuseOverlap) pieces.Clear();
+        var rectangles = reuseOverlap
+            ? missing.Select(r => ViewportRegionReuse.WithGutter(r, fullWidth, fullHeight)).ToArray() : missing;
         state.CancelRegion();
         var cts = new CancellationTokenSource();
         state.RegionCts = cts;
         state.RegionPending = key;
-        _ = LoadRegionAsync(row, state, key, cts);
+        _ = LoadRegionAsync(row, state, key, cts, rectangles, missing, pieces, reuseOverlap);
+
+        bool Compatible(RegionKey k) => k.FullWidth == fullWidth && k.FullHeight == fullHeight &&
+            k.Version == state.Version && string.Equals(k.Layers, layers, StringComparison.Ordinal);
     }
 
-    private async Task LoadRegionAsync(PageRow row, PageState state, RegionKey key, CancellationTokenSource cts)
+    private static Int32Rect ToRect(RegionKey key) => new(key.X, key.Y, key.Width, key.Height);
+
+    private async Task LoadRegionAsync(PageRow row, PageState state, RegionKey key, CancellationTokenSource cts,
+        Int32Rect[] rectangles, Int32Rect[] missing, List<ViewportRegionReuse.Piece> pieces, bool reuseOverlap)
     {
+        long cacheGeneration = Interlocked.Read(ref _regionCacheGeneration);
         BitmapSource? bmp = null;
         try
         {
-            bmp = await PdfThumbnailService.RenderPageTileAsync(row.SourcePath, row.PageNumber - 1, key.FullWidth, key.FullHeight,
-                new Int32Rect(key.X, key.Y, key.Width, key.Height), cts.Token, key.Layers);
+            var images = rectangles.Length == 0 ? new List<BitmapSource?>() :
+                await (RegionRenderer?.Invoke(row, key.FullWidth, key.FullHeight, rectangles, cts.Token, key.Layers) ??
+                    PdfThumbnailService.RenderPageTilesBatchAsync(row.SourcePath, row.PageNumber - 1, key.FullWidth, key.FullHeight,
+                        rectangles, cts.Token, key.Layers));
+            cts.Token.ThrowIfCancellationRequested();
+            if (images.Count == rectangles.Length && images.All(image => image != null))
+            {
+                if (reuseOverlap)
+                {
+                    for (int i = 0; i < images.Count; i++) pieces.Add(new(rectangles[i], images[i]!, missing[i]));
+                    bmp = await Task.Run(() => ViewportRegionReuse.Compose(ToRect(key), pieces, cts.Token), cts.Token);
+                }
+                else bmp = images[0];
+            }
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { Debug.WriteLine($"[ContinuousPdfView] region render failed: {ex.Message}"); }
@@ -937,6 +1051,17 @@ public sealed class ContinuousPdfView : Grid
         if (ReferenceEquals(state.RegionCts, cts)) { state.RegionCts = null; state.RegionPending = null; }
         cts.Dispose();
         if (cancelled || bmp == null || !IsLive(row, state, key.Version)) return;
+        if (!string.Equals(key.Layers, PdfLayerStateStore.GetToken(row.SourcePath), StringComparison.Ordinal))
+        {
+            ScheduleUpdate();
+            return;
+        }
+
+        var source = RenderCacheKeys.Thumbnail(row.SourcePath, row.PageNumber);
+        if (ReuseRenderedImages)
+            lock (RegionCacheLock)
+                if (cacheGeneration == Interlocked.Read(ref _regionCacheGeneration))
+                    RegionCache.Set(new CachedRegionKey(source.Path, source.Page, key with { Version = 0 }), bmp);
 
         // Vùng mới vẽ đè lên trên; giữ thêm 1 vùng cũ bên dưới (phần chưa phủ vẫn nét), bỏ các vùng khác.
         var regions = state.Regions;
@@ -960,7 +1085,25 @@ public sealed class ContinuousPdfView : Grid
     // ── Trạng thái từng trang ──────────────────────────────────────────────
 
     private readonly record struct RegionKey(int FullWidth, int FullHeight, int X, int Y, int Width, int Height, string Layers, int Version);
+    private readonly record struct CachedRegionKey(string Path, int Page, RegionKey Region);
     private sealed record RegionImage(RegionKey Key, BitmapSource Bitmap);
+
+    internal static (int Count, long Bytes) CachedRegionStats
+    {
+        get { lock (RegionCacheLock) return (RegionCache.Count, RegionCache.Bytes); }
+    }
+
+    internal static void InvalidateCachedRegions(Func<string, int, bool> match)
+    {
+        lock (RegionCacheLock)
+        {
+            Interlocked.Increment(ref _regionCacheGeneration);
+            RegionCache.RemoveWhere(k => match(k.Path, k.Page));
+        }
+    }
+
+    internal static void ReleaseUnusedRegionSources(HashSet<string> active)
+        => InvalidateCachedRegions((path, _) => !active.Contains(path));
 
     private sealed class PageState
     {

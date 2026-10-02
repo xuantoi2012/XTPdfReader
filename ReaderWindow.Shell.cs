@@ -30,7 +30,7 @@ namespace XTPdfMergeApp
             InitializeRecovery();
             InitializeToolbarOverflow();
             Closing += ReaderWindow_Closing;
-            ReaderDocumentTabs.ItemsSource = _groups;
+            InitializeDocumentTabs();
             ReaderSidePanel.PageActivated += row =>
             {
                 if (_readerGroup == null || !_readerGroup.Pages.Contains(row)) return;
@@ -79,11 +79,11 @@ namespace XTPdfMergeApp
             ScheduleRecovery();
             EnsureLoadProgressTimer();
             _lastPageByGroup[group] = row;
+            UpdateDocumentTabs(group);
             if (!ReferenceEquals(ReaderDocumentTabs.SelectedItem, group))
             {
                 _syncingDocumentTabs = true;
                 ReaderDocumentTabs.SelectedItem = group;
-                ReaderDocumentTabs.ScrollIntoView(group);
                 _syncingDocumentTabs = false;
             }
             ScheduleNearbyThumbnailWarmup();
@@ -103,75 +103,92 @@ namespace XTPdfMergeApp
         private bool _waitingForFullLoad;
 
         // ── Làm ấm thumbnail quanh trang đang xem (Foxit "xoay xong là mượt") ──────────────────────
-        private const int NearbyThumbnailWarmupPages = 16;
+        private const int NearbyThumbnailWarmupPages = 4;
         private System.Windows.Threading.DispatcherTimer? _thumbnailWarmupTimer;
-        private System.Threading.CancellationTokenSource _thumbnailWarmupCts = new();
+        private System.Threading.CancellationTokenSource? _thumbnailWarmupCts;
 
-        /// <summary>Hẹn làm ấm (400 ms sau lần đổi trang cuối — cuộn liên tục không khởi động lại liên tục).</summary>
+        private void StopNearbyThumbnailWarmup()
+        {
+            _thumbnailWarmupTimer?.Stop();
+            _thumbnailWarmupCts?.Cancel();
+        }
+
+        /// <summary>Hẹn làm ấm 600 ms sau lần đổi trang cuối.</summary>
         private void ScheduleNearbyThumbnailWarmup()
         {
+            if (ReaderContinuousView.IsRenderingSuspended) return;
             if (_thumbnailWarmupTimer == null)
             {
                 _thumbnailWarmupTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background, Dispatcher)
                 {
-                    Interval = TimeSpan.FromMilliseconds(400)
+                    Interval = TimeSpan.FromMilliseconds(600)
                 };
                 _thumbnailWarmupTimer.Tick += (_, _) =>
                 {
                     _thumbnailWarmupTimer!.Stop();
+                    if (ReaderContinuousView.IsRenderingSuspended) return;
                     if (ReaderContinuousView.IsFastScrolling) { _thumbnailWarmupTimer.Start(); return; }
                     _ = WarmNearbyThumbnailsAsync();
                 };
             }
-            _thumbnailWarmupCts.Cancel(); // trang đổi: lượt làm ấm cũ (quanh trang cũ) không còn đúng chỗ
+            _thumbnailWarmupCts?.Cancel(); // trang đổi: lượt làm ấm cũ (quanh trang cũ) không còn đúng chỗ
             _thumbnailWarmupTimer.Stop();
             _thumbnailWarmupTimer.Start();
         }
 
         /// <summary>
-        /// Vẽ trước ảnh 340 px (dùng chung cho panel thumbnail và ảnh xem trước của Viewer) cho ±16 trang quanh trang
+        /// Vẽ trước ảnh 340 px (dùng chung cho panel thumbnail và ảnh xem trước của Viewer) cho ±4 trang quanh trang
         /// đang xem, gần trước xa sau, ưu tiên Background (nhường ảnh đang hiện; tự đứng chờ khi zoom/pan — #5), chạy song
         /// song trên (số bản PDFium − 1) luồng để luôn chừa 1 bản cho trang đang xem. Chỉ chạy khi file đã nạp xong vào RAM:
         /// trước đó băng thông mạng dành cho trang đang xem và đọc nền.
         /// </summary>
         private async System.Threading.Tasks.Task WarmNearbyThumbnailsAsync()
         {
-            _thumbnailWarmupCts.Cancel();
-            _thumbnailWarmupCts = new System.Threading.CancellationTokenSource();
-            var token = _thumbnailWarmupCts.Token;
-            if (_readerGroup is not { } group || _readerPage is not { } current) return;
-            int center = group.Pages.IndexOf(current);
-            if (center < 0) return;
-
-            var order = new List<PageRow>();
-            for (int d = 1; d <= NearbyThumbnailWarmupPages; d++)
-                foreach (int i in new[] { center + d, center - d })
-                    if (i >= 0 && i < group.Pages.Count) order.Add(group.Pages[i]);
-            // Không gồm trang đang xem: Viewer đã xin nó ở ưu tiên Visible — gộp vào lượt Background này sẽ bắt nó chờ.
-
-            bool Loaded(PageRow row)
+            if (ReaderContinuousView.IsRenderingSuspended) return;
+            _thumbnailWarmupCts?.Cancel();
+            using var cancellation = new System.Threading.CancellationTokenSource();
+            _thumbnailWarmupCts = cancellation;
+            var token = cancellation.Token;
+            try
             {
-                try { return PdfFileBuffer.GetLoadedFraction(System.IO.Path.GetFullPath(row.SourcePath)) is >= 1; }
-                catch { return false; }
+                if (_readerGroup is not { } group || _readerPage is not { } current) return;
+                int center = group.Pages.IndexOf(current);
+                if (center < 0) return;
+
+                var order = new List<PageRow>();
+                for (int d = 1; d <= NearbyThumbnailWarmupPages; d++)
+                    foreach (int i in new[] { center + d, center - d })
+                        if (i >= 0 && i < group.Pages.Count) order.Add(group.Pages[i]);
+                // Không gồm trang đang xem: Viewer đã xin nó ở ưu tiên Visible — gộp vào lượt Background này sẽ bắt nó chờ.
+
+                bool Loaded(PageRow row)
+                {
+                    try { return PdfFileBuffer.GetLoadedFraction(System.IO.Path.GetFullPath(row.SourcePath)) is >= 1; }
+                    catch { return false; }
+                }
+
+                int parallel = Math.Max(1, PdfiumPool.Count - 1);
+                using var slots = new System.Threading.SemaphoreSlim(parallel);
+                var work = new List<System.Threading.Tasks.Task>();
+                foreach (var row in order)
+                {
+                    if (token.IsCancellationRequested) break;
+                    if (row.Thumbnail != null || !Loaded(row)) continue;
+                    try { await slots.WaitAsync(token); }
+                    catch (OperationCanceledException) { break; }
+                    work.Add(WarmOneAsync(row));
+                }
+                try { await System.Threading.Tasks.Task.WhenAll(work); } catch { }
+
+                async System.Threading.Tasks.Task WarmOneAsync(PageRow row)
+                {
+                    try { await ThumbnailCache.LoadPreviewAsync(row, token, PdfRenderPriority.Background); }
+                    finally { slots.Release(); }
+                }
             }
-
-            int parallel = Math.Max(1, PdfiumPool.Count - 1);
-            using var slots = new System.Threading.SemaphoreSlim(parallel);
-            var work = new List<System.Threading.Tasks.Task>();
-            foreach (var row in order)
+            finally
             {
-                if (token.IsCancellationRequested) break;
-                if (row.Thumbnail != null || !Loaded(row)) continue;
-                try { await slots.WaitAsync(token); }
-                catch (OperationCanceledException) { break; }
-                work.Add(WarmOneAsync(row));
-            }
-            try { await System.Threading.Tasks.Task.WhenAll(work); } catch { }
-
-            async System.Threading.Tasks.Task WarmOneAsync(PageRow row)
-            {
-                try { await ThumbnailCache.LoadPreviewAsync(row, token, PdfRenderPriority.Background); }
-                finally { slots.Release(); }
+                if (ReferenceEquals(_thumbnailWarmupCts, cancellation)) _thumbnailWarmupCts = null;
             }
         }
 
@@ -237,6 +254,7 @@ namespace XTPdfMergeApp
         /// <summary>File đang xem vừa bị đóng khỏi workspace → chuyển sang file bên cạnh, hết file thì màn trống.</summary>
         private void OnGroupsChanged()
         {
+            UpdateDocumentTabs(_readerGroup);
             foreach (var removed in _lastPageByGroup.Keys.Where(g => !_groups.Contains(g)).ToList())
                 _lastPageByGroup.Remove(removed);
             if (_readerGroup == null || _groups.Contains(_readerGroup)) return;
@@ -619,9 +637,9 @@ namespace XTPdfMergeApp
                 _panelWidthBeforeHide = ReaderSidePanelColumn.Width.Value;
                 ReaderSidePanel.SetCollapsed(true);
                 ReaderPanelSplitter.Visibility = Visibility.Collapsed;
-                ReaderSidePanelColumn.MinWidth = 64;
-                ReaderSidePanelColumn.MaxWidth = 64;
-                ReaderSidePanelColumn.Width = new GridLength(64);
+                ReaderSidePanelColumn.MinWidth = 44;
+                ReaderSidePanelColumn.MaxWidth = 44;
+                ReaderSidePanelColumn.Width = new GridLength(44);
             }
             else
             {
@@ -719,6 +737,7 @@ namespace XTPdfMergeApp
         internal void OnLayerStateChanged(string path)
         {
             bool Matches(PageRow r) => string.Equals(r.SourcePath, path, StringComparison.OrdinalIgnoreCase);
+            Controls.ContinuousPdfView.InvalidateCachedRegions((p, _) => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
 
             ReaderSidePanel.RequestVisibleThumbnails();
             foreach (var row in _groups.SelectMany(g => g.Pages).Where(Matches))

@@ -1,0 +1,17 @@
+[
+  { "App": "Foxit", "Stage": "start", "Pid": 40640, "StartUtc": "2026-10-02T06:07:15Z", "EndUtc": "2026-10-02T06:07:25Z" },
+  { "App": "Foxit", "Stage": "page11-normal-initial", "Pid": 40640, "StartUtc": "2026-10-02T06:07:45Z", "EndUtc": "2026-10-02T06:07:55Z" },
+  { "App": "Foxit", "Stage": "page81-normal", "Pid": 40640, "StartUtc": "2026-10-02T06:08:25Z", "EndUtc": "2026-10-02T06:08:35Z" },
+  { "App": "Foxit", "Stage": "page11-normal-return", "Pid": 40640, "StartUtc": "2026-10-02T06:09:00Z", "EndUtc": "2026-10-02T06:09:10Z" },
+  { "App": "Foxit", "Stage": "deep208", "Pid": 40640, "StartUtc": "2026-10-02T06:09:35Z", "EndUtc": "2026-10-02T06:09:45Z" },
+  { "App": "Foxit", "Stage": "normal-final", "Pid": 40640, "StartUtc": "2026-10-02T06:12:52Z", "EndUtc": "2026-10-02T06:13:02Z" },
+  { "App": "Foxit", "Stage": "settled-background", "Pid": 40640, "StartUtc": "2026-10-02T06:18:40Z", "EndUtc": "2026-10-02T06:18:50Z" },
+  { "App": "Reader", "Stage": "start", "Pid": 28304, "StartUtc": "2026-10-02T06:13:23Z", "EndUtc": "2026-10-02T06:13:33Z" },
+  { "App": "Reader", "Stage": "page11-normal-initial", "Pid": 28304, "StartUtc": "2026-10-02T06:14:52Z", "EndUtc": "2026-10-02T06:15:02Z" },
+  { "App": "Reader", "Stage": "page81-normal", "Pid": 28304, "StartUtc": "2026-10-02T06:15:53Z", "EndUtc": "2026-10-02T06:16:03Z" },
+  { "App": "Reader", "Stage": "deep300", "Pid": 28304, "StartUtc": "2026-10-02T06:16:55Z", "EndUtc": "2026-10-02T06:17:05Z" },
+  { "App": "Reader", "Stage": "normal-final", "Pid": 28304, "StartUtc": "2026-10-02T06:18:40Z", "EndUtc": "2026-10-02T06:18:50Z" },
+  { "App": "Reader", "Stage": "before-native-trim-debug-open", "Pid": 28304, "StartUtc": "2026-10-02T06:19:45Z", "EndUtc": "2026-10-02T06:19:55Z" },
+  { "App": "Reader", "Stage": "after-native-trim", "Pid": 28304, "StartUtc": "2026-10-02T06:20:25Z", "EndUtc": "2026-10-02T06:20:35Z" },
+  { "App": "Reader", "Stage": "long-idle-after-page81-revisit", "Pid": 28304, "StartUtc": "2026-10-02T06:23:20Z", "EndUtc": "2026-10-02T06:23:30Z" }
+]

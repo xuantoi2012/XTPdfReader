@@ -334,7 +334,7 @@ namespace XTPdfMergeApp
             RequestThumbnailScan();
             if (group.Pages.Count > 0 && ReaderWindow.Instance is { HasAnyPageShown: false } reader)
                 _ = reader.ShowPageAsync(group, group.Pages[0], preserveZoomMode: false);
-            _ = WarmInitialThumbnailsAsync(group);
+            // Unvisited tabs only need metadata. The reader and organizer request their visible thumbnails.
 
             // Không render hết ngay ở đây. Thumbnail được đưa qua queue theo viewport thật
             // của từng ListBox PDF; prefetch nền chỉ cache ảnh và tự nhường cho vùng đang thấy.

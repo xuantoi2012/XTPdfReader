@@ -60,21 +60,21 @@
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- Thanh trái: icon + chữ. Tag="Active" do SetTab đặt. -->
-        <Border Grid.Column="0" Width="64" Background="{DynamicResource Ui.Panel}"
+        <!-- Icon rail. Tag="Active" is set by SetTab. -->
+        <Border Grid.Column="0" Width="44" Background="{DynamicResource Ui.Panel}"
                 BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,1,0">
             <DockPanel Margin="0,8,0,8" LastChildFill="False">
                 <StackPanel DockPanel.Dock="Top">
                 <xt:XTButton x:Name="ThumbnailTabButton" Style="{StaticResource UiRailButton}" Tag="Active"
-                             Icon="{StaticResource Ui.Icon.pages}" Text="Pages" ToolTip="Pages" Click="ThumbnailTab_Click"/>
+                             Icon="{StaticResource Ui.Icon.pages}" ToolTip="Pages" Click="ThumbnailTab_Click"/>
                 <xt:XTButton x:Name="BookmarkTabButton" Style="{StaticResource UiRailButton}"
-                             Icon="{StaticResource Ui.Icon.bookmark}" Text="Bookmarks" ToolTip="Bookmarks" Click="BookmarkTab_Click"/>
+                             Icon="{StaticResource Ui.Icon.bookmark}" ToolTip="Bookmarks" Click="BookmarkTab_Click"/>
                 <xt:XTButton x:Name="LayerTabButton" Style="{StaticResource UiRailButton}"
-                             Icon="{StaticResource Ui.Icon.layers}" Text="Layers" ToolTip="Layers" Click="LayerTab_Click"/>
+                             Icon="{StaticResource Ui.Icon.layers}" ToolTip="Layers" Click="LayerTab_Click"/>
                 <xt:XTButton x:Name="CommentsTabButton" Style="{StaticResource UiRailButton}"
-                             Icon="{StaticResource Ui.Icon.comment}" Text="Comments" ToolTip="Comments" Click="CommentsTab_Click"/>
+                             Icon="{StaticResource Ui.Icon.comment}" ToolTip="Comments" Click="CommentsTab_Click"/>
                 <xt:XTButton x:Name="FindTabButton" Style="{StaticResource UiRailButton}"
-                             Icon="{StaticResource Ui.Icon.search}" Text="Find" ToolTip="Find in document (Ctrl+F)" Click="FindTab_Click"/>
+                             Icon="{StaticResource Ui.Icon.search}" ToolTip="Find in document (Ctrl+F)" Click="FindTab_Click"/>
                 </StackPanel>
             </DockPanel>
         </Border>

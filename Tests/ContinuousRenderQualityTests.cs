@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -91,7 +92,7 @@ internal static partial class Program
     {
         if (Application.Current == null)
         {
-            var app = new App(); app.InitializeComponent(); app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            CreateReaderTestApplication();
         }
         var requests = new List<(int Page, int Width, PdfRenderPriority Priority)>();
         var view = new ContinuousPdfView();
@@ -147,16 +148,55 @@ internal static partial class Program
             var prefetch = requests.Where(r => r.Priority == PdfRenderPriority.Background).GroupBy(r => r.Page).Take(4).ToArray();
             Check(prefetch.Length == 4 && prefetch.All(g => g.First().Width == expectedWidth),
                 "All four pages ahead request screen resolution rather than coarse preview images");
+            view.IsRenderingSuspended = true;
+            requests.Clear();
+            view.ScrollToPage(4);
+            Pump(TimeSpan.FromMilliseconds(80));
+            Check(requests.Count == 0, "A covered viewer cancels work and makes no requests even if layout changes");
+            var suspendedHot = (IEnumerable<(string Path, int Index)>)typeof(PdfThumbnailService)
+                .GetField("_hotPages", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
+            Check(!suspendedHot.Any(), "A covered viewer releases its native hot-page protection for idle reclamation");
+            view.IsRenderingSuspended = false;
+            Pump(TimeSpan.FromMilliseconds(80));
+            Check(requests.Any(r => r.Page == 5 && r.Priority == PdfRenderPriority.Visible),
+                "Uncovering the viewer resumes sharp rendering without another user interaction");
+            view.PrefetchPageCount = 2;
+            requests.Clear();
+            var coldPages = pages.Select(p => new PagePlacement
+            {
+                SourcePath = p.SourcePath, PageNumber = p.PageNumber, BaseWidth = 1200, AspectRatio = .4, Thumbnail = thumbnail
+            }).ToArray();
+            view.SetDocument(coldPages, 1);
+            Pump(TimeSpan.FromMilliseconds(80));
+            Check(requests.Where(r => r.Priority == PdfRenderPriority.Background).Select(r => r.Page).Distinct().Count() == 2,
+                "Background profiling can limit prefetch without reducing visible-page resolution");
+            view.PrefetchPageCount = 4;
+            view.KeepPrefetchedNativePages = true;
+            view.SetDocument(pages, 1);
+            Pump(TimeSpan.FromMilliseconds(80));
+            var hotPages = (IEnumerable<(string Path, int Index)>)typeof(PdfThumbnailService)
+                .GetField("_hotPages", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
+            Check(hotPages.Select(p => p.Index).Order().SequenceEqual(Enumerable.Range(0, 6)),
+                "Native retention experiment includes visible pages and all four prefetched pages");
+            view.KeepPrefetchedNativePages = false;
             bool renderedDuringMotion = false;
+            int scrollSteps = 0;
             var scroll = new DispatcherTimer(DispatcherPriority.Input) { Interval = TimeSpan.FromMilliseconds(8) };
             scroll.Tick += (_, _) =>
             {
                 view.ScrollBy(0, 70);
                 renderedDuringMotion |= view.IsFastScrolling && requests.Any(r => r.Page >= 3 && r.Priority == PdfRenderPriority.Visible);
+                if (++scrollSteps >= 18) scroll.Stop();
             };
-            scroll.Start(); Pump(TimeSpan.FromMilliseconds(180)); scroll.Stop();
+            var motion = Stopwatch.StartNew();
+            scroll.Start();
+            while (scrollSteps < 18 && motion.Elapsed < TimeSpan.FromSeconds(2)) Pump(TimeSpan.FromMilliseconds(20));
+            scroll.Stop();
+            Check(scrollSteps == 18, "Scroll quality uses a fixed travel distance regardless of dispatcher timer jitter");
             Check(renderedDuringMotion, "Newly exposed pages render at readable quality while scrolling continues");
-            Pump(TimeSpan.FromMilliseconds(80));
+            var settle = Stopwatch.StartNew();
+            while (pages[view.CurrentPage].ReaderBitmap?.PixelWidth != expectedWidth && settle.Elapsed < TimeSpan.FromSeconds(2))
+                Pump(TimeSpan.FromMilliseconds(20));
             int index = view.CurrentPage;
             Check(index >= 2 && pages[index].ReaderBitmap?.PixelWidth == expectedWidth,
                 "The current page finishes sharp after scrolling, without getting stuck on a cancelled prefetch");
@@ -164,6 +204,19 @@ internal static partial class Program
             view.TwoPage = true; view.ScrollToPage(0); Pump(TimeSpan.FromMilliseconds(80));
             Check(pages[0].ReaderBitmap?.PixelWidth >= 1024 && pages[1].ReaderBitmap?.PixelWidth >= 1024,
                 "Facing-page mode keeps readable images for both pages");
+            view.TwoPage = false;
+            var mixedPages = new[]
+            {
+                new PagePlacement { SourcePath = "mixed-size-fixture.pdf", PageNumber = 1, BaseWidth = 2200, AspectRatio = .4 },
+                new PagePlacement { SourcePath = "mixed-size-fixture.pdf", PageNumber = 2, BaseWidth = 200, AspectRatio = 1 }
+            };
+            view.SetDocument(mixedPages, 3);
+            view.ScrollToPage(1);
+            Check(view.TryGetPageRect(mixedPages[1], out var mixedRect) &&
+                mixedRect.Left >= 0 && mixedRect.Right <= view.ViewportWidth,
+                "Binding a mixed-size document at deep zoom keeps a narrow selected page horizontally visible");
+            Check(Math.Abs(mixedRect.Left + mixedRect.Width / 2 - view.ViewportWidth / 2) < 1,
+                "A newly bound deep-zoom document starts horizontally centered instead of off-page");
         }
         finally { view.CancelAll(); host.Close(); }
     }

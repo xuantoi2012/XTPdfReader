@@ -40,7 +40,7 @@ internal static class DiagnosticsReport
 
     internal readonly record struct ViewerStats(
         int ReaderCacheCount, long ReaderCacheBytes, int ReaderInflight,
-        int TileCacheCount, long TileCacheBytes,
+        int RegionCacheCount, long RegionCacheBytes,
         int ContinuousPages, int ContinuousRegions, long ContinuousRegionBytes,
         string Mode, double Zoom, int CurrentPage, int PageCount);
 
@@ -60,11 +60,11 @@ internal static class DiagnosticsReport
         var thumbs = ThumbnailCache.GetThumbnailCacheStats();
         var viewer = ViewerSection?.Invoke();
         double readerMb = Mb(viewer?.ReaderCacheBytes ?? 0);
-        double tileMb = Mb(viewer?.TileCacheBytes ?? 0);
+        double retainedRegionMb = Mb(viewer?.RegionCacheBytes ?? 0);
         double regionMb = Mb(viewer?.ContinuousRegionBytes ?? 0);
         double thumbMb = Mb(thumbs.Bytes);
         // File PDF trong RAM là mảng byte managed (đã nằm trong GC heap); ảnh WPF là bộ nhớ native.
-        double bitmapsMb = readerMb + tileMb + regionMb + thumbMb;
+        double bitmapsMb = readerMb + regionMb + thumbMb;
         double restMb = Math.Max(0, privateMb - gcMb - bitmapsMb);
 
         Section(sb, "RAM");
@@ -72,9 +72,9 @@ internal static class DiagnosticsReport
         Row(sb, "Working set", $"{workingMb,8:0} MB");
         Row(sb, "GC heap (managed)", $"{gcMb,8:0} MB");
         Row(sb, "Bộ đệm file PDF (đĩa tạm, ngoài RAM)", $"{fileMb,8:0} MB");
-        Row(sb, "Ảnh trang (Reader cache)", $"{readerMb,8:0} MB  / 64    ({viewer?.ReaderCacheCount ?? 0} ảnh, đang vẽ {viewer?.ReaderInflight ?? 0})");
-        Row(sb, "Tile nét (1 trang)", $"{tileMb,8:0} MB  / 48    ({viewer?.TileCacheCount ?? 0} ảnh)");
-        Row(sb, "Vùng nét (cuộn liên tục)", $"{regionMb,8:0} MB        ({viewer?.ContinuousRegions ?? 0} vùng)");
+        Row(sb, "Ảnh trang (Reader cache)", $"{readerMb,8:0} MB  / 80    ({viewer?.ReaderCacheCount ?? 0} ảnh gồm preview, đang vẽ {viewer?.ReaderInflight ?? 0})");
+        Row(sb, "Cache vùng nét", $"{retainedRegionMb,8:0} MB  / 16    ({viewer?.RegionCacheCount ?? 0} ảnh)");
+        Row(sb, "Vùng nét (live + cache, không trùng)", $"{regionMb,8:0} MB        ({viewer?.ContinuousRegions ?? 0} vùng live)");
         Row(sb, "Thumbnail", $"{thumbMb,8:0} MB  / 48    ({thumbs.Cache} ảnh, đang vẽ {thumbs.Inflight})");
         Row(sb, "Còn lại ≈ PDFium + WPF + khác", $"{restMb,8:0} MB   (= private − GC − ảnh)");
         if (LastCollect != null) Row(sb, "Lần \"Dọn RAM\" gần nhất", LastCollect);

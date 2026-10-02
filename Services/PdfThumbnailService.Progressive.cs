@@ -17,7 +17,7 @@ public static partial class PdfThumbnailService
     // The budget is cooperative, not a hard preemption deadline: PDFium chooses when
     // to invoke the pause callback. Parsing and individual image operations may exceed it.
     internal const int ProgressiveSliceMilliseconds = 8;
-    internal const int NativePageCacheCapacity = 4;
+    internal static int NativePageCacheCapacity { get; set; } = 4;
 
     /// <summary>
     /// Tối ưu #3: trang "nóng" (đang hiện + đang tải trước theo hướng cuộn, do Viewer khai báo) GIỮ page handle
@@ -74,16 +74,28 @@ public static partial class PdfThumbnailService
         return await EnterPdfiumGateAsync(pdfium, priority, token).ConfigureAwait(false);
     }
     private static HashSet<(string Path, int Index)> _hotPages = new();
+    private sealed record HotPageFocus(string Path, int Index);
+    private static HotPageFocus? _hotPageFocus;
 
     /// <summary>Viewer khai báo các trang cần giữ đã-parse (số trang 1-based của file nguồn).</summary>
-    public static void SetHotPages(IEnumerable<(string Path, int PageNumber)> pages)
+    public static void SetHotPages(IEnumerable<(string Path, int PageNumber)> pages,
+        (string Path, int PageNumber)? preferredPage = null)
     {
         var set = new HashSet<(string, int)>();
+        HotPageFocus? focus = null;
         foreach (var (path, pageNumber) in pages)
         {
             if (set.Count >= MaxHotPages) break;
-            set.Add((NormalizePath(path).ToUpperInvariant(), pageNumber - 1));
+            string key = NormalizePath(path).ToUpperInvariant();
+            set.Add((key, pageNumber - 1));
+            focus ??= new(key, pageNumber - 1);
         }
+        if (preferredPage is { } preferred)
+        {
+            string key = NormalizePath(preferred.Path).ToUpperInvariant();
+            focus = set.Contains((key, preferred.PageNumber - 1)) ? new(key, preferred.PageNumber - 1) : null;
+        }
+        Volatile.Write(ref _hotPageFocus, focus);
         Volatile.Write(ref _hotPages, set);
     }
 
@@ -161,8 +173,10 @@ public static partial class PdfThumbnailService
                 _parsedPages[(page.PathKey, index, document.Pdfium.Index)] = 0;
                 document.Pdfium.MarkPageParsed();
                 Interlocked.Increment(ref _pageLoads);
+                RenderDiagnostics.RecordNativePageParsed(document.SourcePath, index, document.Pdfium.Index);
             }
             else Interlocked.Increment(ref _pageCacheHits);
+            if (visible) _parsedPages[(page.PathKey, index, document.Pdfium.Index)] = 1;
             page.Users++;
             page.KeepWarm |= priority == PdfRenderPriority.Visible;
             page.LastUse = ++pages.UseSequence;

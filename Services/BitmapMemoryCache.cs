@@ -16,6 +16,7 @@ internal sealed class BitmapMemoryCache<TKey> where TKey : notnull
     public long BudgetBytes { get; }
     public long Bytes { get; private set; }
     public int Count => _items.Count;
+    public IEnumerable<BitmapSource> Bitmaps => _lru.Select(entry => entry.Bitmap);
     public static long SizeOf(BitmapSource bitmap) =>
         ((long)bitmap.PixelWidth * bitmap.Format.BitsPerPixel + 7) / 8 * bitmap.PixelHeight;
 
@@ -27,6 +28,23 @@ internal sealed class BitmapMemoryCache<TKey> where TKey : notnull
         _lru.AddLast(node);
         bitmap = node.Value.Bitmap;
         return true;
+    }
+
+    public bool TryFind(Func<TKey, bool> matches, [MaybeNullWhen(false)] out TKey key,
+        [NotNullWhen(true)] out BitmapSource? bitmap)
+    {
+        for (var node = _lru.Last; node != null; node = node.Previous)
+        {
+            if (!matches(node.Value.Key)) continue;
+            key = node.Value.Key;
+            bitmap = node.Value.Bitmap;
+            _lru.Remove(node);
+            _lru.AddLast(node);
+            return true;
+        }
+        key = default;
+        bitmap = null;
+        return false;
     }
 
     public void Set(TKey key, BitmapSource bitmap, Func<TKey, bool>? keep = null)
