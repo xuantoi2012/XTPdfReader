@@ -260,7 +260,7 @@ namespace XTPdfMergeApp
         internal const long ReaderCacheBudgetBytes = 64L * 1024 * 1024;
         private const int ReaderAdjacentPrefetchCount = 2;
         private const double ReaderMinZoom = 0.05;
-        private const double ReaderMaxZoom = 4.0;
+        private const double ReaderMaxZoom = 32.0;
         // 1.25 (25%/nấc) trước đây quá lớn — mỗi nấc lăn chuột nhảy ảnh rõ rệt, cảm giác giật cục.
         // Foxit/Chrome PDF dùng bước nhỏ hơn nhiều (~8-10%/nấc) để zoom mượt hơn.
         private const double ReaderZoomStep = 1.08;
@@ -672,7 +672,7 @@ namespace XTPdfMergeApp
             _readerZoom = ReaderContinuousView.Zoom;
             ReaderZoomText.Text = $"{_readerZoom * 100:0}%";
             _syncingZoomSlider = true;
-            ReaderZoomSlider.Value = Math.Clamp(_readerZoom, ReaderZoomSlider.Minimum, ReaderZoomSlider.Maximum);
+            ReaderZoomSlider.Value = Math.Clamp(Math.Sqrt(_readerZoom), ReaderZoomSlider.Minimum, ReaderZoomSlider.Maximum); // thang căn bậc hai: kéo mịn cả ở zoom thấp lẫn tới 3200%
             _syncingZoomSlider = false;
             if (_readerGroup != null)
                 _readerZoomByGroup[_readerGroup] = (_readerZoomMode, _readerZoom);
@@ -684,7 +684,7 @@ namespace XTPdfMergeApp
         private void ReaderZoomSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (_syncingZoomSlider || ReaderContinuousView.Pages.Count == 0) return;
-            SetReaderContinuousZoom(e.NewValue);
+            SetReaderContinuousZoom(e.NewValue * e.NewValue);
         }
 
         private void ReaderMore_Click(object sender, RoutedEventArgs e) => OpenPalette();

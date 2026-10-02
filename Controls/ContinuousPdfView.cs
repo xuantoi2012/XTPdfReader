@@ -43,7 +43,7 @@ public sealed class ContinuousPdfView : Grid
     private const double PreviewSufficientPx = ThumbnailCache.RenderThumbnailWidthPx * 1.05;
     /// <summary>Độ phân giải vùng nét lượng tử hoá theo bậc 400 px — zoom nhích 1% không phải vẽ lại.</summary>
     private const int RegionResolutionQuantum = 400;
-    private const int MaxRegionFullWidth = 16000;
+    private const int MaxRegionFullWidth = 65536;
     internal const long RegionCacheBudgetBytes = 16L * 1024 * 1024;
     private static readonly object RegionCacheLock = new();
     private static readonly BitmapMemoryCache<CachedRegionKey> RegionCache = new(RegionCacheBudgetBytes);
@@ -151,7 +151,7 @@ public sealed class ContinuousPdfView : Grid
     internal Func<PageRow, int, int, IReadOnlyList<Int32Rect>, CancellationToken, string, Task<List<BitmapSource?>>>? RegionRenderer { get; set; }
 
     public double MinZoom { get; set; } = 0.05;
-    public double MaxZoom { get; set; } = 4.0;
+    public double MaxZoom { get; set; } = 32.0;
     public double ZoomStep { get; set; } = 1.08;
 
     /// <summary>Vẽ thêm lên trang, trong khung nội dung theo hướng của trang (đã xoay khung nhìn, đã cắt theo trang):

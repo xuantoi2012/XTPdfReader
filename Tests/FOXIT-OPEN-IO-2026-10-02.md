@@ -47,3 +47,37 @@ can be slow (one run sat idle for about a minute); measure from the second launc
 - Scroll peak (~890 MB versus Foxit 643 MB) and the 187 MB empty baseline versus Foxit 84 MB.
 - No render-latency (scroll to pixels) comparison was taken; PageDown distances differ between apps.
 - A scripted check that lazy and old modes render identical page hashes was not added.
+
+## Render latency and deep zoom (GUI, same PDF, both apps in the foreground)
+
+`Tests/Measure-GuiLatency.ps1` sends the same keys and Ctrl+wheel to each app and captures the content area
+continuously for 2.5 s after every action; the last frame is the finished image. "Ready" is the first moment the
+frame equals the finished image (grey tolerance 12, 8 samples). This is on-screen readiness, not GPU FPS; both apps
+were foreground, the machine was otherwise idle, one run each, so treat differences under ~30 ms as noise.
+`Tests/Measure-GuiProcessIo.ps1` is the process I/O and memory sampler used above. Both take over mouse and keyboard
+for minutes and must be closed gracefully (killing Reader makes the next launch show the recovery dialog).
+
+| Median ready, ms | Foxit | Reader |
+|---|---:|---:|
+| New adjacent page (PageDown; Reader prefetches 4 pages) | 386 | 49 |
+| Jump to a far, unseen page (End) | 152 | 168 |
+| Return to a seen page | 50 / 118 | 41 / 32 |
+| Zoom in, normal range | 36 | 28 |
+| Zoom out | 50 | 18 |
+| Pan while zoomed | 35 | 18 |
+| Deep zoom in, 10 notches | ~350 | ~400 |
+| Deep zoom out, 20 notches | 850 | 650-700 |
+| **Return to a seen page after deep zoom** | **2,700-3,400** | **29-169** |
+| Private memory peak in this run | 952 MB (deep zoom) | 507 MB |
+
+Foxit stopped changing on several deep-zoom-in steps (it reached its own maximum), so those rows are not comparable
+zoom-for-zoom. The far-page jump is the only real cold read and the two apps are level there.
+
+## Zoom limit
+
+`MaxZoom` was 400% and the sharp region was capped at a 16,000 px page width (about 1,450% on a 1,100 px page).
+Both are raised: `MaxZoom` 32 (3,200%; Reader 100% = ~1,100 px across the paper, so this is roughly Foxit's 2,200%)
+and `MaxRegionFullWidth` 65,536. Regions only rasterize the visible viewport, so memory does not grow with zoom.
+The zoom slider is now on a square-root scale so it stays usable at low zoom. Checked visually at 1,166%: vector text
+edges are crisp. Not checked: 3,200% itself, other page sizes (A0 layouts exceed the 65,536 px cap earlier and then
+upscale), and rotated pages at extreme zoom.

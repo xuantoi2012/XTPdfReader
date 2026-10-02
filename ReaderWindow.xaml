@@ -552,7 +552,7 @@
                     <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.min}"
                                  ToolTip="Zoom out (-)" Click="ReaderZoomOut_Click"/>
                     <Slider x:Name="ReaderZoomSlider" Style="{StaticResource UiSlider}" Width="90" Margin="4,0" VerticalAlignment="Center"
-                            Minimum="0.05" Maximum="4" IsSnapToTickEnabled="False" ValueChanged="ReaderZoomSlider_ValueChanged"/>
+                            Minimum="0.2236" Maximum="5.6569" IsSnapToTickEnabled="False" ValueChanged="ReaderZoomSlider_ValueChanged"/>
                     <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.plus}"
                                  ToolTip="Zoom in (+)" Click="ReaderZoomIn_Click"/>
                     <TextBlock x:Name="ReaderZoomText" Width="46" TextAlignment="Center" Margin="4,0,0,0"
