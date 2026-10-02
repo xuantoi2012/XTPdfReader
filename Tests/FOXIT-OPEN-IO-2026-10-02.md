@@ -45,7 +45,7 @@ can be slow (one run sat idle for about a minute); measure from the second launc
 ## Not done / next
 
 - Scroll peak (~890 MB versus Foxit 643 MB) and the 187 MB empty baseline versus Foxit 84 MB.
-- No render-latency (scroll to pixels) comparison was taken; PageDown distances differ between apps.
+- Render latency was measured afterwards (next section); PageDown distances still differ between the two apps.
 - A scripted check that lazy and old modes render identical page hashes was not added.
 
 ## Render latency and deep zoom (GUI, same PDF, both apps in the foreground)
