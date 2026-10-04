@@ -232,3 +232,12 @@ Per-thread CPU cycles (QueryThreadCycleTime every 10 ms, passive), same 165 MB f
 - Foxit renders on one thread (the main thread: no tile parallelism, no render worker pool). Its smoothness comes from doing less per step, not from more cores.
 - Reader spends about twice Foxit's CPU on zoom-in. Switching off the wide region, speculation or preview warming changes it only between 2.7 and 3.5 G, so the extra cost is elsewhere (candidates: bitmap creation/freeze per region, WPF composition and cross-fade frames, GC). Not yet attributed; needs a managed profiler.
 - Other Foxit facts from its install/registry: no render cache on disk; HKCU ...\Preferences\Display has bPathSmooth=1, bUseClearType=0 (Reader renders with FPDF_LCD_TEXT); the `Setting` folder only holds PDF-conversion presets.
+
+## Foxit UI-thread stack sampling during zoom (04/10, Tests/Profile-ThreadStacks.ps1 + Ghidra FuncMap/Decomp)
+
+Method: every ~2 ms suspend Foxit's UI thread for a moment (no debugger), read EIP + 4 KB of stack, resume; map EIP and call-preceded return addresses to Ghidra functions (runtime base 0x410000, Ghidra base 0x400000). The binary embeds trace strings with source names, e.g. `CPDF_TVPreview::OnPaint` in `foxitreader\preview.cpp`, so some functions can be named.
+
+- The page view is `CPDF_TVPreview` (OnPaint, ZoomToPreview, GotoPagePreview, CalcPagesHeightAndWidthProc, DrawPagesAnnotAndOthers). `OnPaint` creates a compatible DC + bitmap of the clip box, renders into it, then ONE `BitBlt(SRCCOPY)` to the window: every paint is a complete, atomic frame.
+- The page tile render (FUN_01d65d10 -> FUN_01d649a0) allocates a 24 bpp DIB for the rectangle and, in blocking mode, loops `do { Continue() } while (!finished)` on the UI thread. No worker threads (99-100% of CPU in one thread).
+- Timeline of the UI thread in a 40-notch, 30 ms-apart Ctrl+wheel roll: back-to-back render blocks of ~85 ms separated by ~10 ms idle gaps (the message loop: input + paint); zoom-in blocks shrink 163 -> 6 ms as the zoom approaches the limit, zoom-out blocks grow 6 -> 174 ms and end with a 588 ms block (final full render). That is about one frame per 95 ms while rolling, i.e. Foxit's cadence is NOT higher than Reader's (Reader: zoom-in ~70 ms, zoom-out ~35 ms per update).
+- While a block runs the UI thread is blocked, so queued wheel notches are consumed together afterwards (a natural coalescing); Reader keeps the UI thread free.
