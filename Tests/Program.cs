@@ -931,12 +931,12 @@ internal static partial class Program
             "Isolated wheel notches (800 ms apart) are never accelerated");
         var fast = new ReaderZoomMath.WheelZoomAccelerator();
         var multipliers = Enumerable.Range(0, 12).Select(i => fast.Next(1, 1, i * 31.0)).ToArray();
-        Check(multipliers[0] == 1.0 && multipliers[1] == 1.0 && multipliers[2] == 1.0 && multipliers[3] > 1.0 && multipliers[3] < 2.0,
-            "The first three rapid notches keep the normal step, then the step grows");
-        Check(Math.Abs(multipliers[8] - 5.5) < 1e-9 && multipliers.Skip(8).All(m => m <= ReaderZoomMath.WheelZoomAccelerator.MaxMultiplier + 1e-9),
-            "Acceleration reaches and holds the maximum multiplier by the ninth notch");
+        Check(multipliers[0] == 1.0 && multipliers[1] == 1.0 && multipliers[2] > 1.0 && multipliers[2] < 2.0,
+            "The first two rapid notches keep the normal step, then the step grows");
+        Check(Math.Abs(multipliers[9] - 7.0) < 1e-9 && multipliers.Skip(9).All(m => m <= ReaderZoomMath.WheelZoomAccelerator.MaxMultiplier + 1e-9),
+            "Acceleration reaches and holds the maximum multiplier by the tenth notch");
         double equivalent9 = multipliers.Take(9).Sum();
-        Check(equivalent9 > 20 && equivalent9 < 30, $"Nine rapid notches add up to about the 21 notch-equivalents measured in Foxit (got {equivalent9:0.0})");
+        Check(equivalent9 > 28 && equivalent9 < 36, $"Nine rapid notches add up to about 1.5x the 21 notch-equivalents measured in Foxit (got {equivalent9:0.0})");
         var turn = new ReaderZoomMath.WheelZoomAccelerator();
         for (int i = 0; i < 8; i++) turn.Next(1, 1, i * 31.0);
         Check(turn.Next(1, -1, 8 * 31.0) == 1.0, "Reversing direction restarts the run");

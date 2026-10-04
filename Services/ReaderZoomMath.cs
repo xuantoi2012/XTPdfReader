@@ -19,16 +19,16 @@ namespace XTPdfMergeApp.Services
 
         /// <summary>
         /// Tăng tốc zoom khi lăn con lăn liên tục (Foxit làm vậy: đo 04/10 với 40 nấc cách nhau ~31 ms thì sau 9 nấc Foxit đã ×5,1 còn Reader
-        /// chỉ ×2,0, vì Reader luôn ×1,08 mỗi nấc). Một lượt lăn = các nấc cách nhau dưới <see cref="RunGapMilliseconds"/> và cùng chiều.
-        /// Ba nấc đầu giữ ×1,08 (nấc đơn lẻ vẫn chính xác), sau đó mỗi nấc "nặng" thêm <see cref="RampPerNotch"/> nấc-tương-đương tới
+        /// chỉ ×2,0, vì Reader luôn ×1,08 mỗi nấc); từ 04/10 chủ ý nhanh hơn Foxit khoảng 1,5 lần theo yêu cầu người dùng. Một lượt lăn = các nấc cách nhau dưới <see cref="RunGapMilliseconds"/> và cùng chiều.
+        /// Hai nấc đầu giữ ×1,08 (nấc đơn lẻ vẫn chính xác), sau đó mỗi nấc "nặng" thêm <see cref="RampPerNotch"/> nấc-tương-đương tới
         /// <see cref="MaxMultiplier"/>. Lăn mịn (bàn di chuột) cộng dồn theo phần nấc nên vẫn liên tục.
         /// </summary>
         public sealed class WheelZoomAccelerator
         {
             public const double RunGapMilliseconds = 160;
-            public const double FreeNotches = 3;
-            public const double RampPerNotch = 0.75;
-            public const double MaxMultiplier = 5.5;
+            public const double FreeNotches = 2;
+            public const double RampPerNotch = 0.8;
+            public const double MaxMultiplier = 7.0;
 
             private double _run, _lastMs = double.NegativeInfinity;
             private int _direction;
