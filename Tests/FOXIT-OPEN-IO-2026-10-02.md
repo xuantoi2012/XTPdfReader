@@ -188,3 +188,9 @@ scaling at 30 fps, so it was left as is).
 
 - Sharp region now leans toward the pan direction (lead margin 2.5x, trail 0.5x) and the next region is requested while panning as soon as the visible area is within a quarter view of the region edge. First version (half-view comfort) re-rendered continuously for 700 ms after each pan (settle 2.3-4 s); fixed by the quarter-view threshold. New `pan` mode in Measure-GuiLatency.ps1 (wheel pans, shift+wheel for horizontal). Wheel pans of 12-80 notches at 10-150 ms spacing show no post-pan sharpening tail on either the old or the new build, so this test cannot reproduce the effect the user sees; drag-pan / scrollbar-drag untested.
 - Deep zoom-out (20 notches) settle 2.4 s and jump-to-END after it 1.5 s versus 0.7 s / 0.4 s on the pre-exact-raster build (3ed4d76): that build reused an oversized page bitmap scaled down (the stroke-weight 'jump'); exact raster re-renders each page at the displayed size. Same cost with speculation off.
+
+## Wide background region for continuous pan (04/10)
+
+- The user's case: zoom to ~100%, then pan left/right continuously at once; sharpening did not keep up. Wheel pans with the 12.5% region margin re-rendered a new region at every direction reversal.
+- Fix: a second, independent region of up to 9 Mpx (visible area plus 100% margin on each side, only the missing strips are rendered) is rendered at Background priority in parallel with the on-demand region (`WideRegions`, `XTPDF_WIDE_REGION=0` disables). Zoom steps are unaffected (zin median 27 ms, zout 25 ms), peak private memory 558 -> 623 MB.
+- Measured with `Capture-GuiZoomSequence.ps1 -Mode pan` (zoom with Ctrl+wheel, pan with Shift+wheel, direction flips every 8 notches) and `XTPDF_DEBUG_LOG` (`DRAW UNSHARP` = a frame in which the visible part of a region-mode page is not fully covered by a sharp region): 22-notch zoom 31 unsharp draws without the wide region, 0 with it; 26-notch zoom 10 -> 0.

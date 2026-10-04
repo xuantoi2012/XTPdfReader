@@ -16,6 +16,23 @@ public static class Seq {
   public static Rectangle Region(IntPtr h) { RECT r; GetWindowRect(h, out r); int w = r.R - r.L, hh = r.B - r.T; int cw = Math.Min(1000, w - 120), ch = Math.Min(560, hh - 260);
     return new Rectangle(r.L + (w - cw) / 2, r.T + (hh - ch) / 2 + 60, cw, ch); }
   public static void Center(Rectangle rc) { SetCursorPos(rc.X + rc.Width / 2, rc.Y + rc.Height / 2); }
+  // Zooms in with Ctrl+wheel, then pans left/right with Shift+wheel right away (direction flips every 8 notches) while capturing.
+  public static string CapturePan(Rectangle rc, int zoomNotches, int panNotches, int panIntervalMs, int totalMs, string dir) {
+    Directory.CreateDirectory(dir);
+    foreach (var f in Directory.GetFiles(dir, "*.png")) File.Delete(f);
+    var bmp = new Bitmap(rc.Width, rc.Height, PixelFormat.Format32bppRgb); var g = Graphics.FromImage(bmp);
+    var frames = new List<Bitmap>(); var times = new List<double>();
+    var sw = Stopwatch.StartNew(); double panStart = -1;
+    var t = new Thread(() => { Thread.Sleep(250);
+      for (int i = 0; i < zoomNotches; i++) { keybd_event(0x11, 0, 0, UIntPtr.Zero); mouse_event(0x0800, 0, 0, 120, UIntPtr.Zero); keybd_event(0x11, 0, 2, UIntPtr.Zero); Thread.Sleep(int.Parse(Environment.GetEnvironmentVariable("ZOOM_GAP_MS") ?? "30")); }
+      Thread.Sleep(int.Parse(Environment.GetEnvironmentVariable("PAN_DELAY_MS") ?? "100")); panStart = sw.Elapsed.TotalMilliseconds;
+      for (int i = 0; i < panNotches; i++) { int d = ((i / 8) % 2 == 0) ? 120 : -120; keybd_event(0x10, 0, 0, UIntPtr.Zero); mouse_event(0x0800, 0, 0, d, UIntPtr.Zero); keybd_event(0x10, 0, 2, UIntPtr.Zero); Thread.Sleep(panIntervalMs); } });
+    t.Start();
+    while (sw.Elapsed.TotalMilliseconds < totalMs) { g.CopyFromScreen(rc.Location, Point.Empty, rc.Size); frames.Add((Bitmap)bmp.Clone()); times.Add(sw.Elapsed.TotalMilliseconds); }
+    t.Join();
+    for (int i = 0; i < frames.Count; i++) { frames[i].Save(Path.Combine(dir, string.Format("f{0:D3}_{1:D5}.png", i, (int)times[i])), ImageFormat.Png); frames[i].Dispose(); }
+    return string.Format("frames={0} panStartMs={1:F0}", frames.Count, panStart);
+  }
   // Rolls the wheel (with Ctrl) on a worker thread starting after leadMs, and captures the region as fast as possible for totalMs.
   public static string Capture(Rectangle rc, int notches, int delta, int intervalMs, int leadMs, int totalMs, string dir, bool ctrl) {
     Directory.CreateDirectory(dir);
@@ -45,7 +62,10 @@ Start-Sleep -Seconds 3
 $rc = [Seq]::Region($h); [Seq]::Center($rc)
 $log = @()
 [void][Seq]::SetForegroundWindow($h)
-if ($Mode -eq 'scroll') {
+if ($Mode -eq 'pan') {
+  [void][Seq]::SetForegroundWindow($h)
+  $log += "$Tag pan: " + [Seq]::CapturePan($rc, $Notches, 48, 15, (1800 + $Notches * [int]($(if($env:ZOOM_GAP_MS){$env:ZOOM_GAP_MS}else{30})) + [int]($(if($env:PAN_DELAY_MS){$env:PAN_DELAY_MS}else{100}))), (Join-Path $OutDir "$Tag-pan"))
+} elseif ($Mode -eq 'scroll') {
   [void][Seq]::SetForegroundWindow($h)
   $log += "$Tag scroll: " + [Seq]::Capture($rc, 40, -120, 12, 250, 2600, (Join-Path $OutDir "$Tag-scroll"), $false)
 } else {

@@ -47,9 +47,14 @@ public sealed class ContinuousPdfView : Grid
     private const int MaxRegionFullWidth = 65536;
     /// <summary>Vùng nét vẽ dư 60% so với cỡ đang cần (xem <see cref="ZoomHeadroom"/>); vùng chỉ phủ khung nhìn nên tốn thêm ~2,5× điểm ảnh.</summary>
     private const double RegionHeadroom = 1.6;
+    /// <summary>Zoom lớn: khi rảnh, mở rộng vùng nét ra quanh khung nhìn (tới cỡ này) để pan liên tục không đuổi kịp mép vùng
+    /// (ảnh nét sẵn quanh khung nhìn thay vì làm nét sau khi pan tới). Vẽ ở mức nền, bị huỷ ngay khi cần vùng thật. XTPDF_WIDE_REGION=0 tắt.</summary>
+    internal static bool WideRegions { get; set; } = Environment.GetEnvironmentVariable("XTPDF_WIDE_REGION") != "0";
+    private const long WideRegionPixels = 9_000_000;
+    private const double WideMargin = 1.0, WideCheckMargin = 0.4;
     private const double RegionLowWater = 1.06, RegionHighWater = 3.0;
     /// <summary>Bộ nhớ đệm vùng nét (cả vùng vẽ trước cho bước zoom kế): mỗi vùng ~4 MB nên 16 MiB chỉ chứa 4 vùng.</summary>
-    internal const long RegionCacheBudgetBytes = 64L * 1024 * 1024;
+    internal const long RegionCacheBudgetBytes = 128L * 1024 * 1024;
     private static readonly object RegionCacheLock = new();
     private static readonly BitmapMemoryCache<CachedRegionKey> RegionCache = new(RegionCacheBudgetBytes);
     private static long _regionCacheGeneration;
@@ -576,6 +581,7 @@ public sealed class ContinuousPdfView : Grid
         if (kind == ChangeKind.UserScroll && (dx != 0 || dy != 0))
         {
             _panSignX = Math.Sign(dx); _panSignY = Math.Sign(dy);
+            if (DiagnosticsLog.Enabled && Stopwatch.GetElapsedTime(_lastPanTimestamp).TotalMilliseconds > 400) DiagnosticsLog.Event("PAN start");
             _lastPanTimestamp = now;
         }
         if (kind == ChangeKind.Zoom) _lastZoomTimestamp = now;
@@ -920,6 +926,14 @@ public sealed class ContinuousPdfView : Grid
                 }
                 dc.Pop();
             }
+            if (DiagnosticsLog.Enabled && row.LayoutWidth * vp.Zoom * dpi > RegionStartPx(dpi) && vp.VisibleFraction(s, out double vx0, out double vy0, out double vx1, out double vy1))
+            {
+                var (ua, va) = Unrotate(vx0, vy0); var (ub, vb) = Unrotate(vx1, vy1);
+                double gx0 = Math.Min(ua, ub), gx1 = Math.Max(ua, ub), gy0 = Math.Min(va, vb), gy1 = Math.Max(va, vb);
+                bool full = regionList != null && regionList.Any(r => r.Bitmap != null && r.Key.X <= gx0 * r.Key.FullWidth + 1 && r.Key.Y <= gy0 * r.Key.FullHeight + 1 &&
+                    r.Key.X + r.Key.Width >= gx1 * r.Key.FullWidth - 1 && r.Key.Y + r.Key.Height >= gy1 * r.Key.FullHeight - 1);
+                DiagnosticsLog.Event(full ? "DRAW sharp" : "DRAW UNSHARP");
+            }
             AnnotationLayer.Draw(dc, row, content, dpi, _bases);
             PageDrawn?.Invoke(dc, row, content, dpi);
             if (rotated) { dc.Pop(); dc.Pop(); }
@@ -1196,6 +1210,7 @@ public sealed class ContinuousPdfView : Grid
             else if (state.Regions.Count > 0 || state.RegionCts != null)
             {
                 state.CancelRegion();
+                state.CancelWide();
                 state.Regions.Clear();
                 _surface.InvalidateVisual();
             }
@@ -1431,10 +1446,12 @@ public sealed class ContinuousPdfView : Grid
             k.X <= ax0 * k.FullWidth + 0.5 && k.Y <= ay0 * k.FullHeight + 0.5 &&
             k.X + k.Width >= ax1 * k.FullWidth - 0.5 && k.Y + k.Height >= ay1 * k.FullHeight - 0.5;
 
+        var source = RenderCacheKeys.Thumbnail(row.SourcePath, row.PageNumber);
+        // Vùng rộng chạy riêng, song song, ở mức nền: không chờ vùng thật đang vẽ, nên pan liên tục (kể cả đổi chiều) vẫn có nét sẵn.
+        if (renderMissing && ExactRaster && WideRegions) MaybeRequestWide();
         bool covered = state.Regions.Any(r => Covers(r.Key));
         if (covered && (!panning || state.Regions.Any(r => Comfortable(r.Key)) ||
             (state.RegionPending is { } ahead && Comfortable(ahead)))) return true;
-        var source = RenderCacheKeys.Thumbnail(row.SourcePath, row.PageNumber);
         CachedRegionKey cachedKey;
         BitmapSource? cachedBitmap;
         cachedKey = default;
@@ -1466,30 +1483,51 @@ public sealed class ContinuousPdfView : Grid
 
         var (x, y, w, h) = ContinuousViewport.Region(fx0, fy0, fx1, fy1, fullWidth, fullHeight, panX: panU, panY: panV);
         var key = new RegionKey(fullWidth, fullHeight, x, y, w, h, layers, state.Version);
-        var target = new Int32Rect(x, y, w, h);
-        var pieces = new List<ViewportRegionReuse.Piece>();
-        if (ReuseRenderedImages && ReuseRegionOverlap)
-        {
-            foreach (var region in state.Regions)
-                if (Compatible(region.Key)) pieces.Add(ViewportRegionReuse.CachedPiece(ToRect(region.Key), region.Bitmap, fullWidth, fullHeight, target));
-            lock (RegionCacheLock)
-                if (RegionCache.TryFind(k => k.Path == source.Path && k.Page == source.Page &&
-                    Compatible(k.Region with { Version = state.Version }) &&
-                    !ViewportRegionReuse.Intersect(target, ToRect(k.Region)).IsEmpty, out cachedKey, out cachedBitmap) &&
-                    pieces.All(p => !ReferenceEquals(p.Bitmap, cachedBitmap)))
-                    pieces.Add(ViewportRegionReuse.CachedPiece(ToRect(cachedKey.Region), cachedBitmap, fullWidth, fullHeight, target));
-        }
-        var missing = ViewportRegionReuse.Plan(target, pieces);
-        bool reuseOverlap = missing.Length == 0 || missing.Length != 1 || missing[0] != target;
-        if (!reuseOverlap) pieces.Clear();
-        var rectangles = reuseOverlap
-            ? missing.Select(r => ViewportRegionReuse.WithGutter(r, fullWidth, fullHeight)).ToArray() : missing;
+        var (pieces, missing, reuseOverlap, rectangles) = PlanRegion(new Int32Rect(x, y, w, h));
         state.CancelRegion();
         var cts = new CancellationTokenSource();
         state.RegionCts = cts;
         state.RegionPending = key;
-        _ = LoadRegionAsync(row, state, key, cts, rectangles, missing, pieces, reuseOverlap);
+        _ = LoadRegionAsync(row, state, key, cts, rectangles, missing, pieces, reuseOverlap, wide: false);
         return covered;
+
+        // Những phần của vùng cần vẽ mà ảnh đã có (vùng đang giữ, bộ nhớ đệm) chưa phủ: chỉ vẽ phần thiếu.
+        (List<ViewportRegionReuse.Piece> Pieces, Int32Rect[] Missing, bool ReuseOverlap, Int32Rect[] Rectangles) PlanRegion(Int32Rect target)
+        {
+            var found = new List<ViewportRegionReuse.Piece>();
+            if (ReuseRenderedImages && ReuseRegionOverlap)
+            {
+                foreach (var region in state.Regions)
+                    if (Compatible(region.Key)) found.Add(ViewportRegionReuse.CachedPiece(ToRect(region.Key), region.Bitmap, fullWidth, fullHeight, target));
+                CachedRegionKey ck; BitmapSource? cb;
+                lock (RegionCacheLock)
+                    if (RegionCache.TryFind(k => k.Path == source.Path && k.Page == source.Page &&
+                        Compatible(k.Region with { Version = state.Version }) &&
+                        !ViewportRegionReuse.Intersect(target, ToRect(k.Region)).IsEmpty, out ck, out cb) &&
+                        found.All(p => !ReferenceEquals(p.Bitmap, cb)))
+                        found.Add(ViewportRegionReuse.CachedPiece(ToRect(ck.Region), cb!, fullWidth, fullHeight, target));
+            }
+            var gaps = ViewportRegionReuse.Plan(target, found);
+            bool overlap = gaps.Length == 0 || gaps.Length != 1 || gaps[0] != target;
+            if (!overlap) found.Clear();
+            var rects = overlap ? gaps.Select(r => ViewportRegionReuse.WithGutter(r, fullWidth, fullHeight)).ToArray() : gaps;
+            return (found, gaps, overlap, rects);
+        }
+
+        void MaybeRequestWide()
+        {
+            var (cx, cy, cw, ch) = ContinuousViewport.Region(fx0, fy0, fx1, fy1, fullWidth, fullHeight, WideCheckMargin, maxPixels: WideRegionPixels);
+            bool Holds(RegionKey k) => Compatible(k) && k.X <= cx && k.Y <= cy && k.X + k.Width >= cx + cw && k.Y + k.Height >= cy + ch;
+            if (state.Regions.Any(r => Holds(r.Key)) || (state.WidePending is { } inFlight && Holds(inFlight))) return;
+            var (wx, wy, ww, wh) = ContinuousViewport.Region(fx0, fy0, fx1, fy1, fullWidth, fullHeight, WideMargin, maxPixels: WideRegionPixels, panX: panU, panY: panV);
+            var wideKey = new RegionKey(fullWidth, fullHeight, wx, wy, ww, wh, layers, state.Version);
+            var (widePieces, wideMissing, wideOverlap, wideRects) = PlanRegion(new Int32Rect(wx, wy, ww, wh));
+            state.CancelWide();
+            var wideCts = new CancellationTokenSource();
+            state.WideCts = wideCts;
+            state.WidePending = wideKey;
+            _ = LoadRegionAsync(row, state, wideKey, wideCts, wideRects, wideMissing, widePieces, wideOverlap, wide: true);
+        }
 
         bool Compatible(RegionKey k) => k.FullWidth == fullWidth && k.FullHeight == fullHeight &&
             k.Version == state.Version && string.Equals(k.Layers, layers, StringComparison.Ordinal);
@@ -1498,8 +1536,10 @@ public sealed class ContinuousPdfView : Grid
     private static Int32Rect ToRect(RegionKey key) => new(key.X, key.Y, key.Width, key.Height);
 
     private async Task LoadRegionAsync(PageRow row, PageState state, RegionKey key, CancellationTokenSource cts,
-        Int32Rect[] rectangles, Int32Rect[] missing, List<ViewportRegionReuse.Piece> pieces, bool reuseOverlap)
+        Int32Rect[] rectangles, Int32Rect[] missing, List<ViewportRegionReuse.Piece> pieces, bool reuseOverlap,
+        bool wide = false)
     {
+        var priority = wide ? PdfRenderPriority.Background : PdfRenderPriority.Visible;
         long cacheGeneration = Interlocked.Read(ref _regionCacheGeneration);
         BitmapSource? bmp = null;
         try
@@ -1507,7 +1547,7 @@ public sealed class ContinuousPdfView : Grid
             var images = rectangles.Length == 0 ? new List<BitmapSource?>() :
                 await (RegionRenderer?.Invoke(row, key.FullWidth, key.FullHeight, rectangles, cts.Token, key.Layers) ??
                     PdfThumbnailService.RenderPageTilesBatchAsync(row.SourcePath, row.PageNumber - 1, key.FullWidth, key.FullHeight,
-                        rectangles, cts.Token, key.Layers));
+                        rectangles, cts.Token, key.Layers, priority: priority));
             cts.Token.ThrowIfCancellationRequested();
             if (images.Count == rectangles.Length && images.All(image => image != null))
             {
@@ -1522,7 +1562,8 @@ public sealed class ContinuousPdfView : Grid
         catch (OperationCanceledException) { }
         catch (Exception ex) { Debug.WriteLine($"[ContinuousPdfView] region render failed: {ex.Message}"); }
         bool cancelled = cts.IsCancellationRequested;
-        if (ReferenceEquals(state.RegionCts, cts)) { state.RegionCts = null; state.RegionPending = null; }
+        if (wide) { if (ReferenceEquals(state.WideCts, cts)) { state.WideCts = null; state.WidePending = null; } }
+        else if (ReferenceEquals(state.RegionCts, cts)) { state.RegionCts = null; state.RegionPending = null; }
         cts.Dispose();
         if (cancelled || bmp == null || !IsLive(row, state, key.Version)) return;
         if (!string.Equals(key.Layers, PdfLayerStateStore.GetToken(row.SourcePath), StringComparison.Ordinal))
@@ -1541,7 +1582,7 @@ public sealed class ContinuousPdfView : Grid
         var regions = state.Regions;
         regions.RemoveAll(r => r.Key.Version != key.Version || !string.Equals(r.Key.Layers, key.Layers, StringComparison.Ordinal));
         regions.Add(new RegionImage(key, bmp));
-        while (regions.Count > 2) regions.RemoveAt(0);
+        while (regions.Count > (WideRegions ? 3 : 2)) regions.RemoveAt(0);
         if (IsOnScreen(row)) _surface.InvalidateVisual();
         CheckPresent();
         ScheduleUpdate(); // khung nhìn có thể đã đi tiếp trong lúc vẽ (pan) — xin vùng kế nếu cần
@@ -1597,6 +1638,14 @@ public sealed class ContinuousPdfView : Grid
         /// đã xin cỡ này rồi thì không xin lặp mãi dù ảnh nhận được không khớp cỡ hiển thị.</summary>
         public int DeliveredWidth = -1;
         public readonly List<RegionImage> Regions = new();
+        public CancellationTokenSource? WideCts;
+        public RegionKey? WidePending;
+        public void CancelWide()
+        {
+            WideCts?.Cancel();
+            WideCts = null;
+            WidePending = null;
+        }
         public CancellationTokenSource? RegionCts;
         public RegionKey? RegionPending;
 
@@ -1614,6 +1663,7 @@ public sealed class ContinuousPdfView : Grid
             PageCts?.Cancel();
             PageCts = null;
             CancelRegion();
+            CancelWide();
         }
     }
 
