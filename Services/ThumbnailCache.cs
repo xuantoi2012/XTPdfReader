@@ -24,7 +24,7 @@ namespace XTPdfMergeApp.Services
         /// khỏi phải render lại PDF từ đầu, chỉ lấy lại ảnh đã có trong bộ nhớ.</summary>
         internal static readonly object _thumbnailLock = new();
         internal static long _thumbnailGeneration;
-        internal const long ThumbnailCacheBudgetBytes = 48L * 1024 * 1024;
+        internal const long ThumbnailCacheBudgetBytes = 160L * 1024 * 1024;
         internal static readonly BitmapMemoryCache<(string Path, int Page, string Layers)> _thumbnailCache = new(ThumbnailCacheBudgetBytes);
         internal static readonly Dictionary<(string Path, int Page, string Layers), Task<BitmapSource?>> _thumbnailLoads = new();
         internal const int ThumbnailRenderConcurrency = 4;

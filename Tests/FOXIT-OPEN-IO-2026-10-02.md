@@ -205,3 +205,9 @@ Rendering the next zoom step (logical zoom at that moment) in parallel with the 
 - PDFium flags NO_SMOOTHPATH / NO_SMOOTHIMAGE / NO_SMOOTHTEXT on a 1376x781 region of page 21: 40.6 ms -> 36.6-37.7 ms (about 8%), nothing worth the change in look. Cost is geometry/parsing, not smoothing.
 - Tight region (no margin) for the first 500 ms after a zoom step, with or without the wide background region: cadence of a 40-notch roll unchanged (zoom-in 5 updates, zoom-out 10 in 350 ms; two runs per configuration). Reverted.
 - Why zoom-in shows only ~5 updates: with the faster wheel acceleration the zoom reaches the 32x limit about 300 ms into the roll, so there are simply fewer steps to show (the metric counts steps, not render speed). Max gap between updates stays 130-170 ms.
+
+## Idle preview warming (04/10)
+
+- Cause of the slow jump after a deep zoom (END 1.4-1.7 s): the ~10 pages visible at the destination were cold and each needed its 340 px preview rendered (page parse + render 0.4-1.2 s, two PDFium instances).
+- Fix: when idle for 800 ms (no scroll/zoom/pan), the view renders the previews of the whole document into the shared ThumbnailCache at lowest priority, nearest pages to the current one first, and stops as soon as the user acts (`WarmAllPreviews`, `XTPDF_WARM_PREVIEWS=0` disables; ThumbnailCache budget 48 -> 160 MiB, 600 page cap).
+- Deep mode, 25 s load wait: jump to END 1397 ms -> 45 ms; zoom-out by 20 notches settle 834 -> 650 ms; peak private memory 696 -> 708 MB. Standard mode: jump to END 44/112 ms, revisit 43 ms. Cost: background CPU for a while after opening a big file (not measured separately).

@@ -1261,6 +1261,58 @@ public sealed class ContinuousPdfView : Grid
             }
             else if (BestBitmap(row, state) == null) RequestPreview(row, state, PdfRenderPriority.Thumbnail);
         }
+        MaybeWarmPreviews();
+    }
+
+    /// <summary>Rảnh (không cuộn/zoom/pan một lúc): vẽ sẵn ảnh xem trước (340 px) của cả tài liệu, gần trang đang đọc trước, ở ưu tiên thấp nhất
+    /// vào bộ nhớ đệm chung — nhảy tới trang xa hoặc zoom ra xem nhiều trang thì có hình ngay thay vì chờ từng trang lạnh được đọc và vẽ
+    /// (đo 04/10: nhảy tới trang cuối sau zoom sâu mất 1,5 s, chủ yếu là ~10 trang lạnh vẽ ảnh xem trước). Dừng ngay khi người dùng thao tác.
+    /// Đổi lại tốn CPU nền một lúc sau khi mở file và ~0,3 MB RAM mỗi trang. XTPDF_WARM_PREVIEWS=0 tắt.</summary>
+    internal static bool WarmAllPreviews { get; set; } = Environment.GetEnvironmentVariable("XTPDF_WARM_PREVIEWS") != "0";
+    private const double WarmIdleMilliseconds = 800;
+    private const int WarmConcurrency = 2, WarmMaxPages = 600;
+    private readonly HashSet<PageRow> _warmed = new(ReferenceEqualityComparer.Instance);
+    private CancellationTokenSource? _warmCts;
+    private int _warmInflight;
+
+    private void MaybeWarmPreviews()
+    {
+        if (!WarmAllPreviews || _pages.Count == 0 || _renderingSuspended || !IsVisible || _pv != null) return;
+        long now = Stopwatch.GetTimestamp();
+        double idle = Math.Min(Stopwatch.GetElapsedTime(_lastScrollTimestamp, now).TotalMilliseconds,
+            Math.Min(Stopwatch.GetElapsedTime(_lastZoomTimestamp, now).TotalMilliseconds, Stopwatch.GetElapsedTime(_lastPanTimestamp, now).TotalMilliseconds));
+        bool remaining = _warmed.Count < Math.Min(_pages.Count, WarmMaxPages);
+        if (idle < WarmIdleMilliseconds)
+        {
+            _warmCts?.Cancel();
+            _warmCts = null;
+            if (remaining) { _updateTimer.Interval = TimeSpan.FromMilliseconds(WarmIdleMilliseconds - idle + 20); _updateTimer.Start(); }
+            return;
+        }
+        if (!remaining || _warmInflight >= WarmConcurrency) return;
+        int center = _currentPage >= 0 && _currentPage < _pages.Count ? _currentPage : 0;
+        var cts = _warmCts ??= new CancellationTokenSource();
+        for (int k = 0; k < _pages.Count && _warmInflight < WarmConcurrency; k++)
+        {
+            foreach (int i in new[] { center + k, center - k })
+            {
+                if (i < 0 || i >= _pages.Count || (k == 0 && i != center) || _warmInflight >= WarmConcurrency) continue;
+                var row = _pages[i];
+                if (!_warmed.Add(row)) continue;
+                _warmInflight++;
+                _ = WarmOneAsync(row, cts);
+            }
+        }
+    }
+
+    private async Task WarmOneAsync(PageRow row, CancellationTokenSource cts)
+    {
+        BitmapSource? bmp = null;
+        try { bmp = await ThumbnailCache.LoadPreviewAsync(row, cts.Token, PdfRenderPriority.Thumbnail); }
+        catch { }
+        _warmInflight--;
+        if (bmp == null || cts.IsCancellationRequested) _warmed.Remove(row); // dừng giữa chừng: lần rảnh sau thử lại
+        ScheduleUpdate();
     }
 
     /// <summary>Vẽ dư độ phân giải so với cỡ đang cần: vài nấc zoom kế tiếp chỉ phóng NHỎ xuống ảnh đã nét, nên không có khoảng mờ

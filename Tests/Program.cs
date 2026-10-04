@@ -28,7 +28,7 @@ internal static partial class Program
         try
         {
             Directory.CreateDirectory(Output);
-            XTPdfMergeApp.Controls.ContinuousPdfView.WideRegions = false; XTPdfMergeApp.Controls.ContinuousPdfView.SpeculateZoomSteps = false; // pre-rendering calls the page renderer in the background and would skew the request counts the viewer tests assert
+            XTPdfMergeApp.Controls.ContinuousPdfView.WideRegions = false; XTPdfMergeApp.Controls.ContinuousPdfView.WarmAllPreviews = false; XTPdfMergeApp.Controls.ContinuousPdfView.SpeculateZoomSteps = false; // pre-rendering calls the page renderer in the background and would skew the request counts the viewer tests assert
             // NuGet places PDFium in a runtime-specific directory.
             var dll = Directory.GetFiles(AppContext.BaseDirectory, "pdfium.dll", SearchOption.AllDirectories)
                 .First(path => path.Contains("win-x64", StringComparison.OrdinalIgnoreCase));
