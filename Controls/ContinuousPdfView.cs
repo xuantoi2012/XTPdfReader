@@ -322,7 +322,7 @@ public sealed class ContinuousPdfView : Grid
     /// <summary>Tốc độ zoom tối đa của lăn chuột, tính bằng ln(zoom)/giây (3 ≈ ×1,25 mỗi bước vẽ ~75 ms, tốc độ trung bình của Foxit đo được ~2,6; 6 làm tốc độ lúc nhanh lúc chậm gấp 4 lần nhau).
     /// 0 = không giới hạn (mỗi nấc đổi zoom ngay như trước). XTPDF_ZOOM_RATE đổi giá trị.</summary>
     internal static double ZoomRateLimit { get; set; } =
-        double.TryParse(Environment.GetEnvironmentVariable("XTPDF_ZOOM_RATE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double rate) ? rate : 3.0;
+        double.TryParse(Environment.GetEnvironmentVariable("XTPDF_ZOOM_RATE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double rate) ? rate : 4.5;
     internal const double MaxPresentStep = 1.45;
     private const double ZoomLeadLimit = 6.0; // đích không đi trước zoom đang hiện quá ×6: thả tay thì dừng ngay, không trôi tiếp
     private double? _zoomTarget;
