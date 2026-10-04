@@ -576,7 +576,8 @@ public sealed class ContinuousPdfView : Grid
         var modifiers = Keyboard.Modifiers;
         if ((modifiers & ModifierKeys.Control) != 0)
         {
-            ZoomAt(ReaderZoomMath.WheelZoom(_vp.Zoom, e.Delta, ZoomStep, MinZoom, MaxZoom), e.GetPosition(_surface));
+            double accel = _wheelAccel.Next(Math.Abs(e.Delta) / 120.0, Math.Sign(e.Delta), Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency);
+            ZoomAt(ReaderZoomMath.WheelZoom(_vp.Zoom, (int)Math.Round(e.Delta * accel), ZoomStep, MinZoom, MaxZoom), e.GetPosition(_surface));
             UserZoomed?.Invoke();
         }
         else
@@ -592,6 +593,8 @@ public sealed class ContinuousPdfView : Grid
         }
         e.Handled = true;
     }
+
+    private readonly ReaderZoomMath.WheelZoomAccelerator _wheelAccel = new();
 
     private bool _panning;
     private Point _panStart;

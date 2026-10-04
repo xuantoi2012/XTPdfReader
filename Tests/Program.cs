@@ -917,6 +917,26 @@ internal static partial class Program
             "Negative wheel delta zooms out by one step");
         Check(Math.Abs(ReaderZoomMath.WheelZoom(4.0, 120, step, 0.05, 4.0) - 4.0) < 0.0001,
             "Wheel zoom respects maximum clamp");
+
+        // Acceleration (calibrated on Foxit: 40 rapid notches, ~31 ms apart, were x2.1 after 7, x5.1 after 9, x20 after 13).
+        var slow = new ReaderZoomMath.WheelZoomAccelerator();
+        Check(Enumerable.Range(0, 6).All(i => slow.Next(1, 1, i * 800.0) == 1.0),
+            "Isolated wheel notches (800 ms apart) are never accelerated");
+        var fast = new ReaderZoomMath.WheelZoomAccelerator();
+        var multipliers = Enumerable.Range(0, 12).Select(i => fast.Next(1, 1, i * 31.0)).ToArray();
+        Check(multipliers[0] == 1.0 && multipliers[1] == 1.0 && multipliers[2] == 1.0 && multipliers[3] > 1.0 && multipliers[3] < 2.0,
+            "The first three rapid notches keep the normal step, then the step grows");
+        Check(Math.Abs(multipliers[8] - 5.5) < 1e-9 && multipliers.Skip(8).All(m => m <= ReaderZoomMath.WheelZoomAccelerator.MaxMultiplier + 1e-9),
+            "Acceleration reaches and holds the maximum multiplier by the ninth notch");
+        double equivalent9 = multipliers.Take(9).Sum();
+        Check(equivalent9 > 20 && equivalent9 < 30, $"Nine rapid notches add up to about the 21 notch-equivalents measured in Foxit (got {equivalent9:0.0})");
+        var turn = new ReaderZoomMath.WheelZoomAccelerator();
+        for (int i = 0; i < 8; i++) turn.Next(1, 1, i * 31.0);
+        Check(turn.Next(1, -1, 8 * 31.0) == 1.0, "Reversing direction restarts the run");
+        Check(turn.Next(1, -1, 8 * 31.0 + ReaderZoomMath.WheelZoomAccelerator.RunGapMilliseconds + 1) == 1.0, "A pause longer than the run gap restarts the run");
+        var smooth = new ReaderZoomMath.WheelZoomAccelerator();
+        double total = 0; for (int i = 0; i < 40; i++) total += smooth.Next(0.25, 1, i * 8.0);
+        Check(total > 10, "Fractional (touchpad) deltas accumulate into the same run instead of resetting");
     }
 
     static void TestRetainedRefinement()
