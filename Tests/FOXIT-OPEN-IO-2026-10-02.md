@@ -194,3 +194,7 @@ scaling at 30 fps, so it was left as is).
 - The user's case: zoom to ~100%, then pan left/right continuously at once; sharpening did not keep up. Wheel pans with the 12.5% region margin re-rendered a new region at every direction reversal.
 - Fix: a second, independent region of up to 9 Mpx (visible area plus 100% margin on each side, only the missing strips are rendered) is rendered at Background priority in parallel with the on-demand region (`WideRegions`, `XTPDF_WIDE_REGION=0` disables). Zoom steps are unaffected (zin median 27 ms, zout 25 ms), peak private memory 558 -> 623 MB.
 - Measured with `Capture-GuiZoomSequence.ps1 -Mode pan` (zoom with Ctrl+wheel, pan with Shift+wheel, direction flips every 8 notches) and `XTPDF_DEBUG_LOG` (`DRAW UNSHARP` = a frame in which the visible part of a region-mode page is not fully covered by a sharp region): 22-notch zoom 31 unsharp draws without the wide region, 0 with it; 26-notch zoom 10 -> 0.
+
+## Pipelined zoom steps - tried, not kept (04/10)
+
+Rendering the next zoom step (logical zoom at that moment) in parallel with the step being rendered, and presenting it next, did not raise the update cadence of a 40-notch Ctrl+wheel roll (updates in the first 350 ms, 2 runs each): zoom-in 4/5 without vs 2/3 with, zoom-out 10/10 without vs 10/10 with; max gap and settle time unchanged or worse. The in-flight and ahead renders compete for the same PDFium work and the presented step lags the logical zoom. Reverted.
