@@ -183,3 +183,8 @@ scaling at 30 fps, so it was left as is).
 - Speculation (render the +/- one zoom step in background after a wheel zoom, cancelled on scroll/jump): single-step zoom-in median 117 -> 28 ms, zoom-out 48 -> 26 ms (Foxit 56 ms), 0 visible jumps. Does not change rapid-roll cadence (6 updates per 350 ms vs Foxit 15).
 - Deep zoom-out (20 notches) settle 2.4 s and revisit-after-deep 1.5 s are the same with XTPDF_SPECULATE=0, so they come from exact-size rendering of several pages, not from speculation. Earlier 697/169 ms figures were with bucketed widths.
 - Fast-scroll blank frames rose to 13% with speculation running; speculation is now cancelled on scroll/navigate (not re-measured).
+
+## Pan margin and deep zoom-out (04/10)
+
+- Sharp region now leans toward the pan direction (lead margin 2.5x, trail 0.5x) and the next region is requested while panning as soon as the visible area is within a quarter view of the region edge. First version (half-view comfort) re-rendered continuously for 700 ms after each pan (settle 2.3-4 s); fixed by the quarter-view threshold. New `pan` mode in Measure-GuiLatency.ps1 (wheel pans, shift+wheel for horizontal). Wheel pans of 12-80 notches at 10-150 ms spacing show no post-pan sharpening tail on either the old or the new build, so this test cannot reproduce the effect the user sees; drag-pan / scrollbar-drag untested.
+- Deep zoom-out (20 notches) settle 2.4 s and jump-to-END after it 1.5 s versus 0.7 s / 0.4 s on the pre-exact-raster build (3ed4d76): that build reused an oversized page bitmap scaled down (the stroke-weight 'jump'); exact raster re-renders each page at the displayed size. Same cost with speculation off.
