@@ -9,6 +9,9 @@ namespace XTPdfMergeApp.Services
     /// <summary>1 file trong danh sách "Recent" của màn hình Start.</summary>
     public sealed record RecentFile(string Path, DateTime OpenedUtc, bool Pinned, int Pages, long Size);
 
+    /// <summary>Trang và kiểu zoom đang xem của một file lúc đóng (mở lại thì về đúng chỗ, như Foxit nhớ trang đã mở).</summary>
+    public sealed record ViewPosition(string Path, int Page, int ZoomMode, double Zoom, DateTime SavedUtc);
+
     /// <summary>1 workspace đã lưu: bộ file đang mở (thứ tự tab) và file đang xem.</summary>
     public sealed record WorkspaceEntry(string Name, List<string> Files, string? Active);
 
@@ -84,6 +87,25 @@ namespace XTPdfMergeApp.Services
         public static void ClearUnpinned()
         {
             if (_store.Items.RemoveAll(r => !r.Pinned) > 0) _store.Save();
+        }
+    }
+
+    internal static class ViewPositionStore
+    {
+        private const int MaxEntries = 300;
+        private static readonly JsonListStore<ViewPosition> _store = new("positions.json");
+
+        public static ViewPosition? Find(string path)
+            => _store.Items.FirstOrDefault(p => string.Equals(p.Path, path, StringComparison.OrdinalIgnoreCase));
+
+        public static void Note(string path, int page, int zoomMode, double zoom)
+        {
+            var list = _store.Items;
+            int i = list.FindIndex(p => string.Equals(p.Path, path, StringComparison.OrdinalIgnoreCase));
+            var entry = new ViewPosition(path, page, zoomMode, zoom, DateTime.UtcNow);
+            if (i >= 0) { if (list[i] == entry with { SavedUtc = list[i].SavedUtc }) return; list[i] = entry; } else list.Add(entry);
+            foreach (var old in list.OrderByDescending(p => p.SavedUtc).Skip(MaxEntries).ToList()) list.Remove(old);
+            _store.Save();
         }
     }
 

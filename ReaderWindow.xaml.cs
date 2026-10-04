@@ -676,6 +676,7 @@ namespace XTPdfMergeApp
             _syncingZoomSlider = false;
             if (_readerGroup != null)
                 _readerZoomByGroup[_readerGroup] = (_readerZoomMode, _readerZoom);
+            if (_readerPage != null) ScheduleViewPositionSave(_readerPage);
         }
 
         private bool _syncingZoomSlider;

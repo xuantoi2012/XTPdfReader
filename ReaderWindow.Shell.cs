@@ -73,12 +73,57 @@ namespace XTPdfMergeApp
             else _ = ShowPageAsync(group, row, preserveZoomMode: true);
         }
 
+        private System.Windows.Threading.DispatcherTimer? _positionTimer;
+        private (string Path, int Page, int Mode, double Zoom)? _pendingPosition;
+
+        /// <summary>Nhớ trang + kiểu zoom đang xem của file (ghi sau ~1,2 s không đổi, và khi đóng cửa sổ) để mở lại về đúng chỗ.</summary>
+        private void ScheduleViewPositionSave(PageRow row)
+        {
+            if (string.IsNullOrEmpty(row.SourcePath) || BlankPageService.IsBlankFile(row.SourcePath)) return;
+            _pendingPosition = (row.SourcePath, row.PageNumber, (int)_readerZoomMode, _readerZoom);
+            if (_positionTimer == null)
+            {
+                _positionTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
+                _positionTimer.Tick += (_, _) => FlushViewPosition();
+            }
+            _positionTimer.Stop();
+            _positionTimer.Start();
+        }
+
+        private void FlushViewPosition()
+        {
+            _positionTimer?.Stop();
+            if (_pendingPosition is { } p)
+            {
+                _pendingPosition = null;
+                try { ViewPositionStore.Note(p.Path, p.Page, p.Mode, p.Zoom); } catch { /* không ghi được: bỏ qua */ }
+            }
+        }
+
+        /// <summary>Trang đầu tiên hiện khi mở file: về trang/zoom đã nhớ nếu có, không thì trang 1 theo cài đặt mặc định.</summary>
+        internal System.Threading.Tasks.Task ShowFirstPageAsync(DocumentGroup group)
+        {
+            var row = group.Pages[0];
+            bool preserve = false;
+            var saved = string.IsNullOrEmpty(group.SourcePath) ? null : ViewPositionStore.Find(group.SourcePath);
+            if (saved != null && saved.Page >= 1 && saved.Page <= group.Pages.Count && group.Pages[saved.Page - 1].SourcePath == group.SourcePath
+                && Enum.IsDefined(typeof(ReaderZoomMode), saved.ZoomMode))
+            {
+                row = group.Pages[saved.Page - 1];
+                _readerZoomMode = (ReaderZoomMode)saved.ZoomMode;
+                if (_readerZoomMode == ReaderZoomMode.Manual) _readerZoom = Math.Clamp(saved.Zoom, ReaderMinZoom, ReaderMaxZoom);
+                preserve = true;
+            }
+            return ShowPageAsync(group, row, preserveZoomMode: preserve);
+        }
+
         /// <summary>Gọi mỗi khi trang đang xem đổi (UpdateReaderChrome) — đồng bộ tab file + panel trái.</summary>
         private void OnReaderCurrentPageChanged(DocumentGroup group, PageRow row)
         {
             ScheduleRecovery();
             EnsureLoadProgressTimer();
             _lastPageByGroup[group] = row;
+            ScheduleViewPositionSave(row);
             UpdateDocumentTabs(group);
             if (!ReferenceEquals(ReaderDocumentTabs.SelectedItem, group))
             {
@@ -555,6 +600,7 @@ namespace XTPdfMergeApp
 
         private async void ReaderWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            FlushViewPosition();
             if (!_closingConfirmed && _mergeWindow?.View.HasUnsavedDraft == true &&
                 AppDialog.Show(this, "The Merge window contains an unfinished draft. Close the app and discard it?\n\nChoose No to return to Merge and export the draft first.",
                     "Unfinished merge draft", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)

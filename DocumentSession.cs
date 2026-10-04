@@ -333,7 +333,7 @@ namespace XTPdfMergeApp
 
             RequestThumbnailScan();
             if (group.Pages.Count > 0 && ReaderWindow.Instance is { HasAnyPageShown: false } reader)
-                _ = reader.ShowPageAsync(group, group.Pages[0], preserveZoomMode: false);
+                _ = reader.ShowFirstPageAsync(group);
             // Unvisited tabs only need metadata. The reader and organizer request their visible thumbnails.
 
             // Không render hết ngay ở đây. Thumbnail được đưa qua queue theo viewport thật
@@ -673,16 +673,23 @@ namespace XTPdfMergeApp
         internal async Task OpenFilesInReaderAsync(IEnumerable<string> paths)
         {
             DocumentGroup? last = null;
+            bool lastIsNew = false;
             foreach (string path in paths)
             {
                 string full;
                 try { full = Path.GetFullPath(path); }
                 catch { continue; }
-                last = _groups.FirstOrDefault(g => string.Equals(g.SourcePath, full, StringComparison.OrdinalIgnoreCase))
-                       ?? await AddFileAsGroup(full) ?? last;
+                var existing = _groups.FirstOrDefault(g => string.Equals(g.SourcePath, full, StringComparison.OrdinalIgnoreCase));
+                if (existing != null) { last = existing; lastIsNew = false; }
+                else if (await AddFileAsGroup(full) is { } added) { last = added; lastIsNew = true; }
             }
             if (last != null && last.Pages.Count > 0)
-                if (ReaderWindow.Instance is { } reader) await reader.ShowPageAsync(last, last.Pages[0], preserveZoomMode: true);
+                if (ReaderWindow.Instance is { } reader)
+                {
+                    // File mới mở: về trang/zoom đã nhớ lần trước. File đã mở sẵn: về trang đầu như trước.
+                    if (lastIsNew) await reader.ShowFirstPageAsync(last);
+                    else await reader.ShowPageAsync(last, last.Pages[0], preserveZoomMode: true);
+                }
         }
 
         void IReaderPageEditHost.CloseDocument(DocumentGroup group)

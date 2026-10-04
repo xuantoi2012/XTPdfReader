@@ -211,3 +211,9 @@ Rendering the next zoom step (logical zoom at that moment) in parallel with the 
 - Cause of the slow jump after a deep zoom (END 1.4-1.7 s): the ~10 pages visible at the destination were cold and each needed its 340 px preview rendered (page parse + render 0.4-1.2 s, two PDFium instances).
 - Fix: when idle for 800 ms (no scroll/zoom/pan), the view renders the previews of the whole document into the shared ThumbnailCache at lowest priority, nearest pages to the current one first, and stops as soon as the user acts (`WarmAllPreviews`, `XTPDF_WARM_PREVIEWS=0` disables; ThumbnailCache budget 48 -> 160 MiB, 600 page cap).
 - Deep mode, 25 s load wait: jump to END 1397 ms -> 45 ms; zoom-out by 20 notches settle 834 -> 650 ms; peak private memory 696 -> 708 MB. Standard mode: jump to END 44/112 ms, revisit 43 ms. Cost: background CPU for a while after opening a big file (not measured separately).
+
+## What Foxit remembers between sessions (04/10)
+
+- No render cache on disk: %LOCALAPPDATA%\Foxit PhantomPDF holds only crash logs (0.6 MB); %APPDATA%\Foxit Software is WebView/updater data. A re-open being fast is mostly the OS file cache holding the PDF.
+- HKCU\Software\Foxit Software\Foxit PhantomPDF 10.0\Preferences\History\LastOpen\N stores per file: FileName, Page, PosX/PosY, Scale, zoomToMode, Mode, panel layout. That is the "remembers the page" behaviour.
+- Reader now does the same: `positions.json` (%LOCALAPPDATA%\XTPdfReader) keeps page + zoom mode/zoom per file (300 entries), written 1.2 s after the last change and on close, restored when a file is opened (`ShowFirstPageAsync`). Not restored for files that are already open. Offset inside the page is not stored (page top).
