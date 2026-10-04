@@ -323,6 +323,7 @@ public sealed class ContinuousPdfView : Grid
     /// 0 = không giới hạn (mỗi nấc đổi zoom ngay như trước). XTPDF_ZOOM_RATE đổi giá trị.</summary>
     internal static double ZoomRateLimit { get; set; } =
         double.TryParse(Environment.GetEnvironmentVariable("XTPDF_ZOOM_RATE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double rate) ? rate : 6.0;
+    internal const double MaxPresentStep = 1.45;
     private const double ZoomLeadLimit = 6.0; // đích không đi trước zoom đang hiện quá ×6: thả tay thì dừng ngay, không trôi tiếp
     private double? _zoomTarget;
     private Point _zoomAnchor;
@@ -459,8 +460,13 @@ public sealed class ContinuousPdfView : Grid
         if (_pv == null || _rv == null) return;
         bool ready = PresentReady(_rv);
         bool late = Stopwatch.GetElapsedTime(_pendingSince).TotalMilliseconds >= PresentTimeoutMilliseconds;
-        if (ready) { AdvancePresent(); return; }
-        if (late) { CommitPresent(); return; }
+        if (ready) { if (DiagnosticsLog.Enabled) DiagnosticsLog.Event($"PRESENT ready after {Stopwatch.GetElapsedTime(_pendingSince).TotalMilliseconds:0} ms at zoom {_rv.Zoom:0.000}"); AdvancePresent(); return; }
+        if (late)
+        {
+            if (DiagnosticsLog.Enabled) DiagnosticsLog.Event($"PRESENT TIMEOUT after {Stopwatch.GetElapsedTime(_pendingSince).TotalMilliseconds:0} ms at zoom {_rv.Zoom:0.000} (logical {_vp.Zoom:0.000})");
+            CommitPresent();
+            return;
+        }
         _updateTimer.Interval = TimeSpan.FromMilliseconds(16);
         _updateTimer.Start();
     }
@@ -847,7 +853,7 @@ public sealed class ContinuousPdfView : Grid
 
     /// <summary>Chờ ảnh đúng cỡ tối đa chừng này rồi mới hiện (ảnh tạm co giãn + mờ dần như cũ). 0 = không giữ khung.</summary>
     internal static int PresentTimeoutMilliseconds { get; set; } =
-        int.TryParse(Environment.GetEnvironmentVariable("XTPDF_PRESENT_TIMEOUT_MS"), out int presentMs) ? Math.Clamp(presentMs, 0, 5000) : 250;
+        int.TryParse(Environment.GetEnvironmentVariable("XTPDF_PRESENT_TIMEOUT_MS"), out int presentMs) ? Math.Clamp(presentMs, 0, 5000) : 2500;
 
     /// <summary>Ảnh trang đúng cỡ nằm trong khoảng này so với cỡ cần thì coi là đủ (sai số làm tròn điểm ảnh).</summary>
     private const double ExactLow = 0.985, ExactHigh = 1.04;
@@ -1111,6 +1117,14 @@ public sealed class ContinuousPdfView : Grid
         if (_pv != null && _rv == null && !_renderingSuspended && _pages.Count > 0 && IsVisible)
         {
             _rv = _vp.Clone();
+            // Bước kế không đi xa hơn MaxPresentStep so với khung đang hiện (dù zoom logic đã chạy xa trong lúc bước trước vẽ): mỗi khung
+            // hiện ra chỉ đổi cỡ vừa phải như Foxit (≤ ×1,5), chuyển động không bị nhảy cóc khi trang nặng.
+            if (_pv != null && _pv.Zoom > 0 && _hasZoomAnchor)
+            {
+                double ratio = _rv.Zoom / _pv.Zoom;
+                if (ratio > MaxPresentStep || ratio < 1 / MaxPresentStep)
+                    _rv.ZoomAt(_pv.Zoom * (ratio > 1 ? MaxPresentStep : 1 / MaxPresentStep), _lastZoomAnchor.X, _lastZoomAnchor.Y);
+            }
             _pendingSince = Stopwatch.GetTimestamp();
         }
         UpdateRequestsCore(_rv ?? _vp);

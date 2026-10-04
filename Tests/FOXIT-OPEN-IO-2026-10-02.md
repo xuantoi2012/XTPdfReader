@@ -251,3 +251,11 @@ Capture: Capture-GuiZoomSequence.ps1 (60 fps screen capture of the content area,
 - Cause of the different "effect": not image quality but the temporal profile of the zoom (few large jumps vs a continuous glide).
 - Fix: the wheel only moves a zoom TARGET (kept within x6 of the shown zoom); the shown zoom glides toward it at most `ZoomRateLimit` = 6 ln/s (XTPDF_ZOOM_RATE, 0 = old behaviour), each step still an exact-size render presented when ready. Single notches (ln 1.08 < 6 x 16 ms) apply immediately, so their 17-30 ms latency is unchanged.
 - After: zoom-in 13 frames in 431 ms with ratios 1.07-1.37 (mostly every 16 ms), zoom-out 39 frames in 834 ms with ratios 0.76-0.96. One 116 ms hold remains at the first region-mode (deep zoom) frame, comparable to Foxit's first 163 ms block.
+
+## Zoom out then in: why the picture sharpened late (04/10)
+
+- Scenario script (Capture-GuiZoomSequence.ps1 -Mode script, ZOOM_SCRIPT="I14,w1200,O22,w900,I22,..."), `XTPDF_DEBUG_LOG` events `PRESENT ready/TIMEOUT`.
+- Found: after a deep zoom-out, the first zoom-in step at a cold small zoom took 267 ms; the 250 ms present timeout fired and the view committed the logical zoom (x7 ahead) with scaled temporary images that then sharpened - the visible "sharpening" Foxit never shows (Foxit just holds the old picture until the exact frame is ready).
+- Also the presented steps could jump x2-x3 (the logical zoom runs ahead while a step renders).
+- Fix: present timeout 250 -> 2500 ms (hold the old picture like Foxit; XTPDF_PRESENT_TIMEOUT_MS), and each presented step is at most x1.45 away from the one on screen (`MaxPresentStep`), the intermediate zoom is rendered exactly.
+- Result on the 7-roll script: 0 timeouts, 312 presented steps, max step ratio 1.45 (median 1.10), slowest step 154 ms; holds of 80-170 ms remain where a cold deep-zoom region is rendered.

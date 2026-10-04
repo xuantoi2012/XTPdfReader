@@ -33,6 +33,27 @@ public static class Seq {
     for (int i = 0; i < frames.Count; i++) { frames[i].Save(Path.Combine(dir, string.Format("f{0:D3}_{1:D5}.png", i, (int)times[i])), ImageFormat.Png); frames[i].Dispose(); }
     return string.Format("frames={0} panStartMs={1:F0}", frames.Count, panStart);
   }
+  // Runs a script of wheel steps while capturing: "I15" = 15 Ctrl+wheel-in notches, "O8" = 8 out, "w500" = wait 500 ms; notches are gapMs apart.
+  public static string CaptureScript(Rectangle rc, string script, int gapMs, int totalMs, string dir) {
+    Directory.CreateDirectory(dir);
+    foreach (var f in Directory.GetFiles(dir, "*.png")) File.Delete(f);
+    var bmp = new Bitmap(rc.Width, rc.Height, PixelFormat.Format32bppRgb); var g = Graphics.FromImage(bmp);
+    var frames = new List<Bitmap>(); var times = new List<double>(); var marks = new List<string>();
+    var sw = Stopwatch.StartNew();
+    var t = new Thread(() => { Thread.Sleep(300);
+      foreach (var step in script.Split(',')) {
+        char k = step[0]; int n = int.Parse(step.Substring(1));
+        if (k == 'w') { Thread.Sleep(n); continue; }
+        marks.Add(string.Format("{0}{1}@{2:F0}", k, n, sw.Elapsed.TotalMilliseconds));
+        int delta = k == 'I' ? 120 : -120;
+        for (int i = 0; i < n; i++) { keybd_event(0x11, 0, 0, UIntPtr.Zero); mouse_event(0x0800, 0, 0, delta, UIntPtr.Zero); keybd_event(0x11, 0, 2, UIntPtr.Zero); Thread.Sleep(gapMs); }
+      } });
+    t.Start();
+    while (sw.Elapsed.TotalMilliseconds < totalMs) { g.CopyFromScreen(rc.Location, Point.Empty, rc.Size); frames.Add((Bitmap)bmp.Clone()); times.Add(sw.Elapsed.TotalMilliseconds); }
+    t.Join();
+    for (int i = 0; i < frames.Count; i++) { frames[i].Save(Path.Combine(dir, string.Format("f{0:D3}_{1:D5}.png", i, (int)times[i])), ImageFormat.Png); frames[i].Dispose(); }
+    return string.Format("frames={0} marks={1}", frames.Count, string.Join(" ", marks));
+  }
   // Rolls the wheel (with Ctrl) on a worker thread starting after leadMs, and captures the region as fast as possible for totalMs.
   public static string Capture(Rectangle rc, int notches, int delta, int intervalMs, int leadMs, int totalMs, string dir, bool ctrl) {
     Directory.CreateDirectory(dir);
@@ -62,7 +83,10 @@ Start-Sleep -Seconds 3
 $rc = [Seq]::Region($h); [Seq]::Center($rc)
 $log = @()
 [void][Seq]::SetForegroundWindow($h)
-if ($Mode -eq 'pan') {
+if ($Mode -eq 'script') {
+  [void][Seq]::SetForegroundWindow($h)
+  $log += "$Tag script: " + [Seq]::CaptureScript($rc, $env:ZOOM_SCRIPT, 30, [int]$env:ZOOM_SCRIPT_MS, (Join-Path $OutDir "$Tag-script"))
+} elseif ($Mode -eq 'pan') {
   [void][Seq]::SetForegroundWindow($h)
   $log += "$Tag pan: " + [Seq]::CapturePan($rc, $Notches, 48, 15, (1800 + $Notches * [int]($(if($env:ZOOM_GAP_MS){$env:ZOOM_GAP_MS}else{30})) + [int]($(if($env:PAN_DELAY_MS){$env:PAN_DELAY_MS}else{100}))), (Join-Path $OutDir "$Tag-pan"))
 } elseif ($Mode -eq 'scroll') {
