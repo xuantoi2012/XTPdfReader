@@ -217,3 +217,18 @@ Rendering the next zoom step (logical zoom at that moment) in parallel with the 
 - No render cache on disk: %LOCALAPPDATA%\Foxit PhantomPDF holds only crash logs (0.6 MB); %APPDATA%\Foxit Software is WebView/updater data. A re-open being fast is mostly the OS file cache holding the PDF.
 - HKCU\Software\Foxit Software\Foxit PhantomPDF 10.0\Preferences\History\LastOpen\N stores per file: FileName, Page, PosX/PosY, Scale, zoomToMode, Mode, panel layout. That is the "remembers the page" behaviour.
 - Reader now does the same: `positions.json` (%LOCALAPPDATA%\XTPdfReader) keeps page + zoom mode/zoom per file (300 entries), written 1.2 s after the last change and on close, restored when a file is opened (`ShowFirstPageAsync`). Not restored for files that are already open. Offset inside the page is not stored (page top).
+
+## Thread/CPU profile during a 40-notch zoom roll (04/10, Tests/Profile-GuiThreads.ps1)
+
+Per-thread CPU cycles (QueryThreadCycleTime every 10 ms, passive), same 165 MB file, Ctrl+wheel 40 notches 30 ms apart, 2.5 s window.
+
+| | total cycles | busiest thread's share | intervals with >=2 busy threads |
+|---|---|---|---|
+| Foxit zoom-in | 1.3 G | 100% (one thread, 26 threads exist) | 0 of 155 |
+| Foxit zoom-out | 4.9 G | 99% | 2 of 156 |
+| Reader zoom-in | 2.7 G | 29% (spread over ~7 threads) | 22 of 130 |
+| Reader zoom-out | 2.1 G | 30% | 22 of 120 |
+
+- Foxit renders on one thread (the main thread: no tile parallelism, no render worker pool). Its smoothness comes from doing less per step, not from more cores.
+- Reader spends about twice Foxit's CPU on zoom-in. Switching off the wide region, speculation or preview warming changes it only between 2.7 and 3.5 G, so the extra cost is elsewhere (candidates: bitmap creation/freeze per region, WPF composition and cross-fade frames, GC). Not yet attributed; needs a managed profiler.
+- Other Foxit facts from its install/registry: no render cache on disk; HKCU ...\Preferences\Display has bPathSmooth=1, bUseClearType=0 (Reader renders with FPDF_LCD_TEXT); the `Setting` folder only holds PDF-conversion presets.
