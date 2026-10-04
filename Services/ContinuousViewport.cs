@@ -27,6 +27,13 @@ internal sealed class ContinuousViewport
     public double MaxOffsetX => Math.Max(0, Layout.ContentWidth - ViewportWidth);
     public double MaxOffsetY => Math.Max(0, Layout.ContentHeight - ViewportHeight);
 
+    /// <summary>Bản sao độc lập (bố cục là bất biến nên dùng chung): giữ lại khung nhìn "đang hiện" trong lúc zoom mới chờ ảnh đúng cỡ.</summary>
+    public ContinuousViewport Clone() => new()
+    {
+        _baseSizes = _baseSizes, _columns = _columns, Layout = Layout,
+        OffsetX = OffsetX, OffsetY = OffsetY, ViewportWidth = ViewportWidth, ViewportHeight = ViewportHeight
+    };
+
     /// <summary>Tài liệu mới: kích thước cơ sở (zoom 1) của mọi trang. Vị trí cuộn về đầu.</summary>
     public void SetPages(IReadOnlyList<(double Width, double Height)> baseSizes, double zoom)
     {

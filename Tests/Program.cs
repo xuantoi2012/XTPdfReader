@@ -105,7 +105,7 @@ internal static partial class Program
                 TestReaderRenderHandoffAsync().GetAwaiter().GetResult();
                 TestReaderLargerCacheAsync().GetAwaiter().GetResult();
                 TestContinuousScrollQuality();
-                TestReaderWarmImages(); TestCrossFade();
+                TestReaderWarmImages(); TestCrossFade(); TestPresentWhenReady();
                 Console.WriteLine($"PASS ({_checks} scroll quality checks)");
                 return 0;
             }
@@ -184,7 +184,7 @@ internal static partial class Program
                 if (!backgroundRegression) TestAppDialogs();
                 TestReaderRenderHandoffAsync().GetAwaiter().GetResult();
                 TestRegionReuseAsync().GetAwaiter().GetResult(); TestRegionReuseViewer();
-                TestContinuousScrollQuality(); TestReaderLargerCacheAsync().GetAwaiter().GetResult(); TestReaderWarmImages(); TestCrossFade();
+                TestContinuousScrollQuality(); TestReaderLargerCacheAsync().GetAwaiter().GetResult(); TestReaderWarmImages(); TestCrossFade(); TestPresentWhenReady();
                 if (!backgroundRegression) TestRecoveryAndToolbarUi();
             }
             RunNativeAsync(baseline).GetAwaiter().GetResult();

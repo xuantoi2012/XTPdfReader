@@ -102,7 +102,11 @@ internal static partial class Program
         var host = new Window { Content = view, Width = 1320, Height = 700, WindowStyle = WindowStyle.None,
             ResizeMode = ResizeMode.NoResize, ShowActivated = false, ShowInTaskbar = false, Left = -32000, Top = -32000 };
         host.Show(); host.UpdateLayout();
-        int expectedWidth = (int)Math.Min(2304, Math.Ceiling(1200 * VisualTreeHelper.GetDpi(view).DpiScaleX * ContinuousPdfView.ZoomHeadroom / 256) * 256);
+        double fixtureDpi = VisualTreeHelper.GetDpi(view).DpiScaleX;
+        // Exact-raster policy: the page is rendered at the displayed width. Legacy policy: 25% headroom, rounded up to 256 px.
+        int expectedWidth = ContinuousPdfView.ExactRaster
+            ? (int)Math.Clamp(Math.Round(1200 * fixtureDpi), 512, 2304)
+            : (int)Math.Min(2304, Math.Ceiling(1200 * fixtureDpi * ContinuousPdfView.ZoomHeadroom / 256) * 256);
         var sharp = Bitmap(expectedWidth, (int)Math.Round(expectedWidth * .4)); sharp.Freeze();
         var pages = Enumerable.Range(1, 12).Select(i => new PagePlacement
         {

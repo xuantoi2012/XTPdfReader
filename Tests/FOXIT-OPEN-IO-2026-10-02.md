@@ -136,3 +136,43 @@ So an in-place replacement now changes by ~60% less per frame, at the cost of fi
 not reduced; it is probably content appearing for the first time (instant by design) but that was not verified.
 The earlier `jump_samples` column and the unfiltered `max_step` are dominated by the zoom motion itself and should not be
 used to judge the fade.
+
+## Exact raster and present-when-ready (what the user actually perceives)
+
+User report: while zooming, Reader changes the picture from soft to sharp and the change is noticeable; in Foxit it is not.
+Frame extraction from the user's own screen recordings (29 fps) showed it is not blur: **stroke weight changes**. PDFium draws
+hairlines at least one pixel wide *at the bitmap's resolution*, so a small bitmap scaled up has thick dark strokes and an
+oversampled one scaled down has thin pale ones; replacing one by the other at a different raster size reads as "the picture
+changed" even though both are sharp.
+
+Foxit renders at the exact displayed size and shows the result only when it is finished (measured: on its slow first zoom steps it
+keeps the old picture for ~2 s and then shows the new one in a single update; on faster steps one update per step, ~50 ms).
+
+Implemented in `ContinuousPdfView` (`XTPDF_EXACT_RASTER=0` restores the previous policy; `XTPDF_PRESENT_TIMEOUT_MS`, default 250, 0 disables
+holding the frame):
+
+- Page and region images are rendered at exactly the displayed size and drawn 1:1 on the pixel grid. A page wider than ~1.1x the viewport
+  uses the viewport region path (renders only the visible part) instead of a full-page bitmap up to 2,304 px.
+- Wheel zoom (`ZoomAtWhenReady`) changes the logical view at once but keeps the picture on screen unchanged until the exact images of one
+  zoom are ready, then presents exactly that zoom; if more notches arrived meanwhile the next step is rendered next (in-flight renders are
+  not cancelled). A step slower than the timeout is presented with the old scaled image and cross-fade, so heavy pages never freeze.
+- Scrolling or jumping flushes the held frame; viewport resizes (the horizontal scrollbar appearing) only update its size.
+- Found on the way: a supplier may return an image of another size than requested (the page cache returns a larger cached one), which
+  made exact mode re-request forever; `PageState.DeliveredWidth` remembers that the size was already requested.
+
+Results on the 165 MB drawing set, page 31 (`Tests/Measure-GuiLatency.ps1 -Mode zoom`, 14 zoom-in and 14 zoom-out notches):
+
+| | Foxit | Previous Reader | Exact + present (this change) |
+|---|---:|---:|---:|
+| Steps where the image visibly jumps | 7/28 | 2/28 | **0/28** |
+| Zoom-in, time to the new picture (median) | 56 ms | 18 ms | 117 ms |
+| Zoom-out, time to the new picture (median) | 60 ms | 18 ms | 48 ms |
+
+Rapid rolling (`Tests/Capture-GuiZoomSequence.ps1 -Mode zoomroll`, 40 notches ~31 ms apart): Foxit 15 visible updates in 350 ms
+(25 ms apart), previous Reader 17, this change 6 (median 33 ms but up to 166 ms apart). An earlier version of this change that held the
+frame until the *latest* target was ready showed only 4 updates with a 280 ms freeze; stepping fixed part of it. The remaining gap is the
+exact render itself: ~65-75 ms per 1376x781 region on this page, 100-150 ms per step end to end, against ~30 ms in Foxit.
+
+Ideas not done: speculative pre-render of the next zoom step (hit rate drops once the wheel accelerates), a faster non-progressive
+native path for visible regions, routing slider/button zoom through the same present logic (it would step at ~10 fps instead of
+scaling at 30 fps, so it was left as is).

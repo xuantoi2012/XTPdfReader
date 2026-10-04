@@ -40,14 +40,16 @@ internal static partial class Program
     {
         if (Application.Current == null) CreateReaderTestApplication();
         int saved = ContinuousPdfView.CrossFadeMilliseconds;
+        bool savedExact = ContinuousPdfView.ExactRaster;
         try
         {
+            ContinuousPdfView.ExactRaster = false; // this test drives the full-page image swap path; exact-raster renders a 2000 px page as a viewport region instead
             var (blended0, final0) = Run(0);
             var (blended100, final100) = Run(100);
             Check(blended0 == 0 && final0, "With cross-fade disabled the sharper image replaces the old one in a single step");
             Check(blended100 >= 1 && final100, $"A sharper page image fades in over the old one (blended frames={blended100}) and ends fully on the new image");
         }
-        finally { ContinuousPdfView.CrossFadeMilliseconds = saved; }
+        finally { ContinuousPdfView.CrossFadeMilliseconds = saved; ContinuousPdfView.ExactRaster = savedExact; }
 
         (int Blended, bool Final) Run(int fadeMs)
         {
@@ -91,6 +93,155 @@ internal static partial class Program
         }
     }
 
+    /// <summary>Present-when-ready (like Foxit): a wheel zoom changes the logical view at once but the picture on screen stays as it was
+    /// until the exact-size image of the new zoom has arrived (or the timeout passes).</summary>
+    static void TestPresentWhenReady()
+    {
+        if (Application.Current == null) CreateReaderTestApplication();
+        bool savedExact = ContinuousPdfView.ExactRaster; int savedTimeout = ContinuousPdfView.PresentTimeoutMilliseconds;
+        try
+        {
+            ContinuousPdfView.ExactRaster = true; ContinuousPdfView.PresentTimeoutMilliseconds = 400;
+            var held = RunScenario("held", complete: false, scroll: false);
+            Check(held.LogicalZoom == 2 && held.OldGeometryStillShown && held.OldPixelIsOldImage,
+                "A wheel zoom updates the logical zoom at once but the screen keeps the previous picture while the exact-size image is pending");
+            var late = RunScenario("late", complete: false, scroll: false, waitMs: 700);
+            Check(late.NewGeometryShown, "After the timeout the new zoom is shown anyway (scaled interim image) so a slow render never freezes the view");
+            var ready = RunScenario("ready", complete: true, scroll: false);
+            Check(ready.NewGeometryShown && ready.NewPixelIsNewImage,
+                "When the exact-size image arrives the new zoom is presented at once, showing the new image at the new geometry");
+            var scrolled = RunScenario("scroll", complete: false, scroll: true);
+            Check(scrolled.NewGeometryShown, "Scrolling while a zoom is held presents the new zoom immediately (no stale offsets)");
+            var steps = RunSteps();
+            Check(steps.MiddleShownWhileNextRenders, "Rolling two notches quickly presents the first zoom as soon as its exact image is ready while the second is still rendering");
+            Check(steps.FinalShownAtEnd, "...and then presents the final zoom when its image arrives, leaving no held frame behind");
+            ContinuousPdfView.ExactRaster = false;
+            var legacy = RunScenario("legacy", complete: false, scroll: false, waitMs: 80);
+            Check(legacy.NewGeometryShown, "With exact-raster off the wheel zoom is applied immediately as before");
+        }
+        finally { ContinuousPdfView.ExactRaster = savedExact; ContinuousPdfView.PresentTimeoutMilliseconds = savedTimeout; }
+
+        (bool MiddleShownWhileNextRenders, bool FinalShownAtEnd) RunSteps()
+        {
+            var view = new ContinuousPdfView { PrefetchPageCount = 0 };
+            var host = new Window { Content = view, Width = 1320, Height = 700, WindowStyle = WindowStyle.None,
+                ResizeMode = ResizeMode.NoResize, ShowActivated = false, ShowInTaskbar = false, Left = -32000, Top = -32000 };
+            host.Show(); host.UpdateLayout(); Pump(TimeSpan.FromMilliseconds(60));
+            try
+            {
+                var row = new PagePlacement { SourcePath = "present-steps.pdf", PageNumber = 1, BaseWidth = 1000, AspectRatio = .4 };
+                var gates = new List<TaskCompletionSource<bool>>();
+                view.PageRenderer = (_, width, _, _) =>
+                {
+                    int height = Math.Max(1, width * 2 / 5);
+                    var data = new byte[width * height * 4];
+                    for (int i = 0; i < data.Length; i += 4) { data[i + 2] = 255; data[i + 3] = 255; }
+                    var bmp = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null, data, width * 4); bmp.Freeze();
+                    return Task.FromResult<BitmapSource?>(bmp);
+                };
+                view.RegionRenderer = async (_, _, _, rects, token, _) =>
+                {
+                    var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    lock (gates) gates.Add(gate);
+                    await gate.Task.WaitAsync(token);
+                    return rects.Select(r =>
+                    {
+                        var data = new byte[r.Width * r.Height * 4];
+                        for (int i = 0; i < data.Length; i += 4) { data[i] = 255; data[i + 3] = 255; }
+                        var bmp = BitmapSource.Create(r.Width, r.Height, 96, 96, PixelFormats.Bgra32, null, data, r.Width * 4); bmp.Freeze();
+                        return (BitmapSource?)bmp;
+                    }).ToList();
+                };
+                view.SetDocument(new[] { row }, 1);
+                Pump(TimeSpan.FromMilliseconds(200));
+                view.TryGetPageRect(row, out var rect1);
+                System.Windows.Point anchor = new(rect1.X + rect1.Width / 2, rect1.Y + rect1.Height / 2);
+                view.ZoomAtWhenReady(1.5, anchor);
+                view.TryGetPageRect(row, out var rect15);
+                Pump(TimeSpan.FromMilliseconds(80));          // the exact image for 1.5x is now rendering
+                view.ZoomAtWhenReady(2.0, anchor);            // a faster notch arrives; it must not cancel the 1.5x render
+                view.TryGetPageRect(row, out var rect20);
+                lock (gates) { if (gates.Count == 0) return (false, false); gates[0].SetResult(true); }
+                Pump(TimeSpan.FromMilliseconds(120));
+                byte[] Sample(int x, int y)
+                {
+                    var frame = new RenderTargetBitmap((int)view.Surface.ActualWidth, (int)view.Surface.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                    frame.Render(view.Surface);
+                    var px = new byte[4];
+                    frame.CopyPixels(new Int32Rect(Math.Clamp(x, 0, frame.PixelWidth - 1), Math.Clamp(y, 0, frame.PixelHeight - 1), 1, 1), px, 4, 0);
+                    return px;
+                }
+                // Between the 1.5x and 2x page bottoms: background while 1.5x is on screen, page once 2x is shown.
+                int probeY = (int)(rect15.Bottom + (rect20.Bottom - rect15.Bottom) / 2), probeX = (int)anchor.X;
+                var mid = Sample((int)anchor.X, (int)anchor.Y);
+                var middleProbe = Sample(probeX, probeY);
+                bool middleOk = mid[0] > 200 && mid[2] < 60 && middleProbe[3] == 0;
+                lock (gates) { if (gates.Count < 2) return (middleOk, false); gates[1].SetResult(true); }
+                Pump(TimeSpan.FromMilliseconds(120));
+                var finalProbe = Sample(probeX, probeY);
+                return (middleOk, finalProbe[3] != 0);
+            }
+            finally { view.CancelAll(); host.Close(); }
+        }
+
+        (double LogicalZoom, bool OldGeometryStillShown, bool OldPixelIsOldImage, bool NewGeometryShown, bool NewPixelIsNewImage)
+            RunScenario(string name, bool complete, bool scroll, int waitMs = 120)
+        {
+            var view = new ContinuousPdfView { PrefetchPageCount = 0 };
+            var host = new Window { Content = view, Width = 1320, Height = 700, WindowStyle = WindowStyle.None,
+                ResizeMode = ResizeMode.NoResize, ShowActivated = false, ShowInTaskbar = false, Left = -32000, Top = -32000 };
+            host.Show(); host.UpdateLayout(); Pump(TimeSpan.FromMilliseconds(60));
+            try
+            {
+                static BitmapSource Solid(int width, byte b, byte g, byte r)
+                {
+                    int height = Math.Max(1, width * 2 / 5);
+                    var data = new byte[width * height * 4];
+                    for (int i = 0; i < data.Length; i += 4) { data[i] = b; data[i + 1] = g; data[i + 2] = r; data[i + 3] = 255; }
+                    var bmp = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null, data, width * 4); bmp.Freeze();
+                    return bmp;
+                }
+                var row = new PagePlacement { SourcePath = "present-" + name + ".pdf", PageNumber = 1, BaseWidth = 1000, AspectRatio = .4 };
+                // Zoom 2 makes the page wider than the viewport, so the sharp image is a viewport region (blue) that the test releases; the page
+                // image / readable fallback (red) always arrives at once.
+                var regionGate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                double dpi = VisualTreeHelper.GetDpi(view).DpiScaleX;
+                view.PageRenderer = (_, width, _, _) => Task.FromResult<BitmapSource?>(Solid(width, 0, 0, 255));
+                view.RegionRenderer = async (_, _, _, rects, token, _) =>
+                {
+                    await regionGate.Task.WaitAsync(token);
+                    return rects.Select(r =>
+                    {
+                        var data = new byte[r.Width * r.Height * 4];
+                        for (int i = 0; i < data.Length; i += 4) { data[i] = 255; data[i + 3] = 255; }
+                        var bmp = BitmapSource.Create(r.Width, r.Height, 96, 96, PixelFormats.Bgra32, null, data, r.Width * 4); bmp.Freeze();
+                        return (BitmapSource?)bmp;
+                    }).ToList();
+                };
+                view.SetDocument(new[] { row }, 1);
+                Pump(TimeSpan.FromMilliseconds(200));
+                view.TryGetPageRect(row, out var oldRect);
+                System.Windows.Point anchor = new(oldRect.X + oldRect.Width / 2, oldRect.Y + oldRect.Height / 2);
+                view.ZoomAtWhenReady(2, anchor);
+                view.TryGetPageRect(row, out var newRect);
+                if (scroll) view.ScrollBy(0, -5);
+                if (complete) regionGate.SetResult(true);
+                Pump(TimeSpan.FromMilliseconds(waitMs));
+                var frame = new RenderTargetBitmap((int)view.Surface.ActualWidth, (int)view.Surface.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                frame.Render(view.Surface);
+                // A point just right of the old page but inside the (larger) new page: background if the old geometry is still on screen.
+                var probe = new Int32Rect((int)Math.Min(frame.PixelWidth - 2, oldRect.Right + 30), (int)(oldRect.Y + oldRect.Height / 2), 1, 1);
+                var outside = new byte[4]; frame.CopyPixels(probe, outside, 4, 0);
+                var inside = new byte[4]; frame.CopyPixels(new Int32Rect((int)anchor.X, (int)anchor.Y, 1, 1), inside, 4, 0);
+                bool outsideIsBackground = outside[3] == 0;
+                bool insideRed = inside[2] > 200 && inside[0] < 60, insideBlue = inside[0] > 200 && inside[2] < 60;
+                _ = newRect;
+                return (view.Zoom, outsideIsBackground, insideRed, !outsideIsBackground, insideBlue);
+            }
+            finally { view.CancelAll(); host.Close(); }
+        }
+    }
+
     static void TestReaderWarmImages()
     {
         if (Application.Current == null) CreateReaderTestApplication();
@@ -118,6 +269,7 @@ internal static partial class Program
             view.ZoomKeepTop(1);
             var refinementWait = Stopwatch.StartNew();
             while (requests < 2 && refinementWait.Elapsed < TimeSpan.FromSeconds(2)) Pump(TimeSpan.FromMilliseconds(20));
+            Pump(TimeSpan.FromMilliseconds(60)); // exact-raster requests start at once, so let the layout/render pass for the new zoom finish before sampling pixels
             var frame = new RenderTargetBitmap((int)view.Surface.ActualWidth, (int)view.Surface.ActualHeight, 96, 96, PixelFormats.Pbgra32);
             frame.Render(view.Surface);
             view.TryGetPageRect(row, out var rect);
@@ -128,12 +280,14 @@ internal static partial class Program
             requests = 0;
             view.SetDocument(new[] { row }, .5);
             Pump(TimeSpan.FromMilliseconds(80));
-            Check(requests == 0, "Returning to a page immediately reuses its retained adequate image");
+            // Legacy policy keeps a larger retained image; exact-raster asks for exactly one image at the displayed width (a 640 px image is 25% too big).
+            Check(ContinuousPdfView.ExactRaster ? requests <= 1 : requests == 0, "Returning to a page immediately reuses its retained adequate image");
+            requests = 0;
             row.ReaderBitmap = null;
             view.CachedPageProvider = (_, _) => warm;
             view.SetDocument(new[] { row }, .5);
             Pump(TimeSpan.FromMilliseconds(80));
-            Check(requests == 0, "A warm cache can hydrate a page whose weak placement image has been released");
+            Check(ContinuousPdfView.ExactRaster ? requests <= 1 : requests == 0, "A warm cache can hydrate a page whose weak placement image has been released");
             var small = new TransformedBitmap(warm, new ScaleTransform(.8, .8)); small.Freeze();
             row.ReaderBitmap = null;
             view.CachedPageProvider = (_, _) => small;

@@ -194,6 +194,7 @@ public sealed class ContinuousPdfView : Grid
         _observed = pages as INotifyCollectionChanged;
         if (_observed != null) _observed.CollectionChanged += Pages_CollectionChanged;
         CancelAll();
+        _pv = null; _rv = null; _frozen = null;
         _states.Clear();
         _pages = pages ?? Array.Empty<PageRow>();
         _single = 0;
@@ -282,6 +283,111 @@ public sealed class ContinuousPdfView : Grid
         if (Math.Abs(zoom - _vp.Zoom) < 1e-6) return;
         _vp.ZoomAt(zoom, viewPoint.X, viewPoint.Y);
         OnViewChanged(ChangeKind.Zoom);
+    }
+
+    /// <summary>
+    /// Zoom bằng lăn chuột kiểu Foxit: khung nhìn logic (<see cref="Zoom"/>, thanh cuộn, hit-test) đổi ngay, nhưng NỘI DUNG ĐANG HIỆN giữ nguyên
+    /// (ảnh cũ, không co giãn) tới khi ảnh ĐÚNG CỠ của một zoom về xong, rồi hiện đúng zoom đó. Lăn nhanh: không huỷ ảnh đang vẽ khi có nấc mới —
+    /// vẽ xong bước nào hiện bước đó rồi mới vẽ bước kế (zoom logic hiện tại), nên màn hình cập nhật theo nhịp vẽ thay vì đứng chờ.
+    /// Một bước vẽ quá <see cref="PresentTimeoutMilliseconds"/> thì hiện zoom logic với ảnh tạm (co giãn + mờ dần) để trang nặng không đứng hình.
+    /// Tắt khi <see cref="ExactRaster"/> = false, không có bộ vẽ trang, hoặc <see cref="PresentTimeoutMilliseconds"/> = 0.
+    /// </summary>
+    public void ZoomAtWhenReady(double zoom, Point viewPoint)
+    {
+        if (!ExactRaster || PresentTimeoutMilliseconds <= 0 || _pages.Count == 0 || PageRenderer == null || _renderingSuspended)
+        {
+            ZoomAt(zoom, viewPoint);
+            return;
+        }
+        zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
+        if (Math.Abs(zoom - _vp.Zoom) < 1e-6) return;
+        if (_pv == null)
+        {
+            _pv = _vp.Clone();
+            _pendingSince = Stopwatch.GetTimestamp();
+            Freeze(_pv);
+        }
+        _vp.ZoomAt(zoom, viewPoint.X, viewPoint.Y);
+        OnViewChanged(ChangeKind.Zoom);
+    }
+
+    /// <summary>Đóng băng ảnh đang hiện của các trang trong <paramref name="vp"/>: ảnh mới về (cho zoom kế) không được lọt vào khung đang hiện.</summary>
+    private void Freeze(ContinuousViewport vp)
+    {
+        _frozen = new Dictionary<PageRow, (BitmapSource?, RegionImage[])>(ReferenceEqualityComparer.Instance);
+        double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
+        var (first, last) = vp.VisibleRange();
+        for (int s = Math.Max(0, first); first >= 0 && s <= last && s < _slots.Length; s++)
+        {
+            var row = _pages[_slots[s]];
+            if (!_states.TryGetValue(row, out var state)) continue;
+            var page = PickBitmap(row, state, vp.PageContentRect(s).Width * dpi);
+            // Trang chưa có ảnh nào: để nguyên (hiện ảnh xem trước thô khi nó về) thay vì giữ khung trắng.
+            if (page != null || state.Regions.Count > 0) _frozen[row] = (page, state.Regions.ToArray());
+        }
+    }
+
+    /// <summary>Bỏ giữ khung, hiện khung logic ngay (cuộn/nhảy trang, quá hạn, huỷ).</summary>
+    private void CommitPresent()
+    {
+        if (_pv == null) return;
+        _pv = null;
+        _rv = null;
+        _frozen = null;
+        _surface.InvalidateVisual();
+    }
+
+    /// <summary>Ảnh đúng cỡ của <see cref="_rv"/> đã về: hiện đúng zoom đó. Nếu zoom logic đã đi tiếp thì bắt đầu vẽ bước kế.</summary>
+    private void AdvancePresent()
+    {
+        _pv = _rv;
+        _rv = null;
+        _fades.Clear();
+        _commitFrame = true; // ảnh đúng cỡ vừa về: hiện luôn, không mờ dần
+        if (_pv == null || Math.Abs(_vp.Zoom - _pv.Zoom) < 1e-6) { _pv = null; _frozen = null; }
+        else
+        {
+            Freeze(_pv);
+            _pendingSince = Stopwatch.GetTimestamp();
+            ScheduleUpdate(immediate: true);
+        }
+        _surface.InvalidateVisual();
+    }
+
+    private bool PresentReady(ContinuousViewport vp)
+    {
+        if (PageRenderer == null) return true;
+        var (first, last) = vp.VisibleRange();
+        if (first < 0) return true;
+        double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
+        for (int s = first; s <= last && s < _slots.Length; s++)
+        {
+            var row = _pages[_slots[s]];
+            if (!_states.TryGetValue(row, out var state)) return false;
+            double needed = row.LayoutWidth * vp.Zoom * dpi;
+            if (needed <= PreviewSufficientPx)
+            {
+                if (state.Preview == null && row.Thumbnail == null) return false;
+            }
+            else if (needed > RegionStartPx(dpi))
+            {
+                if (!RegionCovered(vp, s, row, state, needed)) return false;
+            }
+            else if (NeedsPageBitmap(row, state, ExactPageWidth(needed), needed)) return false;
+        }
+        return true;
+    }
+
+    /// <summary>Gọi sau mỗi lượt xin ảnh/khi ảnh về: ảnh đúng cỡ đã đủ thì hiện, quá hạn thì hiện zoom logic với ảnh tạm, chưa thì hẹn xem lại.</summary>
+    private void CheckPresent()
+    {
+        if (_pv == null || _rv == null) return;
+        bool ready = PresentReady(_rv);
+        bool late = Stopwatch.GetElapsedTime(_pendingSince).TotalMilliseconds >= PresentTimeoutMilliseconds;
+        if (ready) { AdvancePresent(); return; }
+        if (late) { CommitPresent(); return; }
+        _updateTimer.Interval = TimeSpan.FromMilliseconds(16);
+        _updateTimer.Start();
     }
 
     /// <summary>Đổi zoom giữ điểm giữa-đỉnh khung nhìn (vừa chiều rộng, nút +/−).</summary>
@@ -441,6 +547,10 @@ public sealed class ContinuousPdfView : Grid
 
     private void OnViewChanged(ChangeKind kind)
     {
+        // Cuộn/nhảy trang khi đang giữ khung: hiện khung logic ngay (khung cũ đã lệch so với vị trí cuộn mới). Đổi cỡ vùng vẽ thì KHÔNG chốt:
+        // zoom vào làm hiện thanh cuộn ngang nên vùng vẽ thấp đi vài điểm ảnh — khung đang hiện chỉ cập nhật cỡ khung nhìn của nó.
+        if (kind is ChangeKind.Navigate or ChangeKind.UserScroll) CommitPresent();
+        else if (kind == ChangeKind.Layout && _pv != null) { _pv.SetViewportSize(_vp.ViewportWidth, _vp.ViewportHeight); _rv?.SetViewportSize(_vp.ViewportWidth, _vp.ViewportHeight); }
         UpdateScrollBars();
         _surface.InvalidateVisual();
 
@@ -577,7 +687,7 @@ public sealed class ContinuousPdfView : Grid
         if ((modifiers & ModifierKeys.Control) != 0)
         {
             double accel = _wheelAccel.Next(Math.Abs(e.Delta) / 120.0, Math.Sign(e.Delta), Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency);
-            ZoomAt(ReaderZoomMath.WheelZoom(_vp.Zoom, (int)Math.Round(e.Delta * accel), ZoomStep, MinZoom, MaxZoom), e.GetPosition(_surface));
+            ZoomAtWhenReady(ReaderZoomMath.WheelZoom(_vp.Zoom, (int)Math.Round(e.Delta * accel), ZoomStep, MinZoom, MaxZoom), e.GetPosition(_surface));
             UserZoomed?.Invoke();
         }
         else
@@ -633,6 +743,36 @@ public sealed class ContinuousPdfView : Grid
 
     // ── Vẽ ─────────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Vẽ đúng cỡ rồi mới hiện (như Foxit). Nét mảnh của bản vẽ CAD được PDFium vẽ tối thiểu 1 điểm ảnh ở độ phân giải của ảnh: ảnh
+    /// vẽ nhỏ rồi phóng to thì nét dày/đậm, ảnh vẽ dư rồi thu nhỏ thì nét mảnh/nhạt; mỗi lần thay ảnh khác cỡ là mắt thấy "nét đổi"
+    /// (đo trên video 04/10: Foxit giữ nguyên ảnh cũ ~2 s khi vẽ chậm rồi mới hiện ảnh đúng cỡ trong một lần, không có bản trung gian).
+    /// Bật: ảnh trang/vùng nét vẽ ĐÚNG cỡ hiển thị (không vẽ dư, không để WPF co giãn), và zoom bằng lăn chuột giữ khung đang hiện
+    /// tới khi ảnh đúng cỡ về (hoặc quá <see cref="PresentTimeoutMilliseconds"/>). XTPDF_EXACT_RASTER=0 tắt, trở về chính sách cũ.
+    /// </summary>
+    internal static bool ExactRaster { get; set; } = Environment.GetEnvironmentVariable("XTPDF_EXACT_RASTER") != "0";
+
+    /// <summary>Chờ ảnh đúng cỡ tối đa chừng này rồi mới hiện (ảnh tạm co giãn + mờ dần như cũ). 0 = không giữ khung.</summary>
+    internal static int PresentTimeoutMilliseconds { get; set; } =
+        int.TryParse(Environment.GetEnvironmentVariable("XTPDF_PRESENT_TIMEOUT_MS"), out int presentMs) ? Math.Clamp(presentMs, 0, 5000) : 250;
+
+    /// <summary>Ảnh trang đúng cỡ nằm trong khoảng này so với cỡ cần thì coi là đủ (sai số làm tròn điểm ảnh).</summary>
+    private const double ExactLow = 0.985, ExactHigh = 1.04;
+
+    /// <summary>Từ cỡ trang (px thiết bị) này trở lên chỉ vẽ PHẦN ĐANG NHÌN (vùng nét) thay vì cả trang. Chính sách đúng cỡ bật sớm hơn
+    /// (trang rộng hơn khung nhìn ~10%): mỗi bước zoom chỉ vẽ cỡ khung nhìn (~1000x560) nên nhanh như Foxit; vẽ cả trang 2304 px mất ~120 ms.</summary>
+    private double RegionStartPx(double dpi)
+        => ExactRaster ? Math.Clamp(_vp.ViewportWidth * dpi * 1.1, 1100, MaxPageBitmapWidth * 1.03) : MaxPageBitmapWidth * 1.03;
+
+    private static int ExactPageWidth(double neededPx) => (int)Math.Clamp(Math.Round(neededPx), MinPageBitmapWidth, MaxPageBitmapWidth);
+
+    // Khung "đang hiện" trong lúc zoom chờ ảnh đúng cỡ: khung nhìn lúc bắt đầu + ảnh đã chọn cho từng trang đang hiện.
+    private ContinuousViewport? _pv;
+    private ContinuousViewport? _rv; // khung nhìn của bước đang vẽ ảnh đúng cỡ (có thể đứng sau zoom logic khi đang lăn nhanh)
+    private Dictionary<PageRow, (BitmapSource? Page, RegionImage[] Regions)>? _frozen;
+    private long _pendingSince;
+    private bool _commitFrame;
+
     /// <summary>Thời gian mờ dần (ms) khi ảnh trang/vùng nét nét hơn thay ảnh đang hiện: ảnh mới vẽ lại từ đầu nên nét mảnh khác ảnh cũ
     /// bị thu nhỏ; đổi tức thì thì mắt thấy "nhảy", mờ dần thì không. 0 = tắt (đổi tức thì như trước).</summary>
     internal static int CrossFadeMilliseconds { get; set; } =
@@ -676,7 +816,7 @@ public sealed class ContinuousPdfView : Grid
     {
         _fadeAnimating = false;
         try { DrawPages(dc); }
-        finally { if (_fadeAnimating) QueueFadeFrame(); }
+        finally { _commitFrame = false; if (_fadeAnimating) QueueFadeFrame(); }
     }
 
     private void DrawPages(DrawingContext dc)
@@ -684,14 +824,15 @@ public sealed class ContinuousPdfView : Grid
         double width = _surface.ActualWidth, height = _surface.ActualHeight;
         // Nền do Grid (Background) vẽ; hình chữ nhật trong suốt để cả vùng nhận chuột (kéo ở khe giữa trang cũng pan được).
         dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, width, height));
-        var (first, last) = _vp.VisibleRange();
+        var vp = _pv ?? _vp; // đang chờ ảnh đúng cỡ của zoom mới: vẫn vẽ khung nhìn cũ
+        var (first, last) = vp.VisibleRange();
         if (first < 0) return;
         double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
 
         for (int s = first; s <= last && s < _slots.Length; s++)
         {
             var row = _pages[_slots[s]];
-            var (x, y, w, h) = _vp.PageRect(s);
+            var (x, y, w, h) = vp.PageRect(s);
             // Bám pixel thiết bị: viền 1 px sắc, ảnh không nhoè nửa pixel.
             var outer = Snap(new Rect(x, y, w, h), dpi);
             dc.DrawRectangle(Brushes.White, null, outer);
@@ -714,16 +855,20 @@ public sealed class ContinuousPdfView : Grid
             bool hasBase = false;
             // Mọi ảnh đang có đều được vẽ, kể cả thumbnail/ảnh xem trước thô (phóng to nên mờ): trang vừa lăn tới phản hồi tức thì như Foxit,
             // thay vì để trang trắng tới khi ảnh nét về (đo 04/10: lăn nhanh 40 nấc có ~4 trong 12 khung hình là trang trắng hoàn toàn).
-            if (BestBitmap(row, state) is { } bitmap)
+            BitmapSource? pageImage;
+            IReadOnlyList<RegionImage>? regionList;
+            if (_frozen != null && _frozen.TryGetValue(row, out var frozen)) { pageImage = frozen.Page; regionList = frozen.Regions; }
+            else { pageImage = PickBitmap(row, state, content.Width * dpi); regionList = state?.Regions; }
+            if (pageImage is { } bitmap)
             {
-                DrawPageImage(dc, row, bitmap, content);
+                DrawPageImage(dc, row, bitmap, content, dpi, oneToOne: !rotated);
                 _bases.Add(new AnnotationLayer.BaseImage(bitmap, new Rect(0, 0, 1, 1)));
                 hasBase = true;
             }
-            if (state is { Regions.Count: > 0 })
+            if (regionList is { Count: > 0 })
             {
                 dc.PushClip(new RectangleGeometry(content));
-                foreach (var region in state.Regions)
+                foreach (var region in regionList)
                 {
                     var k = region.Key;
                     // Vùng nét mới hiện lên trên nền đã có (ảnh trang hoặc vùng cũ): mờ dần thay vì đổi tức thì.
@@ -731,15 +876,12 @@ public sealed class ContinuousPdfView : Grid
                     if (CrossFadeMilliseconds > 0 && hasBase)
                     {
                         var firstShown = RegionFirstShown.GetValue(region.Bitmap, _ => new FirstShown { Timestamp = Stopwatch.GetTimestamp() });
+                        if (_commitFrame) firstShown.Timestamp = Stopwatch.GetTimestamp() - 10 * Stopwatch.Frequency; // ảnh đúng cỡ vừa về: hiện luôn
                         alpha = FadeAlpha(firstShown.Timestamp, CrossFadeMilliseconds);
                         if (alpha < 1) _fadeAnimating = true;
                     }
                     if (alpha < 1) dc.PushOpacity(alpha);
-                    dc.DrawImage(region.Bitmap, new Rect(
-                        content.X + content.Width * k.X / k.FullWidth,
-                        content.Y + content.Height * k.Y / k.FullHeight,
-                        content.Width * k.Width / k.FullWidth,
-                        content.Height * k.Height / k.FullHeight));
+                    dc.DrawImage(region.Bitmap, RegionRect(content, k, dpi, oneToOne: !rotated));
                     if (alpha < 1) dc.Pop();
                     hasBase = true;
                     _bases.Add(new AnnotationLayer.BaseImage(region.Bitmap,
@@ -756,8 +898,11 @@ public sealed class ContinuousPdfView : Grid
     }
 
     /// <summary>Vẽ ảnh trang; khi nó thay một ảnh trang thật thấp hơn thì mờ dần từ ảnh cũ sang ảnh mới.</summary>
-    private void DrawPageImage(DrawingContext dc, PageRow row, BitmapSource bitmap, Rect content)
+    private void DrawPageImage(DrawingContext dc, PageRow row, BitmapSource bitmap, Rect content, double dpi, bool oneToOne)
     {
+        // Ảnh đúng cỡ hiển thị (±1 điểm ảnh): vẽ 1:1 lên lưới điểm ảnh, WPF không lấy mẫu lại nên nét giữ nguyên độ dày như PDFium vẽ.
+        if (ExactRaster && oneToOne && Math.Abs(bitmap.PixelWidth - content.Width * dpi) <= 1.0 && Math.Abs(bitmap.PixelHeight - content.Height * dpi) <= 1.5)
+            content = new Rect(Math.Round(content.X * dpi) / dpi, Math.Round(content.Y * dpi) / dpi, bitmap.PixelWidth / dpi, bitmap.PixelHeight / dpi);
         if (CrossFadeMilliseconds <= 0) { dc.DrawImage(bitmap, content); return; }
         var fade = _fades.GetOrCreateValue(row);
         if (!ReferenceEquals(fade.Current, bitmap))
@@ -785,6 +930,34 @@ public sealed class ContinuousPdfView : Grid
             fade.Previous = null;
         }
         dc.DrawImage(bitmap, content);
+    }
+
+    /// <summary>Khung vẽ của một vùng nét; vùng đúng cỡ (±1 điểm ảnh) vẽ 1:1 lên lưới điểm ảnh.</summary>
+    private static Rect RegionRect(Rect content, RegionKey k, double dpi, bool oneToOne)
+    {
+        if (ExactRaster && oneToOne && Math.Abs(k.FullWidth - content.Width * dpi) <= 1.0)
+            return new Rect(Math.Round(content.X * dpi) / dpi + k.X / dpi, Math.Round(content.Y * dpi) / dpi + k.Y / dpi, k.Width / dpi, k.Height / dpi);
+        return new Rect(content.X + content.Width * k.X / k.FullWidth, content.Y + content.Height * k.Y / k.FullHeight,
+            content.Width * k.Width / k.FullWidth, content.Height * k.Height / k.FullHeight);
+    }
+
+    /// <summary>Ảnh trang để vẽ. Chính sách đúng cỡ: ảnh có cỡ khớp cỡ hiển thị (nét đúng độ dày); không có thì ảnh rộng nhất như cũ
+    /// (ảnh to thu nhỏ làm nét mảnh/nhạt đi, nhưng còn hơn trang trắng).</summary>
+    private static BitmapSource? PickBitmap(PageRow row, PageState? state, double displayedWidthPx)
+    {
+        if (!ExactRaster || displayedWidthPx <= 0) return BestBitmap(row, state);
+        BitmapSource? exact = null; double bestError = double.MaxValue;
+        Consider(state?.Bitmap); Consider(row.ReaderBitmap); Consider(state?.Preview); Consider(row.Thumbnail);
+        return exact ?? BestBitmap(row, state);
+
+        void Consider(BitmapSource? candidate)
+        {
+            if (candidate == null) return;
+            double ratio = candidate.PixelWidth / displayedWidthPx;
+            if (ratio < ExactLow || ratio > ExactHigh) return;
+            double error = Math.Abs(ratio - 1);
+            if (error < bestError) { bestError = error; exact = candidate; }
+        }
     }
 
     private static bool IsReadableBitmap(BitmapSource bitmap, double displayedWidthPx)
@@ -823,6 +996,20 @@ public sealed class ContinuousPdfView : Grid
 
     private void UpdateRequests()
     {
+        // Đang giữ khung và chưa có bước nào đang vẽ: bắt đầu vẽ ảnh đúng cỡ cho zoom logic hiện tại.
+        if (_pv != null && _rv == null && !_renderingSuspended && _pages.Count > 0 && IsVisible)
+        {
+            _rv = _vp.Clone();
+            _pendingSince = Stopwatch.GetTimestamp();
+        }
+        UpdateRequestsCore(_rv ?? _vp);
+        if (_pv == null) return;
+        if (_renderingSuspended || _pages.Count == 0 || !IsVisible) CommitPresent();
+        else CheckPresent();
+    }
+
+    private void UpdateRequestsCore(ContinuousViewport vp)
+    {
         if (_renderingSuspended || _pages.Count == 0 || _vp.ViewportHeight <= 0 || !IsVisible) return;
         long now = Stopwatch.GetTimestamp();
         double sinceScroll = (now - _lastScrollTimestamp) * 1000.0 / Stopwatch.Frequency;
@@ -834,9 +1021,10 @@ public sealed class ContinuousPdfView : Grid
         }
         _updateTimer.Interval = TimeSpan.FromMilliseconds(16);
         double sinceZoom = (now - _lastZoomTimestamp) * 1000.0 / Stopwatch.Frequency;
-        bool zoomSettling = sinceZoom < ZoomSettleMilliseconds;
+        // Chinh sach dung co: xin anh dung co ngay tu nac zoom dau (khong cho lang) vi khung dang hien duoc giu toi khi anh ve.
+        bool zoomSettling = sinceZoom < ZoomSettleMilliseconds, deferForZoom = zoomSettling && !ExactRaster;
 
-        var (firstSlot, lastSlot) = _vp.VisibleRange();
+        var (firstSlot, lastSlot) = vp.VisibleRange();
         if (firstSlot < 0 || lastSlot >= _slots.Length) return;
         int first = _slots[firstSlot], last = _slots[lastSlot];
         int prefetchPages = Math.Clamp(PrefetchPageCount, 0, KeepPages);
@@ -875,27 +1063,30 @@ public sealed class ContinuousPdfView : Grid
             var best = BestBitmap(row, state);
             bool hasImage = best != null;
 
-            double needed = row.LayoutWidth * _vp.Zoom * dpi;
-            int pageWidth = PreferredPageBitmapWidth(needed, PreferViewportRegions);
+            double needed = row.LayoutWidth * vp.Zoom * dpi;
+            double regionStart = RegionStartPx(dpi);
+            int pageWidth = ExactRaster
+                ? (needed <= regionStart ? ExactPageWidth(needed) : ReadablePageBitmapWidth)
+                : PreferredPageBitmapWidth(needed, PreferViewportRegions);
             // Zoom nhỏ (nhiều trang trên màn hình): ảnh nhỏ đã đủ nét, không vẽ ảnh trang cho từng trang.
             if (needed <= PreviewSufficientPx)
             {
                 if (state.Preview == null && row.Thumbnail == null) RequestPreview(row, state, PdfRenderPriority.Visible);
             }
             // Đang zoom: trang đã có ảnh thì co giãn ảnh đó, chưa xin độ phân giải mới (mỗi nấc zoom một lượt vẽ là lãng phí).
-            else if (!(zoomSettling && hasImage) && NeedsPageBitmap(row, state, pageWidth, needed))
+            else if (!(deferForZoom && hasImage) && NeedsPageBitmap(row, state, pageWidth, needed))
             {
                 // Chưa có ảnh nào: xin trước ảnh xem trước nhỏ (rẻ, về nhanh) để có gì đó hiện ngay trong lúc ảnh nét đang vẽ.
                 if (!hasImage && state.Preview == null && row.Thumbnail == null) RequestPreview(row, state, PdfRenderPriority.Visible);
                 // Đã có ảnh (sắp thiếu): vẽ dư nhiều hơn để vài nấc zoom kế tiếp không phải vẽ lại.
-                if (state.Bitmap != null && pageWidth < MaxPageBitmapWidth && needed <= MaxPageBitmapWidth * 1.03)
+                if (!ExactRaster && state.Bitmap != null && pageWidth < MaxPageBitmapWidth && needed <= MaxPageBitmapWidth * 1.03)
                     pageWidth = PageBitmapWidth(needed, PageRefreshHeadroom);
                 RequestPage(row, state, pageWidth, PdfRenderPriority.Visible);
             }
 
-            if (needed > MaxPageBitmapWidth * 1.03)
+            if (needed > regionStart)
             {
-                RequestRegion(SlotOf(i), row, state, needed, renderMissing: !zoomSettling);
+                RequestRegion(vp, SlotOf(i), row, state, needed, renderMissing: !deferForZoom);
             }
             else if (state.Regions.Count > 0 || state.RegionCts != null)
             {
@@ -940,10 +1131,12 @@ public sealed class ContinuousPdfView : Grid
             if (i < 0 || i >= _pages.Count) break;
             var row = _pages[i];
             var state = StateOf(row);
-            double needed = row.LayoutWidth * _vp.Zoom * dpi;
+            double needed = row.LayoutWidth * vp.Zoom * dpi;
             if (needed > PreviewSufficientPx)
             {
-                int pageWidth = PreferredPageBitmapWidth(needed, PreferViewportRegions);
+                int pageWidth = ExactRaster
+                    ? (needed <= RegionStartPx(dpi) ? ExactPageWidth(needed) : ReadablePageBitmapWidth)
+                    : PreferredPageBitmapWidth(needed, PreferViewportRegions);
                 if (NeedsPageBitmap(row, state, pageWidth, needed)) RequestPage(row, state, pageWidth, PdfRenderPriority.Background);
             }
             else if (BestBitmap(row, state) == null) RequestPreview(row, state, PdfRenderPriority.Thumbnail);
@@ -967,11 +1160,18 @@ public sealed class ContinuousPdfView : Grid
     private const double PageLowWater = 1.10;
     private const double PageRefreshHeadroom = 2.0;
 
-    private static bool NeedsPageBitmap(PageRow row, PageState state, int width, double neededPx)
+    private bool NeedsPageBitmap(PageRow row, PageState state, int width, double neededPx)
     {
         if (state.Bitmap is { } bmp && state.BitmapVersion == state.Version &&
             string.Equals(state.BitmapLayers, PdfLayerStateStore.GetToken(row.SourcePath), StringComparison.Ordinal))
         {
+            // Dung co: anh phai khop co hien thi (ca khi qua to - anh to thu nho lam net manh/nhat di). Che do vung net giu anh du phong 1024 px.
+            if (ExactRaster && neededPx <= RegionStartPx(VisualTreeHelper.GetDpi(this).DpiScaleX))
+            {
+                double reference = ExactPageWidth(neededPx);
+                bool mismatch = bmp.PixelWidth < reference * ExactLow || bmp.PixelWidth > reference * ExactHigh;
+                return mismatch && state.DeliveredWidth != width;
+            }
             if (bmp.PixelWidth >= width * 0.97) return false;
             // Chế độ vùng nét (width = ảnh dự phòng 1024 px) đã xử lý ở trên; ở đây chỉ còn cỡ theo zoom.
             return bmp.PixelWidth < Math.Min(neededPx * PageLowWater, MaxPageBitmapWidth);
@@ -1070,20 +1270,27 @@ public sealed class ContinuousPdfView : Grid
         state.Bitmap = bmp;
         state.BitmapLayers = layers;
         state.BitmapVersion = version;
+        state.DeliveredWidth = width;
         if (row.ReaderBitmap is not { } existing || existing.PixelWidth <= bmp.PixelWidth) row.ReaderBitmap = bmp;
         if (IsOnScreen(row)) _surface.InvalidateVisual();
+        CheckPresent(); // anh dung co vua ve: hien luon khung moi neu da du
         ScheduleUpdate(); // hoàn tất trang này: tiếp tục tải trước mà không cần chờ một lần cuộn/zoom khác
     }
 
-    private void RequestRegion(int slot, PageRow row, PageState state, double neededPx, bool renderMissing = true)
+    private bool RegionCovered(ContinuousViewport vp, int slot, PageRow row, PageState state, double neededPx) => RequestRegion(vp, slot, row, state, neededPx, renderMissing: false);
+
+    /// <returns>true neu phan dang nhin cua trang da co vung net phu (san de hien).</returns>
+    private bool RequestRegion(ContinuousViewport vp, int slot, PageRow row, PageState state, double neededPx, bool renderMissing = true)
     {
-        if (!_vp.VisibleFraction(slot, out double dx0, out double dy0, out double dx1, out double dy1)) return;
+        if (!vp.VisibleFraction(slot, out double dx0, out double dy0, out double dx1, out double dy1)) return true;
         // Phần đang hiện → phân số trên trang theo hướng của trang (vùng vẽ PDFium không xoay).
         var (ua, va) = Unrotate(dx0, dy0);
         var (ub, vb) = Unrotate(dx1, dy1);
         double fx0 = Math.Min(ua, ub), fx1 = Math.Max(ua, ub), fy0 = Math.Min(va, vb), fy1 = Math.Max(va, vb);
-        int fullWidth = (int)Math.Min(MaxRegionFullWidth,
-            Math.Ceiling(Math.Min(neededPx * RegionHeadroom, MaxRegionFullWidth) / RegionResolutionQuantum) * RegionResolutionQuantum);
+        int fullWidth = ExactRaster
+            ? (int)Math.Min(MaxRegionFullWidth, Math.Round(neededPx))
+            : (int)Math.Min(MaxRegionFullWidth,
+                Math.Ceiling(Math.Min(neededPx * RegionHeadroom, MaxRegionFullWidth) / RegionResolutionQuantum) * RegionResolutionQuantum);
         double aspect = row.LayoutHeight / Math.Max(1, row.LayoutWidth);
         int fullHeight = Math.Max(1, (int)Math.Round(fullWidth * aspect));
         string layers = PdfLayerStateStore.GetToken(row.SourcePath);
@@ -1091,12 +1298,17 @@ public sealed class ContinuousPdfView : Grid
         // Vùng cũ còn dùng được nếu nó không bị phóng to (>= cỡ cần × RegionLowWater) và không dư quá nhiều, và phủ phần đang nhìn
         // (so theo phân số trang, vì vùng vẽ ở độ phân giải khác vẫn được vẽ lên đúng chỗ): zoom nhích không thay ảnh → không nhảy nét.
         double minWidth = Math.Min(neededPx * RegionLowWater, MaxRegionFullWidth), maxWidth = Math.Max(neededPx * RegionHighWater, minWidth);
+        if (ExactRaster)
+        {
+            double reference = Math.Min(neededPx, MaxRegionFullWidth);
+            minWidth = reference * ExactLow / 0.995; maxWidth = reference * ExactHigh; // dung co: chi nhan vung khop co hien thi
+        }
         bool Covers(RegionKey k) => k.Version == state.Version && string.Equals(k.Layers, layers, StringComparison.Ordinal) &&
             k.FullWidth >= minWidth * 0.995 && k.FullWidth <= maxWidth &&
             k.X <= fx0 * k.FullWidth + 0.5 && k.Y <= fy0 * k.FullHeight + 0.5 &&
             k.X + k.Width >= fx1 * k.FullWidth - 0.5 && k.Y + k.Height >= fy1 * k.FullHeight - 0.5;
 
-        if (state.Regions.Any(r => Covers(r.Key))) return;
+        if (state.Regions.Any(r => Covers(r.Key))) return true;
         var source = RenderCacheKeys.Thumbnail(row.SourcePath, row.PageNumber);
         CachedRegionKey cachedKey;
         BitmapSource? cachedBitmap;
@@ -1112,19 +1324,19 @@ public sealed class ContinuousPdfView : Grid
             state.Regions.Add(new RegionImage(cachedKey.Region with { Version = state.Version }, cachedBitmap));
             while (state.Regions.Count > 2) state.Regions.RemoveAt(0);
             _surface.InvalidateVisual();
-            return;
+            return true;
         }
-        if (!renderMissing) return;
+        if (!renderMissing) return false;
         if (state.RegionCts != null && state.RegionPending is { } pending)
         {
-            if (Covers(pending)) return;
+            if (Covers(pending)) return false;
             // Đang pan: vùng đang vẽ dở vẫn còn trên màn hình thì vẽ nốt (vẽ xong sẽ tự xin vùng kế) — huỷ liên tục thì
             // pan đều tay không vùng nào kịp xong.
             bool sameResolution = pending.FullWidth == fullWidth && pending.Version == state.Version &&
                 string.Equals(pending.Layers, layers, StringComparison.Ordinal);
             bool stillOnScreen = pending.X < fx1 * fullWidth && pending.X + pending.Width > fx0 * fullWidth &&
                 pending.Y < fy1 * fullHeight && pending.Y + pending.Height > fy0 * fullHeight;
-            if (sameResolution && stillOnScreen) return;
+            if (sameResolution && stillOnScreen) return false;
         }
 
         var (x, y, w, h) = ContinuousViewport.Region(fx0, fy0, fx1, fy1, fullWidth, fullHeight);
@@ -1152,6 +1364,7 @@ public sealed class ContinuousPdfView : Grid
         state.RegionCts = cts;
         state.RegionPending = key;
         _ = LoadRegionAsync(row, state, key, cts, rectangles, missing, pieces, reuseOverlap);
+        return false;
 
         bool Compatible(RegionKey k) => k.FullWidth == fullWidth && k.FullHeight == fullHeight &&
             k.Version == state.Version && string.Equals(k.Layers, layers, StringComparison.Ordinal);
@@ -1205,6 +1418,7 @@ public sealed class ContinuousPdfView : Grid
         regions.Add(new RegionImage(key, bmp));
         while (regions.Count > 2) regions.RemoveAt(0);
         if (IsOnScreen(row)) _surface.InvalidateVisual();
+        CheckPresent();
         ScheduleUpdate(); // khung nhìn có thể đã đi tiếp trong lúc vẽ (pan) — xin vùng kế nếu cần
     }
 
@@ -1254,6 +1468,9 @@ public sealed class ContinuousPdfView : Grid
         public int RequestedWidth, RequestedVersion;
         public PdfRenderPriority RequestedPriority;
         public int FailedWidth = -1, FailedVersion = -1;
+        /// <summary>Cỡ đã xin mà <see cref="Bitmap"/> được giao cho. Nhà cung cấp có thể giao ảnh khác cỡ (cache trả ảnh lớn hơn đã có):
+        /// đã xin cỡ này rồi thì không xin lặp mãi dù ảnh nhận được không khớp cỡ hiển thị.</summary>
+        public int DeliveredWidth = -1;
         public readonly List<RegionImage> Regions = new();
         public CancellationTokenSource? RegionCts;
         public RegionKey? RegionPending;

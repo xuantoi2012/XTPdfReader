@@ -34,7 +34,10 @@ internal static partial class Program
         int maximum = (int)typeof(ContinuousPdfView).GetField("MaxRegionFullWidth", BindingFlags.Static | BindingFlags.NonPublic)!.GetRawConstantValue()!;
         double headroom = (double)typeof(ContinuousPdfView).GetField("RegionHeadroom", BindingFlags.Static | BindingFlags.NonPublic)!.GetRawConstantValue()!;
         double needed = row.LayoutWidth * view.Zoom * VisualTreeHelper.GetDpi(view).DpiScaleX;
-        int fullWidth = (int)Math.Min(maximum, Math.Ceiling(Math.Min(needed * headroom, maximum) / quantum) * quantum);
+        // Exact-raster policy renders the region at the displayed width; the legacy policy rounds up with headroom and a quantum.
+        int fullWidth = ContinuousPdfView.ExactRaster
+            ? (int)Math.Min(maximum, Math.Round(needed))
+            : (int)Math.Min(maximum, Math.Ceiling(Math.Min(needed * headroom, maximum) / quantum) * quantum);
         if (!view.TryGetPageRect(row, out var pageRect)) return false;
         var visible = Rect.Intersect(pageRect, new Rect(0, 0, view.Surface.ActualWidth, view.Surface.ActualHeight));
         if (visible.IsEmpty || visible.Width <= 0 || visible.Height <= 0) return false;
