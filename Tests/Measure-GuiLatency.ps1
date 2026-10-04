@@ -57,6 +57,26 @@ if($Mode -eq 'zoom'){
 foreach($k in 1..30){ [System.Windows.Forms.SendKeys]::SendWait('{PGDN}'); Start-Sleep -Milliseconds 150 }; Start-Sleep -Seconds 3
 foreach($i in 1..14){ Step "zin-$i" { Wheel 120 $true } 250 2500 }
 foreach($i in 1..14){ Step "zout-$i" { Wheel -120 $true } 250 2500 }
+} elseif($Mode -eq 'pan'){
+function Notches($n,$d){ for($k=0;$k -lt $n;$k++){ Wheel $d $true; Start-Sleep -Milliseconds 25 } }
+function PanV($n,$d,$gap){ for($k=0;$k -lt $n;$k++){ Wheel $d $false; Start-Sleep -Milliseconds $gap } }
+function PanH($n,$d,$gap){ for($k=0;$k -lt $n;$k++){ [Lat]::keybd_event(0x10,0,0,[UIntPtr]::Zero); [Lat]::mouse_event(0x0800,0,0,-$d,[UIntPtr]::Zero); [Lat]::keybd_event(0x10,0,2,[UIntPtr]::Zero); Start-Sleep -Milliseconds $gap } }
+Step 'pan-zoomin' { Notches 30 120 } 250 5000
+# settle_ms - (notches*gap) is the time the picture kept changing after the hand stopped (the blurry-to-sharp tail)
+Step 'panH-right-12x40' { PanH 12 120 40 } 250 4000
+Step 'panH-left-12x40' { PanH 12 -120 40 } 250 4000
+Step 'panV-down-12x40' { PanV 12 -120 40 } 250 4000
+Step 'panV-up-12x40' { PanV 12 120 40 } 250 4000
+Step 'panH-right-30x25' { PanH 30 120 25 } 250 4000
+Step 'panV-down-30x25' { PanV 30 -120 25 } 250 4000
+Step 'panH-left-30x25' { PanH 30 -120 25 } 250 4000
+Step 'panV-up-30x25' { PanV 30 120 25 } 250 4000
+Step 'panH-right-80x10' { PanH 80 120 10 } 250 5000
+Step 'panH-left-80x10' { PanH 80 -120 10 } 250 5000
+Step 'panV-down-80x10' { PanV 80 -120 10 } 250 5000
+Step 'panV-up-80x10' { PanV 80 120 10 } 250 5000
+Step 'panH-right-10x150' { PanH 10 120 150 } 250 5000
+Step 'panH-left-10x150' { PanH 10 -120 150 } 250 5000
 } elseif($Mode -eq 'deep'){
 function Notches($n,$d){ for($k=0;$k -lt $n;$k++){ Wheel $d $true; Start-Sleep -Milliseconds 25 } }
 Step 'deep-zoomin-10'  { Notches 10 120 } 250 4000

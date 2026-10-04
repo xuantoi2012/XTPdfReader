@@ -545,7 +545,11 @@ public sealed class ContinuousPdfView : Grid
 
     private enum ChangeKind { Layout, Navigate, Zoom, UserScroll }
 
-    private long _lastScrollTimestamp, _lastZoomTimestamp;
+    private long _lastScrollTimestamp, _lastZoomTimestamp, _lastPanTimestamp;
+    private double _lastOffsetX;
+    private int _panSignX, _panSignY;
+    /// <summary>Pan gần đây (ms): trong thời gian này vùng nét được giữ rộng về phía đang đi để ảnh nét sẵn trước khi tới.</summary>
+    private const double PanRecentMilliseconds = 700;
     private bool _fastScroll;
     private int _scrollDirection = 1;
     private double _lastOffsetY;
@@ -566,7 +570,14 @@ public sealed class ContinuousPdfView : Grid
 
         long now = Stopwatch.GetTimestamp();
         double dy = _vp.OffsetY - _lastOffsetY;
+        double dx = _vp.OffsetX - _lastOffsetX;
         _lastOffsetY = _vp.OffsetY;
+        _lastOffsetX = _vp.OffsetX;
+        if (kind == ChangeKind.UserScroll && (dx != 0 || dy != 0))
+        {
+            _panSignX = Math.Sign(dx); _panSignY = Math.Sign(dy);
+            _lastPanTimestamp = now;
+        }
         if (kind == ChangeKind.Zoom) _lastZoomTimestamp = now;
         if (kind == ChangeKind.UserScroll && dy != 0 && _vp.ViewportHeight > 0)
         {
@@ -1402,7 +1413,27 @@ public sealed class ContinuousPdfView : Grid
             k.X <= fx0 * k.FullWidth + 0.5 && k.Y <= fy0 * k.FullHeight + 0.5 &&
             k.X + k.Width >= fx1 * k.FullWidth - 0.5 && k.Y + k.Height >= fy1 * k.FullHeight - 0.5;
 
-        if (state.Regions.Any(r => Covers(r.Key))) return true;
+        // Đang pan: phần sắp tới (thêm một phần tư bề rộng/cao nhìn thấy về phía đang đi) cũng nên có nét sẵn; nếu chưa thì vẽ vùng kế tiếp
+        // ngầm ngay bây giờ — không chờ tới khi phần nhìn thấy chạm mép rồi mới vẽ (lúc đó thấy ảnh nét dần).
+        bool panning = renderMissing && Stopwatch.GetElapsedTime(_lastPanTimestamp).TotalMilliseconds < PanRecentMilliseconds && (_panSignX != 0 || _panSignY != 0);
+        int panU = 0, panV = 0;
+        double ax0 = fx0, ay0 = fy0, ax1 = fx1, ay1 = fy1;
+        if (panning)
+        {
+            var (pu0, pv0) = Unrotate(0.5, 0.5);
+            var (pu1, pv1) = Unrotate(0.5 + 0.1 * _panSignX, 0.5 + 0.1 * _panSignY);
+            panU = Math.Sign(Math.Round(pu1 - pu0, 6)); panV = Math.Sign(Math.Round(pv1 - pv0, 6));
+            double ex = (fx1 - fx0) * 0.25, ey = (fy1 - fy0) * 0.25;
+            if (panU > 0) ax1 = Math.Min(1, fx1 + ex); else if (panU < 0) ax0 = Math.Max(0, fx0 - ex);
+            if (panV > 0) ay1 = Math.Min(1, fy1 + ey); else if (panV < 0) ay0 = Math.Max(0, fy0 - ey);
+        }
+        bool Comfortable(RegionKey k) => Covers(k) &&
+            k.X <= ax0 * k.FullWidth + 0.5 && k.Y <= ay0 * k.FullHeight + 0.5 &&
+            k.X + k.Width >= ax1 * k.FullWidth - 0.5 && k.Y + k.Height >= ay1 * k.FullHeight - 0.5;
+
+        bool covered = state.Regions.Any(r => Covers(r.Key));
+        if (covered && (!panning || state.Regions.Any(r => Comfortable(r.Key)) ||
+            (state.RegionPending is { } ahead && Comfortable(ahead)))) return true;
         var source = RenderCacheKeys.Thumbnail(row.SourcePath, row.PageNumber);
         CachedRegionKey cachedKey;
         BitmapSource? cachedBitmap;
@@ -1412,7 +1443,7 @@ public sealed class ContinuousPdfView : Grid
             lock (RegionCacheLock)
                 RegionCache.TryFind(k => k.Path == source.Path && k.Page == source.Page && Covers(k.Region with { Version = state.Version }),
                     out cachedKey, out cachedBitmap);
-        if (cachedBitmap != null)
+        if (cachedBitmap != null && (!panning || Comfortable(cachedKey.Region with { Version = state.Version })))
         {
             state.CancelRegion();
             state.Regions.Add(new RegionImage(cachedKey.Region with { Version = state.Version }, cachedBitmap));
@@ -1420,20 +1451,20 @@ public sealed class ContinuousPdfView : Grid
             _surface.InvalidateVisual();
             return true;
         }
-        if (!renderMissing) return false;
+        if (!renderMissing) return covered;
         if (state.RegionCts != null && state.RegionPending is { } pending)
         {
-            if (Covers(pending)) return false;
+            if (Covers(pending)) return covered;
             // Đang pan: vùng đang vẽ dở vẫn còn trên màn hình thì vẽ nốt (vẽ xong sẽ tự xin vùng kế) — huỷ liên tục thì
             // pan đều tay không vùng nào kịp xong.
             bool sameResolution = pending.FullWidth == fullWidth && pending.Version == state.Version &&
                 string.Equals(pending.Layers, layers, StringComparison.Ordinal);
             bool stillOnScreen = pending.X < fx1 * fullWidth && pending.X + pending.Width > fx0 * fullWidth &&
                 pending.Y < fy1 * fullHeight && pending.Y + pending.Height > fy0 * fullHeight;
-            if (sameResolution && stillOnScreen) return false;
+            if (sameResolution && stillOnScreen) return covered;
         }
 
-        var (x, y, w, h) = ContinuousViewport.Region(fx0, fy0, fx1, fy1, fullWidth, fullHeight);
+        var (x, y, w, h) = ContinuousViewport.Region(fx0, fy0, fx1, fy1, fullWidth, fullHeight, panX: panU, panY: panV);
         var key = new RegionKey(fullWidth, fullHeight, x, y, w, h, layers, state.Version);
         var target = new Int32Rect(x, y, w, h);
         var pieces = new List<ViewportRegionReuse.Piece>();
@@ -1458,7 +1489,7 @@ public sealed class ContinuousPdfView : Grid
         state.RegionCts = cts;
         state.RegionPending = key;
         _ = LoadRegionAsync(row, state, key, cts, rectangles, missing, pieces, reuseOverlap);
-        return false;
+        return covered;
 
         bool Compatible(RegionKey k) => k.FullWidth == fullWidth && k.FullHeight == fullHeight &&
             k.Version == state.Version && string.Equals(k.Layers, layers, StringComparison.Ordinal);

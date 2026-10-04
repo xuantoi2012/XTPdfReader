@@ -182,17 +182,21 @@ internal sealed class ContinuousViewport
     /// không quá <paramref name="maxPixels"/> (thu lề nếu cần).
     /// </summary>
     public static (int X, int Y, int Width, int Height) Region(double fx0, double fy0, double fx1, double fy1,
-        int fullWidth, int fullHeight, double marginFraction = 0.125, int snap = 64, long maxPixels = 12_000_000)
+        int fullWidth, int fullHeight, double marginFraction = 0.125, int snap = 64, long maxPixels = 12_000_000, int panX = 0, int panY = 0)
     {
         double left = fx0 * fullWidth, top = fy0 * fullHeight, right = fx1 * fullWidth, bottom = fy1 * fullHeight;
         double marginX = Math.Max(snap * 2, (right - left) * marginFraction);
         double marginY = Math.Max(snap * 2, (bottom - top) * marginFraction);
+        // Đang pan: dồn lề về phía đang đi (ảnh nét sẵn ở nơi sắp tới), bớt lề phía sau.
+        const double Lead = 2.5, Trail = 0.5;
         while (true)
         {
-            int x0 = Math.Max(0, (int)Math.Floor((left - marginX) / snap) * snap);
-            int y0 = Math.Max(0, (int)Math.Floor((top - marginY) / snap) * snap);
-            int x1 = Math.Min(fullWidth, (int)Math.Ceiling((right + marginX) / snap) * snap);
-            int y1 = Math.Min(fullHeight, (int)Math.Ceiling((bottom + marginY) / snap) * snap);
+            double mL = panX > 0 ? marginX * Trail : panX < 0 ? marginX * Lead : marginX, mR = panX > 0 ? marginX * Lead : panX < 0 ? marginX * Trail : marginX;
+            double mT = panY > 0 ? marginY * Trail : panY < 0 ? marginY * Lead : marginY, mB = panY > 0 ? marginY * Lead : panY < 0 ? marginY * Trail : marginY;
+            int x0 = Math.Max(0, (int)Math.Floor((left - Math.Max(snap, mL)) / snap) * snap);
+            int y0 = Math.Max(0, (int)Math.Floor((top - Math.Max(snap, mT)) / snap) * snap);
+            int x1 = Math.Min(fullWidth, (int)Math.Ceiling((right + Math.Max(snap, mR)) / snap) * snap);
+            int y1 = Math.Min(fullHeight, (int)Math.Ceiling((bottom + Math.Max(snap, mB)) / snap) * snap);
             if ((long)(x1 - x0) * (y1 - y0) <= maxPixels || (marginX < 1 && marginY < 1))
                 return (x0, y0, Math.Max(1, x1 - x0), Math.Max(1, y1 - y0));
             marginX /= 2;
