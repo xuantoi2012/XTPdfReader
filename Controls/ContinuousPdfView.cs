@@ -285,6 +285,7 @@ public sealed class ContinuousPdfView : Grid
     /// <summary>Đổi zoom, giữ điểm dưới <paramref name="viewPoint"/> (toạ độ trong <see cref="Surface"/>) đứng yên.</summary>
     public void ZoomAt(double zoom, Point viewPoint)
     {
+        StopZoomGlide();
         zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
         if (Math.Abs(zoom - _vp.Zoom) < 1e-6) return;
         _vp.ZoomAt(zoom, viewPoint.X, viewPoint.Y);
@@ -302,9 +303,73 @@ public sealed class ContinuousPdfView : Grid
     {
         if (!ExactRaster || PresentTimeoutMilliseconds <= 0 || _pages.Count == 0 || PageRenderer == null || _renderingSuspended)
         {
+            StopZoomGlide();
             ZoomAt(zoom, viewPoint);
             return;
         }
+        zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
+        if (ZoomRateLimit <= 0) { ApplyZoomWhenReady(zoom, viewPoint); return; }
+        // Lăn nhanh: đích zoom chạy theo các nấc, còn zoom đang hiện đi tới đích với tốc độ tối đa ZoomRateLimit (ln/giây) — mỗi bước hiện
+        // chỉ đổi cỡ một lượng vừa phải, chuyển động liền mạch thay vì vài bước nhảy lớn. Nấc đơn lẻ nằm trong giới hạn nên áp dụng ngay.
+        double current = _vp.Zoom;
+        _zoomTarget = Math.Clamp(zoom, current / ZoomLeadLimit, current * ZoomLeadLimit);
+        _zoomAnchor = viewPoint;
+        _lastGlideTimestamp = Stopwatch.GetTimestamp();
+        GlideStep(0.016);
+        if (_zoomTarget != null) EnsureGlideTimer();
+    }
+
+    /// <summary>Tốc độ zoom tối đa của lăn chuột, tính bằng ln(zoom)/giây (6 ≈ ×1,5 mỗi bước vẽ ~70 ms; Foxit đo được ≤ ×1,5 mỗi khung hình).
+    /// 0 = không giới hạn (mỗi nấc đổi zoom ngay như trước). XTPDF_ZOOM_RATE đổi giá trị.</summary>
+    internal static double ZoomRateLimit { get; set; } =
+        double.TryParse(Environment.GetEnvironmentVariable("XTPDF_ZOOM_RATE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double rate) ? rate : 6.0;
+    private const double ZoomLeadLimit = 6.0; // đích không đi trước zoom đang hiện quá ×6: thả tay thì dừng ngay, không trôi tiếp
+    private double? _zoomTarget;
+    private Point _zoomAnchor;
+    private long _lastGlideTimestamp;
+    private System.Windows.Threading.DispatcherTimer? _glideTimer;
+
+    private void EnsureGlideTimer()
+    {
+        _glideTimer ??= new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(8) };
+        _glideTimer.Tick -= GlideTick;
+        _glideTimer.Tick += GlideTick;
+        _glideTimer.Start();
+    }
+
+    private void GlideTick(object? sender, EventArgs e)
+    {
+        long now = Stopwatch.GetTimestamp();
+        double dt = Math.Min(0.05, Stopwatch.GetElapsedTime(_lastGlideTimestamp, now).TotalSeconds);
+        _lastGlideTimestamp = now;
+        GlideStep(dt);
+        if (_zoomTarget != null) return;
+        _glideTimer?.Stop();
+    }
+
+    private void GlideStep(double dt)
+    {
+        if (_zoomTarget is not { } target) return;
+        double current = _vp.Zoom;
+        double remaining = Math.Log(target / current), allowed = ZoomRateLimit * dt;
+        double next;
+        if (Math.Abs(remaining) <= allowed + 1e-9) { next = target; _zoomTarget = null; }
+        else next = current * Math.Exp(Math.Sign(remaining) * allowed);
+        ApplyZoomWhenReady(next, _zoomAnchor);
+        UserZoomed?.Invoke();
+    }
+
+    private void StopZoomGlide()
+    {
+        _zoomTarget = null;
+        _glideTimer?.Stop();
+    }
+
+    /// <summary>Zoom hiện tại hoặc đích đang đi tới (để các nấc lăn kế tiếp cộng dồn vào đích).</summary>
+    internal double ZoomBase => _zoomTarget ?? _vp.Zoom;
+
+    private void ApplyZoomWhenReady(double zoom, Point viewPoint)
+    {
         zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
         if (Math.Abs(zoom - _vp.Zoom) < 1e-6) return;
         _lastZoomAnchor = viewPoint;
@@ -566,6 +631,7 @@ public sealed class ContinuousPdfView : Grid
         if (kind is ChangeKind.Navigate or ChangeKind.UserScroll)
         {
             CommitPresent();
+            StopZoomGlide();
             _speculationCts?.Cancel(); // cuộn/nhảy trang: việc thật cần cả hai bản PDFium, không vẽ đoán nữa
             _hasZoomAnchor = false;
         }
@@ -714,8 +780,8 @@ public sealed class ContinuousPdfView : Grid
         if ((modifiers & ModifierKeys.Control) != 0)
         {
             double accel = _wheelAccel.Next(Math.Abs(e.Delta) / 120.0, Math.Sign(e.Delta), Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency);
-            ZoomAtWhenReady(ReaderZoomMath.WheelZoom(_vp.Zoom, (int)Math.Round(e.Delta * accel), ZoomStep, MinZoom, MaxZoom), e.GetPosition(_surface));
-            UserZoomed?.Invoke();
+            ZoomAtWhenReady(ReaderZoomMath.WheelZoom(ZoomBase, (int)Math.Round(e.Delta * accel), ZoomStep, MinZoom, MaxZoom), e.GetPosition(_surface));
+            if (_zoomTarget == null) UserZoomed?.Invoke();
         }
         else
         {

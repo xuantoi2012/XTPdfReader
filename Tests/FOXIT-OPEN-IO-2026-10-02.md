@@ -241,3 +241,13 @@ Method: every ~2 ms suspend Foxit's UI thread for a moment (no debugger), read E
 - The page tile render (FUN_01d65d10 -> FUN_01d649a0) allocates a 24 bpp DIB for the rectangle and, in blocking mode, loops `do { Continue() } while (!finished)` on the UI thread. No worker threads (99-100% of CPU in one thread).
 - Timeline of the UI thread in a 40-notch, 30 ms-apart Ctrl+wheel roll: back-to-back render blocks of ~85 ms separated by ~10 ms idle gaps (the message loop: input + paint); zoom-in blocks shrink 163 -> 6 ms as the zoom approaches the limit, zoom-out blocks grow 6 -> 174 ms and end with a 588 ms block (final full render). That is about one frame per 95 ms while rolling, i.e. Foxit's cadence is NOT higher than Reader's (Reader: zoom-in ~70 ms, zoom-out ~35 ms per update).
 - While a block runs the UI thread is blocked, so queued wheel notches are consumed together afterwards (a natural coalescing); Reader keeps the UI thread free.
+
+## Page 31 zoom roll, Foxit vs Reader frame by frame (04/10)
+
+Capture: Capture-GuiZoomSequence.ps1 (60 fps screen capture of the content area, page 31 reached with 30x PgDn, 40 Ctrl+wheel notches 20 ms apart), analysis: per changed frame the zoom ratio by FFT registration.
+
+- Foxit zoom-in: 21 changed frames over 1.1 s, per-frame ratio 1.09-1.5 (median ~1.25), every frame sharp. Zoom-out: 16 frames over 1.35 s, ratio 0.6-0.9.
+- Reader before the change: zoom-in only 5 changed frames in 267 ms with per-frame jumps of x1.5, x1.7 and a large unmeasurable jump (the wheel accelerator I had raised multiplies the zoom by up to 1.08^7 = x1.7 per notch, so about x3-8 per presented frame): the zoom teleports. Zoom-out 14 frames in 534 ms.
+- Cause of the different "effect": not image quality but the temporal profile of the zoom (few large jumps vs a continuous glide).
+- Fix: the wheel only moves a zoom TARGET (kept within x6 of the shown zoom); the shown zoom glides toward it at most `ZoomRateLimit` = 6 ln/s (XTPDF_ZOOM_RATE, 0 = old behaviour), each step still an exact-size render presented when ready. Single notches (ln 1.08 < 6 x 16 ms) apply immediately, so their 17-30 ms latency is unchanged.
+- After: zoom-in 13 frames in 431 ms with ratios 1.07-1.37 (mostly every 16 ms), zoom-out 39 frames in 834 ms with ratios 0.76-0.96. One 116 ms hold remains at the first region-mode (deep zoom) frame, comparable to Foxit's first 163 ms block.
