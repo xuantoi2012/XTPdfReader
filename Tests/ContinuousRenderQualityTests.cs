@@ -131,15 +131,16 @@ internal static partial class Program
             coldFrame.Render(view.Surface);
             Check(view.TryGetPageRect(pages[0], out var pageRect), "Cold page remains positioned in the viewport while its readable image loads");
             var pixel = new byte[4]; coldFrame.CopyPixels(new Int32Rect((int)pageRect.X + 30, (int)pageRect.Y + 30, 1, 1), pixel, 4, 0);
-            Check(pixel[0] > 240 && pixel[1] > 240 && pixel[2] > 240,
-                "Cold viewport never enlarges a coarse sidebar thumbnail into a blurry page");
+            // Product decision (04/10): a cold page paints the coarse thumbnail at once instead of staying blank until the sharp render arrives.
+            Check(pixel[2] > 240 && pixel[1] < 15 && pixel[0] < 15,
+                "Cold viewport paints the sidebar thumbnail immediately instead of leaving the page blank");
             var visiblePage = Rect.Intersect(pageRect, new Rect(0, 0, view.Surface.ActualWidth, view.Surface.ActualHeight));
             var middle = new Int32Rect((int)(visiblePage.X + visiblePage.Width / 2) - 80,
                 (int)(visiblePage.Y + visiblePage.Height / 2) - 20, 160, 40);
             var centerPixels = new byte[middle.Width * middle.Height * 4];
             coldFrame.CopyPixels(middle, centerPixels, middle.Width * 4, 0);
-            Check(Enumerable.Range(0, centerPixels.Length / 4).All(i => centerPixels[i * 4] > 240 && centerPixels[i * 4 + 1] > 240 && centerPixels[i * 4 + 2] > 240),
-                "Cold page shows no loading badge while its sharp render runs asynchronously");
+            Check(Enumerable.Range(0, centerPixels.Length / 4).All(i => centerPixels[i * 4 + 2] > 240 && centerPixels[i * 4 + 1] < 15 && centerPixels[i * 4] < 15),
+                "Cold page shows only the thumbnail (no loading badge) while its sharp render runs asynchronously");
             sharpReady.SetResult(); Pump(TimeSpan.FromMilliseconds(100));
             var initialPages = requests.Where(r => r.Priority == PdfRenderPriority.Visible).GroupBy(r => r.Page).Take(2).ToArray();
             Check(initialPages.Length == 2 && initialPages.All(g => g.First().Width == expectedWidth), "Both adjacent visible pages request screen resolution immediately, without an intermediate render");

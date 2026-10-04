@@ -80,6 +80,8 @@ public sealed class ContinuousPdfView : Grid
     }
     /// <summary>Trang ngoài [đầu − n, cuối + n] quanh khung nhìn: huỷ việc đang vẽ, bỏ ảnh riêng của view.</summary>
     private const int KeepPages = 4;
+    /// <summary>Số trang phía trước (theo hướng cuộn) được xin trước ảnh xem trước nhỏ để lăn nhanh không gặp trang trắng.</summary>
+    private const int PreviewAheadPages = 8;
 
     // ── Thành phần ─────────────────────────────────────────────────────────
     private readonly PageSurface _surface;
@@ -707,9 +709,9 @@ public sealed class ContinuousPdfView : Grid
             _states.TryGetValue(row, out var state);
             _bases.Clear();
             bool hasBase = false;
-            if (BestBitmap(row, state) is { } bitmap &&
-                // Keep a previously rendered page through zoom refinement, never an enlarged sidebar thumbnail.
-                (ReuseRenderedImages && bitmap.PixelWidth >= MinPageBitmapWidth || IsReadableBitmap(bitmap, content.Width * dpi)))
+            // Mọi ảnh đang có đều được vẽ, kể cả thumbnail/ảnh xem trước thô (phóng to nên mờ): trang vừa lăn tới phản hồi tức thì như Foxit,
+            // thay vì để trang trắng tới khi ảnh nét về (đo 04/10: lăn nhanh 40 nấc có ~4 trong 12 khung hình là trang trắng hoàn toàn).
+            if (BestBitmap(row, state) is { } bitmap)
             {
                 DrawPageImage(dc, row, bitmap, content);
                 _bases.Add(new AnnotationLayer.BaseImage(bitmap, new Rect(0, 0, 1, 1)));
@@ -835,7 +837,9 @@ public sealed class ContinuousPdfView : Grid
         if (firstSlot < 0 || lastSlot >= _slots.Length) return;
         int first = _slots[firstSlot], last = _slots[lastSlot];
         int prefetchPages = Math.Clamp(PrefetchPageCount, 0, KeepPages);
-        int keepFirst = Math.Max(0, first - KeepPages), keepLast = Math.Min(_pages.Count - 1, last + KeepPages);
+        int keepAhead = Math.Max(KeepPages, PreviewAheadPages);
+        int keepFirst = Math.Max(0, first - (_scrollDirection < 0 ? keepAhead : KeepPages)),
+            keepLast = Math.Min(_pages.Count - 1, last + (_scrollDirection >= 0 ? keepAhead : KeepPages));
         int renderFirst = first - (!scrollSettling && _scrollDirection < 0 ? prefetchPages : 0);
         int renderLast = last + (!scrollSettling && _scrollDirection >= 0 ? prefetchPages : 0);
 
@@ -878,6 +882,8 @@ public sealed class ContinuousPdfView : Grid
             // Đang zoom: trang đã có ảnh thì co giãn ảnh đó, chưa xin độ phân giải mới (mỗi nấc zoom một lượt vẽ là lãng phí).
             else if (!(zoomSettling && hasImage) && NeedsPageBitmap(row, state, pageWidth, needed))
             {
+                // Chưa có ảnh nào: xin trước ảnh xem trước nhỏ (rẻ, về nhanh) để có gì đó hiện ngay trong lúc ảnh nét đang vẽ.
+                if (!hasImage && state.Preview == null && row.Thumbnail == null) RequestPreview(row, state, PdfRenderPriority.Visible);
                 // Đã có ảnh (sắp thiếu): vẽ dư nhiều hơn để vài nấc zoom kế tiếp không phải vẽ lại.
                 if (state.Bitmap != null && pageWidth < MaxPageBitmapWidth && needed <= MaxPageBitmapWidth * 1.03)
                     pageWidth = PageBitmapWidth(needed, PageRefreshHeadroom);
@@ -893,6 +899,19 @@ public sealed class ContinuousPdfView : Grid
                 state.CancelRegion();
                 state.Regions.Clear();
                 _surface.InvalidateVisual();
+            }
+        }
+
+        // Vòng ảnh xem trước phía trước theo hướng cuộn (rẻ: ~340 px): khi cuộn nhanh, trang vừa lăn tới đã có sẵn ảnh thô để hiện ngay.
+        {
+            int ahead = _scrollDirection >= 0 ? 1 : -1, aheadEdge = ahead > 0 ? last : first;
+            for (int step = 1; step <= PreviewAheadPages; step++)
+            {
+                int i = aheadEdge + ahead * step;
+                if (i < 0 || i >= _pages.Count) break;
+                var aheadRow = _pages[i];
+                var aheadState = StateOf(aheadRow);
+                if (BestBitmap(aheadRow, aheadState) == null) RequestPreview(aheadRow, aheadState, PdfRenderPriority.Thumbnail);
             }
         }
 
