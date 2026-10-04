@@ -198,3 +198,10 @@ scaling at 30 fps, so it was left as is).
 ## Pipelined zoom steps - tried, not kept (04/10)
 
 Rendering the next zoom step (logical zoom at that moment) in parallel with the step being rendered, and presenting it next, did not raise the update cadence of a 40-notch Ctrl+wheel roll (updates in the first 350 ms, 2 runs each): zoom-in 4/5 without vs 2/3 with, zoom-out 10/10 without vs 10/10 with; max gap and settle time unchanged or worse. The in-flight and ahead renders compete for the same PDFium work and the presented step lags the logical zoom. Reverted.
+
+## Cheaper steps: render flags, tight region, Foxit device class (04/10)
+
+- Foxit binary (Ghidra dumps in C:\Users\condu\tools): the render device class is `CFX_AggDeviceDriver` (AGG, the same anti-aliased rasteriser family PDFium uses) and the result is blitted with `StretchDIBits`; no sign of a lighter rendering path.
+- PDFium flags NO_SMOOTHPATH / NO_SMOOTHIMAGE / NO_SMOOTHTEXT on a 1376x781 region of page 21: 40.6 ms -> 36.6-37.7 ms (about 8%), nothing worth the change in look. Cost is geometry/parsing, not smoothing.
+- Tight region (no margin) for the first 500 ms after a zoom step, with or without the wide background region: cadence of a 40-notch roll unchanged (zoom-in 5 updates, zoom-out 10 in 350 ms; two runs per configuration). Reverted.
+- Why zoom-in shows only ~5 updates: with the faster wheel acceleration the zoom reaches the 32x limit about 300 ms into the roll, so there are simply fewer steps to show (the metric counts steps, not render speed). Max gap between updates stays 130-170 ms.
