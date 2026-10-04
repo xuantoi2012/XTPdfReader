@@ -824,7 +824,7 @@ namespace XTPdfMergeApp.Services
             int fullWidth,
             int fullHeight,
             IReadOnlyList<Int32Rect> tileRects, CancellationToken cancellationToken = default, string? layerToken = null,
-            bool withAnnotations = false)
+            bool withAnnotations = false, PdfRenderPriority priority = PdfRenderPriority.Visible)
         {
             var results = new List<BitmapSource?>(tileRects.Count);
             for (int i = 0; i < tileRects.Count; i++) results.Add(null);
@@ -838,7 +838,7 @@ namespace XTPdfMergeApp.Services
                 if (fullWidth <= 0 || fullHeight <= 0) return results;
 
                 string normalized = NormalizePath(pdfPath);
-                pdfium = ChooseInstance(normalized, pageIndex);
+                pdfium = ChooseInstance(normalized, pageIndex, priority);
                 pdfium.AddLoad(1);
                 using var usage = await AcquireDocumentAsync(normalized, pdfium, cancellationToken, layerToken).ConfigureAwait(false);
                 if (usage == null) return results;
@@ -849,7 +849,7 @@ namespace XTPdfMergeApp.Services
                 if (pageIndex < 0 || pageIndex >= lease.PageCount) return results;
 
                 await Task.Run(() => RenderTilesProgressiveAsync(lease, pageIndex, fullWidth, fullHeight,
-                    tileRects, results, cancellationToken, withAnnotations), cancellationToken).ConfigureAwait(false);
+                    tileRects, results, cancellationToken, withAnnotations, priority), cancellationToken).ConfigureAwait(false);
             }
             catch
             {

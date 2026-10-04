@@ -176,3 +176,10 @@ exact render itself: ~65-75 ms per 1376x781 region on this page, 100-150 ms per 
 Ideas not done: speculative pre-render of the next zoom step (hit rate drops once the wheel accelerates), a faster non-progressive
 native path for visible regions, routing slider/button zoom through the same present logic (it would step at ~10 fps instead of
 scaling at 30 fps, so it was left as is).
+
+## Speculative zoom pre-render and region cost (04/10)
+
+- Native cost of one visible region on a dense CAD page (1376 px wide): 8 px high 0.5 ms, 100 px 5.7 ms, 400 px 13 ms, 781 px 48 ms. LCD text, image-cache flags and the 8 ms slice make no difference; splitting into strips on one or two PDFium instances is slower (page re-parsed on the second instance).
+- Speculation (render the +/- one zoom step in background after a wheel zoom, cancelled on scroll/jump): single-step zoom-in median 117 -> 28 ms, zoom-out 48 -> 26 ms (Foxit 56 ms), 0 visible jumps. Does not change rapid-roll cadence (6 updates per 350 ms vs Foxit 15).
+- Deep zoom-out (20 notches) settle 2.4 s and revisit-after-deep 1.5 s are the same with XTPDF_SPECULATE=0, so they come from exact-size rendering of several pages, not from speculation. Earlier 697/169 ms figures were with bucketed widths.
+- Fast-scroll blank frames rose to 13% with speculation running; speculation is now cancelled on scroll/navigate (not re-measured).

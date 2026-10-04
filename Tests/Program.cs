@@ -28,6 +28,7 @@ internal static partial class Program
         try
         {
             Directory.CreateDirectory(Output);
+            XTPdfMergeApp.Controls.ContinuousPdfView.SpeculateZoomSteps = false; // pre-rendering calls the page renderer in the background and would skew the request counts the viewer tests assert
             // NuGet places PDFium in a runtime-specific directory.
             var dll = Directory.GetFiles(AppContext.BaseDirectory, "pdfium.dll", SearchOption.AllDirectories)
                 .First(path => path.Contains("win-x64", StringComparison.OrdinalIgnoreCase));
@@ -40,6 +41,12 @@ internal static partial class Program
             {
                 int manifest = Array.IndexOf(args, "--profile-sources");
                 ProfileRegionPan(args[regionProfile + 1], bool.Parse(args[regionProfile + 2]), int.Parse(args[regionProfile + 3]), args[manifest + 1], args.Contains("--profile-quick"), args.Contains("--profile-quality"));
+                return 0;
+            }
+            int regionBench = Array.IndexOf(args, "--region-bench");
+            if (regionBench >= 0)
+            {
+                RegionBench(args[regionBench + 1], int.Parse(args[regionBench + 2]), int.Parse(args[regionBench + 3]), int.Parse(args[regionBench + 4]), args.Length > regionBench + 5 ? int.Parse(args[regionBench + 5]) : 40);
                 return 0;
             }
             int retentionProfile = Array.IndexOf(args, "--retention-profile");

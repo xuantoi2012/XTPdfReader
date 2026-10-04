@@ -48,7 +48,8 @@ public sealed class ContinuousPdfView : Grid
     /// <summary>Vùng nét vẽ dư 60% so với cỡ đang cần (xem <see cref="ZoomHeadroom"/>); vùng chỉ phủ khung nhìn nên tốn thêm ~2,5× điểm ảnh.</summary>
     private const double RegionHeadroom = 1.6;
     private const double RegionLowWater = 1.06, RegionHighWater = 3.0;
-    internal const long RegionCacheBudgetBytes = 16L * 1024 * 1024;
+    /// <summary>Bộ nhớ đệm vùng nét (cả vùng vẽ trước cho bước zoom kế): mỗi vùng ~4 MB nên 16 MiB chỉ chứa 4 vùng.</summary>
+    internal const long RegionCacheBudgetBytes = 64L * 1024 * 1024;
     private static readonly object RegionCacheLock = new();
     private static readonly BitmapMemoryCache<CachedRegionKey> RegionCache = new(RegionCacheBudgetBytes);
     private static long _regionCacheGeneration;
@@ -301,6 +302,10 @@ public sealed class ContinuousPdfView : Grid
         }
         zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
         if (Math.Abs(zoom - _vp.Zoom) < 1e-6) return;
+        _lastZoomAnchor = viewPoint;
+        _hasZoomAnchor = true;
+        _lastWheelZoomTimestamp = Stopwatch.GetTimestamp();
+        _speculationCts?.Cancel(); // việc thật đi trước: dừng vẽ trước
         if (_pv == null)
         {
             _pv = _vp.Clone();
@@ -344,7 +349,7 @@ public sealed class ContinuousPdfView : Grid
         _rv = null;
         _fades.Clear();
         _commitFrame = true; // ảnh đúng cỡ vừa về: hiện luôn, không mờ dần
-        if (_pv == null || Math.Abs(_vp.Zoom - _pv.Zoom) < 1e-6) { _pv = null; _frozen = null; }
+        if (_pv == null || Math.Abs(_vp.Zoom - _pv.Zoom) < 1e-6) { _pv = null; _frozen = null; ScheduleUpdate(); }
         else
         {
             Freeze(_pv);
@@ -549,7 +554,12 @@ public sealed class ContinuousPdfView : Grid
     {
         // Cuộn/nhảy trang khi đang giữ khung: hiện khung logic ngay (khung cũ đã lệch so với vị trí cuộn mới). Đổi cỡ vùng vẽ thì KHÔNG chốt:
         // zoom vào làm hiện thanh cuộn ngang nên vùng vẽ thấp đi vài điểm ảnh — khung đang hiện chỉ cập nhật cỡ khung nhìn của nó.
-        if (kind is ChangeKind.Navigate or ChangeKind.UserScroll) CommitPresent();
+        if (kind is ChangeKind.Navigate or ChangeKind.UserScroll)
+        {
+            CommitPresent();
+            _speculationCts?.Cancel(); // cuộn/nhảy trang: việc thật cần cả hai bản PDFium, không vẽ đoán nữa
+            _hasZoomAnchor = false;
+        }
         else if (kind == ChangeKind.Layout && _pv != null) { _pv.SetViewportSize(_vp.ViewportWidth, _vp.ViewportHeight); _rv?.SetViewportSize(_vp.ViewportWidth, _vp.ViewportHeight); }
         UpdateScrollBars();
         _surface.InvalidateVisual();
@@ -581,7 +591,7 @@ public sealed class ContinuousPdfView : Grid
             }
         }
         ViewChanged?.Invoke();
-        ScheduleUpdate(immediate: kind is ChangeKind.Navigate or ChangeKind.UserScroll);
+        ScheduleUpdate(immediate: kind is ChangeKind.Navigate or ChangeKind.UserScroll || (kind == ChangeKind.Zoom && _pv != null && _rv == null));
     }
 
     private bool _updateQueued;
@@ -765,6 +775,16 @@ public sealed class ContinuousPdfView : Grid
         => ExactRaster ? Math.Clamp(_vp.ViewportWidth * dpi * 1.1, 1100, MaxPageBitmapWidth * 1.03) : MaxPageBitmapWidth * 1.03;
 
     private static int ExactPageWidth(double neededPx) => (int)Math.Clamp(Math.Round(neededPx), MinPageBitmapWidth, MaxPageBitmapWidth);
+
+    /// <summary>Vẽ trước (ưu tiên nền, lúc nghỉ) ảnh của bước zoom kế theo cả hai hướng: ba nấc đầu của mỗi lượt lăn luôn là ×<see cref="ZoomStep"/>
+    /// chính xác nên đoán trước được, nấc đầu hiện gần như tức thì từ bộ nhớ đệm. XTPDF_SPECULATE=0 tắt.</summary>
+    internal static bool SpeculateZoomSteps { get; set; } = Environment.GetEnvironmentVariable("XTPDF_SPECULATE") != "0";
+    private const int SpeculationWindowMilliseconds = 3000;
+    private Point _lastZoomAnchor;
+    private bool _hasZoomAnchor;
+    private long _lastWheelZoomTimestamp;
+    private double _speculatedFor = double.NaN;
+    private CancellationTokenSource? _speculationCts;
 
     // Khung "đang hiện" trong lúc zoom chờ ảnh đúng cỡ: khung nhìn lúc bắt đầu + ảnh đã chọn cho từng trang đang hiện.
     private ContinuousViewport? _pv;
@@ -1003,9 +1023,83 @@ public sealed class ContinuousPdfView : Grid
             _pendingSince = Stopwatch.GetTimestamp();
         }
         UpdateRequestsCore(_rv ?? _vp);
-        if (_pv == null) return;
+        if (_pv == null) { MaybeSpeculate(); return; }
         if (_renderingSuspended || _pages.Count == 0 || !IsVisible) CommitPresent();
         else CheckPresent();
+    }
+
+    private void MaybeSpeculate()
+    {
+        if (!SpeculateZoomSteps || !ExactRaster || PresentTimeoutMilliseconds <= 0 || !_hasZoomAnchor || _renderingSuspended || _pages.Count == 0 || !IsVisible) return;
+        double sinceZoom = Stopwatch.GetElapsedTime(_lastWheelZoomTimestamp).TotalMilliseconds;
+        if (sinceZoom > SpeculationWindowMilliseconds || sinceZoom < 60) return; // chưa lăn gần đây, hoặc còn đang lăn
+        if (Math.Abs(_vp.Zoom - _speculatedFor) < 1e-9) return;
+        _speculatedFor = _vp.Zoom;
+        SpeculateAdjacentZooms();
+    }
+
+    private void SpeculateAdjacentZooms()
+    {
+        _speculationCts?.Cancel();
+        var cts = _speculationCts = new CancellationTokenSource();
+        double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
+        foreach (int direction in new[] { 1, -1 })
+        {
+            double zoom = Math.Clamp(_vp.Zoom * Math.Pow(ZoomStep, direction), MinZoom, MaxZoom);
+            if (Math.Abs(zoom - _vp.Zoom) < 1e-6) continue;
+            var probe = _vp.Clone();
+            probe.ZoomAt(zoom, _lastZoomAnchor.X, _lastZoomAnchor.Y);
+            var (first, last) = probe.VisibleRange();
+            for (int s = Math.Max(0, first); first >= 0 && s <= last && s < _slots.Length; s++)
+            {
+                var row = _pages[_slots[s]];
+                double needed = row.LayoutWidth * probe.Zoom * dpi;
+                if (needed <= PreviewSufficientPx) continue;
+                if (needed > RegionStartPx(dpi)) SpeculateRegion(probe, s, row, needed, cts.Token);
+                else if (PageRenderer is { } renderer)
+                    _ = ObserveAsync(renderer(row, ExactPageWidth(needed), PdfRenderPriority.Background, cts.Token));
+            }
+        }
+    }
+
+    private static async Task ObserveAsync(Task task)
+    {
+        try { await task.ConfigureAwait(false); } catch { /* vẽ trước chỉ là cố gắng */ }
+    }
+
+    private void SpeculateRegion(ContinuousViewport probe, int slot, PageRow row, double neededPx, CancellationToken token)
+    {
+        // Bộ vẽ tuỳ chỉnh (kiểm thử) không có khái niệm ưu tiên nền: không vẽ trước.
+        if (RegionRenderer != null || !probe.VisibleFraction(slot, out double dx0, out double dy0, out double dx1, out double dy1)) return;
+        var (ua, va) = Unrotate(dx0, dy0);
+        var (ub, vb) = Unrotate(dx1, dy1);
+        double fx0 = Math.Min(ua, ub), fx1 = Math.Max(ua, ub), fy0 = Math.Min(va, vb), fy1 = Math.Max(va, vb);
+        int fullWidth = (int)Math.Min(MaxRegionFullWidth, Math.Round(neededPx));
+        int fullHeight = Math.Max(1, (int)Math.Round(fullWidth * (row.LayoutHeight / Math.Max(1, row.LayoutWidth))));
+        string layers = PdfLayerStateStore.GetToken(row.SourcePath);
+        var (x, y, w, h) = ContinuousViewport.Region(fx0, fy0, fx1, fy1, fullWidth, fullHeight);
+        var key = new RegionKey(fullWidth, fullHeight, x, y, w, h, layers, 0);
+        var source = RenderCacheKeys.Thumbnail(row.SourcePath, row.PageNumber);
+        long generation = Interlocked.Read(ref _regionCacheGeneration);
+        lock (RegionCacheLock)
+        {
+            if (RegionCache.TryFind(k => k.Path == source.Path && k.Page == source.Page && k.Region.FullWidth == fullWidth &&
+                string.Equals(k.Region.Layers, layers, StringComparison.Ordinal) &&
+                k.Region.X <= x && k.Region.Y <= y && k.Region.X + k.Region.Width >= x + w && k.Region.Y + k.Region.Height >= y + h, out _, out _)) return;
+        }
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var images = await PdfThumbnailService.RenderPageTilesBatchAsync(row.SourcePath, row.PageNumber - 1, fullWidth, fullHeight,
+                    new[] { new Int32Rect(x, y, w, h) }, token, layers, false, PdfRenderPriority.Background).ConfigureAwait(false);
+                if (token.IsCancellationRequested || images.Count != 1 || images[0] is not { } bitmap) return;
+                lock (RegionCacheLock)
+                    if (generation == Interlocked.Read(ref _regionCacheGeneration))
+                        RegionCache.Set(new CachedRegionKey(source.Path, source.Page, key), bitmap);
+            }
+            catch { /* vẽ trước chỉ là cố gắng */ }
+        });
     }
 
     private void UpdateRequestsCore(ContinuousViewport vp)

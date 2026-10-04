@@ -77,9 +77,9 @@ internal static partial class Program
                 Pump(TimeSpan.FromMilliseconds(150)); // the sharper request is now waiting
                 sharp.SetResult(blue);
                 int blended = 0; byte[] last = new byte[4];
-                for (int i = 0; i < 25; i++)
+                for (int i = 0; i < 60; i++) // dense sampling: a 100 ms fade must show at least one blended frame even when the machine is busy
                 {
-                    Pump(TimeSpan.FromMilliseconds(16));
+                    Pump(TimeSpan.FromMilliseconds(8));
                     var frame = new RenderTargetBitmap((int)view.Surface.ActualWidth, (int)view.Surface.ActualHeight, 96, 96, PixelFormats.Pbgra32);
                     frame.Render(view.Surface);
                     view.TryGetPageRect(row, out var rect);
