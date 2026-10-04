@@ -259,3 +259,9 @@ Capture: Capture-GuiZoomSequence.ps1 (60 fps screen capture of the content area,
 - Also the presented steps could jump x2-x3 (the logical zoom runs ahead while a step renders).
 - Fix: present timeout 250 -> 2500 ms (hold the old picture like Foxit; XTPDF_PRESENT_TIMEOUT_MS), and each presented step is at most x1.45 away from the one on screen (`MaxPresentStep`), the intermediate zoom is rendered exactly.
 - Result on the 7-roll script: 0 timeouts, 312 presented steps, max step ratio 1.45 (median 1.10), slowest step 154 ms; holds of 80-170 ms remain where a cold deep-zoom region is rendered.
+
+## Same zoom-out/zoom-in script on Foxit, and zoom speed evenness (04/10)
+
+- Foxit, script I14,w1200,O22,w900,I22,w1200,O10,w250,I10,w800,O22,w300,I22 (30 ms notches, page 31): only 70 changed frames in 9.5 s; during every roll the picture changes every 66-134 ms (about 10-12 per second, uniform), with a few holds of 150-230 ms; the long gaps of 0.5-2 s are idle waits. All frames sharp.
+- Reader (same script, rate limit 6): 197 changed frames; 16 ms per frame while the zoom is shallow, 80-170 ms holds when a cold deep region is rendered. Zoom velocity (ln/s between presented steps): p10 2.3, median 5.3, p90 9.6 - fast then slow, a 4x spread, which reads as stutter next to Foxit's steady ~2.6.
+- Rate limit 3: p10 1.7, median 2.6, p90 4.8; rate 2: 1.3 / 1.8 / 3.2. Default set to 3 (median equal to Foxit's average ~2.6 ln/s, spread 2.8x).
