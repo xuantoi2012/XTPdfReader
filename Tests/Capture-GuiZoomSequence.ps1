@@ -1,4 +1,4 @@
-﻿param([string]$Pdf, [string]$Exe, [string]$OutDir, [string]$Tag, [int]$Notches = 8, [int]$IntervalMs = 30, [int]$LoadWaitSec = 14, [string]$Mode = 'zoom')
+﻿param([string]$Pdf, [string]$Exe, [string]$OutDir, [string]$Tag, [int]$Notches = 8, [int]$IntervalMs = 30, [int]$LoadWaitSec = 14, [string]$Mode = 'zoom', [string]$FitKeys = '^0')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
@@ -15,6 +15,8 @@ public static class Seq {
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
   public static Rectangle Region(IntPtr h) { RECT r; GetWindowRect(h, out r); int w = r.R - r.L, hh = r.B - r.T; int cw = Math.Min(1000, w - 120), ch = Math.Min(560, hh - 260);
     return new Rectangle(r.L + (w - cw) / 2, r.T + (hh - ch) / 2 + 60, cw, ch); }
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+  static void GetForegroundWindow2(out RECT r) { GetWindowRect(GetForegroundWindow(), out r); }
   public static void Center(Rectangle rc) { SetCursorPos(rc.X + rc.Width / 2, rc.Y + rc.Height / 2); }
   // Zooms in with Ctrl+wheel, then pans left/right with Shift+wheel right away (direction flips every 8 notches) while capturing.
   public static string CapturePan(Rectangle rc, int zoomNotches, int panNotches, int panIntervalMs, int totalMs, string dir) {
@@ -44,6 +46,13 @@ public static class Seq {
       foreach (var step in script.Split(',')) {
         char k = step[0]; int n = int.Parse(step.Substring(1));
         if (k == 'w') { Thread.Sleep(n); continue; }
+        if (k == 'H' || k == 'V') { // drag-pan with the left button: n moves of 30 px, direction flips every 12 moves, 8 ms apart
+          marks.Add(string.Format("{0}{1}@{2:F0}", k, n, sw.Elapsed.TotalMilliseconds));
+          RECT rr; GetForegroundWindow2(out rr); int cx = (rr.L + rr.R) / 2, cy = (rr.T + rr.B) / 2 + 40; SetCursorPos(cx, cy); Thread.Sleep(30);
+          mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero); int off = 0;
+          for (int i = 0; i < n; i++) { off += ((i / 12) % 2 == 0) ? 30 : -30; SetCursorPos(k == 'H' ? cx + off : cx, k == 'V' ? cy + off : cy); Thread.Sleep(8); }
+          mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero); continue;
+        }
         marks.Add(string.Format("{0}{1}@{2:F0}", k, n, sw.Elapsed.TotalMilliseconds));
         int delta = k == 'I' ? 120 : -120;
         for (int i = 0; i < n; i++) { keybd_event(0x11, 0, 0, UIntPtr.Zero); mouse_event(0x0800, 0, 0, delta, UIntPtr.Zero); keybd_event(0x11, 0, 2, UIntPtr.Zero); Thread.Sleep(gapMs); }
@@ -78,6 +87,8 @@ $p = Get-Process -Id $proc.Id
 for ($i = 0; $i -lt 40 -and $p.MainWindowHandle -eq 0; $i++) { Start-Sleep -Milliseconds 500; $p.Refresh() }
 $h = $p.MainWindowHandle
 [void][Seq]::SetForegroundWindow($h); Start-Sleep -Seconds $LoadWaitSec
+# Foxit reopens at the last page it showed (registry LastOpen): go to page 1 first so PgDn x30 always lands on page 31 in both viewers.
+[System.Windows.Forms.SendKeys]::SendWait($FitKeys); Start-Sleep -Milliseconds 800; [System.Windows.Forms.SendKeys]::SendWait('{HOME}'); Start-Sleep -Seconds 2
 foreach ($k in 1..30) { [System.Windows.Forms.SendKeys]::SendWait('{PGDN}'); Start-Sleep -Milliseconds 150 }
 Start-Sleep -Seconds 3
 $rc = [Seq]::Region($h); [Seq]::Center($rc)
