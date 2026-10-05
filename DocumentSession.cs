@@ -661,7 +661,7 @@ namespace XTPdfMergeApp
             using var dlg = new System.Windows.Forms.OpenFileDialog
             {
                 Title = "Open PDF files",
-                Filter = "PDF (*.pdf)|*.pdf",
+                Filter = "PDF and XT sets (*.pdf;*.xtset)|*.pdf;*.xtset|PDF (*.pdf)|*.pdf|XT set (*.xtset)|*.xtset",
                 Multiselect = true
             };
             if (!string.IsNullOrEmpty(initialDirectory) && Directory.Exists(initialDirectory)) dlg.InitialDirectory = initialDirectory;
@@ -679,6 +679,12 @@ namespace XTPdfMergeApp
                 string full;
                 try { full = Path.GetFullPath(path); }
                 catch { continue; }
+                if (XTSetRebuild.IsSetFile(full))
+                {
+                    // Bộ hồ sơ XT (.xtset): mở bản ghép sẵn hoặc rebuild từ các thành phần (hỏi người dùng).
+                    if (ReaderWindow.Instance is { } window) await window.OpenXtSetAsync(full);
+                    continue;
+                }
                 var existing = _groups.FirstOrDefault(g => string.Equals(g.SourcePath, full, StringComparison.OrdinalIgnoreCase));
                 if (existing != null) { last = existing; lastIsNew = false; }
                 else if (await AddFileAsGroup(full) is { } added) { last = added; lastIsNew = true; }
@@ -857,6 +863,20 @@ namespace XTPdfMergeApp
             return command.InsertedPages;
         }
 
+        /// <summary>Thay từng trang cũ của <paramref name="target"/> bằng trang revision tương ứng (1 bước Undo). Trả về số trang đã thay.</summary>
+        int IReaderPageEditHost.ReplaceSheets(DocumentGroup target, IReadOnlyList<(PageRow Old, DocumentGroup Source, PageRow New)> pairs)
+        {
+            if (pairs.Count == 0 || !_groups.Contains(target) || !CanModifyGroup(target)) return 0;
+            if (!Controls.PdfPermissionDialog.Require(OwnerWindow, pairs.Select(p => p.New.SourcePath), PdfPermissionOperation.Copy)) return 0;
+            var command = new ReplacePagesCommand(_workspace, pairs.Select(p => new ReplacePagesCommand.Pair(target, p.Old, p.Source, p.New)).ToList());
+            _workspace.Execute(command);
+            ReaderWindow.Instance?.NotifyPagesChanged(target);
+            ReleaseUnusedPdfDocuments();
+            RequestThumbnailScan();
+            NotifyStatusChanged();
+            return pairs.Count(p => !target.Pages.Contains(p.Old));
+        }
+
         /// <summary>Chèn 1 trang trắng cùng khổ với <paramref name="reference"/> tại <paramref name="insertIndex"/>.</summary>
         async Task<IReadOnlyList<PageRow>> IReaderPageEditHost.InsertBlankPageAsync(DocumentGroup target, int insertIndex, PageRow reference)
         {
@@ -900,6 +920,22 @@ namespace XTPdfMergeApp
             group.SetBaseline();
             _groups.Add(group);
             return group;
+        }
+
+        /// <summary>Window nháp "Temp N" chứa bản sao trang của <paramref name="ordered"/> theo thứ tự; 1 bước Undo (Undo bỏ luôn window). Null nếu bị từ chối.</summary>
+        DocumentGroup? IReaderPageEditHost.CreateMergeDraft(IReadOnlyList<DocumentGroup> ordered)
+        {
+            if (ordered.Count == 0 || ordered.Any(g => !_groups.Contains(g) || g.Pages.Count == 0)) return null;
+            if (!Controls.PdfPermissionDialog.Require(OwnerWindow, ordered.SelectMany(g => g.Pages).Select(p => p.SourcePath), PdfPermissionOperation.Copy)) return null;
+            int number = ++_tempWindowCounter;
+            var draft = new DocumentGroup { SourcePath = Path.Combine(Path.GetTempPath(), $"Temp {number}.pdf") };
+            draft.SetDisplayName($"Temp {number}");
+            draft.SetBaseline();
+            _workspace.Execute(new CreateMergeDraftCommand(_workspace, draft, ordered));
+            ReaderWindow.Instance?.NotifyPagesChanged(draft);
+            RequestThumbnailScan();
+            NotifyStatusChanged();
+            return draft;
         }
 
         private static bool IsTempWindow(DocumentGroup group) => group.IsUntitled || !File.Exists(group.SourcePath);
@@ -1196,6 +1232,8 @@ namespace XTPdfMergeApp
         Task InsertPagesFromFileAsync(DocumentGroup target, int insertIndex);
         Task ExtractPagesAsync(DocumentGroup group, IReadOnlyList<PageRow> pages);
         void DeletePages(DocumentGroup group, IReadOnlyList<PageRow> pages);
+        /// <summary>Thay trang cũ bằng trang revision (chèn bản sao ngay sau rồi bỏ trang cũ); 1 bước Undo. Trả về số trang đã thay.</summary>
+        int ReplaceSheets(DocumentGroup target, IReadOnlyList<(PageRow Old, DocumentGroup Source, PageRow New)> pairs);
         /// <summary>Đặt tập layer đang tắt của file và vẽ lại thumbnail/Viewer theo trạng thái đó.</summary>
         Task SetLayerHiddenAsync(string path, IReadOnlySet<string> hidden, IReadOnlySet<string> defaultHidden);
         Task ExportWithLayerViewAsync(DocumentGroup group, IReadOnlySet<string> hiddenNames, string viewName);
@@ -1206,6 +1244,8 @@ namespace XTPdfMergeApp
         Task SetCommentResolvedAsync(string path, int pageNumber, string name, bool resolved);
         /// <summary>Tạo window tạm trống ("Temp N") để gom trang từ nhiều file.</summary>
         DocumentGroup CreateTempWindow();
+        /// <summary>Window nháp từ bản sao trang của các window theo thứ tự (1 bước Undo).</summary>
+        DocumentGroup? CreateMergeDraft(IReadOnlyList<DocumentGroup> ordered);
         /// <summary>Hộp thoại chọn file bắt đầu ở <paramref name="initialDirectory"/> (null = mặc định).</summary>
         Task OpenFilesDialogAsync(string? initialDirectory);
         Task OpenPathsAsync(IEnumerable<string> paths);

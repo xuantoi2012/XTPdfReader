@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.Win32;
 
 namespace XTPdfMergeApp.Services
@@ -89,7 +90,9 @@ namespace XTPdfMergeApp.Services
         public static MergeOptions MergeOptionsSaved
         {
             get => new(GetInt("MergeFileBookmarks", 1) == 1, GetInt("MergeKeepBookmarks", 1) == 1, GetInt("MergeLayers", 1) == 1,
-                       GetInt("MergePageNumbers", 0) == 1, GetInt("MergeOptimize", 1) == 1);
+                       GetInt("MergePageNumbers", 0) == 1, GetInt("MergeOptimize", 1) == 1,
+                       GetInt("MergeKeepLayersOn", 0) == 1 ? ReadNames(GetString("MergeKeepLayers", "")) : null,
+                       GetString("MergeCollapseName", MergeOptions.DefaultCollapseName));
             set
             {
                 Set("MergeFileBookmarks", value.FileBookmarks ? 1 : 0);
@@ -97,7 +100,16 @@ namespace XTPdfMergeApp.Services
                 Set("MergeLayers", value.MergeLayers ? 1 : 0);
                 Set("MergePageNumbers", value.PageNumbers ? 1 : 0);
                 Set("MergeOptimize", value.Optimize ? 1 : 0);
+                Set("MergeKeepLayersOn", value.KeepLayers != null ? 1 : 0);
+                if (value.KeepLayers != null) Set("MergeKeepLayers", System.Text.Json.JsonSerializer.Serialize(value.KeepLayers));
+                Set("MergeCollapseName", value.CollapseLayerName);
             }
+        }
+
+        private static List<string> ReadNames(string json)
+        {
+            try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>(); }
+            catch { return new List<string>(); }
         }
 
         public static string LastMergeFolder

@@ -26,7 +26,7 @@ namespace XTPdfMergeApp
     /// </summary>
     public partial class ReaderWindow
     {
-        private enum ReaderTool { Hand, Select, Typewriter, Comment, Callout, Pencil, Highlight, Underline, Strikethrough, Squiggly, Eraser, Stamp, Shape, SnapShot }
+        private enum ReaderTool { Hand, Select, Typewriter, Comment, Callout, Pencil, Highlight, Underline, Strikethrough, Squiggly, Eraser, Stamp, Shape, SnapShot, Measure }
 
         private ReaderTool _readerTool = ReaderTool.Hand;
 
@@ -48,6 +48,7 @@ namespace XTPdfMergeApp
         private void ReaderSquigglyTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Squiggly);
         private void ReaderEraserTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Eraser);
         private void ReaderSnapShotTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.SnapShot);
+        private void ReaderMeasureTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Measure);
 
         /// <summary>Highlight "Text"/"Area" are 2 separate buttons now (Foxit shows both, not 1 button + a mode toggle bar).</summary>
         private void ReaderHighlightText_Click(object sender, RoutedEventArgs e) => SelectHighlightMode("Text");
@@ -86,6 +87,7 @@ namespace XTPdfMergeApp
             CancelHighlightDrag();
             CancelInkDrag();
             CancelShapeDrag();
+            ClearMeasure();
             CancelCalloutPlacement();
             _readerTool = tool;
             if (tool != ReaderTool.Hand) SelectAnnotation(null, null);
@@ -109,6 +111,7 @@ namespace XTPdfMergeApp
             ReaderShapeArrowButton.Tag = tool == ReaderTool.Shape && _shapeStyle.Type == ShapeStyle.Arrow ? "Active" : null;
             ReaderShapeLineButton.Tag = tool == ReaderTool.Shape && _shapeStyle.Type == ShapeStyle.Line ? "Active" : null;
             ReaderSnapShotToolButton.Tag = tool == ReaderTool.SnapShot ? "Active" : null;
+            ReaderMeasureToolButton.Tag = tool == ReaderTool.Measure ? "Active" : null;
             if (tool != ReaderTool.Select) ClearTextSelection();
 
             // ForceCursor: con trỏ của vùng xem đè lên Cursor="Hand" sẵn có của ReaderImage.
@@ -124,6 +127,7 @@ namespace XTPdfMergeApp
                 ReaderTool.Stamp => Cursors.Cross,
                 ReaderTool.Shape => Cursors.Cross,
                 ReaderTool.SnapShot => Cursors.Cross,
+                ReaderTool.Measure => Cursors.Cross,
                 _ => null
             };
             ReaderContentHost.ForceCursor = tool != ReaderTool.Hand;
@@ -326,13 +330,18 @@ namespace XTPdfMergeApp
                     e.Handled = true;
                     BeginSnapshotDrag(hit);
                     break;
+
+                case ReaderTool.Measure:
+                    e.Handled = true;
+                    BeginMeasure(hit);
+                    break;
             }
         }
 
         private void ReaderContentHost_PreviewMouseMove(object sender, MouseEventArgs e)
         {
             Point point = e.GetPosition(ReaderContentHost);
-            if (UpdateAnnotationMove(point) || UpdateShapeDrag(point) || UpdateShapeResize(point) || UpdateLineResize(point))
+            if (UpdateMeasure(point) || UpdateAnnotationMove(point) || UpdateShapeDrag(point) || UpdateShapeResize(point) || UpdateLineResize(point))
             {
                 e.Handled = true;
                 return;
@@ -369,7 +378,7 @@ namespace XTPdfMergeApp
 
         private void ReaderContentHost_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (FinishAnnotationMove() || FinishShapeDrag(e.GetPosition(ReaderContentHost)) || FinishShapeResize() || FinishLineResize())
+            if (FinishMeasure(e.GetPosition(ReaderContentHost)) || FinishAnnotationMove() || FinishShapeDrag(e.GetPosition(ReaderContentHost)) || FinishShapeResize() || FinishLineResize())
             {
                 e.Handled = true;
                 return;

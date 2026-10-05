@@ -156,11 +156,17 @@ namespace XTPdfMergeApp
             ScheduleFindRefresh();
         }
 
-        private void OnFindHitActivated(SearchHit hit)
+        private async void OnFindHitActivated(SearchHit hit)
         {
             _findCurrent = hit;
             DocumentGroup? group = _readerGroup != null && _readerGroup.Pages.Any(p => Same(p.SourcePath, hit.Path)) ? _readerGroup
                 : _groups.FirstOrDefault(g => g.Pages.Any(p => Same(p.SourcePath, hit.Path)));
+            if (group == null)
+            {
+                // Kết quả từ tìm trong thư mục: file chưa mở → mở rồi nhảy tới trang.
+                await Session.OpenFilesInReaderAsync(new[] { hit.Path });
+                group = _groups.FirstOrDefault(g => g.Pages.Any(p => Same(p.SourcePath, hit.Path)));
+            }
             if (group == null) return;
             var row = FindRowForSourcePage(group.Pages, hit.Path, hit.PageNumber);
             if (row == null) return;

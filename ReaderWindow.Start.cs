@@ -132,6 +132,7 @@ namespace XTPdfMergeApp
             {
                 DiskChangedText.Text = $"{_readerGroup.FileName} was changed on disk ({time:HH:mm}). What you see may be out of date.";
                 DiskChangedBanner.Visibility = Visibility.Visible;
+                _ = AddLastSaverToBannerAsync(_readerGroup);
             }
             else DiskChangedBanner.Visibility = Visibility.Collapsed;
         }

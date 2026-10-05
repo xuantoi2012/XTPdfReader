@@ -9,8 +9,28 @@ using DocumentGroup = XTPdfMergeApp.Domain.WorkspaceDocument;
 
 namespace XTPdfMergeApp;
 
+/// <summary>Khung chứa thanh tab: đo cho cha là rộng 0 (chiều cao theo con) nhưng xếp con đúng bề ngang được cấp. Nhờ vậy tab (bề ngang tự tính)
+/// không làm phình hàng chứa nó, và ActualWidth của host luôn là chỗ trống thật của cửa sổ.</summary>
+public sealed class ReaderTabsHost : System.Windows.Controls.Decorator
+{
+    protected override Size MeasureOverride(Size constraint)
+    {
+        if (Child == null) return new Size(0, 0);
+        Child.Measure(constraint);
+        return new Size(0, Child.DesiredSize.Height);
+    }
+
+    protected override Size ArrangeOverride(Size arrangeSize)
+    {
+        Child?.Arrange(new Rect(0, 0, arrangeSize.Width, arrangeSize.Height));
+        return arrangeSize;
+    }
+}
+
 public partial class ReaderWindow
 {
+    /// <summary>Tab rộng nhất / hẹp nhất. Ít file thì mỗi tab rộng tối đa; nhiều file thì chia đều đúng bề ngang còn lại, hết chỗ thì bớt số tab hiện (phần còn lại vào nút danh sách).</summary>
+    private const double MaximumDocumentTabWidth = 260;
     private const double MinimumDocumentTabWidth = 150;
     private readonly ObservableCollection<DocumentGroup> _visibleDocumentTabs = new();
     private int _tabWindowStart;
@@ -18,20 +38,30 @@ public partial class ReaderWindow
     private void InitializeDocumentTabs()
     {
         ReaderDocumentTabs.ItemsSource = _visibleDocumentTabs;
+        ReaderDocumentTabs.PreviewMouseMove += ReaderTabs_PreviewMouseMove;
+        ReaderDocumentTabs.PreviewMouseLeftButtonUp += ReaderTabs_PreviewMouseLeftButtonUp;
         Loaded += (_, _) => UpdateDocumentTabs(_readerGroup);
     }
 
-    private void ReaderDocumentTabsStrip_SizeChanged(object sender, SizeChangedEventArgs e)
+    private void ReaderTabsHost_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         if (_groups != null) UpdateDocumentTabs(_readerGroup);
     }
 
     private void UpdateDocumentTabs(DocumentGroup? active = null)
     {
-        double available = Math.Max(0, ReaderDocumentTabsStrip.ActualWidth - ReaderStartButton.Width - ReaderAddTabButton.Width);
-        bool overflow = _groups.Count * MinimumDocumentTabWidth > available;
-        int capacity = Math.Max(1, (int)Math.Floor((available - (overflow ? ReaderTabsOverflowButton.Width : 0)) / MinimumDocumentTabWidth));
+        // Nút + nằm sát tab cuối. Nút danh sách (mép phải) chỉ hiện khi tab không đủ chỗ.
+        // Chỗ cho tab + nút + = bề ngang host, cộng lại phần nút danh sách nếu nó đang chiếm.
+        double listWidth = ReaderTabsOverflowButton.Width;
+        double total = ReaderTabsHost.ActualWidth + (ReaderTabsOverflowButton.Visibility == Visibility.Visible ? listWidth : 0);
+        double spaceWithoutList = Math.Max(0, total - ReaderAddTabButton.Width);
+        bool overflow = _groups.Count * MinimumDocumentTabWidth > spaceWithoutList;
+        double available = Math.Max(0, spaceWithoutList - (overflow ? listWidth : 0));
+        int capacity = Math.Max(1, (int)Math.Floor(available / MinimumDocumentTabWidth));
         int count = Math.Min(_groups.Count, capacity);
+        // Chiều rộng ListBox = đúng phần còn lại (tối đa MaximumDocumentTabWidth mỗi tab); UniformGrid chia đều → không có khoảng thừa.
+        ReaderDocumentTabs.Width = _groups.Count == 0 ? 0 : Math.Max(MinimumDocumentTabWidth, Math.Min(available, count * MaximumDocumentTabWidth));
+        ReaderTabsOverflowButton.Visibility = _groups.Count > count ? Visibility.Visible : Visibility.Collapsed;
         _tabWindowStart = Math.Clamp(_tabWindowStart, 0, Math.Max(0, _groups.Count - count));
         int index = active == null ? -1 : _groups.IndexOf(active);
         if (index >= 0)
@@ -50,8 +80,7 @@ public partial class ReaderWindow
                 _visibleDocumentTabs.Clear();
                 foreach (var group in visible) _visibleDocumentTabs.Add(group);
             }
-            ReaderTabsOverflowButton.Visibility = _groups.Count > count ? Visibility.Visible : Visibility.Collapsed;
-            ReaderDocumentTabs.SelectedItem = StartPage.Visibility == Visibility.Visible ? null : active ?? _readerGroup;
+                        ReaderDocumentTabs.SelectedItem = StartPage.Visibility == Visibility.Visible ? null : active ?? _readerGroup;
         }
         finally { _syncingDocumentTabs = syncing; }
     }
@@ -102,5 +131,40 @@ public partial class ReaderWindow
             return true;
         }
         return false;
+    }
+
+    // ── Menu chuột phải của tab (tab được chọn trước khi menu mở, xem ReaderTab_PreviewMouseRightButtonDown) ──
+
+    private string? CurrentTabPath => _readerGroup?.SourcePath is { Length: > 0 } path && System.IO.File.Exists(path) ? path : null;
+
+    private void ReaderTabOpenLocation_Click(object sender, RoutedEventArgs e)
+    {
+        if (CurrentTabPath is not { } path) return;
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true }); }
+        catch { }
+    }
+
+    private void ReaderTabCopyFile_Click(object sender, RoutedEventArgs e)
+    {
+        if (CurrentTabPath is not { } path) return;
+        try
+        {
+            var files = new System.Collections.Specialized.StringCollection { path };
+            Clipboard.SetFileDropList(files);
+        }
+        catch { }
+    }
+
+    private void ReaderTabCopyPath_Click(object sender, RoutedEventArgs e)
+    {
+        if (CurrentTabPath is not { } path) return;
+        try { Clipboard.SetText($"\"{path}\""); } // như "Copy as path" của Explorer: có dấu nháy
+        catch { }
+    }
+
+    private async void ReaderTabCloseAll_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var group in _groups.ToList())
+            if (!await CloseGroupAsync(group)) return; // huỷ ở 1 file thì dừng, các file đã đóng vẫn đóng
     }
 }

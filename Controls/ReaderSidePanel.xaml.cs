@@ -24,7 +24,7 @@ namespace XTPdfMergeApp.Controls
     /// </summary>
     public partial class ReaderSidePanel : UserControl
     {
-        private enum Tab { Thumbnails, Bookmarks, Layers, Find, Comments }
+        private enum Tab { Thumbnails, Bookmarks, Layers, Find, Comments, Sheets, History }
 
         private Tab _tab = Tab.Thumbnails;
         private DocumentGroup? _group;
@@ -42,7 +42,15 @@ namespace XTPdfMergeApp.Controls
             CommentsView.ReplySubmitted += (c, text) => CommentReplySubmitted?.Invoke(c, text);
             CommentsView.EditRequested += (c, text) => CommentEditRequested?.Invoke(c, text);
             CommentsView.DeleteRequested += c => CommentDeleteRequested?.Invoke(c);
+            HistoryView.CountChanged += count => { _historyCount = count; if (_tab == Tab.History) UpdateCount(); };
+            SheetsView.PageActivated += row => PageActivated?.Invoke(row);
+            SheetsView.SplitRequested += parts => SheetSplitRequested?.Invoke(parts);
+            SheetsView.ReadInfoRequested += () => SheetReadInfoRequested?.Invoke();
+            SheetsView.PageLabelsRequested += () => SheetPageLabelsRequested?.Invoke();
+            SheetsView.LinkNumbersRequested += () => SheetLinkNumbersRequested?.Invoke();
+            SheetsView.CountChanged += count => { _sheetCount = count; if (_tab == Tab.Sheets) UpdateCount(); };
             CommentsView.CountChanged += count => { _commentCount = count; if (_tab == Tab.Comments) UpdateCount(); };
+            LayersView.ManageRequested += () => ManageLayersRequested?.Invoke();
             LayersView.ExportViewRequested += (names, view) => ExportLayerViewRequested?.Invoke(names, view);
             LayersView.CountChanged += count =>
             {
@@ -51,7 +59,24 @@ namespace XTPdfMergeApp.Controls
             };
         }
 
-        private int? _layerCount, _commentCount;
+        private int? _layerCount, _commentCount, _sheetCount, _historyCount;
+
+        private void HistoryTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.History, toggleIfAlreadyOpen: true);
+
+        /// <summary>Tách file theo Hạng mục / Subset / DWG từ tab Sheets: (nhãn, các trang) của từng file.</summary>
+        internal event Action<IReadOnlyList<(string Label, IReadOnlyList<PageRow> Pages)>>? SheetSplitRequested;
+
+        /// <summary>Tab Sheets → "Read info…".</summary>
+        internal event Action? SheetReadInfoRequested;
+        /// <summary>Tab Sheets → "Page labels".</summary>
+        internal event Action? SheetPageLabelsRequested;
+        /// <summary>Tab Sheets → "Link numbers".</summary>
+        internal event Action? SheetLinkNumbersRequested;
+
+        /// <summary>Đọc lại danh sách bản vẽ (sau khi ghi thông tin sheet vào file).</summary>
+        internal Task RefreshSheetsAsync() => SheetsView.SetGroupAsync(_group);
+
+        private void SheetsTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Sheets, toggleIfAlreadyOpen: true);
         private string _layerPathsKey = "";
 
         /// <summary>Bấm 1 thumbnail (không giữ Ctrl/Shift) → nhảy tới trang đó.</summary>
@@ -60,6 +85,8 @@ namespace XTPdfMergeApp.Controls
         internal event Action<string, int>? BookmarkActivated;
         /// <summary>Đổi layer đang tắt của 1 file: (file, thông tin layer của file, tập tắt mới).</summary>
         internal event Action<string, PdfLayerInfo, IReadOnlySet<string>>? LayerHiddenChanged;
+        /// <summary>Bấm "Manage…" ở tab Layers.</summary>
+        internal event Action? ManageLayersRequested;
         /// <summary>Xuất PDF theo View layer hiện tại: (tên layer đang tắt, tên View).</summary>
         internal event Action<IReadOnlySet<string>, string>? ExportLayerViewRequested;
         /// <summary>Panel vừa tự ghi thẳng vào 1 file nguồn (sửa bookmark) — ReaderWindow cập nhật lại dấu
@@ -313,7 +340,10 @@ namespace XTPdfMergeApp.Controls
                 UpdateCount();
                 if (_tab == Tab.Layers) _ = RefreshLayersAsync(force: false); // đổi window (tab file): tập file khác
                 if (_tab == Tab.Comments) _ = RefreshCommentsAsync();
+                if (_tab == Tab.Sheets) _ = SheetsView.SetGroupAsync(_group);
+                HistoryView.SetGroup(_group);
             }
+            if (_tab == Tab.Sheets) SheetsView.SelectRow(row);
 
             if (row != null && !ThumbnailList.SelectedItems.Contains(row))
             {
@@ -335,13 +365,14 @@ namespace XTPdfMergeApp.Controls
         {
             UpdateCount();
             if (_tab == Tab.Layers) _ = RefreshLayersAsync(force: false);
+            if (_tab == Tab.Sheets) _ = SheetsView.SetGroupAsync(_group);
         }
 
         private void UpdateCount()
         {
-            string count = _tab == Tab.Layers ? _layerCount?.ToString() ?? "" : _tab == Tab.Comments ? _commentCount?.ToString() ?? ""
+            string count = _tab == Tab.Layers ? _layerCount?.ToString() ?? "" : _tab == Tab.Comments ? _commentCount?.ToString() ?? "" : _tab == Tab.Sheets ? _sheetCount?.ToString() ?? "" : _tab == Tab.History ? _historyCount?.ToString() ?? ""
                 : _tab == Tab.Thumbnails && _group != null ? _group.Pages.Count.ToString() : "";
-            string title = _tab switch { Tab.Bookmarks => "Bookmarks", Tab.Layers => "Layers", Tab.Find => "Find", Tab.Comments => "Comments", _ => "Pages" };
+            string title = _tab switch { Tab.Bookmarks => "Bookmarks", Tab.Layers => "Layers", Tab.Find => "Find", Tab.Comments => "Comments", Tab.Sheets => "Sheets", Tab.History => "History", _ => "Pages" };
             PanelTitleText.Text = count.Length > 0 ? $"{title} ({count})" : title;
         }
 
@@ -384,7 +415,7 @@ namespace XTPdfMergeApp.Controls
 
         /// <summary>Chuyển tab theo tên ("Pages", "Bookmarks", "Layers") — cho bảng lệnh.</summary>
         internal void ShowPanel(string name)
-            => SetTab(name switch { "Bookmarks" => Tab.Bookmarks, "Layers" => Tab.Layers, "Find" => Tab.Find, "Comments" => Tab.Comments, _ => Tab.Thumbnails }, toggleIfAlreadyOpen: false);
+            => SetTab(name switch { "Bookmarks" => Tab.Bookmarks, "Layers" => Tab.Layers, "Find" => Tab.Find, "Comments" => Tab.Comments, "Sheets" => Tab.Sheets, "History" => Tab.History, _ => Tab.Thumbnails }, toggleIfAlreadyOpen: false);
 
         private void CommentsTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Comments, toggleIfAlreadyOpen: true);
 
@@ -452,6 +483,10 @@ namespace XTPdfMergeApp.Controls
             LayerTabButton.Tag = tab == Tab.Layers ? "Active" : null;
             FindTabButton.Tag = tab == Tab.Find ? "Active" : null;
             FindView.Visibility = tab == Tab.Find ? Visibility.Visible : Visibility.Collapsed;
+            HistoryTabButton.Tag = tab == Tab.History ? "Active" : null;
+            HistoryView.Visibility = tab == Tab.History ? Visibility.Visible : Visibility.Collapsed;
+            SheetsTabButton.Tag = tab == Tab.Sheets ? "Active" : null;
+            SheetsView.Visibility = tab == Tab.Sheets ? Visibility.Visible : Visibility.Collapsed;
             CommentsTabButton.Tag = tab == Tab.Comments ? "Active" : null;
             CommentsView.Visibility = tab == Tab.Comments ? Visibility.Visible : Visibility.Collapsed;
             PageActionsBar.Visibility = tab == Tab.Thumbnails ? Visibility.Visible : Visibility.Collapsed;
@@ -465,6 +500,7 @@ namespace XTPdfMergeApp.Controls
             UpdateCount();
             WideTabChanged?.Invoke(tab != Tab.Thumbnails);
             if (tab == Tab.Comments) _ = RefreshCommentsAsync();
+            if (tab == Tab.Sheets) _ = SheetsView.SetGroupAsync(_group);
             if (tab == Tab.Layers) _ = RefreshLayersAsync(force: false);
             else if (tab == Tab.Bookmarks) _ = RefreshSourceTabAsync();
         }

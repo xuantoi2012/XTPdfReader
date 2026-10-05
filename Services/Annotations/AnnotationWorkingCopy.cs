@@ -48,7 +48,20 @@ namespace XTPdfMergeApp.Services
 
         /// <summary>Writes <paramref name="changes"/> into <paramref name="path"/> itself (Save of annotations only): incremental update.</summary>
         public static void WriteInPlace(string path, IReadOnlyList<QuickAnnotationChange> changes)
-            => PdfPageEditService.EditInPlace(path, doc => PdfQuickAnnotationService.ApplyChanges(doc, changes), PdfPermissionOperation.Annotate);
+            => PdfPageEditService.EditInPlace(path, Describe(changes), doc => PdfQuickAnnotationService.ApplyChanges(doc, changes), PdfPermissionOperation.Annotate);
+
+        /// <summary>Dòng lịch sử cho 1 lần lưu annotation: "Annotations: +thêm −xoá ~sửa".</summary>
+        private static string Describe(IReadOnlyList<QuickAnnotationChange> changes)
+        {
+            int added = changes.Count(c => c.Remove == null && c.Add != null);
+            int removed = changes.Count(c => c.Add == null && c.Remove != null);
+            int edited = changes.Count - added - removed;
+            var parts = new List<string>();
+            if (added > 0) parts.Add("+" + added);
+            if (removed > 0) parts.Add("−" + removed);
+            if (edited > 0) parts.Add("~" + edited);
+            return "Annotations " + string.Join(" ", parts);
+        }
 
         private static void Write(string path, string copy, IReadOnlyList<QuickAnnotationChange> changes)
         {

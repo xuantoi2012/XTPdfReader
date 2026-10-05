@@ -75,6 +75,7 @@ namespace XTPdfMergeApp.Services
                 // CollectOcgNamePairs).
                 var canonicalByName = new Dictionary<string, PdfDictionary>(StringComparer.Ordinal);
                 var replace = new Dictionary<PdfDictionary, PdfDictionary>();
+                var policy = LayerMergePolicy.Create(mergeLayersByName, mergeLayersNamePrefix, collapseOtherLayersTo, null);
 
                 foreach (var path in inputPaths)
                 {
@@ -95,14 +96,15 @@ namespace XTPdfMergeApp.Services
 
                         merger.Merge(inDoc, 1, pages);
 
-                        if (mergeLayersByName)
+                        if (policy != null)
                         {
+                            policy.Scope = path;
                             var visited = new HashSet<PdfDictionary>();
                             for (int pg = 1; pg <= pages; pg++)
                             {
                                 var outRes = outDoc.GetPage(pageOffsetBefore + pg).GetPdfObject().GetAsDictionary(PdfName.Resources);
                                 var inRes = inDoc.GetPage(pg).GetPdfObject().GetAsDictionary(PdfName.Resources);
-                                CollectOcgNamePairs(outRes, inRes, mergeLayersNamePrefix, collapseOtherLayersTo,
+                                CollectOcgNamePairs(outRes, inRes, policy,
                                     canonicalByName, replace, visited,
                                     msg => log?.Invoke($"\n[Merge]   [layer] {Path.GetFileName(path)} p{pg}: {msg}"));
                             }
@@ -118,10 +120,14 @@ namespace XTPdfMergeApp.Services
                     }
                 }
 
-                if (mergeLayersByName && replace.Count > 0)
+                if (policy != null)
                 {
-                    ApplyOcgDedup(outDoc, replace);
-                    log?.Invoke($"\n[Merge] Đã gộp {replace.Count} layer trùng tên giữa các file.");
+                    if (replace.Count > 0)
+                    {
+                        ApplyOcgDedup(outDoc, replace);
+                        log?.Invoke($"\n[Merge] Đã gộp {replace.Count} layer trùng tên giữa các file.");
+                    }
+                    policy.Finish(outDoc, replace);
                 }
 
                 log?.Invoke($"\n[Merge] ✅ Output: {outputPath}");
@@ -168,7 +174,8 @@ namespace XTPdfMergeApp.Services
             string collapseOtherLayersTo = "",
             IProgress<(int Done, int Total)>? progress = null,
             CancellationToken cancellationToken = default,
-            MergeOptions? options = null)
+            MergeOptions? options = null,
+            IReadOnlyList<MergeOutlineNode>? outline = null)
         {
             string error = "";
             try
@@ -176,7 +183,7 @@ namespace XTPdfMergeApp.Services
                 PdfFileTransaction.Run(new[] { outputPath }, (_, stage) =>
                 {
                     if (!TryMergePagesCore(pages, stage, out error, log, mergeLayersByName, mergeLayersNamePrefix,
-                        collapseOtherLayersTo, progress, cancellationToken, options))
+                        collapseOtherLayersTo, progress, cancellationToken, options, outline))
                     {
                         if (cancellationToken.IsCancellationRequested) throw new OperationCanceledException(cancellationToken);
                         throw new IOException(error);
@@ -200,7 +207,8 @@ namespace XTPdfMergeApp.Services
             string collapseOtherLayersTo = "",
             IProgress<(int Done, int Total)>? progress = null,
             CancellationToken cancellationToken = default,
-            MergeOptions? options = null)
+            MergeOptions? options = null,
+            IReadOnlyList<MergeOutlineNode>? outline = null)
         {
             errorMessage = "";
 
@@ -232,6 +240,7 @@ namespace XTPdfMergeApp.Services
 
                     var canonicalByName = new Dictionary<string, PdfDictionary>(StringComparer.Ordinal);
                     var replace = new Dictionary<PdfDictionary, PdfDictionary>();
+                    var policy = LayerMergePolicy.Create(mergeLayersByName, mergeLayersNamePrefix, collapseOtherLayersTo, options);
                     // visited DÙNG CHUNG cho MỌI trang — 1 file nguồn có thể góp
                     // nhiều trang không liên tục, XObject dùng chung (VD khung tên
                     // lặp lại mỗi trang) chỉ cần xử lý 1 lần.
@@ -254,11 +263,12 @@ namespace XTPdfMergeApp.Services
                         int pageIndexInOut = outDoc.GetNumberOfPages() + 1;
                         merger.Merge(inDoc, pageNumber, pageNumber);
 
-                        if (mergeLayersByName)
+                        if (policy != null)
                         {
+                            policy.Scope = path;
                             var outRes = outDoc.GetPage(pageIndexInOut).GetPdfObject().GetAsDictionary(PdfName.Resources);
                             var inRes = inDoc.GetPage(pageNumber).GetPdfObject().GetAsDictionary(PdfName.Resources);
-                            CollectOcgNamePairs(outRes, inRes, mergeLayersNamePrefix, collapseOtherLayersTo,
+                            CollectOcgNamePairs(outRes, inRes, policy,
                                 canonicalByName, replace, visited,
                                 msg => log?.Invoke($"\n[Merge]   [layer] {Path.GetFileName(path)} p{pageNumber}: {msg}"));
                         }
@@ -267,15 +277,19 @@ namespace XTPdfMergeApp.Services
                         progress?.Report((done, pages.Count));
                     }
 
-                    if (!cancelled && mergeLayersByName && replace.Count > 0)
+                    if (!cancelled && policy != null)
                     {
-                        ApplyOcgDedup(outDoc, replace);
-                        log?.Invoke($"\n[Merge] Đã gộp {replace.Count} layer trùng tên giữa các trang.");
+                        if (replace.Count > 0)
+                        {
+                            ApplyOcgDedup(outDoc, replace);
+                            log?.Invoke($"\n[Merge] Đã gộp {replace.Count} layer trùng tên giữa các trang.");
+                        }
+                        policy.Finish(outDoc, replace);
                     }
 
                     if (!cancelled && options != null)
                     {
-                        AddOutlines(outDoc, MergeOutlinePlanner.Build(pages, options));
+                        AddOutlines(outDoc, outline ?? MergeOutlinePlanner.Build(pages, options));
                         if (options.PageNumbers) AddPageNumbers(outDoc);
                     }
                 }
@@ -389,7 +403,7 @@ namespace XTPdfMergeApp.Services
         /// đâu (xem PrintSettings.MergeLayersNamePrefix/CollapseOtherLayersTo).
         /// </summary>
         private static void CollectOcgNamePairs(
-            PdfDictionary? outResources, PdfDictionary? inResources, string namePrefix, string collapseOthersTo,
+            PdfDictionary? outResources, PdfDictionary? inResources, LayerMergePolicy policy,
             Dictionary<string, PdfDictionary> canonicalByName, Dictionary<PdfDictionary, PdfDictionary> replace,
             HashSet<PdfDictionary> visited, Action<string>? log = null)
         {
@@ -408,30 +422,23 @@ namespace XTPdfMergeApp.Services
 
                     string rawName = inOcg.GetAsString(PdfName.Name)?.ToUnicodeString() ?? "";
                     if (string.IsNullOrEmpty(rawName)) continue;
-                    string shortName = ShortLayerName(rawName);
-
-                    string canonicalKey;
-                    if (!string.IsNullOrEmpty(namePrefix) && shortName.StartsWith(namePrefix, StringComparison.OrdinalIgnoreCase))
-                        canonicalKey = shortName;
-                    else if (!string.IsNullOrEmpty(namePrefix) && !string.IsNullOrEmpty(collapseOthersTo))
-                        canonicalKey = collapseOthersTo;
-                    else
-                        canonicalKey = rawName; // không bật lọc theo prefix — giữ hành vi cũ: gộp theo đúng tên gốc
+                    var (canonicalKey, displayName) = policy.Resolve(rawName);
 
                     if (canonicalByName.TryGetValue(canonicalKey, out var canon))
                     {
                         if (!ReferenceEquals(canon, outOcg))
                         {
                             replace[outOcg] = canon;
-                            log?.Invoke($"'{rawName}' (key={key}) → GỘP vào '{canonicalKey}' (đã có sẵn).");
+                            log?.Invoke($"'{rawName}' (key={key}) → GỘP vào '{displayName}' (đã có sẵn).");
                         }
                     }
                     else
                     {
-                        if (!string.Equals(rawName, canonicalKey, StringComparison.Ordinal))
-                            outOcg.Put(PdfName.Name, new PdfString(canonicalKey));
+                        if (!string.Equals(rawName, displayName, StringComparison.Ordinal))
+                            outOcg.Put(PdfName.Name, new PdfString(displayName, iText.IO.Font.PdfEncodings.UNICODE_BIG));
                         canonicalByName[canonicalKey] = outOcg;
-                        log?.Invoke($"'{rawName}' (key={key}) → GIỮ RIÊNG, canonical mới = '{canonicalKey}'.");
+                        policy.OnNewCanonical(outOcg);
+                        log?.Invoke($"'{rawName}' (key={key}) → GIỮ RIÊNG, canonical mới = '{displayName}'.");
                     }
                 }
             }
@@ -449,16 +456,9 @@ namespace XTPdfMergeApp.Services
 
                     var outRes = outStream.GetAsDictionary(PdfName.Resources);
                     var inRes = inStream.GetAsDictionary(PdfName.Resources);
-                    CollectOcgNamePairs(outRes, inRes, namePrefix, collapseOthersTo, canonicalByName, replace, visited, log);
+                    CollectOcgNamePairs(outRes, inRes, policy, canonicalByName, replace, visited, log);
                 }
             }
-        }
-
-        /// <summary>Phần tên sau dấu "|" cuối cùng — layer thuộc xref/block có tên dạng "TenXref|TenLayer", chỉ TenLayer mới là tên thật user đặt.</summary>
-        private static string ShortLayerName(string rawName)
-        {
-            int idx = rawName.LastIndexOf('|');
-            return idx >= 0 ? rawName[(idx + 1)..] : rawName;
         }
 
         /// <summary>

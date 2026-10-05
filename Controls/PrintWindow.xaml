@@ -143,6 +143,11 @@
                             <ComboBoxItem Content="Landscape"/>
                         </ComboBox>
                         <CheckBox x:Name="AutoCenterBox" Content="Auto-center" IsChecked="True" Margin="0,12,0,0" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                        <TextBlock Text="Page sizes" Style="{StaticResource CardTitle}" Margin="0,14,0,6"/>
+                        <TextBlock x:Name="SizesNote" TextWrapping="Wrap" Text="Reading page sizes…" Style="{StaticResource Small}"/>
+                        <TextBlock x:Name="SizesWarning" TextWrapping="Wrap" Margin="0,6,0,0" FontSize="12" Foreground="{DynamicResource Ui.Warn}" Visibility="Collapsed"/>
+                        <xt:XTButton x:Name="SizesButton" Style="{StaticResource UiGhostButton}" Text="Pages by size…" HorizontalAlignment="Left" Margin="0,8,0,0"
+                                     IsEnabled="False" ToolTip="Select the pages of one paper size, or copy the size report" Click="Sizes_Click"/>
                     </StackPanel>
                 </Border>
             </StackPanel>

@@ -71,6 +71,10 @@
                              Icon="{StaticResource Ui.Icon.bookmark}" ToolTip="Bookmarks" Click="BookmarkTab_Click"/>
                 <xt:XTButton x:Name="LayerTabButton" Style="{StaticResource UiRailButton}"
                              Icon="{StaticResource Ui.Icon.layers}" ToolTip="Layers" Click="LayerTab_Click"/>
+                <xt:XTButton x:Name="SheetsTabButton" Style="{StaticResource UiRailButton}"
+                             Icon="{StaticResource Ui.Icon.file}" ToolTip="Sheets (drawings plotted by XT_PRINT / XT_SHEETS)" Click="SheetsTab_Click"/>
+                <xt:XTButton x:Name="HistoryTabButton" Style="{StaticResource UiRailButton}"
+                             Icon="{StaticResource Ui.Icon.clock}" ToolTip="History (who saved what)" Click="HistoryTab_Click"/>
                 <xt:XTButton x:Name="CommentsTabButton" Style="{StaticResource UiRailButton}"
                              Icon="{StaticResource Ui.Icon.comment}" ToolTip="Comments" Click="CommentsTab_Click"/>
                 <xt:XTButton x:Name="FindTabButton" Style="{StaticResource UiRailButton}"
@@ -195,6 +199,8 @@
                 <local:LayersPanel x:Name="LayersView" Visibility="Collapsed"/>
                 <local:FindPanel x:Name="FindView" Visibility="Collapsed"/>
                 <local:CommentsPanel x:Name="CommentsView" Visibility="Collapsed"/>
+                <local:SheetsPanel x:Name="SheetsView" Visibility="Collapsed"/>
+                <local:HistoryPanel x:Name="HistoryView" Visibility="Collapsed"/>
 
                 <TextBlock x:Name="PanelEmptyText" Visibility="Collapsed" Margin="14" TextWrapping="Wrap"
                            Foreground="{DynamicResource Ui.Muted}"/>

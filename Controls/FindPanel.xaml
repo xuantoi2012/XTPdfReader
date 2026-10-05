@@ -123,6 +123,8 @@
                 <StackPanel Orientation="Horizontal">
                     <RadioButton x:Name="ScopeThis" Style="{StaticResource ScopeItem}" GroupName="FindScope" Content="This file" IsChecked="True" Checked="Option_Changed"/>
                     <RadioButton x:Name="ScopeAll" Style="{StaticResource ScopeItem}" GroupName="FindScope" Content="All open files" Checked="Option_Changed"/>
+                    <RadioButton x:Name="ScopeFolder" Style="{StaticResource ScopeItem}" GroupName="FindScope" Content="Folder…" Checked="ScopeFolder_Checked" MouseRightButtonUp="ScopeFolder_RightClick"
+                                 ToolTip="Search every PDF in a folder (and its sub-folders), including files that are not open"/>
                 </StackPanel>
             </Border>
             <TextBlock x:Name="StatusText" Margin="2,10,0,0" Foreground="{DynamicResource Ui.Muted}"/>

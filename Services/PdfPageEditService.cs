@@ -22,7 +22,7 @@ namespace XTPdfMergeApp.Services
         public static void RotatePages(string path, IReadOnlyCollection<int> pageNumbers, int deltaDegrees)
         {
             if (deltaDegrees % 90 != 0) throw new ArgumentOutOfRangeException(nameof(deltaDegrees));
-            EditInPlace(path, doc =>
+            EditInPlace(path, pageNumbers.Count == 1 ? "Rotated 1 page" : $"Rotated {pageNumbers.Count} pages", doc =>
             {
                 foreach (int pageNumber in pageNumbers)
                 {
@@ -41,29 +41,53 @@ namespace XTPdfMergeApp.Services
         public static void EditInPlace(string path, Action<PdfDocument> edit)
             => EditInPlace(path, edit, PdfPermissionOperation.Modify);
 
+        /// <summary>Như trên, kèm 1 dòng lịch sử <paramref name="action"/> (ai, lúc nào, làm gì) ghi trong cùng lần lưu — xem <see cref="XTHistory"/>.</summary>
+        public static void EditInPlace(string path, string action, Action<PdfDocument> edit)
+            => EditInPlace(path, action, edit, PdfPermissionOperation.Modify);
+
         internal static void EditInPlace(string path, Action<PdfDocument> edit, PdfPermissionOperation operation)
+            => EditInPlace(path, null, edit, operation);
+
+        /// <summary>Có người khác vừa lưu chen vào file nên lần lưu của ta đã đọc lại bản mới và áp lại (đường dẫn file).</summary>
+        internal static event Action<string>? ConflictRetried;
+
+        internal static void EditInPlace(string path, string? action, Action<PdfDocument> edit, PdfPermissionOperation operation)
         {
             PdfPermissionPolicy.EnsureAllowed(path, operation);
-            var update = new MemoryStream();
-            long length;
-            var source = new SharedFileSource(path);
-            try
+            // Người khác (máy khác, cùng thư mục mạng) vừa lưu vào file giữa lúc ta đọc và lúc ta ghi: đọc lại bản mới và áp lại đúng thao tác
+            // của mình lên đó, rồi nối tiếp. Nhờ vậy 2 người lưu lần lượt thì cả hai thay đổi đều nằm trong file.
+            for (int attempt = 1; ; attempt++)
             {
-                length = source.Length();
-                // Append mode chép nguyên các byte cũ ra writer rồi mới ghi phần cập nhật: TailStream bỏ phần chép, giữ phần cập nhật.
-                var properties = new ReaderProperties();
-                if (PdfThumbnailService.TryGetDocumentPassword(path) is { Length: > 0 } password)
-                    properties.SetPassword(Encoding.UTF8.GetBytes(password));
-                using var doc = new PdfDocument(new PdfReader(source, properties).SetUnethicalReading(true), new PdfWriter(new TailStream(length, update)),
-                    new StampingProperties().UseAppendMode());
-                edit(doc);
+                var update = new MemoryStream();
+                long length;
+                var source = new SharedFileSource(path);
+                try
+                {
+                    length = source.Length();
+                    // Append mode chép nguyên các byte cũ ra writer rồi mới ghi phần cập nhật: TailStream bỏ phần chép, giữ phần cập nhật.
+                    var properties = new ReaderProperties();
+                    if (PdfThumbnailService.TryGetDocumentPassword(path) is { Length: > 0 } password)
+                        properties.SetPassword(Encoding.UTF8.GetBytes(password));
+                    using var doc = new PdfDocument(new PdfReader(source, properties).SetUnethicalReading(true), new PdfWriter(new TailStream(length, update)),
+                        new StampingProperties().UseAppendMode());
+                    edit(doc);
+                    if (action != null) XTHistory.Append(doc, action, length);
+                }
+                finally
+                {
+                    source.Close();
+                }
+                if (update.Length == 0) return;
+                try { AppendWithRetry(path, length, update); return; }
+                catch (FileChangedException) when (attempt < MaxConflictRetries) { ConflictRetried?.Invoke(path); /* đọc lại bản mới */ }
             }
-            finally
-            {
-                source.Close();
-            }
-            if (update.Length > 0) AppendWithRetry(path, length, update);
         }
+
+        private const int MaxConflictRetries = 6;
+
+        /// <summary>File đã bị người / chương trình khác ghi thêm giữa lúc đọc và lúc ghi. Chưa ghi gì.</summary>
+        internal sealed class FileChangedException()
+            : InvalidOperationException("The file was changed by another program while it was being saved. Nothing was written.");
 
         /// <summary>Ghi phần cập nhật vào cuối file. Handle PDFium đóng bất đồng bộ, antivirus/indexer có thể giữ file một nhịp: thử lại.
         /// Ghi hỏng giữa chừng thì cắt file về đúng độ dài cũ.</summary>
@@ -76,7 +100,7 @@ namespace XTPdfMergeApp.Services
                 {
                     using var file = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
                     if (file.Length != expectedLength)
-                        throw new InvalidOperationException("The file was changed by another program while it was being saved. Nothing was written.");
+                        throw new FileChangedException();
                     file.Seek(0, SeekOrigin.End);
                     try
                     {

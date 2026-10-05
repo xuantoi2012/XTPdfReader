@@ -5,10 +5,31 @@ using System.Linq;
 
 namespace XTPdfMergeApp.Services
 {
-    /// <summary>Tuỳ chọn khi lưu file ghép (hộp thoại "Save merged file", docs/UI_REDESIGN.md P7).</summary>
-    public sealed record MergeOptions(bool FileBookmarks, bool KeepBookmarks, bool MergeLayers, bool PageNumbers, bool Optimize)
+    /// <summary>Cách xử lý layer (OCG) khi ghép file.</summary>
+    public enum MergeLayerMode
     {
+        /// <summary>Giữ layer riêng theo từng file nguồn; bảng Layers của file kết quả hiện dạng cây: file → layer của file đó.</summary>
+        Separate,
+        /// <summary>Layer cùng tên (bỏ tiền tố xref "Xref|") giữa các file gộp thành 1.</summary>
+        ByName,
+        /// <summary>Chỉ các layer trong <see cref="MergeOptions.KeepLayers"/> được giữ riêng (gộp theo tên); mọi layer còn lại gộp vào 1 layer.</summary>
+        KeepSome
+    }
+
+    /// <summary>
+    /// Tuỳ chọn khi lưu file ghép (hộp thoại "Save merged file", docs/UI_REDESIGN.md P7).
+    /// Chế độ layer: <see cref="MergeLayers"/> tắt = <see cref="MergeLayerMode.Separate"/>; bật và <see cref="KeepLayers"/> = null = <see cref="MergeLayerMode.ByName"/>;
+    /// bật và có <see cref="KeepLayers"/> = <see cref="MergeLayerMode.KeepSome"/>.
+    /// </summary>
+    public sealed record MergeOptions(bool FileBookmarks, bool KeepBookmarks, bool MergeLayers, bool PageNumbers, bool Optimize,
+        IReadOnlyList<string>? KeepLayers = null, string CollapseLayerName = MergeOptions.DefaultCollapseName, string KeepLayerPrefix = "",
+        IReadOnlyDictionary<string, string>? LayerRenames = null)
+    {
+        public const string DefaultCollapseName = "Other layers";
+
         public static readonly MergeOptions Default = new(true, true, true, false, true);
+
+        public MergeLayerMode LayerMode => !MergeLayers ? MergeLayerMode.Separate : KeepLayers != null ? MergeLayerMode.KeepSome : MergeLayerMode.ByName;
     }
 
     /// <summary>1 bookmark của file kết quả: trỏ tới trang <see cref="OutPage"/> (1-based trong file ghép).</summary>

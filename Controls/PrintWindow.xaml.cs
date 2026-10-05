@@ -22,6 +22,9 @@ namespace XTPdfMergeApp.Controls
         private bool _ready;
         private byte[]? _devMode;
         private readonly Dictionary<string, (double W, double H)> _sizes = new();
+        private List<(double Width, double Height)> _pagePoints = new();   // khổ mọi trang của file (point), theo thứ tự trang
+        private List<PaperOption> _papers = new();                          // khổ giấy máy in đang chọn
+        private IReadOnlyList<PageSizeGroup> _groups = Array.Empty<PageSizeGroup>();
 
         internal PrintWindow(IReadOnlyList<(string SourcePath, int PageNumber)> pages, int currentIndex)
         {
@@ -46,7 +49,7 @@ namespace XTPdfMergeApp.Controls
             LayerNote.Text = pages.Select(p => p.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase).Any(p => PdfLayerStateStore.GetToken(p).Length > 0)
                 ? "Hidden layers are not printed (the current layer view is used)." : "";
             _ready = true;
-            Loaded += (_, _) => { UpdateSummary(); _ = RefreshPreviewAsync(); };
+            Loaded += (_, _) => { UpdateSummary(); _ = RefreshPreviewAsync(); _ = LoadPageSizesAsync(); };
         }
 
         private List<int>? SelectedIndices()
@@ -91,6 +94,110 @@ namespace XTPdfMergeApp.Controls
                 if (paper.PaperName == defaultPaper) selected = item;
             }
             PaperBox.SelectedItem = selected ?? (PaperBox.Items.Count > 0 ? PaperBox.Items[0] : null);
+            _papers = settings.PaperSizes.Cast<PaperSize>()
+                .Select(p => new PaperOption(p.PaperName, p.Width / 100.0 * 25.4, p.Height / 100.0 * 25.4)).ToList();
+            RefreshSizes();
+        }
+
+        // ── Khổ giấy của các trang so với máy in ──────────────────────
+
+        /// <summary>Đọc khổ mọi trang của file (nền), rồi đối chiếu với khổ giấy máy in.</summary>
+        private async Task LoadPageSizesAsync()
+        {
+            var bySource = new Dictionary<string, (double Width, double Height)[]?>(StringComparer.OrdinalIgnoreCase);
+            foreach (string path in _pages.Select(p => p.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                try { bySource[path] = await PdfThumbnailService.GetPageSizesAsync(path); }
+                catch { bySource[path] = null; }
+            }
+            _pagePoints = _pages.Select(p =>
+            {
+                var sizes = bySource.GetValueOrDefault(p.SourcePath);
+                return sizes != null && p.PageNumber - 1 < sizes.Length && sizes[p.PageNumber - 1].Width > 0 ? sizes[p.PageNumber - 1] : (595.0, 842.0);
+            }).ToList();
+            RefreshSizes();
+        }
+
+        private void RefreshSizes()
+        {
+            if (_pagePoints.Count == 0) return;
+            _groups = PrintSizePlan.Build(_pagePoints, _papers);
+            SizesNote.Text = string.Join("  ·  ", _groups.Select(g => PrintSizePlan.Label(g)));
+            SizesButton.IsEnabled = true;
+            var warn = Mismatches();
+            SizesWarning.Visibility = warn.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            SizesWarning.Text = warn.Count == 0 ? "" : "⚠ " + string.Join("\n⚠ ", warn.Select(g =>
+                PrintSizePlan.Label(g) + ": " + PrintSizePlan.Status(g)));
+        }
+
+        /// <summary>Nhóm khổ có trang đang được chọn in mà máy in không có đúng khổ giấy đó.</summary>
+        private List<PageSizeGroup> Mismatches()
+        {
+            var selected = SelectedIndices();
+            if (selected == null || _groups.Count == 0) return new List<PageSizeGroup>();
+            var set = new HashSet<int>(selected);
+            return _groups.Where(g => g.Fit != SizeFit.Exact && g.PageIndexes.Any(set.Contains)).ToList();
+        }
+
+        /// <summary>In từng khổ giấy trên máy in riêng, mỗi nhóm tự lấy đúng khổ giấy của máy in đó (xem <see cref="PrintRoutingWindow"/>).</summary>
+        private async Task PrintByRoutingAsync()
+        {
+            var selected = SelectedIndices();
+            if (selected is not { Count: > 0 } || _groups.Count == 0) return;
+            var set = new HashSet<int>(selected);
+            var groups = _groups.Select(g => g with { PageIndexes = g.PageIndexes.Where(set.Contains).ToList() }).Where(g => g.PageIndexes.Count > 0).ToList();
+            var dialog = new PrintRoutingWindow(groups, PrinterBox.SelectedItem as string ?? "") { Owner = this };
+            if (dialog.ShowDialog() != true) return;
+
+            int copies = int.TryParse(CopiesBox.Text, out int c) ? Math.Clamp(c, 1, 99) : 1;
+            PrintButton.IsEnabled = false;
+            SizesButton.IsEnabled = false;
+            int done = 0, failed = 0;
+            foreach (var job in dialog.Jobs)
+            {
+                SummaryText.Text = $"Printing {PrintSizePlan.Label(job.Group)} on {job.Printer}…";
+                var request = new PrintRequest(job.Group.PageIndexes.Select(i => _pages[i]).ToList(), job.Printer, job.Paper, copies, Scale, Percent, Color, Quality, Orientation,
+                    AutoCenterBox.IsChecked == true, CollateBox.IsChecked == true, null);
+                try { if (await PdfPrintService.PrintAsync(request, new Progress<int>(_ => { }))) done++; else failed++; }
+                catch { failed++; }
+            }
+            if (failed > 0)
+            {
+                AppDialog.Show(this, $"{done} size group(s) were sent to the printers; {failed} could not be printed (printer not available or an error).", "Print by size", MessageBoxButton.OK, MessageBoxImage.Warning);
+                PrintButton.IsEnabled = true;
+                SizesButton.IsEnabled = true;
+                UpdateSummary();
+                return;
+            }
+            DialogResult = true;
+        }
+
+        private void Sizes_Click(object sender, RoutedEventArgs e)
+        {
+            var menu = new ContextMenu { PlacementTarget = SizesButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+            foreach (var group in _groups)
+            {
+                var item = new MenuItem
+                {
+                    Header = $"{(group.Fit == SizeFit.Exact ? "✓" : "⚠")} {PrintSizePlan.Label(group)} — {PrintSizePlan.Status(group)}",
+                    ToolTip = "Print only these pages: " + PrintSizePlan.PageList(group.PageIndexes)
+                };
+                var pages = group.PageIndexes;
+                item.Click += (_, _) =>
+                {
+                    PagesRange.IsChecked = true;
+                    RangeBox.Text = PrintSizePlan.PageList(pages);
+                };
+                menu.Items.Add(item);
+            }
+            menu.Items.Add(new Separator());
+            var route = new MenuItem { Header = "Print each size on its own printer / paper…" };
+            route.Click += async (_, _) => await PrintByRoutingAsync();
+            menu.Items.Add(route);
+            var copy = new MenuItem { Header = "Copy size report" };
+            copy.Click += (_, _) => { try { Clipboard.SetText(PrintSizePlan.Report(_groups, PrinterBox.SelectedItem as string ?? "")); } catch { } };
+            menu.Items.Add(copy);
+            menu.IsOpen = true;
         }
 
         private void Properties_Click(object sender, RoutedEventArgs e)
@@ -151,6 +258,7 @@ namespace XTPdfMergeApp.Controls
             SummaryText.Text = indices == null ? "Check the page range (for example 1-12, 40, 55-60)."
                 : indices.Count == 0 ? "No pages selected." : $"{indices.Count} page{(indices.Count == 1 ? "" : "s")} will be printed{quality}";
             PrintButton.IsEnabled = indices is { Count: > 0 } && PrinterBox.Items.Count > 0;
+            if (_groups.Count > 0) RefreshSizes(); // chọn trang đổi → cảnh báo khổ giấy theo các trang sẽ in
         }
 
         // ── Xem trước ─────────────────────────────────────────────────
@@ -237,6 +345,11 @@ namespace XTPdfMergeApp.Controls
             var indices = SelectedIndices();
             var paper = SelectedPaper;
             if (indices is not { Count: > 0 } || paper == null || PrinterBox.SelectedItem is not string printer) return;
+            var mismatches = Mismatches();
+            if (mismatches.Count > 0 && AppDialog.Show(this,
+                    "This printer does not have the exact paper for some of the pages:\n\n" +
+                    string.Join("\n", mismatches.Select(g => $"• {PrintSizePlan.Label(g)}: {PrintSizePlan.Status(g)} (pages {PrintSizePlan.PageList(g.PageIndexes)})")) +
+                    "\n\nPrint anyway?", "Print", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
             int copies = int.TryParse(CopiesBox.Text, out int c) ? Math.Clamp(c, 1, 99) : 1;
             var request = new PrintRequest(indices.Select(i => _pages[i]).ToList(), printer, paper, copies, Scale, Percent, Color, Quality, Orientation,
                 AutoCenterBox.IsChecked == true, CollateBox.IsChecked == true, _devMode);

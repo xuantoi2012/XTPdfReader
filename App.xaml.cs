@@ -105,7 +105,7 @@ namespace XTPdfMergeApp
         private static string[] GetIncomingPdfPaths(string[] args)
             => args
                 .Where(a => !string.IsNullOrWhiteSpace(a))
-                .Where(a => string.Equals(Path.GetExtension(a), ".pdf", StringComparison.OrdinalIgnoreCase))
+                .Where(a => string.Equals(Path.GetExtension(a), ".pdf", StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetExtension(a), ".xtset", StringComparison.OrdinalIgnoreCase))
                 .Where(File.Exists)
                 .Select(a =>
                 {

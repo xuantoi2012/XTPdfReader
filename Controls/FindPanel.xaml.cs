@@ -71,6 +71,48 @@ namespace XTPdfMergeApp.Controls
         }
 
         /// <summary>Số file đang mở (nhãn của phạm vi "All open files").</summary>
+        private string? _folder;
+
+        /// <summary>Mọi PDF trong thư mục đã chọn (kể cả thư mục con); không quá <see cref="MaxFolderFiles"/> file.</summary>
+        private IReadOnlyList<string> FolderFiles()
+        {
+            if (_folder == null || !System.IO.Directory.Exists(_folder)) return Array.Empty<string>();
+            try
+            {
+                return System.IO.Directory.EnumerateFiles(_folder, "*.pdf", new System.IO.EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true })
+                    .Where(f => !System.IO.Path.GetFileName(f).StartsWith('.')).Take(MaxFolderFiles).OrderBy(f => f, StringComparer.CurrentCultureIgnoreCase).ToList();
+            }
+            catch { return Array.Empty<string>(); }
+        }
+
+        private const int MaxFolderFiles = 500;
+
+        private void ScopeFolder_Checked(object sender, RoutedEventArgs e)
+        {
+            if (_folder == null || !System.IO.Directory.Exists(_folder))
+            {
+                if (!ChooseFolder()) { ScopeThis.IsChecked = true; return; }
+            }
+            Option_Changed(sender, e);
+        }
+
+        /// <summary>Chuột phải "Folder" = chọn thư mục khác.</summary>
+        private void ScopeFolder_RightClick(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            if (ChooseFolder() && ScopeFolder.IsChecked == true) Option_Changed(sender, e);
+        }
+
+        private bool ChooseFolder()
+        {
+            using var dialog = new System.Windows.Forms.FolderBrowserDialog { Description = "Search the PDF files in this folder (and its sub-folders)", SelectedPath = _folder ?? "" };
+            if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return false;
+            _folder = dialog.SelectedPath;
+            ScopeFolder.Content = "Folder: " + System.IO.Path.GetFileName(_folder.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar));
+            ScopeFolder.ToolTip = _folder + " — right-click to choose another folder";
+            return true;
+        }
+
         internal void UpdateScopeLabel(int openFiles) => ScopeAll.Content = openFiles > 1 ? $"All open files ({openFiles})" : "All open files";
 
         internal void Clear()
@@ -137,7 +179,7 @@ namespace XTPdfMergeApp.Controls
             if (query.Length == 0) { ClearResults(); return; }
 
             var (thisFile, allOpen) = FilesProvider?.Invoke() ?? (Array.Empty<string>(), Array.Empty<string>());
-            var files = (ScopeAll.IsChecked == true ? allOpen : thisFile).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var files = (ScopeFolder.IsChecked == true ? FolderFiles() : ScopeAll.IsChecked == true ? allOpen : thisFile).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             bool matchCase = MatchCaseBox.IsChecked == true, wholeWord = WholeWordBox.IsChecked == true;
 
             _hits.Clear();

@@ -28,6 +28,8 @@ namespace XTPdfMergeApp.Controls
         internal event Action<string, PdfLayerInfo, IReadOnlySet<string>>? HiddenChanged;
         /// <summary>Xuất PDF theo View hiện tại: (tên layer đang tắt, tên View hiện tại).</summary>
         internal event Action<IReadOnlySet<string>, string>? ExportViewRequested;
+        /// <summary>Mở hộp thoại quản lý layer (đổi tên / gộp) của file đang xem.</summary>
+        internal event Action? ManageRequested;
         /// <summary>Số layer sau khi gộp (null = không có layer).</summary>
         internal event Action<int?>? CountChanged;
 
@@ -123,6 +125,8 @@ namespace XTPdfMergeApp.Controls
         {
             if (_scope != null && Rows.SelectedItem is LayerNode node) Apply(_scope.WithIsolate(node));
         }
+
+        private void Manage_Click(object sender, RoutedEventArgs e) => ManageRequested?.Invoke();
 
         private void Rows_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateIsolateButton();
 

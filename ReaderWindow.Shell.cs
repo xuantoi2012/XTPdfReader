@@ -62,6 +62,12 @@ namespace XTPdfMergeApp
             ReaderSidePanel.CommentDeleteRequested += c => DeleteInlineComment(c);
             ReaderSidePanel.LayerHiddenChanged += OnLayerHiddenChanged;
             ReaderSidePanel.ExportLayerViewRequested += OnExportLayerView;
+            ReaderSidePanel.ManageLayersRequested += OnManageLayers;
+            ReaderSidePanel.SheetSplitRequested += OnSplitSheets;
+            ReaderSidePanel.SheetReadInfoRequested += OnReadSheetInfo;
+            ReaderSidePanel.SheetPageLabelsRequested += OnSheetPageLabels;
+            ReaderSidePanel.SheetLinkNumbersRequested += OnLinkSheetNumbers;
+            PdfPageEditService.ConflictRetried += OnSaveConflictRetried;
             ReaderSidePanel.SourceFileWritten += path => Session.RefreshDiskStamp(path);
             AnnotationStore.Changed += OnAnnotationsChanged;
             ShowEmptyReaderState();
@@ -337,20 +343,32 @@ namespace XTPdfMergeApp
 
         /// <summary>Bấm lên tab file đang xem Start (tab đó đã "selected" sẵn trong ListBox nên SelectionChanged không tự bắn):
         /// đóng Start thủ công, như bấm lên 1 tab thật.</summary>
-        private void ReaderTab_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e) => ShowStart(false);
+        private void ReaderTab_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            _tabPressGroup = (sender as FrameworkElement)?.DataContext as DocumentGroup;
+            _tabPressPoint = e.GetPosition(this);
+            ShowStart(false);
+        }
 
         private async void ReaderCloseDocument_Click(object sender, RoutedEventArgs e)
         {
             e.Handled = true;
-            if ((sender as FrameworkElement)?.DataContext is not DocumentGroup group || EditHost == null) return;
+            if ((sender as FrameworkElement)?.DataContext is DocumentGroup group) await CloseGroupAsync(group);
+        }
+
+        /// <summary>Đóng 1 file, hỏi lưu nếu có thay đổi. false = người dùng huỷ (hoặc lưu lỗi) nên file vẫn mở.</summary>
+        private async System.Threading.Tasks.Task<bool> CloseGroupAsync(DocumentGroup group)
+        {
+            if (EditHost == null) return false;
             if (group.IsDirty)
             {
                 var answer = AppDialog.Show(this, $"Save changes to \"{group.FileName}\" before closing?", "Unsaved changes",
                     MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
-                if (answer == MessageBoxResult.Cancel) return;
-                if (answer == MessageBoxResult.Yes && !await EditHost.SaveGroupAsync(group, saveAs: false)) return;
+                if (answer == MessageBoxResult.Cancel) return false;
+                if (answer == MessageBoxResult.Yes && !await EditHost.SaveGroupAsync(group, saveAs: false)) return false;
             }
             EditHost.CloseDocument(group);
+            return true;
         }
 
         // ── Insert ▾: từ file đang mở / từ đĩa / trang trắng (chèn SAU vùng chọn, hoặc sau trang đang xem) ──────
@@ -421,8 +439,83 @@ namespace XTPdfMergeApp
             _tabSpringGroup = null;
         }
 
+        // ── Kéo tab file lên tab khác = ghép thành bản nháp (không hộp thoại) ─────────────────────
+
+        private sealed record TabDragData(DocumentGroup Group);
+
+        private DocumentGroup? _tabPressGroup;
+        private Point _tabPressPoint;
+
+        private void ReaderTabs_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed || _tabPressGroup == null) return;
+            var position = e.GetPosition(this);
+            if (Math.Abs(position.X - _tabPressPoint.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(position.Y - _tabPressPoint.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+            var group = _tabPressGroup;
+            _tabPressGroup = null;
+            try { DragDrop.DoDragDrop(ReaderDocumentTabs, new DataObject(typeof(TabDragData), new TabDragData(group)), DragDropEffects.Copy); }
+            finally { ReaderTabDropLine.Visibility = Visibility.Collapsed; }
+        }
+
+        private void ReaderTabs_PreviewMouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e) => _tabPressGroup = null;
+
+        /// <summary>Tab đích và phía thả (nửa phải của tab = sau nó) khi đang kéo 1 tab file; null nếu không thả được ở đây.</summary>
+        private (DocumentGroup Target, bool After, ListBoxItem Item)? TabMergeTarget(DragEventArgs e, DocumentGroup dragged)
+        {
+            if (TabItemAt(e.OriginalSource) is not { } item || item.DataContext is not DocumentGroup target || ReferenceEquals(target, dragged)) return null;
+            return (target, e.GetPosition(item).X > item.ActualWidth / 2, item);
+        }
+
+        private void ShowTabDropLine(ListBoxItem item, bool after)
+        {
+            var point = item.TranslatePoint(new Point(after ? item.ActualWidth : 0, 0), ReaderDocumentTabsStrip);
+            ReaderTabDropLine.Margin = new Thickness(Math.Max(0, point.X - 1.5), 0, 0, 4);
+            ReaderTabDropLine.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>Thả tab <paramref name="dragged"/> lên <paramref name="target"/>: tạo (hoặc dùng) bản nháp có trang của cả hai theo thứ tự trái → phải.</summary>
+        private void MergeTabs(DocumentGroup dragged, DocumentGroup target, bool after)
+        {
+            if (EditHost == null || !_groups.Contains(dragged) || !_groups.Contains(target)) return;
+            if (dragged.Pages.Count == 0 || target.Pages.Count == 0) return;
+            bool targetIsDraft = target.IsUntitled || !System.IO.File.Exists(target.SourcePath);
+            DocumentGroup draft;
+            IReadOnlyList<PageRow> added;
+            if (targetIsDraft)
+            {
+                draft = target;
+                added = EditHost.MovePages(dragged, draft, dragged.Pages.ToList(), after ? draft.Pages.Count : 0, copy: true);
+            }
+            else
+            {
+                var created = EditHost.CreateMergeDraft(after ? new[] { target, dragged } : new[] { dragged, target });
+                if (created == null) return;
+                draft = created;
+                added = draft.Pages.ToList();
+            }
+            if (added.Count == 0) return;
+            SelectDocumentTab(draft);
+            XTStyle.Controls.XTGrowl.Success($"{draft.FileName}: {draft.Pages.Count} pages. Not saved yet: Ctrl+Shift+S to save, Ctrl+Z to undo.", this);
+        }
+
         private void ReaderTabs_PreviewDragOver(object sender, DragEventArgs e)
         {
+            if (e.Data.GetData(typeof(TabDragData)) is TabDragData tabData)
+            {
+                if (TabMergeTarget(e, tabData.Group) is { } hit)
+                {
+                    e.Effects = DragDropEffects.Copy;
+                    ShowTabDropLine(hit.Item, hit.After);
+                }
+                else
+                {
+                    e.Effects = DragDropEffects.None;
+                    ReaderTabDropLine.Visibility = Visibility.Collapsed;
+                }
+                e.Handled = true;
+                return;
+            }
             if (!e.Data.GetDataPresent(typeof(Controls.ReaderSidePanel.PageDragData))) return; // file PDF: cửa sổ chính tự xử lý
             e.Effects = (e.KeyStates & DragDropKeyStates.ControlKey) != 0 ? DragDropEffects.Copy : DragDropEffects.Move;
             e.Handled = true;
@@ -447,6 +540,7 @@ namespace XTPdfMergeApp
 
         private void ReaderTabs_DragLeave(object sender, DragEventArgs e)
         {
+            ReaderTabDropLine.Visibility = Visibility.Collapsed;
             SetTabDropHover(null);
             StopTabSpring();
         }
@@ -455,6 +549,13 @@ namespace XTPdfMergeApp
         {
             SetTabDropHover(null);
             StopTabSpring();
+            ReaderTabDropLine.Visibility = Visibility.Collapsed;
+            if (e.Data.GetData(typeof(TabDragData)) is TabDragData tabData)
+            {
+                e.Handled = true;
+                if (TabMergeTarget(e, tabData.Group) is { } hit) MergeTabs(tabData.Group, hit.Target, hit.After);
+                return;
+            }
             if (EditHost == null || e.Data.GetData(typeof(Controls.ReaderSidePanel.PageDragData)) is not Controls.ReaderSidePanel.PageDragData data) return;
             if (TabItemAt(e.OriginalSource)?.DataContext is not DocumentGroup group) return;
             e.Handled = true;
@@ -733,7 +834,7 @@ namespace XTPdfMergeApp
 
         private static string[] GetDroppedPdfs(DragEventArgs e)
             => e.Data.GetDataPresent(DataFormats.FileDrop) && e.Data.GetData(DataFormats.FileDrop) is string[] paths
-                ? paths.Where(p => string.Equals(System.IO.Path.GetExtension(p), ".pdf", StringComparison.OrdinalIgnoreCase)).ToArray()
+                ? paths.Where(p => string.Equals(System.IO.Path.GetExtension(p), ".pdf", StringComparison.OrdinalIgnoreCase) || XTSetRebuild.IsSetFile(p)).ToArray()
                 : Array.Empty<string>();
 
         // ── Bookmark ──────────────────────────────────────────────────
@@ -757,6 +858,58 @@ namespace XTPdfMergeApp
         {
             if (EditHost == null) return;
             await EditHost.SetLayerHiddenAsync(path, hidden, info.DefaultHidden);
+        }
+
+        /// <summary>"Manage…" của panel Layers: đổi tên / gộp layer của file đang xem, ghi vào file hoặc ra bản sao.</summary>
+        private async void OnManageLayers()
+        {
+            if (_readerGroup == null || _readerGroup.Pages.Count == 0) return;
+            var paths = _readerGroup.Pages.Select(p => p.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (paths.Count != 1)
+            {
+                AppDialog.Show(this, "Manage layers works on one file at a time. Open the file in its own tab.", "Manage layers", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            string path = paths[0];
+            PdfLayerInfo info;
+            try { info = await System.Threading.Tasks.Task.Run(() => PdfLayerService.ReadLayers(path)); }
+            catch (Exception ex) { AppDialog.Show(this, "Could not read the layers:\n" + ex.Message, "Manage layers", MessageBoxButton.OK, MessageBoxImage.Error); return; }
+            if (!info.HasLayers)
+            {
+                AppDialog.Show(this, "This document has no layers.", "Manage layers", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var dialog = new Controls.ManageLayersWindow(path, info) { Owner = this };
+            if (dialog.ShowDialog() != true) return;
+            var edits = dialog.Edits;
+            try
+            {
+                if (dialog.SaveInPlace)
+                {
+                    if (!await Controls.PdfPermissionDialog.RequireAsync(this, paths, PdfPermissionOperation.Modify)) return;
+                    if (!await Controls.SignedPdfConfirmation.ConfirmAsync(this, paths, "Edit PDF layers", true)) return;
+                    AnnotationStore.ReleaseReader(path);
+                    using (await PdfThumbnailService.SuspendDocumentAsync(path, TimeSpan.FromSeconds(3)))
+                        await System.Threading.Tasks.Task.Run(() => PdfLayerEditService.EditInPlace(path, edits));
+                    Session.RefreshDiskStamp(path);
+                    PdfLayerStateStore.Forget(path); // id layer còn lại giữ nguyên nhưng tập đang tắt cũ không còn đúng
+                    ReaderSidePanel.InvalidateSource(path, false, true);
+                    OnLayerStateChanged(path);
+                    XTStyle.Controls.XTGrowl.Success("Layers updated in " + System.IO.Path.GetFileName(path), this);
+                }
+                else
+                {
+                    if (!await Controls.PdfPermissionDialog.RequireAsync(this, paths, PdfPermissionOperation.Copy)) return;
+                    string output = dialog.OutputPath;
+                    await System.Threading.Tasks.Task.Run(() => PdfLayerEditService.SaveCopy(path, output, edits));
+                    XTStyle.Controls.XTGrowl.Success("Saved " + System.IO.Path.GetFileName(output), this);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppDialog.Show(this, "Could not change the layers:\n" + ex.Message, "Manage layers", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         /// <summary>"Export PDF with this view…" của panel Layers → hộp thoại Export với "flatten theo View" được chọn sẵn.</summary>

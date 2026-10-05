@@ -78,8 +78,40 @@
                     <CheckBox x:Name="FileBookmarksBox" Content="Add a bookmark for each source file" Margin="0,0,0,8" Checked="Option_Changed" Unchecked="Option_Changed"/>
                     <CheckBox x:Name="KeepBookmarksBox" Content="Keep bookmarks from the source files" Checked="Option_Changed" Unchecked="Option_Changed"/>
                     <TextBlock Style="{StaticResource OptionHint}" Text="They are nested under the file’s bookmark." Margin="26,1,0,8"/>
-                    <CheckBox x:Name="MergeLayersBox" Content="Merge same-name layers"/>
-                    <TextBlock x:Name="LayersHint" Style="{StaticResource OptionHint}" Margin="26,1,0,8"/>
+                    <TextBlock Text="Layers" Foreground="{DynamicResource Ui.Muted}" FontSize="12" Margin="0,4,0,6"/>
+                    <RadioButton x:Name="LayersSeparateRadio" GroupName="LayerMode" Content="Keep each file’s layers separate"
+                                 ToolTip="The Layers panel of the result shows a tree: file, then that file’s layers" Checked="LayerMode_Changed"/>
+                    <RadioButton x:Name="LayersByNameRadio" GroupName="LayerMode" Content="Merge same-name layers" Margin="0,6,0,0" Checked="LayerMode_Changed"/>
+                    <RadioButton x:Name="LayersKeepSomeRadio" GroupName="LayerMode" Content="Keep only the layers I choose" Margin="0,6,0,0" Checked="LayerMode_Changed"/>
+                    <StackPanel x:Name="KeepSomePanel" Margin="26,6,0,0" Visibility="Collapsed">
+                        <TextBlock Text="Ticked layers stay as their own layer (same names merge). All other layers become one layer called:"
+                                   Style="{StaticResource OptionHint}" Margin="0,0,0,6"/>
+                        <TextBox x:Name="CollapseNameBox" Height="28" VerticalContentAlignment="Center" Margin="0,0,0,8"/>
+                        <TextBox x:Name="KeepFilterBox" Height="28" VerticalContentAlignment="Center" Margin="0,0,0,4"
+                                 ToolTip="Filter the layer list" TextChanged="KeepFilter_Changed"/>
+                        <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="1" CornerRadius="6">
+                            <ListBox x:Name="KeepList" MaxHeight="190" BorderThickness="0" Background="Transparent"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type local:KeepLayerItem}">
+                                        <Grid Margin="2,1">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <CheckBox IsChecked="{Binding Keep, Mode=TwoWay}" ToolTip="{Binding Name}"><TextBlock Text="{Binding Name}"/></CheckBox>
+                                            <TextBlock Grid.Column="1" Text="{Binding FilesText}" FontSize="11.5" Margin="8,0,0,0" VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource Ui.Muted}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Border>
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Tick all" Click="KeepAll_Click"/>
+                            <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Clear" Margin="6,0,0,0" Click="KeepNone_Click"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock x:Name="LayersHint" Style="{StaticResource OptionHint}" Margin="26,4,0,4"/>
+                    <xt:XTButton x:Name="RenameLayersButton" Style="{StaticResource UiGhostButton}" Text="Rename result layers…" HorizontalAlignment="Left" Margin="22,0,0,10"
+                                 ToolTip="Change the names of the layers in the merged file" Click="RenameLayers_Click"/>
                     <CheckBox x:Name="PageNumbersBox" Content="Add page numbers" Margin="0,0,0,8"/>
                     <CheckBox x:Name="OptimizeBox" Content="Optimize file size"/>
                 </StackPanel>

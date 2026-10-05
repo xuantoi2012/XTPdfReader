@@ -83,6 +83,8 @@
                                                  ToolTip="Drag to scroll the page (Esc returns to this tool)" Click="ReaderHandTool_Click" Tag="Active"/>
                                     <xt:XTButton x:Name="ReaderSelectToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.select}" Text="Select"
                                                  ToolTip="Drag across text to select it, Ctrl+C to copy" Click="ReaderSelectTool_Click"/>
+                                    <xt:XTButton x:Name="ReaderMeasureToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.ruler}" Text="Measure"
+                                                 ToolTip="Drag between two points: the real length at the sheet's scale (Esc clears)" Click="ReaderMeasureTool_Click"/>
                                     <xt:XTButton x:Name="ReaderSnapShotToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.snapshot}" Text="SnapShot"
                                                  ToolTip="Drag a rectangle: the picture goes to the clipboard" Click="ReaderSnapShotTool_Click"/>
                                 </StackPanel>
@@ -209,19 +211,20 @@
             <!-- Tab các file đang mở, dưới toolbar. Bấm tab = chuyển file, × = đóng file, + = mở thêm file. -->
             <StackPanel x:Name="ReaderDocumentTabsRow" Grid.Row="1">
             <Border Height="36" Background="{DynamicResource Ui.TabStrip}" BorderBrush="{DynamicResource Ui.ToolbarBorder}" BorderThickness="0,0,0,1">
-            <Grid x:Name="ReaderDocumentTabsStrip" SizeChanged="ReaderDocumentTabsStrip_SizeChanged" ClipToBounds="True">
+            <Grid x:Name="ReaderDocumentTabsStrip" ClipToBounds="True">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <xt:XTButton x:Name="ReaderStartButton" Style="{StaticResource UiTabButton}" Icon="{StaticResource Ui.Icon.home}" Text="Start"
                              Width="76" VerticalAlignment="Bottom" ToolTip="Home: recent files and quick tools" Tag="Active" Click="StartButton_Click"/>
-            <ListBox x:Name="ReaderDocumentTabs" Grid.Column="1" Height="35" BorderThickness="0" Padding="0"
+            <!-- Host báo "rộng 0" cho cha nên bề ngang nó nhận được luôn là chỗ còn lại thật, không bị chính các tab làm phình (xem ReaderTabsHost). -->
+            <local:ReaderTabsHost x:Name="ReaderTabsHost" Grid.Column="1" ClipToBounds="True" SizeChanged="ReaderTabsHost_SizeChanged">
+            <StackPanel Orientation="Horizontal">
+            <ListBox x:Name="ReaderDocumentTabs" Height="35" BorderThickness="0" Padding="0"
                      BorderBrush="{DynamicResource Ui.ToolbarBorder}" Background="{DynamicResource Ui.TabStrip}"
                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                     ItemContainerStyle="{StaticResource UiTabItem}"
                      SelectionChanged="ReaderDocumentTabs_SelectionChanged"
                      AllowDrop="True" PreviewDragOver="ReaderTabs_PreviewDragOver" DragLeave="ReaderTabs_DragLeave" Drop="ReaderTabs_Drop">
                 <ListBox.Template>
@@ -232,6 +235,10 @@
                         </Border>
                     </ControlTemplate>
                 </ListBox.Template>
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource UiTabItem}"/>
+                </ListBox.ItemContainerStyle>
+                <!-- Độ rộng ListBox do UpdateDocumentTabs tính (xem ReaderWindow.DocumentTabs.cs) nên UniformGrid chia đều vừa khít, không dư. -->
                 <ListBox.ItemsPanel>
                     <ItemsPanelTemplate>
                         <UniformGrid Rows="1"/>
@@ -254,7 +261,16 @@
                                     <MenuItem Header="Save as…" InputGestureText="Ctrl+Shift+S" Click="ReaderTabSaveAs_Click"/>
                                     <Separator/>
                                     <MenuItem Header="Open in default app" Click="ReaderOpenExternal_Click"/>
+                                    <MenuItem Header="Replace sheets from revision…" ToolTip="Replace the drawings of this file with the revised ones from another XT plot"
+                                              Click="ReaderTabReplaceSheets_Click"/>
+                                    <MenuItem Header="Compare with another version…" ToolTip="Overlay the drawings of two versions: red = only in the old one, blue = only in the new one"
+                                              Click="ReaderTabCompare_Click"/>
+                                    <MenuItem Header="Open file location" Click="ReaderTabOpenLocation_Click"/>
+                                    <MenuItem Header="Copy file" Click="ReaderTabCopyFile_Click"/>
+                                    <MenuItem Header="Copy as path" Click="ReaderTabCopyPath_Click"/>
+                                    <Separator/>
                                     <MenuItem Header="Close" Click="ReaderCloseDocument_Click"/>
+                                    <MenuItem Header="Close all tabs" Click="ReaderTabCloseAll_Click"/>
                                 </ContextMenu>
                             </Grid.ContextMenu>
                             <Viewbox Width="15" Height="15" VerticalAlignment="Center">
@@ -272,12 +288,18 @@
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
+                <xt:XTButton x:Name="ReaderAddTabButton" Style="{StaticResource UiTabAddButton}"
+                             Icon="{StaticResource Ui.Icon.plus}" Width="32" Height="34" IconSize="16" ToolTip="Open another file (Ctrl+O)"
+                             Click="ReaderOpenFiles_Click"/>
+            </StackPanel>
+            </local:ReaderTabsHost>
+                <!-- Vạch báo vị trí khi kéo tab file này lên tab khác để ghép (trước / sau tab đích). -->
+                <Border x:Name="ReaderTabDropLine" Grid.ColumnSpan="3" Width="3" Height="26" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                        Margin="0,0,0,4" CornerRadius="1.5" Background="{DynamicResource Ui.Accent}" IsHitTestVisible="False" Visibility="Collapsed"
+                        Panel.ZIndex="10"/>
                 <xt:XTButton x:Name="ReaderTabsOverflowButton" Grid.Column="2" Style="{StaticResource UiTabAddButton}"
                              Icon="{StaticResource Ui.Icon.tablist}" Width="32" Height="34" IconSize="18" Visibility="Collapsed"
                              ToolTip="All open tabs" Click="ReaderTabsOverflow_Click"/>
-                <xt:XTButton x:Name="ReaderAddTabButton" Grid.Column="3" Style="{StaticResource UiTabAddButton}"
-                             Icon="{StaticResource Ui.Icon.plus}" Width="32" Height="34" IconSize="16" ToolTip="Open another file (Ctrl+O)"
-                             Click="ReaderOpenFiles_Click"/>
             </Grid>
             </Border>
 
@@ -347,6 +369,11 @@
                     <Ellipse x:Name="ReaderShapeOvalPreview" Visibility="Collapsed" IsHitTestVisible="False"/>
                     <Line x:Name="ReaderShapeRubberLine" Visibility="Collapsed" IsHitTestVisible="False"/>
                     <Polygon x:Name="ReaderShapeArrowHead" Visibility="Collapsed" IsHitTestVisible="False"/>
+                    <!-- Công cụ Measure: đoạn đo + nhãn độ dài thật (không ghi vào PDF). -->
+                    <Line x:Name="ReaderMeasureLine" Visibility="Collapsed" IsHitTestVisible="False" Stroke="#E67E22" StrokeThickness="2" StrokeDashArray="5,3"/>
+                    <Border x:Name="ReaderMeasureLabel" Visibility="Collapsed" IsHitTestVisible="False" Background="#E6222B38" CornerRadius="4" Padding="8,3">
+                        <TextBlock x:Name="ReaderMeasureText" Foreground="White" FontSize="13" FontWeight="SemiBold"/>
+                    </Border>
                     <!-- Grip resize hình đã chọn (kiểu Foxit): 8 ô ở góc/cạnh, kéo trực tiếp để đổi kích thước. -->
                     <Rectangle x:Name="GripNW" Style="{StaticResource ShapeGrip}" Cursor="SizeNWSE" Tag="NW" PreviewMouseLeftButtonDown="Grip_MouseDown"/>
                     <Rectangle x:Name="GripN" Style="{StaticResource ShapeGrip}" Cursor="SizeNS" Tag="N" PreviewMouseLeftButtonDown="Grip_MouseDown"/>

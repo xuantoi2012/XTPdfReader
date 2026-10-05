@@ -24,7 +24,8 @@ namespace XTPdfMergeApp.Services
     {
         private static readonly (string Name, double W, double H)[] IsoSizes =
         {
-            ("A0", 841, 1189), ("A1", 594, 841), ("A2", 420, 594), ("A3", 297, 420), ("A4", 210, 297), ("A5", 148, 210)
+            ("A0", 841, 1189), ("A1", 594, 841), ("A2", 420, 594), ("A3", 297, 420), ("A4", 210, 297), ("A5", 148, 210),
+            ("Letter", 216, 279), ("Legal", 216, 356), ("Tabloid", 279, 432), ("ANSI C", 432, 559), ("ANSI D", 559, 864), ("ANSI E", 864, 1118)
         };
 
         /// <summary>Tên khổ giấy (A0…A5 hoặc "W × H mm") của trang có kích thước point (đã xoay).</summary>

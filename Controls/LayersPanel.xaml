@@ -120,6 +120,8 @@
                                  Text="Isolate selected" ToolTip="Show only the selected layer (and its sub-layers)" Click="Isolate_Click"/>
                     <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Reset" Margin="8,0,0,0"
                                  ToolTip="Back to the layer visibility saved in each file" Click="Reset_Click"/>
+                    <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Manage…" Margin="8,0,0,0"
+                                 ToolTip="Rename and merge the layers of this file" Click="Manage_Click"/>
                 </StackPanel>
             </StackPanel>
 

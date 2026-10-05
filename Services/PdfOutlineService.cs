@@ -94,7 +94,7 @@ namespace XTPdfMergeApp.Services
         /// thêm byte (đối tượng mới có mặt trong file) nhưng /First,/Last của mục cha không trỏ tới nó nên
         /// đọc lại không thấy — đã kiểm chứng bằng Tests/Program.cs --add-bookmark trước khi đổi sang cách này.</summary>
         public static void AddBookmark(string path, IReadOnlyList<int> parentPath, string title, int pageNumber)
-            => PdfPageEditService.EditInPlace(path, doc =>
+            => PdfPageEditService.EditInPlace(path, "Bookmarks edited", doc =>
             {
                 if (pageNumber < 1 || pageNumber > doc.GetNumberOfPages())
                     throw new ArgumentOutOfRangeException(nameof(pageNumber));
@@ -123,7 +123,7 @@ namespace XTPdfMergeApp.Services
             });
 
         public static void RenameBookmark(string path, IReadOnlyList<int> nodePath, string newTitle)
-            => PdfPageEditService.EditInPlace(path, doc =>
+            => PdfPageEditService.EditInPlace(path, "Bookmarks edited", doc =>
             {
                 var root = GetOrCreateRoot(doc);
                 var content = Navigate(root, nodePath).GetContent();
@@ -134,7 +134,7 @@ namespace XTPdfMergeApp.Services
         /// <summary>Xoá mục và toàn bộ mục con của nó (mục con trở thành rác không ai trỏ tới trong file —
         /// vô hại, không hiện ra ở đâu cả — thay vì dựng lại toàn bộ cây con để xoá đúng nghĩa).</summary>
         public static void DeleteBookmark(string path, IReadOnlyList<int> nodePath)
-            => PdfPageEditService.EditInPlace(path, doc =>
+            => PdfPageEditService.EditInPlace(path, "Bookmarks edited", doc =>
             {
                 var root = GetOrCreateRoot(doc);
                 var parentPath = nodePath.Take(nodePath.Count - 1).ToArray();
@@ -159,7 +159,7 @@ namespace XTPdfMergeApp.Services
         {
             if (delta == 0 || nodePath.Count == 0) return false;
             bool moved = false;
-            PdfPageEditService.EditInPlace(path, doc =>
+            PdfPageEditService.EditInPlace(path, "Bookmarks edited", doc =>
             {
                 var root = GetOrCreateRoot(doc);
                 var parentPath = nodePath.Take(nodePath.Count - 1).ToArray();

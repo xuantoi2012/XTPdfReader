@@ -109,7 +109,7 @@
                             ToolTip="Thumbnail size"/>
                     <Border Width="1" Height="36" Margin="14,0,12,0" Background="{DynamicResource Ui.Border}"/>
                     <CheckBox x:Name="MergeLayersToggle" Content="Merge same-name layers" Click="MergeLayersToggle_Click" VerticalAlignment="Center"
-                                  ToolTip="When saving the merged file, layers with the same name become one layer"/>
+                                  ToolTip="When saving the merged file, layers with the same name become one layer. Unticked: each file keeps its own layers, grouped by file"/>
                 </StackPanel>
             </DockPanel>
         </Border>
