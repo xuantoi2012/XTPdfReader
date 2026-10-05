@@ -74,7 +74,13 @@ internal static class PdfFileTransaction
     {
         var current = new FileInfo(entry.Target);
         if (current.Exists != entry.Existed || current.Exists && (current.Length != entry.Length || current.LastWriteTimeUtc != entry.Stamp))
-            throw new IOException("The file changed while the PDF was being prepared: " + entry.Target);
+        {
+            // Dùng lịch sử trong file để nói ai vừa lưu (nếu có), thay vì chỉ báo "file đã đổi".
+            string who = "";
+            try { if (XTHistory.Read(entry.Target).LastOrDefault() is { } last) who = $" Last saved by {last.User} at {last.TimeText}."; } catch { }
+            throw new IOException("The file changed while the PDF was being prepared, so nothing was written: " + entry.Target + "." + who +
+                " Reload the file and apply the page changes again.");
+        }
     }
 
     private static void TryDelete(string path) { try { if (File.Exists(path)) File.Delete(path); } catch { } }

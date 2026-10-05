@@ -42,6 +42,13 @@ namespace XTPdfMergeApp.Services
             set => Set("ContinuousByDefault", value ? 1 : 0);
         }
 
+        /// <summary>Báo ai khác đang mở cùng file (ghi file dấu ẩn cạnh PDF, xem XTPresence). Mặc định tắt.</summary>
+        public static bool ShowPresence
+        {
+            get => GetInt("ShowPresence", 0) == 1;
+            set => Set("ShowPresence", value ? 1 : 0);
+        }
+
         public static DefaultZoom ZoomOnOpen
         {
             get => Enum.TryParse<DefaultZoom>(GetString("ZoomOnOpen", nameof(DefaultZoom.FitWidth)), out var z) ? z : DefaultZoom.FitWidth;

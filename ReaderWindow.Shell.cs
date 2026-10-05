@@ -30,6 +30,7 @@ namespace XTPdfMergeApp
             InitializeRecovery();
             InitializeToolbarOverflow();
             Closing += ReaderWindow_Closing;
+            InitializePresence();
             InitializeDocumentTabs();
             ReaderSidePanel.PageActivated += row =>
             {
@@ -68,6 +69,7 @@ namespace XTPdfMergeApp
             ReaderSidePanel.SheetPageLabelsRequested += OnSheetPageLabels;
             ReaderSidePanel.SheetLinkNumbersRequested += OnLinkSheetNumbers;
             PdfPageEditService.ConflictRetried += OnSaveConflictRetried;
+            AnnotationWorkingCopy.Conflict += OnAnnotationConflict;
             ReaderSidePanel.SourceFileWritten += path => Session.RefreshDiskStamp(path);
             AnnotationStore.Changed += OnAnnotationsChanged;
             ShowEmptyReaderState();

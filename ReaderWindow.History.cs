@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
@@ -14,6 +15,13 @@ public partial class ReaderWindow
     {
         Dispatcher.InvokeAsync(() => XTStyle.Controls.XTGrowl.Success(
             System.IO.Path.GetFileName(path) + ": someone else saved at the same time; your change was added on top of theirs.", this));
+    }
+
+    /// <summary>Ta vừa lưu thay đổi lên chú thích mà người khác cũng đã sửa nội dung: báo, bản của họ còn trong lịch sử.</summary>
+    private void OnAnnotationConflict(string path, IReadOnlyList<string> names)
+    {
+        Dispatcher.InvokeAsync(() => XTStyle.Controls.XTGrowl.Warning(
+            $"{System.IO.Path.GetFileName(path)}: {names.Count} comment(s) were edited by someone else at the same time. Your text replaced theirs; their version is in the file's History.", this));
     }
 
     /// <summary>Thanh "file đổi trên đĩa": thêm "last saved by X" nếu lịch sử trong file cho biết ai lưu gần nhất.</summary>

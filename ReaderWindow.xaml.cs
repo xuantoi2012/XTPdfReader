@@ -771,6 +771,11 @@ namespace XTPdfMergeApp
                         row.PageWidthPoints = w;
                         row.PageHeightPoints = h;
                     }
+                    // File lẫn nhiều khổ giấy: thumbnail ghi khổ của từng trang (A1, A3, Letter…); 1 khổ duy nhất thì không cần.
+                    var names = group.Pages.Select(p => p.PageWidthPoints > 0 && p.PageHeightPoints > 0
+                        ? PdfExportService.SizeName(p.PageWidthPoints!.Value, p.PageHeightPoints!.Value).Name : "").ToList();
+                    bool mixed = names.Where(n => n.Length > 0).Distinct().Count() > 1;
+                    for (int i = 0; i < names.Count; i++) group.Pages[i].SizeBadge = mixed ? names[i] : "";
                     double maxWidth = group.Pages.Where(p => p.PageWidthPoints > 0).Select(p => p.PageWidthPoints!.Value)
                         .DefaultIfEmpty(0).Max();
                     if (maxWidth <= 0) return;

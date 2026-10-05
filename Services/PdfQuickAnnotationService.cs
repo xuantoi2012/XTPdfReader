@@ -328,7 +328,10 @@ namespace XTPdfMergeApp.Services
 
         /// <summary>Ghi các thay đổi đang chờ vào file (Save). Chú thích lấy từ file mà chỉ bị dời chỗ / đổi trạng thái Resolved thì giữ
         /// nguyên appearance gốc (chỉ dịch toạ độ), còn lại gỡ rồi tạo lại từ spec.</summary>
-        public static void ApplyChanges(PdfDocument doc, IEnumerable<QuickAnnotationChange> changes)
+        public static void ApplyChanges(PdfDocument doc, IEnumerable<QuickAnnotationChange> changes) => ApplyChanges(doc, changes, null);
+
+        /// <summary>Như trên; <paramref name="conflicts"/> (nếu có) nhận tên các chú thích mà người khác đã đổi NỘI DUNG trong file sau lúc ta mở (ta vẫn ghi đè lên — bản của họ còn trong lịch sử file).</summary>
+        public static void ApplyChanges(PdfDocument doc, IEnumerable<QuickAnnotationChange> changes, List<string>? conflicts)
         {
             var fonts = new FontSet();
             foreach (var change in changes)
@@ -338,6 +341,11 @@ namespace XTPdfMergeApp.Services
                 {
                     if (Find(page, before.Name) is { } target)
                     {
+                        if (conflicts != null && after.Text != before.Text)
+                        {
+                            string current = target.GetContents()?.GetValue() ?? "";
+                            if (current != before.Text && current != after.Text) conflicts.Add(before.Name);
+                        }
                         if (Math.Abs(after.U1 - before.U1) > 1e-9 || Math.Abs(after.V1 - before.V1) > 1e-9)
                             Translate(page, target, before, after);
                         if (after.Resolved != before.Resolved)

@@ -95,6 +95,10 @@ internal sealed class PagePlacement : INotifyPropertyChanged
     public double? PageWidthPoints { get; set; }
     public double? PageHeightPoints { get; set; }
 
+    private string _sizeBadge = "";
+    /// <summary>Tên khổ giấy hiện trên thumbnail ("A1", "Letter"…) — chỉ có khi file lẫn nhiều khổ giấy (rỗng = không hiện).</summary>
+    public string SizeBadge { get => _sizeBadge; set { if (_sizeBadge == value) return; _sizeBadge = value; Notify(); } }
+
     private double? _baseWidth;
     /// <summary>Chiều rộng logic của trang ở zoom 1: trang rộng nhất tài liệu = DefaultLayoutWidth, trang khác tỉ lệ
     /// theo khổ giấy thật (A3 cạnh A1 hiện nhỏ hơn, không bị kéo cùng 1 cỡ).</summary>

@@ -520,3 +520,61 @@ internal static partial class Program
         Check(XTSheetLinks.WriteInPlace(path, XTSheetLinks.Find(path, infos)) == 0, "Running it again adds no duplicate links over existing ones");
     }
 }
+
+internal static partial class Program
+{
+    static async Task TestAnnotationConflictAsync()
+    {
+        string folder = System.IO.Path.Combine(Output, "annotation-conflict");
+        Directory.CreateDirectory(folder);
+        string path = System.IO.Path.Combine(folder, "c.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(path))) { doc.AddNewPage(new PageSize(400, 300)); }
+        var add = new QuickAnnotationSpec("conflict-note", QuickAnnotationKind.Comment, 1, .2, .2, .3, .3, "original");
+        AnnotationWorkingCopy.WriteInPlace(path, new[] { new QuickAnnotationChange(null, add) });
+        AnnotationStore.Forget(path);
+        var original = (await AnnotationStore.GetAllAsync(path)).First(a => a.Name == "conflict-note");
+
+        // người B sửa chữ trước
+        AnnotationWorkingCopy.WriteInPlace(path, new[] { new QuickAnnotationChange(original, original with { Text = "B edited" }) });
+        // người A (đang giữ bản cũ "original") sửa lên cùng chú thích
+        string[]? raised = null;
+        void Handler(string p, IReadOnlyList<string> names) => raised = names.ToArray();
+        AnnotationWorkingCopy.Conflict += Handler;
+        try { AnnotationWorkingCopy.WriteInPlace(path, new[] { new QuickAnnotationChange(original, original with { Text = "A edited" }) }, out var conflicts);
+              Check(conflicts.Count == 1 && conflicts[0] == "conflict-note" && raised is { Length: 1 }, "Editing a comment that someone else already edited is reported as a conflict"); }
+        finally { AnnotationWorkingCopy.Conflict -= Handler; }
+
+        // sửa lên 1 chú thích chưa ai đụng tới: không báo
+        var other = new QuickAnnotationSpec("untouched-note", QuickAnnotationKind.Comment, 1, .5, .5, .6, .6, "mine");
+        AnnotationWorkingCopy.WriteInPlace(path, new[] { new QuickAnnotationChange(null, other) });
+        AnnotationStore.Forget(path);
+        var untouched = (await AnnotationStore.GetAllAsync(path)).First(a => a.Name == "untouched-note");
+        AnnotationWorkingCopy.WriteInPlace(path, new[] { new QuickAnnotationChange(untouched, untouched with { Text = "mine v2" }) }, out var none);
+        Check(none.Count == 0, "No conflict when nobody else changed the comment");
+        AnnotationStore.Forget(path);
+    }
+}
+
+internal static partial class Program
+{
+    static void TestPresence()
+    {
+        string folder = System.IO.Path.Combine(Output, "presence");
+        Directory.CreateDirectory(folder);
+        string pdf = MakeLayeredPdf(System.IO.Path.Combine(folder, "shared.pdf"), "A");
+        XTPresence.Touch(pdf);
+        Check(XTPresence.Others(pdf).Count == 0, "A Reader does not report itself as 'someone else'");
+        // Reader khác (máy khác) đang mở: file dấu của họ
+        string theirs = System.IO.Path.Combine(folder, ".shared.pdf.xtopen.lan@PC-02.4321");
+        File.WriteAllText(theirs, "x");
+        var others = XTPresence.Others(pdf);
+        Check(others.Count == 1 && others[0] == "lan@PC-02", "A marker from another machine shows who has the file open (" + string.Join(",", others) + ")");
+        File.SetLastWriteTimeUtc(theirs, DateTime.UtcNow.AddMinutes(-5));
+        Check(XTPresence.Others(pdf).Count == 0, "A stale marker (no heartbeat) is ignored");
+        File.SetLastWriteTimeUtc(theirs, DateTime.UtcNow.AddMinutes(-20));
+        XTPresence.Others(pdf);
+        Check(!File.Exists(theirs), "An abandoned marker is cleaned up");
+        XTPresence.Remove(pdf);
+        Check(Directory.GetFiles(folder, ".shared.pdf.xtopen.*").Length == 0, "Closing the file removes its own marker");
+    }
+}

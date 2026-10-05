@@ -39,6 +39,7 @@ namespace XTPdfMergeApp.Controls
                 DefaultToolBox.SelectedIndex = AppSettings.DefaultTool == "Select" ? 1 : 0;
                 WarmBox.SelectedIndex = PdfThumbnailService.WarmFiles is >= 0 and <= 8 ? PdfThumbnailService.WarmFiles : AppSettings.WarmFiles;
                 PdfFactoryToggle.IsChecked = MergeAppSettingsStore.GetPdfFactoryViewEnabled();
+                PresenceToggle.IsChecked = AppSettings.ShowPresence;
                 RefreshPdfFactoryHint();
             }
             finally { _loading = false; }
@@ -89,6 +90,11 @@ namespace XTPdfMergeApp.Controls
         }
 
         // ── Display ───────────────────────────────────────────────────
+
+        private void Presence_Changed(object sender, RoutedEventArgs e)
+        {
+            if (!_loading) AppSettings.ShowPresence = PresenceToggle.IsChecked == true;
+        }
 
         private void ViewMode_Changed(object sender, SelectionChangedEventArgs e)
         {

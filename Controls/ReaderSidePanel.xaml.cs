@@ -76,6 +76,18 @@ namespace XTPdfMergeApp.Controls
         /// <summary>Đọc lại danh sách bản vẽ (sau khi ghi thông tin sheet vào file).</summary>
         internal Task RefreshSheetsAsync() => SheetsView.SetGroupAsync(_group);
 
+        /// <summary>Menu thumbnail: chọn mọi trang cùng khổ giấy với trang đang chọn (để xoay / xuất / in riêng).</summary>
+        private void SelectSameSize_Click(object sender, RoutedEventArgs e)
+        {
+            if (_group == null || ThumbnailList.SelectedItem is not PageRow current || current.PageWidthPoints is not > 0 || current.PageHeightPoints is not > 0) return;
+            string name = PdfExportService.SizeName(current.PageWidthPoints.Value, current.PageHeightPoints.Value).Name;
+            ThumbnailList.SelectedItems.Clear();
+            foreach (var page in _group.Pages)
+                if (page.PageWidthPoints is > 0 && page.PageHeightPoints is > 0 &&
+                    PdfExportService.SizeName(page.PageWidthPoints.Value, page.PageHeightPoints.Value).Name == name)
+                    ThumbnailList.SelectedItems.Add(page);
+        }
+
         private void SheetsTab_Click(object sender, RoutedEventArgs e) => SetTab(Tab.Sheets, toggleIfAlreadyOpen: true);
         private string _layerPathsKey = "";
 

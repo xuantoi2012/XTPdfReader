@@ -38,7 +38,7 @@ internal static partial class Program
             int warmProfile = Array.IndexOf(args, "--warm-cache-profile");
             int regionProfile = Array.IndexOf(args, "--region-pan-profile");
             if (args.Contains("--ui-smoke")) { TestUiSmoke(); TestUiTabsAndMerge(); TestUiPrintSizes(); TestUiReadSheetInfo(); TestUiCompare(); Console.WriteLine($"UI smoke passed ({_checks})."); return 0; }
-            if (args.Contains("--layer-merge-only")) { TestLayerMerge(); TestLayerToggleRendersAsync().GetAwaiter().GetResult(); TestLayerEdit(); TestSheetInfoSurvivesMerge(); TestSheetMatch(); TestSequentialInPlaceEdits(); TestXtSetRebuild(); TestLayerRenameOnMerge(); TestSaveHistory(); TestPrintSizePlan(); TestSheetRegisterCsv(); TestTitleBlockReader(); TestPageMeasure(); TestPageDiff(); TestPageLabels(); TestSheetLinks(); Console.WriteLine($"Layer merge checks passed ({_checks})."); return 0; }
+            if (args.Contains("--layer-merge-only")) { TestLayerMerge(); TestLayerToggleRendersAsync().GetAwaiter().GetResult(); TestLayerEdit(); TestSheetInfoSurvivesMerge(); TestSheetMatch(); TestSequentialInPlaceEdits(); TestXtSetRebuild(); TestLayerRenameOnMerge(); TestSaveHistory(); TestPrintSizePlan(); TestSheetRegisterCsv(); TestTitleBlockReader(); TestPageMeasure(); TestPageDiff(); TestPageLabels(); TestSheetLinks(); TestPresence(); TestAnnotationConflictAsync().GetAwaiter().GetResult(); Console.WriteLine($"Layer merge checks passed ({_checks})."); return 0; }
             if (regionProfile >= 0)
             {
                 int manifest = Array.IndexOf(args, "--profile-sources");
@@ -189,7 +189,7 @@ internal static partial class Program
                 TestGateAsync().GetAwaiter().GetResult();
                 TestSignaturePresenceAsync().GetAwaiter().GetResult();
                 TestWidgetRenderingAsync().GetAwaiter().GetResult();
-                TestSaveSafetyAsync().GetAwaiter().GetResult(); TestLayerMerge(); TestLayerToggleRendersAsync().GetAwaiter().GetResult(); TestLayerEdit(); TestSheetInfoSurvivesMerge(); TestSheetMatch(); TestSequentialInPlaceEdits(); TestXtSetRebuild(); TestLayerRenameOnMerge(); TestSaveHistory(); TestPrintSizePlan(); TestSheetRegisterCsv(); TestTitleBlockReader(); TestPageMeasure(); TestPageDiff(); TestPageLabels(); TestSheetLinks();
+                TestSaveSafetyAsync().GetAwaiter().GetResult(); TestLayerMerge(); TestLayerToggleRendersAsync().GetAwaiter().GetResult(); TestLayerEdit(); TestSheetInfoSurvivesMerge(); TestSheetMatch(); TestSequentialInPlaceEdits(); TestXtSetRebuild(); TestLayerRenameOnMerge(); TestSaveHistory(); TestPrintSizePlan(); TestSheetRegisterCsv(); TestTitleBlockReader(); TestPageMeasure(); TestPageDiff(); TestPageLabels(); TestSheetLinks(); TestPresence(); TestAnnotationConflictAsync().GetAwaiter().GetResult();
                 if (!backgroundRegression) TestAppDialogs();
                 TestReaderRenderHandoffAsync().GetAwaiter().GetResult();
                 TestRegionReuseAsync().GetAwaiter().GetResult(); TestRegionReuseViewer();

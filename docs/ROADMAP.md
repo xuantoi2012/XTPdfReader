@@ -20,7 +20,7 @@ Check how things behave without opening the app: `dotnet build Tests/Performance
 
 ## Agreed, to do
 
-### A. Print: page sizes vs the printer (Reader Print window) — items 1, 2, 3 DONE (2026-10-05); 4 and 5 open
+### A. Print: page sizes vs the printer (Reader Print window) — all DONE (2026-10-05): summary, printer match, warning, size badge on thumbnails + "Select pages of this size", print each size on its own printer/paper
 Today one paper size is chosen for the whole job; a file with A0/A1/A3/Letter pages fails or scales wrongly at the printer.
 1. Page-size summary at the top of the Print window (`A1 × 12 · A3 × 40 · Letter × 1`); click a row = select those pages.
 2. Match every size against the printer's paper list: exact / nearest paper that fits / nothing fits (say which pages).
@@ -35,7 +35,7 @@ XT_PRINT side: the "cannot determine the paper size" stop (`BatchPlotService.App
 3. Scans: OCR on the marked area only. Engine behind one interface (see "OCR engine" below).
 4. Once `/XTSheet` exists, Sheets tab, find-by-number, bookmarks, replace-by-revision, split and `.xtset` all work on third-party PDFs.
 
-### C. Team saving, remaining parts
+### C. Team saving — DONE (2026-10-05) except what is listed below
 - "Someone is editing" presence (small lock file + name in the tab). Conflict dialog when two people changed the same annotation (today: the later save is applied on top).
 - Page edits saved through `PdfFileTransaction` (delete/reorder) still refuse when the file changed: replay or ask.
 
@@ -82,3 +82,12 @@ A spike worth doing before committing: create one Hot Folder task (PDF → searc
 - **Review summary**: Sheets rows show "N open / N resolved" comments per sheet (read in the background); typing "open" in the filter box lists the sheets with unresolved comments.
 - **Print by size** (Print window > Pages by size… > Print each size on its own printer / paper…): one printer per paper size, paper chosen per printer (exact, else next larger, else biggest with shrink %).
 - **Folder search** (Find tab > Folder…; right-click it to change the folder): all PDFs in a folder and sub-folders (max 500); a hit in a file that is not open opens it.
+
+## Team saving, what was added last (2026-10-05)
+- **Presence** (Settings > "Show when someone else has the same file open", default off): each Reader writes a small hidden marker `.<file>.xtopen.<user@machine>.<pid>` next to the PDF (heartbeat 30 s, ignored after 100 s, deleted after 10 min, removed on close). A toast says who else has the current file open. `Services/XTPresence.cs`, `ReaderWindow.Presence.cs`.
+- **Same comment edited by two people**: the later save replaces the text (as before) but is now detected and reported; the other person's version is recoverable from History ("Save the version before this change as…"). No blocking dialog on purpose (the save runs in the background).
+- **Page edits** (delete / reorder) saved while the file changed on disk still refuse, now naming who saved last (from the file history) and asking to reload.
+- XT_SHEETS prints without cover/TOC now get the Hạng mục > Subset > Sheet bookmarks too (`BatchPlotService.Execute`; compiled, not run inside AutoCAD).
+
+## OCR (B.3) — still open, needs the owner's input
+Not started on purpose: choosing the engine needs a benchmark on real scans (Tesseract vs PaddleOCR/ONNX vs VietOCR), and model files need their licences checked. Needed from the owner: ~20 real scanned title blocks (or whole sheets) and which of the candidates in the section above to try first.

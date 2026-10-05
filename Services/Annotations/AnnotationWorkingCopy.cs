@@ -47,8 +47,23 @@ namespace XTPdfMergeApp.Services
         }
 
         /// <summary>Writes <paramref name="changes"/> into <paramref name="path"/> itself (Save of annotations only): incremental update.</summary>
-        public static void WriteInPlace(string path, IReadOnlyList<QuickAnnotationChange> changes)
-            => PdfPageEditService.EditInPlace(path, Describe(changes), doc => PdfQuickAnnotationService.ApplyChanges(doc, changes), PdfPermissionOperation.Annotate);
+        public static void WriteInPlace(string path, IReadOnlyList<QuickAnnotationChange> changes) => WriteInPlace(path, changes, out _);
+
+        /// <summary>Như trên; <paramref name="conflicts"/> = chú thích mà người khác vừa sửa nội dung (bản của ta ghi đè; bản của họ còn trong lịch sử file). Cũng bắn <see cref="Conflict"/>.</summary>
+        public static void WriteInPlace(string path, IReadOnlyList<QuickAnnotationChange> changes, out IReadOnlyList<string> conflicts)
+        {
+            var found = new List<string>();
+            PdfPageEditService.EditInPlace(path, Describe(changes), doc =>
+            {
+                found.Clear(); // lần ghi có thể chạy lại trên bản mới của file (người khác lưu chen vào)
+                PdfQuickAnnotationService.ApplyChanges(doc, changes, found);
+            }, PdfPermissionOperation.Annotate);
+            conflicts = found.ToList();
+            if (found.Count > 0) Conflict?.Invoke(path, found.ToList());
+        }
+
+        /// <summary>Người khác đã đổi nội dung (đường dẫn file, tên các chú thích) trước khi ta lưu thay đổi của mình lên cùng chú thích.</summary>
+        public static event Action<string, IReadOnlyList<string>>? Conflict;
 
         /// <summary>Dòng lịch sử cho 1 lần lưu annotation: "Annotations: +thêm −xoá ~sửa".</summary>
         private static string Describe(IReadOnlyList<QuickAnnotationChange> changes)

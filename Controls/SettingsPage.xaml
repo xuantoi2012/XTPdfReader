@@ -225,6 +225,17 @@
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel>
+                            <TextBlock Text="Show when someone else has the same file open" Foreground="{DynamicResource Ui.Text}" TextWrapping="Wrap"/>
+                            <TextBlock Text="Writes a small hidden marker file next to each open PDF (removed when you close it), so other people using this app on the same folder, including a network share, are told." Style="{StaticResource RowHint}"/>
+                        </StackPanel>
+                        <CheckBox x:Name="PresenceToggle" Grid.Column="1" Style="{StaticResource XTToggleSwitch}" Margin="24,0,0,0" VerticalAlignment="Top"
+                                  Checked="Presence_Changed" Unchecked="Presence_Changed"/>
+                    </Grid>
+                </Border>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
                             <TextBlock Text="Use this app when “View PDF” is pressed in pdfFactory" Foreground="{DynamicResource Ui.Text}" TextWrapping="Wrap"/>
                             <TextBlock x:Name="PdfFactoryHint" Style="{StaticResource RowHint}"/>
                         </StackPanel>

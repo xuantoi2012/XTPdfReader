@@ -163,6 +163,21 @@ internal static partial class Program
                 await reader.Session.Workspace.History.UndoAsync();
                 Check(target.Pages.Count == 1 && ReferenceEquals(target.Pages[0], oldRow), "One Undo restores the original sheet");
 
+                // Khổ giấy trên thumbnail: file lẫn A3 + Letter → mỗi trang có SizeBadge
+                string mixed = System.IO.Path.Combine(folder, "mixed-sizes.pdf");
+                using (var mdoc = new PdfDocument(new PdfWriter(mixed)))
+                {
+                    mdoc.AddNewPage(new PageSize(842, 1190)); mdoc.AddNewPage(new PageSize(842, 1190)); mdoc.AddNewPage(new PageSize(612, 792));
+                }
+                await reader.Session.OpenFilesInReaderAsync(new[] { mixed });
+                var mixedGroup = reader.Session.Documents.First(g => g.SourcePath == mixed);
+                var sizeLoad = typeof(ReaderWindow).GetMethod("LoadContinuousPageSizesAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                await (Task)sizeLoad.Invoke(reader, new object[] { mixedGroup })!;
+                Check(mixedGroup.Pages.Select(p => p.SizeBadge).SequenceEqual(new[] { "A3", "A3", "Letter" }), "Thumbnails of a file with mixed paper sizes carry the size: " + string.Join(",", mixedGroup.Pages.Select(p => p.SizeBadge)));
+                var plainGroup = reader.Session.Documents.First(g => g.SourcePath == paths[0]);
+                await (Task)sizeLoad.Invoke(reader, new object[] { plainGroup })!;
+                Check(plainGroup.Pages.All(p => p.SizeBadge == ""), "A file with a single paper size shows no size badges");
+
                 // Measure: tỷ lệ của trang lấy từ thông tin sheet (/XTSheet /Scale)
                 string scaled = MakeLayeredPdf(System.IO.Path.Combine(folder, "scaled.pdf"), "Walls");
                 XTSheetPdfInfo.Write(scaled, new XTSheetPageInfo?[] { new() { No = "KT-50", Scale = "1:200" } }, new XTProjectPdfInfo());

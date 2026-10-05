@@ -157,6 +157,7 @@
                                 <MenuItem Header="Move to position…" Tag="MoveToPosition" Click="PageMenu_Click"><MenuItem.Icon><Viewbox Width="16" Height="16"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.goto}" Fill="{DynamicResource Ui.Text}"/></Canvas></Viewbox></MenuItem.Icon></MenuItem>
                             </MenuItem>
                             <MenuItem Header="Duplicate" InputGestureText="Ctrl+D" Tag="Duplicate" Click="PageMenu_Click"><MenuItem.Icon><Viewbox Width="16" Height="16"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.dup}" Fill="{DynamicResource Ui.Text}"/></Canvas></Viewbox></MenuItem.Icon></MenuItem>
+                            <MenuItem x:Name="MiSelectSameSize" Header="Select pages of this size" Click="SelectSameSize_Click"/>
                             <MenuItem Header="Rotate left" Tag="RotateLeft" Click="PageMenu_Click"><MenuItem.Icon><Viewbox Width="16" Height="16"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.undo}" Fill="{DynamicResource Ui.Text}"/></Canvas></Viewbox></MenuItem.Icon></MenuItem>
                             <MenuItem Header="Rotate right" Tag="RotateRight" Click="PageMenu_Click"><MenuItem.Icon><Viewbox Width="16" Height="16"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.redo}" Fill="{DynamicResource Ui.Text}"/></Canvas></Viewbox></MenuItem.Icon></MenuItem>
                             <MenuItem Header="Extract…" Tag="Extract" Click="PageMenu_Click"><MenuItem.Icon><Viewbox Width="16" Height="16"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.extract}" Fill="{DynamicResource Ui.Text}"/></Canvas></Viewbox></MenuItem.Icon></MenuItem>
@@ -179,7 +180,11 @@
                                            Loaded="ThumbnailImage_Loaded" Unloaded="ThumbnailImage_Unloaded"
                                            DataContextChanged="ThumbnailImage_DataContextChanged"/>
                                 </Border>
-                                <TextBlock Text="{Binding Index}" Style="{StaticResource UiThumbNumber}"/>
+                                <Grid>
+                                    <TextBlock Text="{Binding Index}" Style="{StaticResource UiThumbNumber}"/>
+                                    <TextBlock Text="{Binding SizeBadge}" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource Ui.Accent}" ToolTip="Paper size of this page"/>
+                                </Grid>
                             </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
