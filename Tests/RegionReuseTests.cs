@@ -143,6 +143,29 @@ internal static partial class Program
             Enumerable.Range(0, 4).Max(c => Math.Abs(actualPixels[i * 4 + c] - referencePixels[i * 4 + c])));
         Check(maximumDifference <= 2 && different.Length < actualPixels.Length / 4 / 20,
             "Native composition preserves text, paths and transparency within measured crop anti-alias rounding (2/255, under 5% of pixels)");
+
+        // The reader's deep-zoom path must receive a first tile before the
+        // remaining viewport tiles finish, otherwise it is still an all-at-once crop.
+        var streamRects = new[] { new Int32Rect(120, 100, 420, 320), new Int32Rect(540, 100, 420, 320) };
+        var firstTile = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstTile = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var delivered = new List<Int32Rect>();
+        var streaming = PdfThumbnailService.RenderPageTilesStreamingAsync(source, 0, 1200, 720, streamRects,
+            async (rect, _) =>
+            {
+                delivered.Add(rect);
+                if (delivered.Count == 1)
+                {
+                    firstTile.TrySetResult();
+                    await releaseFirstTile.Task.ConfigureAwait(false);
+                }
+            });
+        await firstTile.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Check(!streaming.IsCompleted, "First native tile is published before the viewport batch completes");
+        releaseFirstTile.TrySetResult();
+        var streamed = await streaming.WaitAsync(TimeSpan.FromSeconds(5));
+        Check(delivered.SequenceEqual(streamRects) && streamed.All(tile => tile != null),
+            "Streaming tile delivery preserves requested order and complete bitmaps");
     }
 
     static void TestRegionReuseViewer()

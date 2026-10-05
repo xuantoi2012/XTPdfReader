@@ -2,7 +2,6 @@
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
-$cp = New-Object System.CodeDom.Compiler.CompilerParameters; $cp.CompilerOptions='/unsafe'; [void]$cp.ReferencedAssemblies.Add('System.dll'); [void]$cp.ReferencedAssemblies.Add('System.Drawing.dll')
 Add-Type -TypeDefinition @'
 using System; using System.Drawing; using System.Drawing.Imaging; using System.Runtime.InteropServices; using System.Diagnostics;
 public static class Lat {
@@ -38,7 +37,7 @@ public static class Lat {
     int jump = firstIdx >= 0 ? Diff(frames[firstIdx], fin, tol) : 0; int maxStep = 0; for (int i = 1; i < frames.Count; i++) { if (times[i] < 70) continue; int d = Diff(frames[i], frames[i - 1], tol); if (d > maxStep) maxStep = d; }
     return string.Format("{0:F0},{1:F0},{2},{3},{4},{5}", first, times[ready], frames.Count, bursts, jump, maxStep);  }
 }
-'@ -CompilerParameters $cp
+'@ -ReferencedAssemblies @('System.dll', 'System.Drawing.dll') -CompilerOptions '/unsafe'
 
 function Wheel($delta,$ctrl) { if($ctrl){[Lat]::keybd_event(0x11,0,0,[UIntPtr]::Zero)}; [Lat]::mouse_event(0x0800,0,0,$delta,[UIntPtr]::Zero); if($ctrl){[Lat]::keybd_event(0x11,0,2,[UIntPtr]::Zero)} }
 $proc = Start-Process -FilePath $Exe -ArgumentList ('"{0}"' -f $Pdf) -PassThru

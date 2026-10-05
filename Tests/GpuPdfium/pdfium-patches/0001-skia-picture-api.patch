@@ -1,0 +1,113 @@
+diff --git a/fpdfsdk/fpdf_view.cpp b/fpdfsdk/fpdf_view.cpp
+index 7f7459f..c3b3a8f 100644
+--- a/fpdfsdk/fpdf_view.cpp
++++ b/fpdfsdk/fpdf_view.cpp
+@@ -74,7 +74,10 @@
+ #include "public/fpdf_edit.h"
+ 
+ #if defined(PDF_USE_SKIA)
+-class SkCanvas;
++#include "include/core/SkBBHFactory.h"
++#include "include/core/SkCanvas.h"
++#include "include/core/SkPicture.h"
++#include "include/core/SkPictureRecorder.h"
+ #endif  // defined(PDF_USE_SKIA)
+ 
+ // These checks are here because core/ and public/ cannot depend on each other.
+@@ -843,6 +846,50 @@ FPDF_EXPORT void FPDF_CALLCONV FPDF_RenderPageSkia(FPDF_SKIA_CANVAS canvas,
+                                 /*color_scheme=*/nullptr,
+                                 /*need_to_restore=*/true, /*pause=*/nullptr);
+ }
++
++FPDF_EXPORT FPDF_SKIA_PICTURE FPDF_CALLCONV
++FPDF_CreateSkiaPicture(FPDF_PAGE page, int size_x, int size_y) {
++  if (size_x <= 0 || size_y <= 0) {
++    return nullptr;
++  }
++
++  SkPictureRecorder recorder;
++  SkRTreeFactory rtree_factory;
++  SkCanvas* canvas = recorder.beginRecording(size_x, size_y, &rtree_factory);
++  FPDF_RenderPageSkia(FPDFSkiaCanvasFromSkCanvas(canvas), page, size_x, size_y);
++  return reinterpret_cast<FPDF_SKIA_PICTURE>(
++      recorder.finishRecordingAsPicture().release());
++}
++
++FPDF_EXPORT void FPDF_CALLCONV
++FPDF_RenderSkiaPicture(FPDF_SKIA_CANVAS canvas, FPDF_SKIA_PICTURE picture) {
++  SkCanvas* sk_canvas = SkCanvasFromFPDFSkiaCanvas(canvas);
++  SkPicture* sk_picture = reinterpret_cast<SkPicture*>(picture);
++  if (!sk_canvas || !sk_picture) {
++    return;
++  }
++  sk_canvas->drawPicture(sk_picture);
++}
++
++FPDF_EXPORT size_t FPDF_CALLCONV
++FPDF_SkiaPictureApproximateBytes(FPDF_SKIA_PICTURE picture) {
++  SkPicture* sk_picture = reinterpret_cast<SkPicture*>(picture);
++  return sk_picture ? sk_picture->approximateBytesUsed() : 0u;
++}
++
++FPDF_EXPORT int FPDF_CALLCONV
++FPDF_SkiaPictureApproximateOpCount(FPDF_SKIA_PICTURE picture) {
++  SkPicture* sk_picture = reinterpret_cast<SkPicture*>(picture);
++  return sk_picture ? sk_picture->approximateOpCount(/*nested=*/true) : 0;
++}
++
++FPDF_EXPORT void FPDF_CALLCONV
++FPDF_DestroySkiaPicture(FPDF_SKIA_PICTURE picture) {
++  SkPicture* sk_picture = reinterpret_cast<SkPicture*>(picture);
++  if (sk_picture) {
++    sk_picture->unref();
++  }
++}
+ #endif  // defined(PDF_USE_SKIA)
+ 
+ FPDF_EXPORT void FPDF_CALLCONV FPDF_ClosePage(FPDF_PAGE page) {
+diff --git a/public/fpdfview.h b/public/fpdfview.h
+index 499e954..28f4523 100644
+--- a/public/fpdfview.h
++++ b/public/fpdfview.h
+@@ -82,6 +82,7 @@ typedef const struct fpdf_pathsegment_t* FPDF_PATHSEGMENT;
+ typedef struct fpdf_schhandle_t__* FPDF_SCHHANDLE;
+ typedef const struct fpdf_signature_t__* FPDF_SIGNATURE;
+ typedef void* FPDF_SKIA_CANVAS;  // Passed into Skia as an SkCanvas.
++typedef void* FPDF_SKIA_PICTURE;  // Opaque, PDFium-owned SkPicture.
+ typedef struct fpdf_structelement_t__* FPDF_STRUCTELEMENT;
+ typedef const struct fpdf_structelement_attr_t__* FPDF_STRUCTELEMENT_ATTR;
+ typedef const struct fpdf_structelement_attr_value_t__*
+@@ -945,6 +946,33 @@ FPDF_EXPORT void FPDF_CALLCONV FPDF_RenderPageSkia(FPDF_SKIA_CANVAS canvas,
+                                                    FPDF_PAGE page,
+                                                    int size_x,
+                                                    int size_y);
++
++// Experimental XTPdfReader fork API.
++//
++// Creates an R-tree accelerated SkPicture by rendering |page| once at its
++// native page dimensions. The returned picture is independent of |page| after
++// this call, but must be released with |FPDF_DestroySkiaPicture|.
++// This API renders page content only, like |FPDF_RenderPageSkia|.
++FPDF_EXPORT FPDF_SKIA_PICTURE FPDF_CALLCONV
++FPDF_CreateSkiaPicture(FPDF_PAGE page, int size_x, int size_y);
++
++// Experimental XTPdfReader fork API.
++// Replays a picture returned by |FPDF_CreateSkiaPicture| to |canvas|.
++FPDF_EXPORT void FPDF_CALLCONV
++FPDF_RenderSkiaPicture(FPDF_SKIA_CANVAS canvas, FPDF_SKIA_PICTURE picture);
++
++// Experimental XTPdfReader fork API.
++// Returns diagnostics for cache admission; referenced images/fonts are not
++// included in the byte estimate.
++FPDF_EXPORT size_t FPDF_CALLCONV
++FPDF_SkiaPictureApproximateBytes(FPDF_SKIA_PICTURE picture);
++FPDF_EXPORT int FPDF_CALLCONV
++FPDF_SkiaPictureApproximateOpCount(FPDF_SKIA_PICTURE picture);
++
++// Experimental XTPdfReader fork API.
++// Releases a picture created by |FPDF_CreateSkiaPicture|. Safe with null.
++FPDF_EXPORT void FPDF_CALLCONV
++FPDF_DestroySkiaPicture(FPDF_SKIA_PICTURE picture);
+ #endif
+ 
+ // Function: FPDF_ClosePage

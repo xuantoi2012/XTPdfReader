@@ -867,6 +867,63 @@ namespace XTPdfMergeApp.Services
             return results;
         }
 
+        /// <summary>
+        /// Renders a viewport tile sequence and publishes each completed tile before the
+        /// rest of the sequence finishes. The callback runs off the UI thread; callers
+        /// must marshal visual changes themselves. This is intentionally separate from
+        /// the batch API so print/export keep their all-or-nothing behavior.
+        /// </summary>
+        internal static async Task<List<BitmapSource?>> RenderPageTilesStreamingAsync(
+            string pdfPath,
+            int pageIndex,
+            int fullWidth,
+            int fullHeight,
+            IReadOnlyList<Int32Rect> tileRects,
+            Func<Int32Rect, BitmapSource, Task> onTileRendered,
+            CancellationToken cancellationToken = default,
+            string? layerToken = null,
+            bool withAnnotations = false,
+            PdfRenderPriority priority = PdfRenderPriority.Visible)
+        {
+            var results = new List<BitmapSource?>(tileRects.Count);
+            for (int i = 0; i < tileRects.Count; i++) results.Add(null);
+            if (_shuttingDown || tileRects.Count == 0) return results;
+
+            Interlocked.Increment(ref _inFlightPublicCalls);
+            PdfiumInstance? pdfium = null;
+            try
+            {
+                if (fullWidth <= 0 || fullHeight <= 0) return results;
+                string normalized = NormalizePath(pdfPath);
+                pdfium = ChooseInstance(normalized, pageIndex, priority);
+                pdfium.AddLoad(1);
+                using var usage = await AcquireDocumentAsync(normalized, pdfium, cancellationToken, layerToken).ConfigureAwait(false);
+                if (usage == null) return results;
+
+                var lease = usage.Lease;
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lease.RetiredToken);
+                var token = linked.Token;
+                if (pageIndex < 0 || pageIndex >= lease.PageCount) return results;
+                await Task.Run(() => RenderTilesProgressiveAsync(lease, pageIndex, fullWidth, fullHeight, tileRects,
+                    results, token, withAnnotations, priority,
+                    (index, bitmap) => onTileRendered(tileRects[index], bitmap)), token).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Best effort: already-published tiles stay visible over the preview.
+            }
+            finally
+            {
+                if (pdfium != null)
+                {
+                    pdfium.AddLoad(-1);
+                    pdfium.MarkCompleted();
+                }
+                Interlocked.Decrement(ref _inFlightPublicCalls);
+            }
+            return results;
+        }
+
         private static async Task RequestLeaseDisposalWhenReadyAsync(Task<PdfDocumentLease?> leaseTask)
         {
             try

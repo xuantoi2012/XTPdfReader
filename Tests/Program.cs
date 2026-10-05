@@ -112,6 +112,7 @@ internal static partial class Program
                 TestRegionReuseAsync().GetAwaiter().GetResult();
                 TestRegionReuseViewer();
                 TestReaderRenderHandoffAsync().GetAwaiter().GetResult();
+                TestVisiblePageRetriesAfterTransientFailure();
                 TestReaderLargerCacheAsync().GetAwaiter().GetResult();
                 TestContinuousScrollQuality();
                 TestReaderWarmImages(); TestCrossFade(); TestPresentWhenReady();
@@ -191,7 +192,7 @@ internal static partial class Program
                 TestWidgetRenderingAsync().GetAwaiter().GetResult();
                 TestSaveSafetyAsync().GetAwaiter().GetResult(); TestLayerMerge(); TestLayerToggleRendersAsync().GetAwaiter().GetResult(); TestLayerEdit(); TestSheetInfoSurvivesMerge(); TestSheetMatch(); TestSequentialInPlaceEdits(); TestXtSetRebuild(); TestLayerRenameOnMerge(); TestSaveHistory(); TestPrintSizePlan(); TestSheetRegisterCsv(); TestTitleBlockReader(); TestPageMeasure(); TestPageDiff(); TestPageLabels(); TestSheetLinks(); TestPresence(); TestAnnotationConflictAsync().GetAwaiter().GetResult();
                 if (!backgroundRegression) TestAppDialogs();
-                TestReaderRenderHandoffAsync().GetAwaiter().GetResult();
+                TestReaderRenderHandoffAsync().GetAwaiter().GetResult(); TestVisiblePageRetriesAfterTransientFailure();
                 TestRegionReuseAsync().GetAwaiter().GetResult(); TestRegionReuseViewer();
                 TestContinuousScrollQuality(); TestReaderLargerCacheAsync().GetAwaiter().GetResult(); TestReaderWarmImages(); TestCrossFade(); TestPresentWhenReady();
                 if (!backgroundRegression) TestRecoveryAndToolbarUi();

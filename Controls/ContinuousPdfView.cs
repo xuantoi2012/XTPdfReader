@@ -293,11 +293,9 @@ public sealed class ContinuousPdfView : Grid
     }
 
     /// <summary>
-    /// Zoom bằng lăn chuột kiểu Foxit: khung nhìn logic (<see cref="Zoom"/>, thanh cuộn, hit-test) đổi ngay, nhưng NỘI DUNG ĐANG HIỆN giữ nguyên
-    /// (ảnh cũ, không co giãn) tới khi ảnh ĐÚNG CỠ của một zoom về xong, rồi hiện đúng zoom đó. Lăn nhanh: không huỷ ảnh đang vẽ khi có nấc mới —
-    /// vẽ xong bước nào hiện bước đó rồi mới vẽ bước kế (zoom logic hiện tại), nên màn hình cập nhật theo nhịp vẽ thay vì đứng chờ.
-    /// Một bước vẽ quá <see cref="PresentTimeoutMilliseconds"/> thì hiện zoom logic với ảnh tạm (co giãn + mờ dần) để trang nặng không đứng hình.
-    /// Tắt khi <see cref="ExactRaster"/> = false, không có bộ vẽ trang, hoặc <see cref="PresentTimeoutMilliseconds"/> = 0.
+    /// Zoom bằng lăn chuột: ở chế độ progressive, khung nhìn logic đổi ngay và dùng ảnh tốt nhất đang có;
+    /// tốc độ di chuyển được giới hạn theo độ nét của viewport để raster nền bắt kịp. Chế độ cũ vẫn giữ ảnh
+    /// đúng cỡ trước khi đổi khung hình khi tắt <see cref="ProgressiveZoomPresentation"/>.
     /// </summary>
     public void ZoomAtWhenReady(double zoom, Point viewPoint)
     {
@@ -319,10 +317,10 @@ public sealed class ContinuousPdfView : Grid
         if (_zoomTarget != null) EnsureGlideTimer();
     }
 
-    /// <summary>Tốc độ zoom tối đa của lăn chuột, tính bằng ln(zoom)/giây (3 ≈ ×1,25 mỗi bước vẽ ~75 ms, tốc độ trung bình của Foxit đo được ~2,6; 6 làm tốc độ lúc nhanh lúc chậm gấp 4 lần nhau).
+    /// <summary>Tốc độ zoom cố định của lăn chuột, tính bằng ln(zoom)/giây. 2,6 là nhịp liên tục gần với Foxit trên bản vẽ CAD nặng.
     /// 0 = không giới hạn (mỗi nấc đổi zoom ngay như trước). XTPDF_ZOOM_RATE đổi giá trị.</summary>
     internal static double ZoomRateLimit { get; set; } =
-        double.TryParse(Environment.GetEnvironmentVariable("XTPDF_ZOOM_RATE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double rate) ? rate : 4.5;
+        double.TryParse(Environment.GetEnvironmentVariable("XTPDF_ZOOM_RATE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double rate) ? rate : 2.6;
     internal const double MaxPresentStep = 1.45;
     private const double ZoomLeadLimit = 6.0; // đích không đi trước zoom đang hiện quá ×6: thả tay thì dừng ngay, không trôi tiếp
     private double? _zoomTarget;
@@ -373,6 +371,15 @@ public sealed class ContinuousPdfView : Grid
     {
         zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
         if (Math.Abs(zoom - _vp.Zoom) < 1e-6) return;
+        if (ProgressiveZoomPresentation)
+        {
+            // Foxit-like interaction: geometry reacts in the input turn. The best
+            // cached bitmap is scaled immediately; background tiles replace it as
+            // they finish. Never hold a heavy CAD drawing behind a sharp-frame wait.
+            _vp.ZoomAt(zoom, viewPoint.X, viewPoint.Y);
+            OnViewChanged(ChangeKind.Zoom);
+            return;
+        }
         _lastZoomAnchor = viewPoint;
         _hasZoomAnchor = true;
         _lastWheelZoomTimestamp = Stopwatch.GetTimestamp();
@@ -851,9 +858,18 @@ public sealed class ContinuousPdfView : Grid
     /// </summary>
     internal static bool ExactRaster { get; set; } = Environment.GetEnvironmentVariable("XTPDF_EXACT_RASTER") != "0";
 
-    /// <summary>Chờ ảnh đúng cỡ tối đa chừng này rồi mới hiện (ảnh tạm co giãn + mờ dần như cũ). 0 = không giữ khung.</summary>
+    /// <summary>Chờ ảnh đúng cỡ tối đa chừng này rồi mới hiện trong chế độ legacy. 0 = không giữ khung.</summary>
     internal static int PresentTimeoutMilliseconds { get; set; } =
-        int.TryParse(Environment.GetEnvironmentVariable("XTPDF_PRESENT_TIMEOUT_MS"), out int presentMs) ? Math.Clamp(presentMs, 0, 5000) : 2500;
+        int.TryParse(Environment.GetEnvironmentVariable("XTPDF_PRESENT_TIMEOUT_MS"), out int presentMs) ? Math.Clamp(presentMs, 0, 5000) : 600;
+
+    /// <summary>
+    /// Zoom geometry moves immediately while deep-zoom content is filled by
+    /// sufficiently large tiles. Missing deep-zoom coverage stays white instead
+    /// of scaling a low-resolution page image into an obvious blur. Set to 0 to
+    /// compare the legacy held-frame behavior.
+    /// </summary>
+    internal static bool ProgressiveZoomPresentation { get; set; } =
+        Environment.GetEnvironmentVariable("XTPDF_PROGRESSIVE_ZOOM") != "0";
 
     /// <summary>Ảnh trang đúng cỡ nằm trong khoảng này so với cỡ cần thì coi là đủ (sai số làm tròn điểm ảnh).</summary>
     private const double ExactLow = 0.985, ExactHigh = 1.04;
@@ -882,10 +898,9 @@ public sealed class ContinuousPdfView : Grid
     private long _pendingSince;
     private bool _commitFrame;
 
-    /// <summary>Thời gian mờ dần (ms) khi ảnh trang/vùng nét nét hơn thay ảnh đang hiện: ảnh mới vẽ lại từ đầu nên nét mảnh khác ảnh cũ
-    /// bị thu nhỏ; đổi tức thì thì mắt thấy "nhảy", mờ dần thì không. 0 = tắt (đổi tức thì như trước).</summary>
+    /// <summary>Thời gian mờ dần (ms) khi ảnh trang/vùng nét hơn thay ảnh đang hiện. Mặc định là 0 để không nhấp nháy.</summary>
     internal static int CrossFadeMilliseconds { get; set; } =
-        int.TryParse(Environment.GetEnvironmentVariable("XTPDF_CROSSFADE_MS"), out int fadeMs) ? Math.Clamp(fadeMs, 0, 1000) : 100;
+        int.TryParse(Environment.GetEnvironmentVariable("XTPDF_CROSSFADE_MS"), out int fadeMs) ? Math.Clamp(fadeMs, 0, 1000) : 0;
 
     /// <summary>Ảnh cũ chỉ được giữ làm nền mờ dần khi nó là ảnh trang thật (không phải thumbnail/ảnh xem trước nhỏ): trang mới mở
     /// không bị kéo dài thêm vì mờ dần từ thumbnail.</summary>
@@ -968,6 +983,10 @@ public sealed class ContinuousPdfView : Grid
             IReadOnlyList<RegionImage>? regionList;
             if (_frozen != null && _frozen.TryGetValue(row, out var frozen)) { pageImage = frozen.Page; regionList = frozen.Regions; }
             else { pageImage = PickBitmap(row, state, content.Width * dpi); regionList = state?.Regions; }
+            // Keep the last coherent page/region composite visible while the
+            // sharper deep-zoom crop is being rendered. The replacement is
+            // committed atomically after all tiles are composed, so zoom never
+            // exposes white holes or a tile-by-tile assembly to the user.
             if (pageImage is { } bitmap)
             {
                 DrawPageImage(dc, row, bitmap, content, dpi, oneToOne: !rotated);
@@ -1221,7 +1240,8 @@ public sealed class ContinuousPdfView : Grid
         _updateTimer.Interval = TimeSpan.FromMilliseconds(16);
         double sinceZoom = (now - _lastZoomTimestamp) * 1000.0 / Stopwatch.Frequency;
         // Chinh sach dung co: xin anh dung co ngay tu nac zoom dau (khong cho lang) vi khung dang hien duoc giu toi khi anh ve.
-        bool zoomSettling = sinceZoom < ZoomSettleMilliseconds, deferForZoom = zoomSettling && !ExactRaster;
+        bool zoomSettling = sinceZoom < ZoomSettleMilliseconds,
+            deferForZoom = zoomSettling && (ProgressiveZoomPresentation || !ExactRaster);
 
         var (firstSlot, lastSlot) = vp.VisibleRange();
         if (firstSlot < 0 || lastSlot >= _slots.Length) return;
@@ -1273,7 +1293,7 @@ public sealed class ContinuousPdfView : Grid
                 if (state.Preview == null && row.Thumbnail == null) RequestPreview(row, state, PdfRenderPriority.Visible);
             }
             // Đang zoom: trang đã có ảnh thì co giãn ảnh đó, chưa xin độ phân giải mới (mỗi nấc zoom một lượt vẽ là lãng phí).
-            else if (!(deferForZoom && hasImage) && NeedsPageBitmap(row, state, pageWidth, needed))
+            else if (needed <= regionStart && !(deferForZoom && hasImage) && NeedsPageBitmap(row, state, pageWidth, needed))
             {
                 // Chưa có ảnh nào: xin trước ảnh xem trước nhỏ (rẻ, về nhanh) để có gì đó hiện ngay trong lúc ảnh nét đang vẽ.
                 if (!hasImage && state.Preview == null && row.Thumbnail == null) RequestPreview(row, state, PdfRenderPriority.Visible);
@@ -1281,6 +1301,13 @@ public sealed class ContinuousPdfView : Grid
                 if (!ExactRaster && state.Bitmap != null && pageWidth < MaxPageBitmapWidth && needed <= MaxPageBitmapWidth * 1.03)
                     pageWidth = PageBitmapWidth(needed, PageRefreshHeadroom);
                 RequestPage(row, state, pageWidth, PdfRenderPriority.Visible);
+            }
+            else if (needed > regionStart && !hasImage && state.Preview == null && row.Thumbnail == null)
+            {
+                // At deep zoom the center tile is the fast readable fallback. A
+                // concurrent 1024px whole-page render only competes with it for
+                // PDFium/CPU and is the main cause of CAD interaction stalls.
+                RequestPreview(row, state, PdfRenderPriority.Visible);
             }
 
             if (needed > regionStart)
@@ -1334,6 +1361,11 @@ public sealed class ContinuousPdfView : Grid
             double needed = row.LayoutWidth * vp.Zoom * dpi;
             if (needed > PreviewSufficientPx)
             {
+                if (needed > RegionStartPx(dpi))
+                {
+                    if (BestBitmap(row, state) == null) RequestPreview(row, state, PdfRenderPriority.Thumbnail);
+                    continue;
+                }
                 int pageWidth = ExactRaster
                     ? (needed <= RegionStartPx(dpi) ? ExactPageWidth(needed) : ReadablePageBitmapWidth)
                     : PreferredPageBitmapWidth(needed, PreferViewportRegions);
@@ -1411,6 +1443,8 @@ public sealed class ContinuousPdfView : Grid
     /// (ảnh vẽ mới có nét đậm/nhạt khác ảnh cũ bị thu nhỏ). Chỉ vẽ lại khi sắp thiếu, và vẽ dư <see cref="PageRefreshHeadroom"/>.</summary>
     private const double PageLowWater = 1.10;
     private const double PageRefreshHeadroom = 2.0;
+    private const int PageRetryInitialMilliseconds = 160;
+    private const int PageRetryMaximumMilliseconds = 2_000;
 
     private bool NeedsPageBitmap(PageRow row, PageState state, int width, double neededPx)
     {
@@ -1428,7 +1462,10 @@ public sealed class ContinuousPdfView : Grid
             // Chế độ vùng nét (width = ảnh dự phòng 1024 px) đã xử lý ở trên; ở đây chỉ còn cỡ theo zoom.
             return bmp.PixelWidth < Math.Min(neededPx * PageLowWater, MaxPageBitmapWidth);
         }
-        return state.FailedWidth != width || state.FailedVersion != state.Version;
+        if (state.FailedWidth != width || state.FailedVersion != state.Version) return true;
+        // A transient document-open/raster failure used to poison this exact width
+        // forever, leaving heavy pages on their thumbnail until another interaction.
+        return Stopwatch.GetTimestamp() >= state.RetryAfterTimestamp;
     }
 
     private PageState StateOf(PageRow row)
@@ -1514,8 +1551,15 @@ public sealed class ContinuousPdfView : Grid
         }
         if (bmp == null)
         {
-            state.FailedWidth = width; // không xin lại mãi trang không vẽ được
+            state.FailedWidth = width;
             state.FailedVersion = version;
+            state.FailedAttempts++;
+            int retryMs = Math.Min(PageRetryMaximumMilliseconds,
+                PageRetryInitialMilliseconds * (1 << Math.Min(4, state.FailedAttempts - 1)));
+            state.RetryAfterTimestamp = Stopwatch.GetTimestamp() + Stopwatch.Frequency * retryMs / 1000;
+            if (DiagnosticsLog.Enabled) DiagnosticsLog.Event($"RENDER retry {state.FailedAttempts} in {retryMs} ms, page {row.PageNumber}");
+            _updateTimer.Interval = TimeSpan.FromMilliseconds(retryMs);
+            _updateTimer.Start();
             return;
         }
         if (!string.Equals(layers, PdfLayerStateStore.GetToken(row.SourcePath), StringComparison.Ordinal)) { ScheduleUpdate(); return; }
@@ -1523,6 +1567,8 @@ public sealed class ContinuousPdfView : Grid
         state.BitmapLayers = layers;
         state.BitmapVersion = version;
         state.DeliveredWidth = width;
+        state.FailedAttempts = 0;
+        state.RetryAfterTimestamp = 0;
         if (row.ReaderBitmap is not { } existing || existing.PixelWidth <= bmp.PixelWidth) row.ReaderBitmap = bmp;
         if (IsOnScreen(row)) _surface.InvalidateVisual();
         CheckPresent(); // anh dung co vua ve: hien luon khung moi neu da du
@@ -1667,6 +1713,27 @@ public sealed class ContinuousPdfView : Grid
 
     private static Int32Rect ToRect(RegionKey key) => new(key.X, key.Y, key.Width, key.Height);
 
+    // A complete deep-zoom crop can take hundreds of milliseconds on a CAD page.
+    // Keep its coarse page image visible and refine it in center-first chunks instead.
+    private const int ProgressiveTileSize = 640;
+
+    private static Int32Rect[] SplitProgressiveTiles(Int32Rect target, int fullWidth, int fullHeight)
+    {
+        var logical = new List<Int32Rect>();
+        int right = target.X + target.Width, bottom = target.Y + target.Height;
+        for (int y = target.Y; y < bottom; y += ProgressiveTileSize)
+            for (int x = target.X; x < right; x += ProgressiveTileSize)
+                logical.Add(new Int32Rect(x, y, Math.Min(ProgressiveTileSize, right - x),
+                    Math.Min(ProgressiveTileSize, bottom - y)));
+
+        double cx = target.X + target.Width / 2d, cy = target.Y + target.Height / 2d;
+        return logical.OrderBy(rect =>
+        {
+            double dx = rect.X + rect.Width / 2d - cx, dy = rect.Y + rect.Height / 2d - cy;
+            return dx * dx + dy * dy;
+        }).Select(rect => ViewportRegionReuse.WithGutter(rect, fullWidth, fullHeight)).ToArray();
+    }
+
     private async Task LoadRegionAsync(PageRow row, PageState state, RegionKey key, CancellationTokenSource cts,
         Int32Rect[] rectangles, Int32Rect[] missing, List<ViewportRegionReuse.Piece> pieces, bool reuseOverlap,
         bool wide = false)
@@ -1674,21 +1741,44 @@ public sealed class ContinuousPdfView : Grid
         var priority = wide ? PdfRenderPriority.Background : PdfRenderPriority.Visible;
         long cacheGeneration = Interlocked.Read(ref _regionCacheGeneration);
         BitmapSource? bmp = null;
+        // Streaming is deliberately limited to a cold, complete viewport crop. Reuse
+        // strips still compose atomically so their cached-pixel contract stays simple.
+        bool streamTiles = !wide && RegionRenderer == null && !reuseOverlap && rectangles.Length == 1 &&
+            (long)rectangles[0].Width * rectangles[0].Height > (long)ProgressiveTileSize * ProgressiveTileSize;
         try
         {
-            var images = rectangles.Length == 0 ? new List<BitmapSource?>() :
-                await (RegionRenderer?.Invoke(row, key.FullWidth, key.FullHeight, rectangles, cts.Token, key.Layers) ??
-                    PdfThumbnailService.RenderPageTilesBatchAsync(row.SourcePath, row.PageNumber - 1, key.FullWidth, key.FullHeight,
-                        rectangles, cts.Token, key.Layers, priority: priority));
-            cts.Token.ThrowIfCancellationRequested();
-            if (images.Count == rectangles.Length && images.All(image => image != null))
+            if (streamTiles)
             {
-                if (reuseOverlap)
+                var tiles = SplitProgressiveTiles(rectangles[0], key.FullWidth, key.FullHeight);
+                state.PresentationEpoch++;
+                var images = await PdfThumbnailService.RenderPageTilesStreamingAsync(row.SourcePath, row.PageNumber - 1, key.FullWidth, key.FullHeight,
+                    tiles, (_, _) => Task.CompletedTask, cts.Token, key.Layers, priority: priority);
+                cts.Token.ThrowIfCancellationRequested();
+                state.PresentationEpoch++;
+                if (images.Count == tiles.Length && images.All(image => image != null))
                 {
-                    for (int i = 0; i < images.Count; i++) pieces.Add(new(rectangles[i], images[i]!, missing[i]));
+                    for (int i = 0; i < images.Count; i++) pieces.Add(new(tiles[i], images[i]!));
+                    // Keep the immediate individual tiles only while refining. A single
+                    // completed crop preserves the existing cache-hit/pan-reuse policy.
                     bmp = await Task.Run(() => ViewportRegionReuse.Compose(ToRect(key), pieces, cts.Token), cts.Token);
                 }
-                else bmp = images[0];
+            }
+            else
+            {
+                var images = rectangles.Length == 0 ? new List<BitmapSource?>() :
+                    await (RegionRenderer?.Invoke(row, key.FullWidth, key.FullHeight, rectangles, cts.Token, key.Layers) ??
+                        PdfThumbnailService.RenderPageTilesBatchAsync(row.SourcePath, row.PageNumber - 1, key.FullWidth, key.FullHeight,
+                            rectangles, cts.Token, key.Layers, priority: priority));
+                cts.Token.ThrowIfCancellationRequested();
+                if (images.Count == rectangles.Length && images.All(image => image != null))
+                {
+                    if (reuseOverlap)
+                    {
+                        for (int i = 0; i < images.Count; i++) pieces.Add(new(rectangles[i], images[i]!, missing[i]));
+                        bmp = await Task.Run(() => ViewportRegionReuse.Compose(ToRect(key), pieces, cts.Token), cts.Token);
+                    }
+                    else bmp = images[0];
+                }
             }
         }
         catch (OperationCanceledException) { }
@@ -1697,7 +1787,8 @@ public sealed class ContinuousPdfView : Grid
         if (wide) { if (ReferenceEquals(state.WideCts, cts)) { state.WideCts = null; state.WidePending = null; } }
         else if (ReferenceEquals(state.RegionCts, cts)) { state.RegionCts = null; state.RegionPending = null; }
         cts.Dispose();
-        if (cancelled || bmp == null || !IsLive(row, state, key.Version)) return;
+        if (cancelled || !IsLive(row, state, key.Version)) return;
+        if (bmp == null) return;
         if (!string.Equals(key.Layers, PdfLayerStateStore.GetToken(row.SourcePath), StringComparison.Ordinal))
         {
             ScheduleUpdate();
@@ -1712,6 +1803,13 @@ public sealed class ContinuousPdfView : Grid
 
         // Vùng mới vẽ đè lên trên; giữ thêm 1 vùng cũ bên dưới (phần chưa phủ vẫn nét), bỏ các vùng khác.
         var regions = state.Regions;
+        if (streamTiles)
+        {
+            // The temporary tile set has done its job. Retain only the completed
+            // crop so diagnostics and the shared cache own these pixels once.
+            regions.RemoveAll(region => region.Key.FullWidth == key.FullWidth && region.Key.FullHeight == key.FullHeight &&
+                region.Key.Version == key.Version && string.Equals(region.Key.Layers, key.Layers, StringComparison.Ordinal));
+        }
         regions.RemoveAll(r => r.Key.Version != key.Version || !string.Equals(r.Key.Layers, key.Layers, StringComparison.Ordinal));
         regions.Add(new RegionImage(key, bmp));
         while (regions.Count > (WideRegions ? 3 : 2)) regions.RemoveAt(0);
@@ -1765,7 +1863,9 @@ public sealed class ContinuousPdfView : Grid
         public CancellationTokenSource? PageCts;
         public int RequestedWidth, RequestedVersion;
         public PdfRenderPriority RequestedPriority;
-        public int FailedWidth = -1, FailedVersion = -1;
+        public int FailedWidth = -1, FailedVersion = -1, FailedAttempts;
+        public long RetryAfterTimestamp;
+        public int PresentationEpoch;
         /// <summary>Cỡ đã xin mà <see cref="Bitmap"/> được giao cho. Nhà cung cấp có thể giao ảnh khác cỡ (cache trả ảnh lớn hơn đã có):
         /// đã xin cỡ này rồi thì không xin lặp mãi dù ảnh nhận được không khớp cỡ hiển thị.</summary>
         public int DeliveredWidth = -1;

@@ -1,0 +1,8 @@
+executable("xt_gpu_poc") {
+  sources = [ "main.cpp" ]
+  deps = [ "//:pdfium", "//skia:skia" ]
+  include_dirs = [ "//", "//third_party/skia" ]
+  libs = [ "psapi.lib", "dxgi.lib" ]
+  configs -= [ "//build/config/compiler:chromium_code" ]
+  configs += [ "//build/config/compiler:no_chromium_code" ]
+}

@@ -98,10 +98,14 @@ internal static partial class Program
     static void TestPresentWhenReady()
     {
         if (Application.Current == null) CreateReaderTestApplication();
-        bool savedExact = ContinuousPdfView.ExactRaster; int savedTimeout = ContinuousPdfView.PresentTimeoutMilliseconds;
+        bool savedExact = ContinuousPdfView.ExactRaster;
+        bool savedProgressive = ContinuousPdfView.ProgressiveZoomPresentation;
+        int savedTimeout = ContinuousPdfView.PresentTimeoutMilliseconds;
         try
         {
-            ContinuousPdfView.ExactRaster = true; ContinuousPdfView.PresentTimeoutMilliseconds = 400;
+            ContinuousPdfView.ExactRaster = true;
+            ContinuousPdfView.ProgressiveZoomPresentation = false; // legacy handoff is retained only for this compatibility test.
+            ContinuousPdfView.PresentTimeoutMilliseconds = 400;
             var held = RunScenario("held", complete: false, scroll: false);
             Check(held.LogicalZoom == 2 && held.OldGeometryStillShown && held.OldPixelIsOldImage,
                 "A wheel zoom updates the logical zoom at once but the screen keeps the previous picture while the exact-size image is pending");
@@ -118,8 +122,18 @@ internal static partial class Program
             ContinuousPdfView.ExactRaster = false;
             var legacy = RunScenario("legacy", complete: false, scroll: false, waitMs: 80);
             Check(legacy.NewGeometryShown, "With exact-raster off the wheel zoom is applied immediately as before");
+            ContinuousPdfView.ExactRaster = true;
+            ContinuousPdfView.ProgressiveZoomPresentation = true;
+            var progressive = RunScenario("progressive", complete: false, scroll: false, waitMs: 80);
+            Check(progressive.NewGeometryShown && progressive.OldPixelIsOldImage,
+                "Progressive deep zoom changes geometry immediately while the last coherent cached composite remains visible until the sharper crop is ready");
         }
-        finally { ContinuousPdfView.ExactRaster = savedExact; ContinuousPdfView.PresentTimeoutMilliseconds = savedTimeout; }
+        finally
+        {
+            ContinuousPdfView.ExactRaster = savedExact;
+            ContinuousPdfView.ProgressiveZoomPresentation = savedProgressive;
+            ContinuousPdfView.PresentTimeoutMilliseconds = savedTimeout;
+        }
 
         (bool MiddleShownWhileNextRenders, bool FinalShownAtEnd) RunSteps()
         {

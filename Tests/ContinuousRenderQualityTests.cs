@@ -10,6 +10,33 @@ using XTPdfMergeApp.Services;
 
 internal static partial class Program
 {
+    static void TestVisiblePageRetriesAfterTransientFailure()
+    {
+        if (Application.Current == null) CreateReaderTestApplication();
+        bool savedExact = ContinuousPdfView.ExactRaster;
+        ContinuousPdfView.ExactRaster = false; // Exercise the full-page retry path, not deep viewport tiling.
+        var view = new ContinuousPdfView { PrefetchPageCount = 0 };
+        var host = new Window { Content = view, Width = 1320, Height = 700, WindowStyle = WindowStyle.None,
+            ShowActivated = false, ShowInTaskbar = false, Left = -32000, Top = -32000 };
+        host.Show(); host.UpdateLayout();
+        try
+        {
+            int calls = 0;
+            var row = new PagePlacement { SourcePath = "transient-page-failure.pdf", PageNumber = 1, BaseWidth = 1000, AspectRatio = .4 };
+            view.PageRenderer = (_, width, _, _) =>
+            {
+                if (Interlocked.Increment(ref calls) == 1) return Task.FromResult<BitmapSource?>(null);
+                return Task.FromResult<BitmapSource?>(Bitmap(width, Math.Max(1, width * 2 / 5)));
+            };
+            view.SetDocument(new[] { row }, 1);
+            var wait = Stopwatch.StartNew();
+            while (row.ReaderBitmap == null && wait.Elapsed < TimeSpan.FromSeconds(3)) Pump(TimeSpan.FromMilliseconds(20));
+            Check(calls >= 2 && row.ReaderBitmap != null,
+                "A transient visible-page render failure retries and replaces the thumbnail instead of poisoning that render width");
+        }
+        finally { view.CancelAll(); host.Close(); ContinuousPdfView.ExactRaster = savedExact; }
+    }
+
     static async Task TestReaderRenderHandoffAsync()
     {
         var key = (Path: "render-handoff.pdf", Page: 1, Width: 1024, Layers: "");

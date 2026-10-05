@@ -1,0 +1,14 @@
+is_debug = false
+is_component_build = false
+target_cpu = "x64"
+symbol_level = 0
+use_remoteexec = false
+use_siso = false
+pdf_use_skia = true
+skia_use_gl = true
+pdf_is_standalone = false
+pdf_enable_v8 = false
+pdf_enable_xfa = false
+pdf_enable_fontations = false
+pdf_enable_rust_png = false
+pdf_use_partition_alloc = false
