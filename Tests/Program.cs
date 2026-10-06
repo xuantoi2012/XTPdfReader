@@ -31,9 +31,16 @@ internal static partial class Program
             XTPdfMergeApp.Controls.ContinuousPdfView.WideRegions = false; XTPdfMergeApp.Controls.ContinuousPdfView.ZoomRateLimit = 0; XTPdfMergeApp.Controls.ContinuousPdfView.WarmAllPreviews = false; XTPdfMergeApp.Controls.ContinuousPdfView.SpeculateZoomSteps = false; // pre-rendering calls the page renderer in the background and would skew the request counts the viewer tests assert
             // NuGet places PDFium in a runtime-specific directory.
             var dll = Directory.GetFiles(AppContext.BaseDirectory, "pdfium.dll", SearchOption.AllDirectories)
-                .First(path => path.Contains("win-x64", StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(path => path.Contains("win-x64", StringComparison.OrdinalIgnoreCase));
             foreach (var assembly in new[] { typeof(PdfThumbnailService).Assembly, typeof(Program).Assembly })
-                NativeLibrary.SetDllImportResolver(assembly, (name, _, _) => name == "pdfium" ? NativeLibrary.Load(dll) : IntPtr.Zero);
+                NativeLibrary.SetDllImportResolver(assembly, (name, _, _) => name == "pdfium" ?
+                    NativeLibrary.Load(dll ?? throw new DllNotFoundException("PDFium must not be used in this build")) : IntPtr.Zero);
+            if (args.Contains("--mupdf-migration-check"))
+            {
+                TestMuPdfMigrationAsync().GetAwaiter().GetResult();
+                Console.WriteLine($"PASS ({_checks} MuPDF migration checks)");
+                return 0;
+            }
             int tabsProfile = Array.IndexOf(args, "--multi-tab-profile");
             int warmProfile = Array.IndexOf(args, "--warm-cache-profile");
             int regionProfile = Array.IndexOf(args, "--region-pan-profile");
@@ -46,6 +53,47 @@ internal static partial class Program
                 return 0;
             }
             int regionBench = Array.IndexOf(args, "--region-bench");
+            int viewportBench = Array.IndexOf(args, "--viewport-workers-bench");
+            int muPdfCheck = Array.IndexOf(args, "--mupdf-viewport-check");
+            int fastMuPdfCheck = Array.IndexOf(args, "--mupdf-fast-check");
+            int throughputViewerCheck = Array.IndexOf(args, "--mupdf-throughput-viewer-check");
+            if (throughputViewerCheck >= 0)
+            {
+                TestThroughputMuPdfViewer(args[throughputViewerCheck + 1]);
+                Console.WriteLine($"PASS ({_checks} throughput viewer checks)");
+                return 0;
+            }
+            if (fastMuPdfCheck >= 0)
+            {
+                TestFastMuPdfAsync(args[fastMuPdfCheck + 1], args[fastMuPdfCheck + 2]).GetAwaiter().GetResult();
+                Console.WriteLine($"PASS ({_checks} fast MuPDF checks)");
+                return 0;
+            }
+            int predictiveCheck = Array.IndexOf(args, "--mupdf-predictive-viewer-check");
+            if (predictiveCheck >= 0)
+            {
+                TestPredictiveMuPdfViewer(args[predictiveCheck + 1]);
+                Console.WriteLine($"PASS ({_checks} predictive viewport checks)");
+                return 0;
+            }
+            if (muPdfCheck >= 0)
+            {
+                TestMuPdfViewportAsync(args[muPdfCheck + 1]).GetAwaiter().GetResult();
+                Console.WriteLine($"PASS ({_checks} experimental MuPDF viewport checks)");
+                return 0;
+            }
+            if (viewportBench >= 0)
+            {
+                BenchmarkViewportWorkersAsync(args[viewportBench + 1], int.Parse(args[viewportBench + 2]),
+                    int.Parse(args[viewportBench + 3])).GetAwaiter().GetResult();
+                return 0;
+            }
+            if (args.Contains("--viewport-workers-check"))
+            {
+                TestViewportWorkersAsync().GetAwaiter().GetResult();
+                Console.WriteLine($"PASS ({_checks} viewport worker checks)");
+                return 0;
+            }
             if (regionBench >= 0)
             {
                 RegionBench(args[regionBench + 1], int.Parse(args[regionBench + 2]), int.Parse(args[regionBench + 3]), int.Parse(args[regionBench + 4]), args.Length > regionBench + 5 ? int.Parse(args[regionBench + 5]) : 40);

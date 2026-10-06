@@ -91,11 +91,11 @@ internal static class DiagnosticsReport
         sb.AppendLine();
 
         // ── PDFium ──
-        Section(sb, $"PDFium — {PdfiumPool.Count}/{PdfiumPool.DesiredCount} bản song song, {Environment.ProcessorCount} nhân logic");
+        Section(sb, ExperimentalMuPdfViewport.BalancedMode ? $"MuPDF: {ExperimentalMuPdfViewport.RunningWorkerCount} workers, {ExperimentalMuPdfViewport.WorkerPrivateMiB:0} MiB" : $"PDFium — {PdfiumPool.Count}/{PdfiumPool.DesiredCount} bản song song, {Environment.ProcessorCount} nhân logic");
         sb.AppendLine("  #  file              việc  đang  chờ gate TB/max ms  bận  (phiên)  trang parse  page giữ  doc");
         try
         {
-            foreach (var i in PdfiumPool.Instances)
+            foreach (var i in ExperimentalMuPdfViewport.BalancedMode ? Array.Empty<PdfiumInstance>() : PdfiumPool.Instances)
             {
                 var (recent, session) = i.SampleBusy();
                 sb.AppendLine(string.Format(ci, "  {0,-2} {1,-16} {2,6} {3,5}  {4,18} {5,5:P0} {6,7:P0} {7,12} {8,9} {9,4}",

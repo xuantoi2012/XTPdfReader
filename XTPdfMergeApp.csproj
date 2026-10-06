@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <MuPdfOnly Condition="'$(MuPdfOnly)' == ''">true</MuPdfOnly>
+    <MuPdfRuntimeDir Condition="'$(MuPdfRuntimeDir)' == ''">$(MSBuildProjectDirectory)\bin\MuPdfRuntime</MuPdfRuntimeDir>
     <!-- windows10.0.19041.0 cho WPF desktop; thumbnail PDF render trực tiếp bằng PDFium native. -->
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
@@ -38,12 +40,22 @@
 
   <ItemGroup>
     <Content Include="PDF icon.ico" />
+    <Content Include="Tests\GpuPdfium\MuPdfViewportWorker.py" Link="MuPdfWorker.py" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <PropertyGroup Condition="'$(MuPdfOnly)' == 'true'">
+    <DefineConstants>$(DefineConstants);MUPDF_ONLY</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(MuPdfOnly)' == 'true' And Exists('$(MuPdfRuntimeDir)\python.exe')">
+    <Content Include="$(MuPdfRuntimeDir)\**\*" Link="MuPdfRuntime\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="ValidateMuPdfRuntime" BeforeTargets="PrepareForBuild" Condition="'$(MuPdfOnly)' == 'true'">
+    <Error Condition="!Exists('$(MuPdfRuntimeDir)\python.exe')" Text="Prepare the local runtime with Packaging/Prepare-MuPdfRuntime.ps1, or supply MuPdfRuntimeDir." />
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="itext" Version="9.6.0" />
     <PackageReference Include="itext.bouncy-castle-adapter" Version="9.6.0" />
-    <PackageReference Include="bblanchon.PDFium.Win32" Version="147.0.7690" />
+    <PackageReference Include="bblanchon.PDFium.Win32" Version="147.0.7690" Condition="'$(MuPdfOnly)' != 'true'" />
     <PackageReference Include="VirtualizingWrapPanel" Version="2.5.2" />
     <!-- Installer + tu cap nhat (Velopack): Run() phai la dong dau tien trong OnStartup (App.xaml.cs),
          truoc moi logic khac, de bat dung cac co lenh ma trinh cai/go cai/cap nhat goi khi chay app. -->
@@ -57,7 +69,7 @@
   <!-- Vẽ song song: bản sao pdfium.dll mang tên khác (pdfium_1..3.dll) nằm cạnh bản gốc. Mỗi tên file là 1
        module riêng với trạng thái toàn cục riêng, nên các bản chạy song song được (Services/PdfiumInstance.cs,
        PdfiumPool: tối đa 4 bản). -->
-  <Target Name="CopyPdfiumInstances" AfterTargets="Build">
+  <Target Name="CopyPdfiumInstances" AfterTargets="Build" Condition="'$(MuPdfOnly)' != 'true'">
     <ItemGroup>
       <_PdfiumOriginal Include="$(OutDir)pdfium.dll" Condition="Exists('$(OutDir)pdfium.dll')" />
       <_PdfiumOriginal Include="$(OutDir)runtimes\win-x64\native\pdfium.dll" Condition="Exists('$(OutDir)runtimes\win-x64\native\pdfium.dll')" />
@@ -67,7 +79,7 @@
     <Copy SourceFiles="@(_PdfiumOriginal)" DestinationFiles="@(_PdfiumOriginal->'%(RootDir)%(Directory)pdfium_3.dll')" SkipUnchangedFiles="true" />
   </Target>
 
-  <Target Name="CopyPdfiumInstancesToPublish" AfterTargets="Publish">
+  <Target Name="CopyPdfiumInstancesToPublish" AfterTargets="Publish" Condition="'$(MuPdfOnly)' != 'true'">
     <ItemGroup>
       <_PdfiumPublished Include="$(PublishDir)pdfium.dll" Condition="Exists('$(PublishDir)pdfium.dll')" />
       <_PdfiumPublished Include="$(PublishDir)runtimes\win-x64\native\pdfium.dll" Condition="Exists('$(PublishDir)runtimes\win-x64\native\pdfium.dll')" />

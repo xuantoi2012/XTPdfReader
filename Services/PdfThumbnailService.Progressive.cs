@@ -235,6 +235,7 @@ public static partial class PdfThumbnailService
 
     public static void ReleaseCachedPages()
     {
+        if (ExperimentalMuPdfViewport.BalancedMode) return;
         Interlocked.Increment(ref _inFlightPublicCalls);
         _ = Task.Run(async () =>
         {
@@ -288,8 +289,8 @@ public static partial class PdfThumbnailService
 
     private static async Task RenderTilesProgressiveAsync(PdfDocumentLease document, int index,
         int fullWidth, int fullHeight, IReadOnlyList<Int32Rect> rectangles,
-        List<BitmapSource?> results, CancellationToken token, bool withAnnotations, PdfRenderPriority priority = PdfRenderPriority.Visible,
-        Func<int, BitmapSource, Task>? onTileRendered = null)
+        IList<BitmapSource?> results, CancellationToken token, bool withAnnotations, PdfRenderPriority priority = PdfRenderPriority.Visible,
+        Func<int, BitmapSource, Task>? onTileRendered = null, Func<int>? nextTile = null)
     {
         var page = await AcquirePageAsync(document, index, priority, token).ConfigureAwait(false);
         bool locked = false;
@@ -299,7 +300,7 @@ public static partial class PdfThumbnailService
             await page.OperationGate.WaitAsync(priority, token).ConfigureAwait(false);
             RenderDiagnostics.PageQueue.Record(queueStart);
             locked = true;
-            for (int i = 0; i < rectangles.Count; i++)
+            for (int i = nextTile?.Invoke() ?? 0; i < rectangles.Count; i = nextTile?.Invoke() ?? i + 1)
             {
                 token.ThrowIfCancellationRequested();
                 if (_shuttingDown) break;

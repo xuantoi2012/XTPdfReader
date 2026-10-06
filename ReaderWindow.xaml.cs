@@ -257,7 +257,7 @@ namespace XTPdfMergeApp
         private enum ReaderPageView { Single, Continuous, TwoPage }
 
         private const double ReaderRenderWidthPx = 2200;
-        internal const long ReaderCacheBudgetBytes = 64L * 1024 * 1024;
+        internal static long ReaderCacheBudgetBytes => (ExperimentalMuPdfViewport.BalancedMode ? 768L : ExperimentalMuPdfViewport.ThroughputMode ? 2048L : 64L) * 1024 * 1024;
         private const int ReaderAdjacentPrefetchCount = 2;
         private const double ReaderMinZoom = 0.05;
         private const double ReaderMaxZoom = 32.0;

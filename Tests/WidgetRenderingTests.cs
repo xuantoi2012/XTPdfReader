@@ -52,6 +52,8 @@ internal static partial class Program
     static int BluePixels(BitmapSource? bitmap)
     {
         if (bitmap == null) return 0;
+        if (bitmap.Format != System.Windows.Media.PixelFormats.Bgra32)
+            bitmap = new FormatConvertedBitmap(bitmap, System.Windows.Media.PixelFormats.Bgra32, null, 0);
         int stride = bitmap.PixelWidth * 4, count = 0;
         var pixels = new byte[stride * bitmap.PixelHeight]; bitmap.CopyPixels(pixels, stride, 0);
         for (int i = 0; i < pixels.Length; i += 4)

@@ -45,6 +45,8 @@ internal static class RenderDiagnostics
     {
         get
         {
+            if (ExperimentalMuPdfViewport.BalancedMode)
+                return $"MuPDF: {ExperimentalMuPdfViewport.RunningWorkerCount} workers, private {ExperimentalMuPdfViewport.WorkerPrivateMiB:0} MiB";
             try
             {
                 var instances = PdfiumPool.Instances;

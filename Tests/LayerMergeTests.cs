@@ -75,6 +75,8 @@ internal static partial class Program
         async Task<bool> IsRedAsync()
         {
             var bmp = await PdfThumbnailService.RenderPageAsync(path, 0, 100);
+            if (bmp != null && bmp.Format != System.Windows.Media.PixelFormats.Bgra32)
+                bmp = new System.Windows.Media.Imaging.FormatConvertedBitmap(bmp, System.Windows.Media.PixelFormats.Bgra32, null, 0);
             var px = new byte[4];
             bmp!.CopyPixels(new System.Windows.Int32Rect(50, 50, 1, 1), px, 4, 0);
             return px[2] > 200 && px[1] < 60; // BGRA

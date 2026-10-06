@@ -220,7 +220,7 @@ namespace XTPdfMergeApp
                     catch { return false; }
                 }
 
-                int parallel = Math.Max(1, PdfiumPool.Count - 1);
+                int parallel = ExperimentalMuPdfViewport.BalancedMode ? 2 : Math.Max(1, PdfiumPool.Count - 1);
                 using var slots = new System.Threading.SemaphoreSlim(parallel);
                 var work = new List<System.Threading.Tasks.Task>();
                 foreach (var row in order)

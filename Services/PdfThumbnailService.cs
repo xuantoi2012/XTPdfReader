@@ -327,6 +327,7 @@ namespace XTPdfMergeApp.Services
         public static async Task<PdfOpenResult> TryGetPageCountAsync(string pdfPath)
         {
             if (_shuttingDown) return new PdfOpenResult(0, PdfOpenFailure.Unknown);
+            if (ExperimentalMuPdfViewport.BalancedMode) return await MuPdfOpenAsync(pdfPath).ConfigureAwait(false);
             PdfiumInstance? pdfium = null;
             string? normalized = null;
             try
@@ -385,6 +386,12 @@ namespace XTPdfMergeApp.Services
                     .Select(NormalizePath),
                 StringComparer.OrdinalIgnoreCase);
 
+            if (ExperimentalMuPdfViewport.BalancedMode)
+            {
+                var normalizedActive = active.Select(p => p.ToUpperInvariant()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                _ = ExperimentalMuPdfViewport.ReleaseUnusedAsync(normalizedActive);
+            }
+
             PdfFileBuffer.ReleaseExcept(active.Contains);
             foreach (string path in _documentPasswords.Keys)
                 if (!active.Contains(path)) _documentPasswords.TryRemove(path, out _);
@@ -403,7 +410,7 @@ namespace XTPdfMergeApp.Services
         /// CAD 165 MB, ~460 MB heap native đang cấp phát sau khi xem vài chục trang). Lần dùng sau tự mở lại (~50 ms + parse
         /// trang). Lease đang có người dùng chỉ đóng khi họ nhả. <paramref name="includePrimary"/>=false giữ bản #0.</summary>
         public static Task TrimDocumentsAsync(bool includePrimary)
-            => TrimDocumentsAsync(index => includePrimary || index != 0);
+            => ExperimentalMuPdfViewport.BalancedMode ? Task.Run(ExperimentalMuPdfViewport.Shutdown) : TrimDocumentsAsync(index => includePrimary || index != 0);
 
         private static Task TrimDocumentsAsync(Func<int, bool> instanceFilter)
             => TrimDocumentsAsync(key => instanceFilter(key.Instance));
@@ -447,6 +454,12 @@ namespace XTPdfMergeApp.Services
             if (fileWillChange) PdfFileBuffer.Invalidate(normalized, PdfFileBuffer.InvalidateReason.Edited);
             _layerTails.TryRemove(normalized, out _);
             var suspension = new DocumentSuspension(normalized);
+            if (ExperimentalMuPdfViewport.BalancedMode)
+            {
+                try { await ExperimentalMuPdfViewport.RetireAsync(normalized).WaitAsync(timeout).ConfigureAwait(false); }
+                catch { suspension.Dispose(); throw; }
+                return suspension;
+            }
             try
             {
                 // Đóng lease của file này ở MỌI bản PDFium. Lặp: 1 request đã qua check suspended ngay trước khi ta
@@ -517,6 +530,28 @@ namespace XTPdfMergeApp.Services
                 if (_shuttingDown) return null;
 
                 string normalized = NormalizePath(pdfPath);
+                if (ExperimentalMuPdfViewport.BalancedMode &&
+                    (pageIndex < 0 || _suspendedDocuments.ContainsKey(normalized) ||
+                     (layerToken != null && layerToken != PdfLayerStateStore.GetToken(normalized)))) return null;
+                if ((!withAnnotations || ExperimentalMuPdfViewport.BalancedMode) &&
+                    !_suspendedDocuments.ContainsKey(normalized) &&
+                    ExperimentalMuPdfViewport.CanRenderFullPage(normalized, pageIndex, PdfLayerStateStore.GetToken(normalized)) &&
+                    (layerToken == null || layerToken == PdfLayerStateStore.GetToken(normalized)))
+                {
+                    try
+                    {
+                        var image = await ExperimentalMuPdfViewport.RenderFullPageAsync(normalized, pageIndex, maxWidth, cancellationToken, priority, withAnnotations).ConfigureAwait(false);
+                        if (_suspendedDocuments.ContainsKey(normalized) ||
+                            (layerToken != null && layerToken != PdfLayerStateStore.GetToken(normalized))) return null;
+                        return image;
+                    }
+                    catch (OperationCanceledException) { return null; }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[MuPDF full page] Render failed: {ex.Message}");
+                        if (ExperimentalMuPdfViewport.ThroughputMode) return null;
+                    }
+                }
                 pdfium = ChooseInstance(normalized, pageIndex, priority);
                 pdfium.AddLoad(1);
                 using var usage = await AcquireDocumentAsync(normalized, pdfium, cancellationToken, layerToken).ConfigureAwait(false);
@@ -550,6 +585,11 @@ namespace XTPdfMergeApp.Services
         /// Chế độ Cuộn liên tục đọc khổ giấy mọi trang một lượt qua <see cref="GetPageSizesAsync"/>.</summary>
         public static async Task<double?> GetPageAspectRatioAsync(string pdfPath, int pageIndex, CancellationToken cancellationToken = default)
         {
+            if (ExperimentalMuPdfViewport.BalancedMode)
+            {
+                var sizes = await MuPdfSizesAsync(pdfPath, cancellationToken).ConfigureAwait(false);
+                return sizes != null && pageIndex >= 0 && pageIndex < sizes.Length ? sizes[pageIndex].Width / sizes[pageIndex].Height : null;
+            }
             if (_shuttingDown) return null;
             Interlocked.Increment(ref _inFlightPublicCalls);
             PdfiumInstance? pdfium = null;
@@ -588,6 +628,7 @@ namespace XTPdfMergeApp.Services
         /// gate cho cả file. null = không mở được. Trang không đọc được kích thước → (0, 0).</summary>
         public static async Task<(double Width, double Height)[]?> GetPageSizesAsync(string pdfPath, CancellationToken cancellationToken = default)
         {
+            if (ExperimentalMuPdfViewport.BalancedMode) return await MuPdfSizesAsync(pdfPath, cancellationToken).ConfigureAwait(false);
             if (_shuttingDown) return null;
             Interlocked.Increment(ref _inFlightPublicCalls);
             PdfiumInstance? pdfium = null;
@@ -826,6 +867,16 @@ namespace XTPdfMergeApp.Services
             IReadOnlyList<Int32Rect> tileRects, CancellationToken cancellationToken = default, string? layerToken = null,
             bool withAnnotations = false, PdfRenderPriority priority = PdfRenderPriority.Visible)
         {
+            if (ExperimentalMuPdfViewport.BalancedMode)
+            {
+                if (IsDocumentSuspended(pdfPath) || (layerToken != null && layerToken != PdfLayerStateStore.GetToken(pdfPath)))
+                    return tileRects.Select(_ => (BitmapSource?)null).ToList();
+                var images = await ExperimentalMuPdfViewport.RenderAsync(pdfPath, pageIndex, fullWidth, fullHeight, tileRects,
+                    cancellationToken, priority, withAnnotations).ConfigureAwait(false);
+                if (IsDocumentSuspended(pdfPath) || (layerToken != null && layerToken != PdfLayerStateStore.GetToken(pdfPath)))
+                    return tileRects.Select(_ => (BitmapSource?)null).ToList();
+                return images;
+            }
             var results = new List<BitmapSource?>(tileRects.Count);
             for (int i = 0; i < tileRects.Count; i++) results.Add(null);
             if (_shuttingDown || tileRects.Count == 0) return results;
@@ -867,10 +918,18 @@ namespace XTPdfMergeApp.Services
             return results;
         }
 
+        // Keep one crop in the viewer by default: dense CAD page replicas can
+        // add hundreds of MiB. Set XTPDF_VIEWPORT_WORKERS=2 for parallel tiles.
+        internal static int ViewportRenderWorkers { get; set; } =
+            int.TryParse(Environment.GetEnvironmentVariable("XTPDF_VIEWPORT_WORKERS"), out int workers)
+                ? Math.Clamp(workers, 1, 4) : 1;
+
         /// <summary>
         /// Renders a viewport tile sequence and publishes each completed tile before the
         /// rest of the sequence finishes. The callback runs off the UI thread; callers
-        /// must marshal visual changes themselves. This is intentionally separate from
+        /// must marshal visual changes themselves. Parallel callbacks are serialized
+        /// but may arrive out of order; the result list remains in request order.
+        /// This is intentionally separate from
         /// the batch API so print/export keep their all-or-nothing behavior.
         /// </summary>
         internal static async Task<List<BitmapSource?>> RenderPageTilesStreamingAsync(
@@ -885,6 +944,14 @@ namespace XTPdfMergeApp.Services
             bool withAnnotations = false,
             PdfRenderPriority priority = PdfRenderPriority.Visible)
         {
+            if (ExperimentalMuPdfViewport.BalancedMode)
+            {
+                var images = await RenderPageTilesBatchAsync(pdfPath, pageIndex, fullWidth, fullHeight, tileRects,
+                    cancellationToken, layerToken, withAnnotations, priority).ConfigureAwait(false);
+                for (int i = 0; i < images.Count; i++)
+                    if (images[i] is { } image) await onTileRendered(tileRects[i], image).ConfigureAwait(false);
+                return images;
+            }
             var results = new List<BitmapSource?>(tileRects.Count);
             for (int i = 0; i < tileRects.Count; i++) results.Add(null);
             if (_shuttingDown || tileRects.Count == 0) return results;
@@ -895,6 +962,55 @@ namespace XTPdfMergeApp.Services
             {
                 if (fullWidth <= 0 || fullHeight <= 0) return results;
                 string normalized = NormalizePath(pdfPath);
+                int workerCount = Math.Min(Math.Clamp(ViewportRenderWorkers, 1, 4),
+                    Math.Min(tileRects.Count, PdfiumPool.Count));
+                if (priority == PdfRenderPriority.Visible && workerCount > 1 &&
+                    (PdfFileBuffer.IsBuffered(normalized) || PdfFileBuffer.IsLocalDisk(normalized)))
+                {
+                    var pixels = new BitmapSource?[tileRects.Count];
+                    string pathKey = normalized.ToUpperInvariant();
+                    var instances = PdfiumPool.Instances
+                        .OrderBy(instance => instance.Load * 4 +
+                            (_parsedPages.ContainsKey((pathKey, pageIndex, instance.Index)) ? 0 : PdfiumPool.CachedPagePenalty))
+                        .Take(workerCount).ToArray();
+                    int nextIndex = -1;
+                    using var callbackGate = new SemaphoreSlim(1, 1);
+                    await Task.WhenAll(instances.Select(RenderWorkerAsync)).ConfigureAwait(false);
+                    return pixels.ToList();
+
+                    async Task RenderWorkerAsync(PdfiumInstance instance)
+                    {
+                        instance.AddLoad(1);
+                        try
+                        {
+                            await Task.Run(async () =>
+                            {
+                                using var usage = await AcquireDocumentAsync(normalized, instance, cancellationToken, layerToken).ConfigureAwait(false);
+                                if (usage == null || pageIndex < 0 || pageIndex >= usage.Lease.PageCount) return;
+                                using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, usage.Lease.RetiredToken);
+                                await RenderTilesProgressiveAsync(usage.Lease, pageIndex, fullWidth, fullHeight,
+                                    tileRects, pixels, linked.Token, withAnnotations, priority,
+                                    async (index, bitmap) =>
+                                    {
+                                        await callbackGate.WaitAsync(linked.Token).ConfigureAwait(false);
+                                        try
+                                        {
+                                            linked.Token.ThrowIfCancellationRequested();
+                                            await onTileRendered(tileRects[index], bitmap).ConfigureAwait(false);
+                                        }
+                                        finally { callbackGate.Release(); }
+                                    }, () => Interlocked.Increment(ref nextIndex)).ConfigureAwait(false);
+                            }, cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) { }
+                        catch (Exception ex) { DiagnosticsLog.Event($"Viewport worker #{instance.Index}: {ex.Message}"); }
+                        finally
+                        {
+                            instance.AddLoad(-1);
+                            instance.MarkCompleted();
+                        }
+                    }
+                }
                 pdfium = ChooseInstance(normalized, pageIndex, priority);
                 pdfium.AddLoad(1);
                 using var usage = await AcquireDocumentAsync(normalized, pdfium, cancellationToken, layerToken).ConfigureAwait(false);
@@ -910,7 +1026,7 @@ namespace XTPdfMergeApp.Services
             }
             catch
             {
-                // Best effort: already-published tiles stay visible over the preview.
+                // Best effort: incomplete results remain null for the caller.
             }
             finally
             {

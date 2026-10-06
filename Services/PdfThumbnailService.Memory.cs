@@ -21,6 +21,7 @@ namespace XTPdfMergeApp.Services
         public static async Task<IReadOnlyList<BitmapSource?>> RenderMemoryPagesAsync(byte[] pdf, IReadOnlyList<MemoryRenderJob> jobs,
             PdfRenderPriority priority = PdfRenderPriority.Visible, CancellationToken cancellationToken = default)
         {
+            if (ExperimentalMuPdfViewport.BalancedMode) return await MuPdfMemoryAsync(pdf, jobs, priority, cancellationToken).ConfigureAwait(false);
             var results = new BitmapSource?[jobs.Count];
             if (_shuttingDown || jobs.Count == 0 || pdf.Length == 0) return results;
             Interlocked.Increment(ref _inFlightPublicCalls);

@@ -17,6 +17,7 @@ namespace XTPdfMergeApp.Services
         /// <summary>Text between two points of 1 page (points in the page's user space) → rectangles on the DISPLAY page (normalised 0..1, top-left origin). null = could not read.</summary>
         public static async Task<IReadOnlyList<(double U1, double V1, double U2, double V2)>?> SelectTextAsync(string pdfPath, int pageNumber, double ax, double ay, double bx, double by)
         {
+            if (ExperimentalMuPdfViewport.BalancedMode) return (await MuPdfSelectAsync(pdfPath, pageNumber, ax, ay, bx, by).ConfigureAwait(false))?.Rects;
             if (_shuttingDown) return null;
             Interlocked.Increment(ref _inFlightPublicCalls);
             PdfiumInstance? pdfium = null;
@@ -54,6 +55,7 @@ namespace XTPdfMergeApp.Services
         public static async Task<(IReadOnlyList<(double U1, double V1, double U2, double V2)> Rects, string Text)?> SelectTextWithStringAsync(
             string pdfPath, int pageNumber, double ax, double ay, double bx, double by)
         {
+            if (ExperimentalMuPdfViewport.BalancedMode) return await MuPdfSelectAsync(pdfPath, pageNumber, ax, ay, bx, by).ConfigureAwait(false);
             if (_shuttingDown) return null;
             Interlocked.Increment(ref _inFlightPublicCalls);
             PdfiumInstance? pdfium = null;
@@ -99,6 +101,7 @@ namespace XTPdfMergeApp.Services
         public static async Task<SearchSummary?> SearchAsync(string pdfPath, string query, bool matchCase, bool wholeWord,
             Action<IReadOnlyList<SearchHit>, int>? onBatch, CancellationToken cancellationToken = default)
         {
+            if (ExperimentalMuPdfViewport.BalancedMode) return await MuPdfSearchAsync(pdfPath, query, matchCase, wholeWord, onBatch, cancellationToken).ConfigureAwait(false);
             if (_shuttingDown || string.IsNullOrEmpty(query)) return null;
             Interlocked.Increment(ref _inFlightPublicCalls);
             PdfiumInstance? pdfium = null;

@@ -36,7 +36,7 @@ public sealed class ContinuousPdfView : Grid
     private const double VerticalScrollTrackInsets = 10.0;
     // ── Ngưỡng ─────────────────────────────────────────────────────────────
     /// <summary>Ảnh trang cả trang tối đa (như chế độ 1 trang); zoom sâu hơn thì vẽ vùng đang nhìn.</summary>
-    private const int MaxPageBitmapWidth = 2304;
+    private static int MaxPageBitmapWidth => ExperimentalMuPdfViewport.ThroughputMode ? 4608 : 2304;
     private const int MinPageBitmapWidth = 512;
     /// <summary>Ảnh đầu tiên trong vùng đọc phải đủ rõ; thumbnail sidebar 340 px chỉ dùng cho trang hiện rất nhỏ.</summary>
     internal const int ReadablePageBitmapWidth = 1024;
@@ -54,7 +54,7 @@ public sealed class ContinuousPdfView : Grid
     private const double WideMargin = 1.0, WideCheckMargin = 0.4;
     private const double RegionLowWater = 1.06, RegionHighWater = 3.0;
     /// <summary>Bộ nhớ đệm vùng nét (cả vùng vẽ trước cho bước zoom kế): mỗi vùng ~4 MB nên 16 MiB chỉ chứa 4 vùng.</summary>
-    internal const long RegionCacheBudgetBytes = 128L * 1024 * 1024;
+    internal static long RegionCacheBudgetBytes => (ExperimentalMuPdfViewport.BalancedMode ? 256L : ExperimentalMuPdfViewport.ThroughputMode ? 1024L : 128L) * 1024 * 1024;
     private static readonly object RegionCacheLock = new();
     private static readonly BitmapMemoryCache<CachedRegionKey> RegionCache = new(RegionCacheBudgetBytes);
     private static long _regionCacheGeneration;
@@ -856,7 +856,12 @@ public sealed class ContinuousPdfView : Grid
     /// Bật: ảnh trang/vùng nét vẽ ĐÚNG cỡ hiển thị (không vẽ dư, không để WPF co giãn), và zoom bằng lăn chuột giữ khung đang hiện
     /// tới khi ảnh đúng cỡ về (hoặc quá <see cref="PresentTimeoutMilliseconds"/>). XTPDF_EXACT_RASTER=0 tắt, trở về chính sách cũ.
     /// </summary>
-    internal static bool ExactRaster { get; set; } = Environment.GetEnvironmentVariable("XTPDF_EXACT_RASTER") != "0";
+    private static bool _exactRaster = Environment.GetEnvironmentVariable("XTPDF_EXACT_RASTER") != "0";
+    internal static bool ExactRaster
+    {
+        get => !ExperimentalMuPdfViewport.ThroughputMode && _exactRaster;
+        set => _exactRaster = value;
+    }
 
     /// <summary>Chờ ảnh đúng cỡ tối đa chừng này rồi mới hiện trong chế độ legacy. 0 = không giữ khung.</summary>
     internal static int PresentTimeoutMilliseconds { get; set; } =
@@ -1312,7 +1317,9 @@ public sealed class ContinuousPdfView : Grid
 
             if (needed > regionStart)
             {
-                RequestRegion(vp, SlotOf(i), row, state, needed, renderMissing: !deferForZoom);
+                bool predictive = ExperimentalMuPdfViewport.CanRender(row.SourcePath, row.PageNumber - 1,
+                    PdfLayerStateStore.GetToken(row.SourcePath));
+                RequestRegion(vp, SlotOf(i), row, state, needed, renderMissing: predictive || !deferForZoom);
             }
             else if (state.Regions.Count > 0 || state.RegionCts != null)
             {
@@ -1592,6 +1599,15 @@ public sealed class ContinuousPdfView : Grid
         double aspect = row.LayoutHeight / Math.Max(1, row.LayoutWidth);
         int fullHeight = Math.Max(1, (int)Math.Round(fullWidth * aspect));
         string layers = PdfLayerStateStore.GetToken(row.SourcePath);
+        bool predictive = ExperimentalMuPdfViewport.CanRender(row.SourcePath, row.PageNumber - 1, layers);
+        if (predictive && renderMissing)
+        {
+            double visiblePixels = Math.Max(1, (fx1 - fx0) * fullWidth * (fy1 - fy0) * fullHeight);
+            double lead = ZoomRenderPrediction.Headroom(vp.Zoom, ZoomBase, ZoomRateLimit,
+                state.RegionRenderMilliseconds, visiblePixels);
+            fullWidth = (int)Math.Min(MaxRegionFullWidth, Math.Ceiling(fullWidth * lead));
+            fullHeight = Math.Max(1, (int)Math.Round(fullWidth * aspect));
+        }
 
         // Vùng cũ còn dùng được nếu nó không bị phóng to (>= cỡ cần × RegionLowWater) và không dư quá nhiều, và phủ phần đang nhìn
         // (so theo phân số trang, vì vùng vẽ ở độ phân giải khác vẫn được vẽ lên đúng chỗ): zoom nhích không thay ảnh → không nhảy nét.
@@ -1600,6 +1616,7 @@ public sealed class ContinuousPdfView : Grid
         {
             double reference = Math.Min(neededPx, MaxRegionFullWidth);
             minWidth = reference * ExactLow / 0.995; maxWidth = reference * ExactHigh; // dung co: chi nhan vung khop co hien thi
+            if (predictive) maxWidth = reference * 2.5;
         }
         bool Covers(RegionKey k) => k.Version == state.Version && string.Equals(k.Layers, layers, StringComparison.Ordinal) &&
             k.FullWidth >= minWidth * 0.995 && k.FullWidth <= maxWidth &&
@@ -1657,6 +1674,13 @@ public sealed class ContinuousPdfView : Grid
             bool stillOnScreen = pending.X < fx1 * fullWidth && pending.X + pending.Width > fx0 * fullWidth &&
                 pending.Y < fy1 * fullHeight && pending.Y + pending.Height > fy0 * fullHeight;
             if (sameResolution && stillOnScreen) return covered;
+            if (predictive && _zoomTarget is { } targetZoom && targetZoom > vp.Zoom &&
+                pending.Version == state.Version && string.Equals(pending.Layers, layers, StringComparison.Ordinal) &&
+                (double)pending.X / pending.FullWidth < fx1 &&
+                (double)(pending.X + pending.Width) / pending.FullWidth > fx0 &&
+                (double)pending.Y / pending.FullHeight < fy1 &&
+                (double)(pending.Y + pending.Height) / pending.FullHeight > fy0)
+                return covered;
         }
 
         var (x, y, w, h) = ContinuousViewport.Region(fx0, fy0, fx1, fy1, fullWidth, fullHeight, panX: panU, panY: panV);
@@ -1741,9 +1765,13 @@ public sealed class ContinuousPdfView : Grid
         var priority = wide ? PdfRenderPriority.Background : PdfRenderPriority.Visible;
         long cacheGeneration = Interlocked.Read(ref _regionCacheGeneration);
         BitmapSource? bmp = null;
-        // Streaming is deliberately limited to a cold, complete viewport crop. Reuse
-        // strips still compose atomically so their cached-pixel contract stays simple.
-        bool streamTiles = !wide && RegionRenderer == null && !reuseOverlap && rectangles.Length == 1 &&
+        var renderWatch = Stopwatch.StartNew();
+        // A single crop avoids repeated CAD traversal without duplicating parsed
+        // pages. Parallel tiles are an opt-in throughput/memory experiment.
+        bool experimentalMuPdf = RegionRenderer == null &&
+            ExperimentalMuPdfViewport.CanRender(row.SourcePath, row.PageNumber - 1, key.Layers);
+        bool streamTiles = !ExperimentalMuPdfViewport.BalancedMode && !experimentalMuPdf && PdfThumbnailService.ViewportRenderWorkers > 1 && PdfiumPool.Count > 1 &&
+            !wide && RegionRenderer == null && !reuseOverlap && rectangles.Length == 1 &&
             (long)rectangles[0].Width * rectangles[0].Height > (long)ProgressiveTileSize * ProgressiveTileSize;
         try
         {
@@ -1758,14 +1786,30 @@ public sealed class ContinuousPdfView : Grid
                 if (images.Count == tiles.Length && images.All(image => image != null))
                 {
                     for (int i = 0; i < images.Count; i++) pieces.Add(new(tiles[i], images[i]!));
-                    // Keep the immediate individual tiles only while refining. A single
-                    // completed crop preserves the existing cache-hit/pan-reuse policy.
+                    // Commit one coherent crop even when its tiles ran in parallel.
                     bmp = await Task.Run(() => ViewportRegionReuse.Compose(ToRect(key), pieces, cts.Token), cts.Token);
                 }
             }
             else
             {
-                var images = rectangles.Length == 0 ? new List<BitmapSource?>() :
+                List<BitmapSource?> images;
+                if (experimentalMuPdf && rectangles.Length > 0)
+                {
+                    try
+                    {
+                        images = await ExperimentalMuPdfViewport.RenderAsync(row.SourcePath, row.PageNumber - 1,
+                            key.FullWidth, key.FullHeight, rectangles, cts.Token, priority);
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        if (ExperimentalMuPdfViewport.ThroughputMode) throw;
+                        Debug.WriteLine($"[MuPDF viewport] Falling back to PDFium: {ex.Message}");
+                        images = await PdfThumbnailService.RenderPageTilesBatchAsync(row.SourcePath, row.PageNumber - 1,
+                            key.FullWidth, key.FullHeight, rectangles, cts.Token, key.Layers, priority: priority);
+                    }
+                }
+                else images = rectangles.Length == 0 ? new List<BitmapSource?>() :
                     await (RegionRenderer?.Invoke(row, key.FullWidth, key.FullHeight, rectangles, cts.Token, key.Layers) ??
                         PdfThumbnailService.RenderPageTilesBatchAsync(row.SourcePath, row.PageNumber - 1, key.FullWidth, key.FullHeight,
                             rectangles, cts.Token, key.Layers, priority: priority));
@@ -1789,6 +1833,9 @@ public sealed class ContinuousPdfView : Grid
         cts.Dispose();
         if (cancelled || !IsLive(row, state, key.Version)) return;
         if (bmp == null) return;
+        if (experimentalMuPdf)
+            state.RegionRenderMilliseconds = ZoomRenderPrediction.Observe(state.RegionRenderMilliseconds,
+                renderWatch.Elapsed.TotalMilliseconds);
         if (!string.Equals(key.Layers, PdfLayerStateStore.GetToken(row.SourcePath), StringComparison.Ordinal))
         {
             ScheduleUpdate();
@@ -1866,6 +1913,7 @@ public sealed class ContinuousPdfView : Grid
         public int FailedWidth = -1, FailedVersion = -1, FailedAttempts;
         public long RetryAfterTimestamp;
         public int PresentationEpoch;
+        public double RegionRenderMilliseconds = 200;
         /// <summary>Cỡ đã xin mà <see cref="Bitmap"/> được giao cho. Nhà cung cấp có thể giao ảnh khác cỡ (cache trả ảnh lớn hơn đã có):
         /// đã xin cỡ này rồi thì không xin lặp mãi dù ảnh nhận được không khớp cỡ hiển thị.</summary>
         public int DeliveredWidth = -1;

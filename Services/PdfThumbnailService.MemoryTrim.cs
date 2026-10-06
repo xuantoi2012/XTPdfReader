@@ -69,6 +69,7 @@ public static partial class PdfThumbnailService
     /// <summary>Bật bộ hẹn thu hồi (gọi 1 lần lúc khởi động app).</summary>
     public static void StartMemoryPolicy()
     {
+        if (ExperimentalMuPdfViewport.BalancedMode) return;
         if (_trimTimer != null) return;
         _trimTimer = new Timer(_ => TrimTick(), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
     }
