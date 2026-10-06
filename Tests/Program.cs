@@ -100,6 +100,8 @@ internal static partial class Program
                 ProfileRegionPan(args[regionProfile + 1], bool.Parse(args[regionProfile + 2]), int.Parse(args[regionProfile + 3]), args[manifest + 1], args.Contains("--profile-quick"), args.Contains("--profile-quality"));
                 return 0;
             }
+            int ipcBench = Array.IndexOf(args, "--mupdf-ipc-bench");
+            if (ipcBench >= 0) { MuPdfIpcBench(args[ipcBench + 1], int.Parse(args[ipcBench + 2])); return 0; }
             int regionBench = Array.IndexOf(args, "--region-bench");
             int viewportBench = Array.IndexOf(args, "--viewport-workers-bench");
             int muPdfCheck = Array.IndexOf(args, "--mupdf-viewport-check");

@@ -260,7 +260,7 @@ internal static class ExperimentalMuPdfViewport
                 await _worker.StandardInput.WriteLineAsync(request.AsMemory(), timeout.Token).ConfigureAwait(false);
                 await _worker.StandardInput.FlushAsync(timeout.Token).ConfigureAwait(false);
                 var stream = _worker.StandardOutput.BaseStream;
-                string header = await ReadHeaderAsync(stream, timeout.Token).ConfigureAwait(false);
+                var (header, leftover) = await ReadHeaderAsync(stream, timeout.Token).ConfigureAwait(false);
                 using var json = JsonDocument.Parse(header);
                 var root = json.RootElement;
                 if (root.TryGetProperty("error", out var error)) throw new InvalidOperationException(error.GetString());
@@ -270,12 +270,14 @@ internal static class ExperimentalMuPdfViewport
                     length != checked(stride * height) || length > (ThroughputMode ? 512 : 128) * 1024 * 1024)
                     throw new InvalidDataException("Unexpected worker bitmap dimensions");
                 byte[] pixels = new byte[length];
-                await stream.ReadExactlyAsync(pixels, timeout.Token).ConfigureAwait(false);
+                int already = Math.Min(leftover.Length, length);
+                leftover.AsSpan(0, already).CopyTo(pixels);
+                if (already < length) await stream.ReadExactlyAsync(pixels.AsMemory(already), timeout.Token).ConfigureAwait(false);
                 replyDrained = true;
                 token.ThrowIfCancellationRequested();
                 if (PdfThumbnailService.IsDocumentSuspended(path) || layers != PdfLayerStateStore.GetToken(path))
                     return new List<BitmapSource?>(new BitmapSource?[rectangles.Count]);
-                var bitmap = BitmapSource.Create(width, height, 96, 96, alpha ? PixelFormats.Pbgra32 : PixelFormats.Rgb24, null, pixels, stride);
+                var bitmap = BitmapSource.Create(width, height, 96, 96, alpha ? PixelFormats.Pbgra32 : PixelFormats.Bgr24, null, pixels, stride);
                 bitmap.Freeze();
                 RenderDiagnostics.RasterSlice.AddMilliseconds(root.GetProperty("renderMs").GetDouble());
                 if (ThroughputMode) lock (CacheLock)
@@ -356,7 +358,7 @@ internal static class ExperimentalMuPdfViewport
             await worker.StandardInput.WriteLineAsync(request.AsMemory(), timeout.Token).ConfigureAwait(false);
             await worker.StandardInput.FlushAsync(timeout.Token).ConfigureAwait(false);
             // Drain the JSON reply before honoring caller cancellation.
-            using var reply = JsonDocument.Parse(await ReadHeaderAsync(worker.StandardOutput.BaseStream, timeout.Token, 4 * 1024 * 1024).ConfigureAwait(false));
+            using var reply = JsonDocument.Parse((await ReadHeaderAsync(worker.StandardOutput.BaseStream, timeout.Token, 4 * 1024 * 1024).ConfigureAwait(false)).Header);
             replyDrained = true;
             token.ThrowIfCancellationRequested();
             if (reply.RootElement.TryGetProperty("error", out var error)) throw new InvalidOperationException(error.GetString());
@@ -408,7 +410,7 @@ internal static class ExperimentalMuPdfViewport
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 await worker.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { path, op = "close" }).AsMemory(), timeout.Token).ConfigureAwait(false);
                 await worker.StandardInput.FlushAsync(timeout.Token).ConfigureAwait(false);
-                using var reply = JsonDocument.Parse(await ReadHeaderAsync(worker.StandardOutput.BaseStream, timeout.Token).ConfigureAwait(false));
+                using var reply = JsonDocument.Parse((await ReadHeaderAsync(worker.StandardOutput.BaseStream, timeout.Token).ConfigureAwait(false)).Header);
                 if (!reply.RootElement.TryGetProperty("ok", out _)) Stop(slot);
             }
             catch { Stop(slot); throw; }
@@ -431,7 +433,7 @@ internal static class ExperimentalMuPdfViewport
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 await worker.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { path = "", op = "release", data = active }).AsMemory(), timeout.Token).ConfigureAwait(false);
                 await worker.StandardInput.FlushAsync(timeout.Token).ConfigureAwait(false);
-                using var reply = JsonDocument.Parse(await ReadHeaderAsync(worker.StandardOutput.BaseStream, timeout.Token).ConfigureAwait(false));
+                using var reply = JsonDocument.Parse((await ReadHeaderAsync(worker.StandardOutput.BaseStream, timeout.Token).ConfigureAwait(false)).Header);
                 if (!reply.RootElement.TryGetProperty("ok", out _)) Stop(slot);
             }
             catch { Stop(slot); }
@@ -439,15 +441,20 @@ internal static class ExperimentalMuPdfViewport
         }
     }
 
-    private static async Task<string> ReadHeaderAsync(Stream stream, CancellationToken token, int limit = 8192)
+    /// <summary>Reads one JSON line from the worker. Reads in chunks (not byte by byte); bytes that arrive after the newline belong to
+    /// the pixel data of the same reply and are returned so the caller can use them as its first bytes.</summary>
+    private static async Task<(string Header, byte[] Leftover)> ReadHeaderAsync(Stream stream, CancellationToken token, int limit = 8192)
     {
-        var bytes = new List<byte>();
-        byte[] one = new byte[1];
-        while (bytes.Count < limit)
+        var buffer = new byte[Math.Min(limit, 4096)];
+        var bytes = new MemoryStream();
+        while (bytes.Length < limit)
         {
-            await stream.ReadExactlyAsync(one, token).ConfigureAwait(false);
-            if (one[0] == 10) return Encoding.UTF8.GetString(bytes.ToArray());
-            bytes.Add(one[0]);
+            int read = await stream.ReadAsync(buffer, token).ConfigureAwait(false);
+            if (read == 0) throw new EndOfStreamException("Worker closed its output");
+            int newline = Array.IndexOf(buffer, (byte)10, 0, read);
+            if (newline < 0) { bytes.Write(buffer, 0, read); continue; }
+            bytes.Write(buffer, 0, newline);
+            return (Encoding.UTF8.GetString(bytes.GetBuffer(), 0, (int)bytes.Length), buffer.AsSpan(newline + 1, read - newline - 1).ToArray());
         }
         throw new InvalidDataException("Worker header exceeds limit");
     }
@@ -483,7 +490,7 @@ internal static class ExperimentalMuPdfViewport
                 await worker.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new
                     { path = "", op = "memory", memoryState = (int)pressure, data = pages }).AsMemory(), timeout.Token).ConfigureAwait(false);
                 await worker.StandardInput.FlushAsync(timeout.Token).ConfigureAwait(false);
-                using var reply = JsonDocument.Parse(await ReadHeaderAsync(worker.StandardOutput.BaseStream, timeout.Token).ConfigureAwait(false));
+                using var reply = JsonDocument.Parse((await ReadHeaderAsync(worker.StandardOutput.BaseStream, timeout.Token).ConfigureAwait(false)).Header);
                 if (!reply.RootElement.TryGetProperty("ok", out _)) Stop(slot);
                 slot.LastMemoryTrim = Stopwatch.GetTimestamp();
             }

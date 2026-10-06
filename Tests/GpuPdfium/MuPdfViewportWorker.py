@@ -64,6 +64,38 @@ def resolve_unembedded_fonts(document, page):
             streams[path] = stream
         document.xref_set_key(descriptor, "FontFile2", f"{streams[path]} 0 R")
 
+# MuPDF can write BGR directly: WPF's pixel order, so no per-pixel channel swap (and the render itself is a little faster than RGB).
+BGR = fitz.Colorspace(fitz.mupdf.FzColorspace(fitz.mupdf.FzColorspace.Fixed_BGR))
+
+def squeeze(text, match_case):
+    # Cheap pre-filter key: whitespace-insensitive, case-insensitive unless asked otherwise.
+    text = re.sub(r"\s+", "", text)
+    return text if match_case else text.lower()
+
+search_stats = {}
+
+def search_page(document, page, data, use_filter=True):
+    """Plain text is ~5-10x cheaper than rawdict: only pages that can contain the query pay for per-character boxes.
+    When most pages match, the filter is pure overhead and the caller switches it off."""
+    if use_filter:
+        plain = page.get_text("text")
+        has_text = bool(plain.strip())
+        if not has_text or squeeze(data["query"], data["matchCase"]) not in squeeze(plain, data["matchCase"]):
+            return dict(hasText=has_text, matches=[])
+    resolve_unembedded_fonts(document, page)  # same fonts as the rendering so highlight boxes line up
+    chars = characters(page)
+    text = "".join(c for c, _ in chars)
+    pattern = re.escape(data["query"])
+    if data["wholeWord"]:
+        pattern = r"(?<!\w)" + pattern + r"(?!\w)"
+    matches = []
+    for match in re.finditer(pattern, text, 0 if data["matchCase"] else re.IGNORECASE):
+        matches.append(dict(snippet=text[max(0, match.start()-35):match.end()+35].replace("\n", " "),
+                            rects=rectangles(page, chars[match.start():match.end()])))
+        if len(matches) >= 200:
+            break
+    return dict(hasText=bool(text.strip()), matches=matches)
+
 documents = OrderedDict()
 signature_appearances = {}
 lists = OrderedDict()
@@ -188,6 +220,23 @@ for line in sys.stdin:
         if op == "metadata":
             send(dict(count=len(document), sizes=[[p.rect.width, p.rect.height] for p in document]))
             continue
+        if op == "searchrange":
+            # Several pages per round trip; the reply is one JSON line.
+            first, count = request["page"], request["data"]["count"]
+            results = []
+            stat_key = (stamp[0], request["data"]["query"], request["data"]["matchCase"], request["data"]["wholeWord"])
+            stat = search_stats.setdefault(stat_key, [0, 0])
+            if first == 0:
+                stat[0] = stat[1] = 0
+            for index in range(first, min(len(document), first + count)):
+                use_filter = stat[0] < 4 or stat[1] / stat[0] < 0.6
+                result = search_page(document, document[index], request["data"], use_filter)
+                result["page"] = index
+                stat[0] += 1
+                stat[1] += 1 if result["matches"] else 0
+                results.append(result)
+            send(dict(pages=results))
+            continue
         if op in ("search", "select"):
             page = document[request["page"]]
             resolve_unembedded_fonts(document, page)
@@ -275,7 +324,7 @@ for line in sys.stdin:
         pix = display.get_pixmap(matrix=fitz.Matrix(fullw / pw, fullh / ph),
             clip=fitz.Rect(x * pw / fullw, y * ph / fullh,
                            (x + w) * pw / fullw, (y + h) * ph / fullh),
-            colorspace=fitz.csRGB, alpha=alpha)
+            colorspace=BGR, alpha=alpha)
         render_ms = (time.perf_counter() - start) * 1000
         data = pix.samples
         # Float clip rounding can add a row/column. Keep the requested global
@@ -291,10 +340,7 @@ for line in sys.stdin:
                     normalized[dst:dst + (right-left)*channels] = data[src:src + (right-left)*channels]
             data = normalized
             normalized = None
-        if alpha:
-            data = bytearray(data)
-            data[0::4], data[2::4] = data[2::4], data[0::4]
-        header = dict(width=w, height=h, stride=w*channels,
+        header = dict(width=w, height=h, stride=w*channels, format="bgra" if alpha else "bgr",
                       length=len(data), prepareMs=prepare_ms, renderMs=render_ms)
         rasters[raster_key] = (header, data)
         raster_bytes += len(data)

@@ -63,14 +63,20 @@ public static partial class PdfThumbnailService
             var opened = await MuPdfOpenAsync(path).ConfigureAwait(false);
             if (opened.Failure != PdfOpenFailure.None) return null;
             int withoutText = 0;
-            for (int page = 0; page < opened.PageCount; page++)
+            // Pages are searched in groups: one round trip per group, and the worker reads per-character boxes only on pages that can match.
+            const int PagesPerRequest = 8;
+            for (int first = 0; first < opened.PageCount; first += PagesPerRequest)
             {
-                var reply = await ExperimentalMuPdfViewport.CommandAsync(path, "search", page,
-                    new { query, matchCase, wholeWord }, token).ConfigureAwait(false);
-                if (!reply.GetProperty("hasText").GetBoolean()) withoutText++;
-                var hits = reply.GetProperty("matches").EnumerateArray().Select((m, i) =>
-                    new SearchHit(path, page + 1, i, m.GetProperty("snippet").GetString() ?? "", MuPdfRects(m))).ToArray();
-                onBatch?.Invoke(hits, page + 1);
+                var reply = await ExperimentalMuPdfViewport.CommandAsync(path, "searchrange", first,
+                    new { query, matchCase, wholeWord, count = PagesPerRequest }, token).ConfigureAwait(false);
+                foreach (var pageReply in reply.GetProperty("pages").EnumerateArray())
+                {
+                    int page = pageReply.GetProperty("page").GetInt32();
+                    if (!pageReply.GetProperty("hasText").GetBoolean()) withoutText++;
+                    var hits = pageReply.GetProperty("matches").EnumerateArray().Select((m, i) =>
+                        new SearchHit(path, page + 1, i, m.GetProperty("snippet").GetString() ?? "", MuPdfRects(m))).ToArray();
+                    onBatch?.Invoke(hits, page + 1);
+                }
             }
             return new(opened.PageCount, withoutText);
         }
