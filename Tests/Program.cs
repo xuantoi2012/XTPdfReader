@@ -37,11 +37,59 @@ internal static partial class Program
                     NativeLibrary.Load(dll ?? throw new DllNotFoundException("PDFium must not be used in this build")) : IntPtr.Zero);
             if (args.Contains("--mupdf-migration-check"))
             {
+                ReaderPerformanceProfile.Apply(ReaderPerformanceMode.MemorySaving);
                 TestMuPdfMigrationAsync().GetAwaiter().GetResult();
                 Console.WriteLine($"PASS ({_checks} MuPDF migration checks)");
                 return 0;
             }
+            if (args.Contains("--user-feedback-check"))
+            { TestTabSharpRetention(); TestTabRegionRetention(); TestFeedbackSession(); Console.WriteLine($"PASS ({_checks} user feedback checks)"); return 0; }
+            int realFeedback = Array.IndexOf(args, "--feedback-real-pdf-check");
+            if (realFeedback >= 0)
+            { TestRealFeedbackPdfAsync(args[realFeedback + 1]).GetAwaiter().GetResult(); Console.WriteLine($"PASS ({_checks} real feedback PDF checks)"); return 0; }
+            if (args.Contains("--adaptive-memory-check"))
+            {
+                TestAdaptiveMemory();
+                Console.WriteLine($"PASS ({_checks} adaptive memory checks)");
+                return 0;
+            }
+            if (args.Contains("--performance-settings-check"))
+            { TestPerformanceSettings(); Console.WriteLine($"PASS ({_checks} performance settings checks)"); return 0; }
+            if (args.Contains("--reader-memory-regression"))
+            {
+                ReaderPerformanceProfile.Apply(ReaderPerformanceMode.MemorySaving);
+                TestReaderPreviewRetentionAsync().GetAwaiter().GetResult();
+                TestReaderRenderHandoffAsync().GetAwaiter().GetResult(); TestCacheAndOwnership();
+                TestContinuousScrollQuality(); TestReaderLargerCacheAsync().GetAwaiter().GetResult();
+                TestReaderWarmImages(); TestVisiblePageRetriesAfterTransientFailure(); TestRegionReuseViewer();
+                Console.WriteLine($"PASS ({_checks} reader memory regression checks)"); return 0;
+            }
+            int wideScroll = Array.IndexOf(args, "--wide-scroll-memory-profile");
+            if (wideScroll >= 0)
+            {
+                int modeArg = Array.IndexOf(args, "--performance-mode");
+                ProfileWideScrollMemory(args[wideScroll + 1], args[wideScroll + 2], args.Length > wideScroll + 3 ? int.Parse(args[wideScroll + 3]) : 200, args.Contains("--reader-cache"),
+                    modeArg >= 0 ? Enum.Parse<ReaderPerformanceMode>(args[modeArg + 1]) : null);
+                Console.WriteLine($"PASS ({_checks} wide scroll checks)"); return 0;
+            }
+            int adaptiveProfile = Array.IndexOf(args, "--adaptive-memory-profile");
+            int reclaimProfile = Array.IndexOf(args, "--reclaim-memory-profile");
+            if (reclaimProfile >= 0)
+            {
+                ProfileReclaimMemory(args[reclaimProfile + 1], args[reclaimProfile + 2], args[reclaimProfile + 3],
+                    args.Length > reclaimProfile + 4 ? int.Parse(args[reclaimProfile + 4]) : 31,
+                    args.Length > reclaimProfile + 5 && args[reclaimProfile + 5] == "neighbors");
+                Console.WriteLine($"PASS ({_checks} reclamation experiment checks)");
+                return 0;
+            }
+            if (adaptiveProfile >= 0)
+            {
+                ProfileAdaptiveMemory(args[adaptiveProfile + 1], args[adaptiveProfile + 2]);
+                Console.WriteLine($"PASS ({_checks} adaptive memory profile checks)");
+                return 0;
+            }
             int tabsProfile = Array.IndexOf(args, "--multi-tab-profile");
+            if (args.Contains("--preview-warm-lifecycle")) { TestPreviewWarmDocumentSwitch(); Console.WriteLine($"PASS ({_checks} preview warm checks)"); return 0; }
             int warmProfile = Array.IndexOf(args, "--warm-cache-profile");
             int regionProfile = Array.IndexOf(args, "--region-pan-profile");
             if (args.Contains("--ui-smoke")) { TestUiSmoke(); TestUiTabsAndMerge(); TestUiPrintSizes(); TestUiReadSheetInfo(); TestUiCompare(); Console.WriteLine($"UI smoke passed ({_checks})."); return 0; }
@@ -240,7 +288,7 @@ internal static partial class Program
                 TestWidgetRenderingAsync().GetAwaiter().GetResult();
                 TestSaveSafetyAsync().GetAwaiter().GetResult(); TestLayerMerge(); TestLayerToggleRendersAsync().GetAwaiter().GetResult(); TestLayerEdit(); TestSheetInfoSurvivesMerge(); TestSheetMatch(); TestSequentialInPlaceEdits(); TestXtSetRebuild(); TestLayerRenameOnMerge(); TestSaveHistory(); TestPrintSizePlan(); TestSheetRegisterCsv(); TestTitleBlockReader(); TestPageMeasure(); TestPageDiff(); TestPageLabels(); TestSheetLinks(); TestPresence(); TestAnnotationConflictAsync().GetAwaiter().GetResult();
                 if (!backgroundRegression) TestAppDialogs();
-                TestReaderRenderHandoffAsync().GetAwaiter().GetResult(); TestVisiblePageRetriesAfterTransientFailure();
+                TestReaderRenderHandoffAsync().GetAwaiter().GetResult(); TestVisiblePageRetriesAfterTransientFailure(); TestPreviewWarmDocumentSwitch();
                 TestRegionReuseAsync().GetAwaiter().GetResult(); TestRegionReuseViewer();
                 TestContinuousScrollQuality(); TestReaderLargerCacheAsync().GetAwaiter().GetResult(); TestReaderWarmImages(); TestCrossFade(); TestPresentWhenReady();
                 if (!backgroundRegression) TestRecoveryAndToolbarUi();

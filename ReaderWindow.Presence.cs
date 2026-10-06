@@ -17,6 +17,13 @@ public partial class ReaderWindow
     private readonly Dictionary<string, string> _presenceReported = new(StringComparer.OrdinalIgnoreCase);
     private DispatcherTimer? _presenceTimer;
     private bool _presenceBusy;
+    private void UpdatePresenceStatus(string path)
+    {
+        string names = AppSettings.ShowPresence && _presenceReported.TryGetValue(path, out var people) ? people : "";
+        ReaderPresenceText.Text = string.IsNullOrEmpty(names) ? "" : "Also open: " + names;
+        ReaderPresenceText.ToolTip = ReaderPresenceText.Text;
+        ReaderPresenceText.Visibility = string.IsNullOrEmpty(names) ? Visibility.Collapsed : Visibility.Visible;
+    }
 
     private void InitializePresence()
     {
@@ -36,6 +43,7 @@ public partial class ReaderWindow
     {
         if (_presenceBusy) return;
         _presenceBusy = true;
+        string? requestedPath = _readerPage?.SourcePath;
         try
         {
             var open = _groups.SelectMany(g => g.Pages.Select(p => p.SourcePath)).Distinct(StringComparer.OrdinalIgnoreCase).Where(File.Exists).ToList();
@@ -45,6 +53,7 @@ public partial class ReaderWindow
             {
                 var stale = _presencePaths.ToList();
                 _presencePaths.Clear();
+                ReaderPresenceText.Visibility = Visibility.Collapsed;
                 if (stale.Count > 0) await Task.Run(() => { foreach (string path in stale) XTPresence.Remove(path); });
                 return;
             }
@@ -61,12 +70,19 @@ public partial class ReaderWindow
 
             if (current == null) return;
             string key = string.Join(", ", others);
-            if (_presenceReported.TryGetValue(current, out var last) && last == key) return;
+            string? activePath = _readerPage?.SourcePath;
+            _presenceReported.TryGetValue(current, out var previous);
             _presenceReported[current] = key;
+            if (string.Equals(activePath, current, StringComparison.OrdinalIgnoreCase)) UpdatePresenceStatus(current);
+            if (previous == key) return;
             if (others.Count > 0)
-                XTStyle.Controls.XTGrowl.Warning($"{string.Join(", ", others)} {(others.Count == 1 ? "has" : "have")} \"{Path.GetFileName(current)}\" open too. Saves are added one after the other.", this);
+                XTStyle.Controls.XTGrowl.Warning($"{string.Join(", ", others)} {(others.Count == 1 ? "has" : "have")} \"{Path.GetFileName(current)}\" open too.", this);
         }
         catch { /* thư mục mạng ngắt: bỏ lượt này */ }
-        finally { _presenceBusy = false; }
+        finally
+        {
+            _presenceBusy = false;
+            if (!string.Equals(requestedPath, _readerPage?.SourcePath, StringComparison.OrdinalIgnoreCase)) _ = PresenceTickAsync();
+        }
     }
 }

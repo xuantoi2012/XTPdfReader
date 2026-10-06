@@ -257,7 +257,7 @@ namespace XTPdfMergeApp
         private enum ReaderPageView { Single, Continuous, TwoPage }
 
         private const double ReaderRenderWidthPx = 2200;
-        internal static long ReaderCacheBudgetBytes => (ExperimentalMuPdfViewport.BalancedMode ? 768L : ExperimentalMuPdfViewport.ThroughputMode ? 2048L : 64L) * 1024 * 1024;
+        internal static long ReaderCacheBudgetBytes => (ExperimentalMuPdfViewport.BalancedMode ? 192L : ExperimentalMuPdfViewport.ThroughputMode ? 2048L : 64L) * 1024 * 1024;
         private const int ReaderAdjacentPrefetchCount = 2;
         private const double ReaderMinZoom = 0.05;
         private const double ReaderMaxZoom = 32.0;
@@ -285,11 +285,16 @@ namespace XTPdfMergeApp
         /// qua lại giữa các window trong danh sách không bị mất mức zoom đang xem dở của
         /// từng file đó (khác hẳn trước đây: 1 biến _readerZoom DÙNG CHUNG cho mọi file).</summary>
         private readonly Dictionary<DocumentGroup, (ReaderZoomMode Mode, double Zoom)> _readerZoomByGroup = new();
+        private readonly Dictionary<DocumentGroup, (PageRow Row, Point Offset, double Zoom)> _tabViewPositions = new();
 
         internal static (int Cache, int Inflight, long Bytes) GetReaderCacheStats()
         {
             return _readerCache.Stats;
         }
+
+        internal static long CurrentReaderCacheBudget => _readerCache.BudgetBytes;
+        internal static void ApplyReaderMemoryBudget(long bytes) => _readerCache.ApplyMemoryBudget(bytes,
+            key => AdaptiveMemoryController.IsProtected(key.Path, key.Page), !AdaptiveMemoryController.AllowSpeculation);
 
         internal static void ReleaseUnusedSources(HashSet<string> active)
         {
@@ -361,8 +366,19 @@ namespace XTPdfMergeApp
             ShowReaderContinuous(group, row);
         }
 
+        internal int CurrentPageIndex(DocumentGroup group)
+            => ReferenceEquals(_readerGroup, group) && _readerPage != null ? Math.Max(0, group.Pages.IndexOf(_readerPage)) : 0;
+
+        internal void ShowPageAfterRemoval(DocumentGroup group, int index)
+        {
+            _tabViewPositions.Remove(group);
+            if (ReferenceEquals(_readerGroup, group) && group.Pages.Count > 0)
+                ShowReaderContinuous(group, group.Pages[Math.Clamp(index, 0, group.Pages.Count - 1)]);
+        }
+
         internal void NotifyPagesChanged(DocumentGroup group)
         {
+            _tabViewPositions.Remove(group);
             if (!ReferenceEquals(_readerGroup, group)) return;
 
             if (!_groups.Contains(group) || group.Pages.Count == 0)
@@ -526,6 +542,8 @@ namespace XTPdfMergeApp
             bool groupChanged = !ReferenceEquals(_readerGroup, group);
             if (!bound)
             {
+                if (_readerGroup != null && _readerPage != null && ReferenceEquals(ReaderContinuousView.Pages, _readerGroup.Pages))
+                    _tabViewPositions[_readerGroup] = (_readerPage, ReaderContinuousView.ViewOffset, ReaderContinuousView.Zoom);
                 ReaderContinuousView.SetDocument(null, ReaderContinuousView.Zoom);
                 if (!ReaderContinuousView.IsRenderingSuspended)
                     PdfThumbnailService.SetHotPages(new[] { (row.SourcePath, row.PageNumber) });
@@ -575,9 +593,13 @@ namespace XTPdfMergeApp
                 if (ReferenceEquals(_continuousBindPending, group)) _continuousBindPending = null;
             }
             if (!ReferenceEquals(_readerGroup, group) || ReferenceEquals(ReaderContinuousView.Pages, group.Pages)) return;
+            var targetPage = _readerPage;
             ReaderContinuousView.SetDocument(group.Pages, _readerZoomMode == ReaderZoomMode.Manual ? _readerZoom : 1.0);
-            if (_readerPage is { } current) ScrollReaderContinuousTo(current);
+            if (targetPage is { } current && group.Pages.Contains(current)) ScrollReaderContinuousTo(current);
             ReapplyZoomMode();
+            if (_readerPage != null && _tabViewPositions.TryGetValue(group, out var position) && ReferenceEquals(position.Row, _readerPage) &&
+                Math.Abs(position.Zoom - ReaderContinuousView.Zoom) < 1e-6)
+                ReaderContinuousView.RestoreViewOffset(position.Offset);
         }
 
         private void ScrollReaderContinuousTo(PageRow row)

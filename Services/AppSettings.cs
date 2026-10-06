@@ -42,10 +42,10 @@ namespace XTPdfMergeApp.Services
             set => Set("ContinuousByDefault", value ? 1 : 0);
         }
 
-        /// <summary>Báo ai khác đang mở cùng file (ghi file dấu ẩn cạnh PDF, xem XTPresence). Mặc định tắt.</summary>
+        /// <summary>Báo ai khác đang mở cùng file (ghi file dấu ẩn cạnh PDF, xem XTPresence). Bật mặc định.</summary>
         public static bool ShowPresence
         {
-            get => GetInt("ShowPresence", 0) == 1;
+            get => GetInt("ShowPresence", 1) == 1;
             set => Set("ShowPresence", value ? 1 : 0);
         }
 
@@ -63,6 +63,26 @@ namespace XTPdfMergeApp.Services
         }
 
         // ── Performance & memory ──────────────────────────────────────
+
+        public static ReaderPerformanceMode PerformanceMode
+        {
+            get
+            {
+                return ParsePerformanceMode(GetString("ReaderPerformanceMode", "Balance"));
+            }
+            set
+            {
+                var mode = Enum.IsDefined(value) ? value : ReaderPerformanceMode.Balance;
+                ReaderPerformanceProfile.Apply(mode);
+                Set("ReaderPerformanceMode", mode.ToString());
+            }
+        }
+
+        internal static ReaderPerformanceMode ParsePerformanceMode(string saved)
+        {
+            if (saved == "High") return ReaderPerformanceMode.Balance;
+            return Enum.TryParse<ReaderPerformanceMode>(saved, out var mode) && Enum.IsDefined(mode) ? mode : ReaderPerformanceMode.Balance;
+        }
 
         /// <summary>Số file dùng gần nhất được giữ document PDFium trong RAM (0 = không giữ).</summary>
         public static int WarmFiles
@@ -141,6 +161,7 @@ namespace XTPdfMergeApp.Services
         /// <summary>Áp các cài đặt có hiệu lực toàn app lúc khởi động (số file ấm…). Biến môi trường XTPDF_* (dùng khi đo) thắng cài đặt.</summary>
         public static void ApplyRuntime()
         {
+            ReaderPerformanceProfile.Apply(PerformanceMode);
             if (Environment.GetEnvironmentVariable("XTPDF_WARM_FILES") == null) PdfThumbnailService.WarmFiles = WarmFiles;
         }
 

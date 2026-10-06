@@ -72,11 +72,19 @@ internal static class DiagnosticsReport
         Row(sb, "Working set", $"{workingMb,8:0} MB");
         Row(sb, "GC heap (managed)", $"{gcMb,8:0} MB");
         Row(sb, "Bộ đệm file PDF (đĩa tạm, ngoài RAM)", $"{fileMb,8:0} MB");
-        Row(sb, "Ảnh trang (Reader cache)", $"{readerMb,8:0} MB  / 80    ({viewer?.ReaderCacheCount ?? 0} ảnh gồm preview, đang vẽ {viewer?.ReaderInflight ?? 0})");
-        Row(sb, "Cache vùng nét", $"{retainedRegionMb,8:0} MB  / 16    ({viewer?.RegionCacheCount ?? 0} ảnh)");
+        Row(sb, "Ảnh trang (Reader cache)", $"{readerMb,8:0} MB  / {Mb(ReaderWindow.CurrentReaderCacheBudget):0}    ({viewer?.ReaderCacheCount ?? 0} ảnh gồm preview, đang vẽ {viewer?.ReaderInflight ?? 0})");
+        Row(sb, "Cache vùng nét", $"{retainedRegionMb,8:0} MB  / {Mb(Controls.ContinuousPdfView.CurrentRegionCacheBudget):0}    ({viewer?.RegionCacheCount ?? 0} ảnh)");
         Row(sb, "Vùng nét (live + cache, không trùng)", $"{regionMb,8:0} MB        ({viewer?.ContinuousRegions ?? 0} vùng live)");
-        Row(sb, "Thumbnail", $"{thumbMb,8:0} MB  / 48    ({thumbs.Cache} ảnh, đang vẽ {thumbs.Inflight})");
-        Row(sb, "Còn lại ≈ PDFium + WPF + khác", $"{restMb,8:0} MB   (= private − GC − ảnh)");
+        Row(sb, "Thumbnail", $"{thumbMb,8:0} MB  / {Mb(ThumbnailCache.CurrentBudgetBytes):0}    ({thumbs.Cache} ảnh, đang vẽ {thumbs.Inflight})");
+        if (ExperimentalMuPdfViewport.BalancedMode)
+        {
+            Row(sb, "RAM thích ứng", AdaptiveMemoryController.Describe());
+            var rasterMemory = ExperimentalMuPdfViewport.RasterMemoryStats;
+            Row(sb, "Render reservations", $"{Mb(rasterMemory.Used):0} MiB, peak {Mb(rasterMemory.Peak):0} MiB; cold workers recycled {ExperimentalMuPdfViewport.RecycledWorkerCount}");
+            var bridge = ExperimentalMuPdfViewport.CacheStats;
+            Row(sb, "MuPDF bridge cache", $"{Mb(bridge.Bytes):0} MB / {Mb(ExperimentalMuPdfViewport.CurrentCacheBudget):0} ({bridge.Count} ảnh; có thể chung bitmap với reader)");
+        }
+        Row(sb, ExperimentalMuPdfViewport.BalancedMode ? "Còn lại ≈ WPF + native + khác" : "Còn lại ≈ PDFium + WPF + khác", $"{restMb,8:0} MB   (= private − GC − ảnh)");
         if (LastCollect != null) Row(sb, "Lần \"Dọn RAM\" gần nhất", LastCollect);
         sb.AppendLine(MemoryProbe.Describe());
         sb.AppendLine();

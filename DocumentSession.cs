@@ -501,7 +501,7 @@ namespace XTPdfMergeApp
             IReadOnlyList<(string Path, IReadOnlyCollection<int> Pages)> targets, int deltaDegrees)
         {
             bool ok = await EditSourceFilesAsync(targets, (path, pages) => PdfPageEditService.RotatePages(path, pages, deltaDegrees),
-                geometryChanged: true);
+                geometryChanged: true, appendOnly: true);
             if (ok) foreach (var (path, pages) in targets) AnnotationStore.PagesRotated(path, pages, deltaDegrees);
             return ok;
         }
@@ -729,9 +729,14 @@ namespace XTPdfMergeApp
         {
             if (!CanModifyGroup(group)) return;
             if (pages.Count == 0 || !_groups.Contains(group)) return;
+            var view = ReaderWindow.Instance;
+            int keepIndex = view?.CurrentPageIndex(group) ?? 0;
+            var current = keepIndex < group.Pages.Count ? group.Pages[keepIndex] : null;
+            int survivingBefore = group.Pages.Take(keepIndex).Count(p => !pages.Contains(p));
             _workspace.Execute(new RemovePagesCommand(_workspace, group, pages));
             if (!_groups.Contains(group)) ReaderWindow.Instance?.NotifyGroupRemoved(group);
-            else ReaderWindow.Instance?.NotifyPagesChanged(group);
+            else if (current != null && group.Pages.Contains(current)) view?.NotifyPagesChanged(group);
+            else view?.ShowPageAfterRemoval(group, survivingBefore);
             ReleaseUnusedPdfDocuments();
             NotifyStatusChanged();
         }
@@ -740,7 +745,7 @@ namespace XTPdfMergeApp
         /// xoá mọi bitmap cũ của các trang đó để thumbnail/Viewer render lại ngay.</summary>
         internal async Task<bool> EditSourceFilesAsync(
             IReadOnlyList<(string Path, IReadOnlyCollection<int> Pages)> targets,
-            Action<string, IReadOnlyCollection<int>> edit, bool geometryChanged)
+            Action<string, IReadOnlyCollection<int>> edit, bool geometryChanged, bool appendOnly = false)
         {
             if (!await Controls.PdfPermissionDialog.RequireAsync(OwnerWindow, targets.Select(t => t.Path), PdfPermissionOperation.Modify)) return false;
             if (!await Controls.SignedPdfConfirmation.ConfirmAsync(OwnerWindow,
@@ -755,7 +760,13 @@ namespace XTPdfMergeApp
                     suspensions.Add(await PdfThumbnailService.SuspendDocumentAsync(path, TimeSpan.FromSeconds(3)));
                 }
                 var byPath = targets.ToDictionary(t => Path.GetFullPath(t.Path), t => t.Pages, StringComparer.OrdinalIgnoreCase);
-                await PdfFileTransaction.RunAsync(byPath.Keys.ToList(), async (path, stage) =>
+                if (appendOnly && byPath.Count == 1)
+                {
+                    // A page rotation changes only page dictionaries. Incremental saving does not
+                    // replace the file, so other readers may keep their read handles open.
+                    foreach (var target in byPath) await Task.Run(() => edit(target.Key, target.Value));
+                }
+                else await PdfFileTransaction.RunAsync(byPath.Keys.ToList(), async (path, stage) =>
                 {
                     try
                     {

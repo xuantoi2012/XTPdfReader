@@ -41,16 +41,19 @@ internal static partial class Program
         if (!view.TryGetPageRect(row, out var pageRect)) return false;
         var visible = Rect.Intersect(pageRect, new Rect(0, 0, view.Surface.ActualWidth, view.Surface.ActualHeight));
         if (visible.IsEmpty || visible.Width <= 0 || visible.Height <= 0) return false;
-        int fullHeight = Math.Max(1, (int)Math.Round(fullWidth * row.LayoutHeight / Math.Max(1, row.LayoutWidth)));
         var a = Unrotate((visible.Left - pageRect.Left) / pageRect.Width, (visible.Top - pageRect.Top) / pageRect.Height);
         var b = Unrotate((visible.Right - pageRect.Left) / pageRect.Width, (visible.Bottom - pageRect.Top) / pageRect.Height);
-        double x0 = Math.Min(a.X, b.X) * fullWidth, y0 = Math.Min(a.Y, b.Y) * fullHeight;
-        double x1 = Math.Max(a.X, b.X) * fullWidth, y1 = Math.Max(a.Y, b.Y) * fullHeight;
         var regions = (System.Collections.IEnumerable)state.GetType().GetField("Regions")!.GetValue(state)!;
         foreach (object region in regions.Cast<object>().Reverse())
         {
             var key = region.GetType().GetProperty("Key")!.GetValue(region)!;
-            if ((int)key.GetType().GetProperty("FullWidth")!.GetValue(key)! != fullWidth) continue;
+            // MuPDF predictive zoom may supply a sharper tier than the baseline.
+            // Check coverage in that tier's coordinates rather than reject valid extra pixels.
+            int actualWidth = (int)key.GetType().GetProperty("FullWidth")!.GetValue(key)!;
+            if (actualWidth < fullWidth || actualWidth > maximum) continue;
+            int actualHeight = (int)key.GetType().GetProperty("FullHeight")!.GetValue(key)!;
+            double x0 = Math.Min(a.X, b.X) * actualWidth, y0 = Math.Min(a.Y, b.Y) * actualHeight;
+            double x1 = Math.Max(a.X, b.X) * actualWidth, y1 = Math.Max(a.Y, b.Y) * actualHeight;
             if ((int)key.GetType().GetProperty("Version")!.GetValue(key)! != (int)state.GetType().GetField("Version")!.GetValue(state)!) continue;
             if ((string)key.GetType().GetProperty("Layers")!.GetValue(key)! != PdfLayerStateStore.GetToken(row.SourcePath)) continue;
             int x = (int)key.GetType().GetProperty("X")!.GetValue(key)!;

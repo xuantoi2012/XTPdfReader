@@ -2,11 +2,19 @@
 
 ## Status
 
-The user accepted the current MuPDF speed and requested adaptive RAM management.
-This document is the implementation handoff, not an implemented feature.
-Keep the accepted rendering and zoom behavior from MUPDF-BALANCED-MIGRATION.md.
-The current bitmap budgets are fixed. The legacy PDFium memory-pressure timer
-is bypassed in balanced MuPDF mode and does not account for child workers.
+Wide-scroll follow-up is implemented and tested on the user's complete 284-page
+drawing PDF. See [bounded memory implementation and measured tradeoffs](WIDE-SCROLL-RAM-IMPLEMENTATION-2026-10-06.md).
+It adds a 512MiB normal cache ceiling, independent app-private thresholds,
+weighted render reservations, viewport eviction and rate-limited background GC.
+The checklist below records earlier requirements; the measured follow-up supersedes
+its idle-only GC suggestion and large-machine cache-growth policy.
+
+Adaptive retention is implemented in the working tree on 2026-10-06. See
+[implementation and validation](ADAPTIVE-RAM-IMPLEMENTATION-2026-10-06.md).
+The balanced MuPDF startup now starts its own memory controller, including
+child-worker private commit and adjustable synchronized bitmap-cache budgets.
+The design checklist below records the original requirements. Accepted
+rendering and zoom behavior from MUPDF-BALANCED-MIGRATION.md is preserved.
 
 ## Goal
 
@@ -73,5 +81,6 @@ only if measurements show a benefit, not as the primary retention strategy.
 - Keep tests in the background; do not automate or close the user's windows.
 
 Implement adaptive cache retention first. Disk cache and GPU work are separate
-follow-ups, not prerequisites for this change. No adaptive code was added in
-this documentation-only handoff session.
+follow-ups, not prerequisites for this change. Original thresholds and the
+working-memory floor still require calibration on the supplied CAD workloads
+and a wider range of machines; the implementation report records this run.

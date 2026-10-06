@@ -179,6 +179,13 @@ namespace XTPdfMergeApp.Services
                 return (_thumbnailCache.Count, _thumbnailLoads.Count, _thumbnailCache.Bytes);
         }
 
+        internal static long CurrentBudgetBytes { get { lock (_thumbnailLock) return _thumbnailCache.BudgetBytes; } }
+        internal static void ApplyMemoryBudget(long bytes)
+        {
+            lock (_thumbnailLock) _thumbnailCache.SetBudget(bytes,
+                key => AdaptiveMemoryController.IsProtected(key.Path, key.Page));
+        }
+
         internal static int GetThumbnailInflightCount()
         {
             lock (_thumbnailLock)
@@ -192,7 +199,7 @@ namespace XTPdfMergeApp.Services
         }
 
         internal static void CacheThumbnailLocked((string Path, int Page, string Layers) key, BitmapSource bmp)
-            => _thumbnailCache.Set(key, bmp);
+            => _thumbnailCache.Set(key, bmp, key => AdaptiveMemoryController.IsProtected(key.Path, key.Page));
 
         internal static Task<BitmapSource?> GetThumbnailLoadTask((string Path, int Page, string Layers) key)
         {
@@ -254,7 +261,7 @@ namespace XTPdfMergeApp.Services
                         : MaxForegroundRequestsBeforeBackground;
                     bool foregroundBusy = Volatile.Read(ref _foregroundThumbnailRequests) > foregroundLimit;
                     bool queueHasRoom = GetThumbnailInflightCount() < MaxBackgroundThumbnailInflight;
-                    if (!foregroundBusy && queueHasRoom) return;
+                    if (!foregroundBusy && queueHasRoom && AdaptiveMemoryController.AllowSpeculation) return;
 
                     if (!countedAsWaiting)
                     {

@@ -191,7 +191,7 @@ internal static partial class Program
         ContinuousPdfView.InvalidateCachedRegions((_, _) => true);
         try
         {
-            view.SetDocument(new[] { row }, 3); Wait();
+            view.SetDocument(new[] { row }, ExperimentalMuPdfViewport.ThroughputMode ? 6 : 3); Wait();
             Check(calls.Count == 1 && calls[0].Length == 1, "Cold deep viewport still uses one crop");
             long originalArea = calls[0].Sum(r => (long)r.Width * r.Height);
             view.ScrollBy(320, 0); Wait();

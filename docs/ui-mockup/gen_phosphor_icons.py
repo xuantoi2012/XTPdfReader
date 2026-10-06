@@ -20,7 +20,7 @@ SCALE = 24 / 256
 # key -> candidate Phosphor names (first one that exists wins)
 ICONS = {
     # reading tools / ribbon
-    "hand": ["hand"], "select": ["cursor"], "selecttext": ["cursor-text"], "snapshot": ["camera"],
+    "eraser": ["eraser"], "hand": ["hand"], "select": ["cursor"], "selecttext": ["cursor-text"], "snapshot": ["camera"],
     "zoomin": ["magnifying-glass-plus"], "zoomout": ["magnifying-glass-minus"],
     "fitp": ["frame-corners"], "fitw": ["arrows-out-line-horizontal", "arrows-horizontal"],
     "scroll": ["rows"], "singlepage": ["file"], "twopage": ["book-open"], "fullscreen": ["arrows-out"],

@@ -54,13 +54,108 @@ public sealed class ContinuousPdfView : Grid
     private const double WideMargin = 1.0, WideCheckMargin = 0.4;
     private const double RegionLowWater = 1.06, RegionHighWater = 3.0;
     /// <summary>Bộ nhớ đệm vùng nét (cả vùng vẽ trước cho bước zoom kế): mỗi vùng ~4 MB nên 16 MiB chỉ chứa 4 vùng.</summary>
-    internal static long RegionCacheBudgetBytes => (ExperimentalMuPdfViewport.BalancedMode ? 256L : ExperimentalMuPdfViewport.ThroughputMode ? 1024L : 128L) * 1024 * 1024;
+    internal static long RegionCacheBudgetBytes => (ExperimentalMuPdfViewport.BalancedMode ? 80L : ExperimentalMuPdfViewport.ThroughputMode ? 1024L : 128L) * 1024 * 1024;
     private static readonly object RegionCacheLock = new();
     private static readonly BitmapMemoryCache<CachedRegionKey> RegionCache = new(RegionCacheBudgetBytes);
     private static long _regionCacheGeneration;
+    private HashSet<(string Path, int Page)> _memoryProtectedPages = new();
+    private HashSet<(string Path, int Page)> _nativeProtectedPages = new();
+    private HashSet<BitmapSource> _memoryProtectedImages = new(ReferenceEqualityComparer.Instance);
+    internal bool IsMemoryProtectedImage(BitmapSource image) => Volatile.Read(ref _memoryProtectedImages).Contains(image);
+    internal IEnumerable<(string Path, int Page)> MemoryProtectedPages => Volatile.Read(ref _memoryProtectedPages);
+    internal IEnumerable<(string Path, int Page)> NativeProtectedPages => Volatile.Read(ref _nativeProtectedPages);
+    internal bool IsMemoryProtected(string path, int page) =>
+        Volatile.Read(ref _memoryProtectedPages).Contains((path.ToUpperInvariant(), page));
+    private MemoryPressureState _memoryPressure;
+    private ReaderPerformanceMode _memoryMode;
+    internal static long CurrentRegionCacheBudget { get { lock (RegionCacheLock) return RegionCache.BudgetBytes; } }
+    internal static void ApplyRegionMemoryBudget(long bytes)
+    {
+        lock (RegionCacheLock)
+        {
+            RegionCache.KeepImage = AdaptiveMemoryController.IsProtectedImage;
+            if (AdaptiveMemoryController.HasRegisteredViews && (!ReaderPerformanceProfile.Current.RetainDistantImages || !AdaptiveMemoryController.AllowSpeculation))
+                RegionCache.RemoveWhere(key => !AdaptiveMemoryController.IsProtected(key.Path, key.Page));
+            RegionCache.SetBudget(bytes);
+        }
+    }
+
+    // Dispatcher only. Displayed page images/regions are never cleared by memory trimming.
+    internal void ApplyMemoryPressure(MemoryPressureState pressure)
+    {
+        Dispatcher.VerifyAccess();
+        bool changed = pressure != _memoryPressure || _memoryMode != ReaderPerformanceProfile.Current.Mode;
+        _memoryMode = ReaderPerformanceProfile.Current.Mode;
+        _memoryPressure = pressure;
+        PublishMemoryProtection();
+        if (pressure != MemoryPressureState.Normal)
+        {
+            _warmCts?.Cancel(); _warmCts = null;
+            _speculationCts?.Cancel();
+            if (_memoryProtectedPages.Count == 0) { _frozen = null; _pv = null; _rv = null; _bases.Clear(); }
+            foreach (var (row, state) in _states.ToArray())
+            {
+                state.CancelWide();
+                if (IsMemoryProtected(row.SourcePath, row.PageNumber)) continue;
+                state.CancelAll();
+                _states.Remove(row);
+            }
+        }
+        if (changed && !_renderingSuspended && IsVisible) ScheduleUpdate();
+    }
+
+    private void PublishMemoryProtection()
+    {
+        var pages = new HashSet<(string Path, int Page)>();
+        var nativePages = new HashSet<(string Path, int Page)>();
+        var images = new HashSet<BitmapSource>(ReferenceEqualityComparer.Instance);
+        foreach (var row in _retainedTabPages)
+        {
+            pages.Add((row.SourcePath.ToUpperInvariant(), row.PageNumber));
+            if (row.ReaderBitmap != null) images.Add(row.ReaderBitmap);
+            if (_tabStates.TryGetValue(row, out var saved))
+            {
+                if (saved.Bitmap != null) images.Add(saved.Bitmap);
+                foreach (var region in saved.Regions) images.Add(region.Bitmap);
+            }
+        }
+        if (!_renderingSuspended && IsVisible && _slots.Length > 0)
+        {
+            foreach (var viewport in new[] { _vp, _pv, _rv }.OfType<ContinuousViewport>())
+            {
+                var (first, last) = viewport.VisibleRange();
+                if (first >= 0 && last < _slots.Length)
+                    for (int slot = Math.Max(0, first - 1); slot <= Math.Min(_slots.Length - 1, last + 1); slot++)
+                    {
+                        var row = _pages[_slots[slot]];
+                        pages.Add((row.SourcePath.ToUpperInvariant(), row.PageNumber));
+                        nativePages.Add((row.SourcePath.ToUpperInvariant(), row.PageNumber));
+                        if (row.ReaderBitmap != null) images.Add(row.ReaderBitmap);
+                        if (row.Thumbnail != null) images.Add(row.Thumbnail);
+                    }
+            }
+        }
+        foreach (var (row, state) in _states)
+            if (pages.Contains((row.SourcePath.ToUpperInvariant(), row.PageNumber)))
+            {
+                if (state.Bitmap != null) images.Add(state.Bitmap);
+                if (state.Preview != null) images.Add(state.Preview);
+                foreach (var region in state.Regions) images.Add(region.Bitmap);
+            }
+        if (_frozen != null)
+            foreach (var (row, frame) in _frozen)
+                if (pages.Contains((row.SourcePath.ToUpperInvariant(), row.PageNumber)))
+                {
+                    if (frame.Page != null) images.Add(frame.Page);
+                    foreach (var region in frame.Regions) images.Add(region.Bitmap);
+                }
+        Volatile.Write(ref _memoryProtectedImages, images);
+        Volatile.Write(ref _memoryProtectedPages, pages);
+        Volatile.Write(ref _nativeProtectedPages, nativePages);
+    }
     /// <summary>Cuộn nhanh: chỉ vẽ các trang đang hiện, chờ <see cref="SettleMilliseconds"/> rồi tải trước trang kế.</summary>
     private const double FastScrollViewportsPerSecond = 4;
-    private const int SettleMilliseconds = 40;
+    private const int SettleMilliseconds = 150;
     /// <summary>Đang zoom: chờ zoom đứng yên chừng này mới xin ảnh ở độ phân giải mới (giữa chừng chỉ co giãn ảnh có sẵn).</summary>
     private const int ZoomSettleMilliseconds = 24;
     internal int PrefetchPageCount { get; set; } = 4;
@@ -96,6 +191,14 @@ public sealed class ContinuousPdfView : Grid
     private readonly ContinuousViewport _vp = new();
     private readonly DispatcherTimer _updateTimer;
     private readonly Dictionary<PageRow, PageState> _states = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<PageRow, PageState> _tabStates = new(ReferenceEqualityComparer.Instance);
+    private HashSet<PageRow> _retainedTabPages = new(ReferenceEqualityComparer.Instance);
+    internal void RetainTabPages(IEnumerable<PageRow> pages)
+    {
+        _retainedTabPages = new(pages, ReferenceEqualityComparer.Instance);
+        foreach (var row in _tabStates.Keys.Where(r => !_retainedTabPages.Contains(r)).ToArray()) _tabStates.Remove(row);
+        PublishMemoryProtection();
+    }
     private readonly Dictionary<PageRow, int> _indexOf = new(ReferenceEqualityComparer.Instance);
     private IReadOnlyList<PageRow> _pages = Array.Empty<PageRow>();
     /// <summary>Slot bố cục → chỉ số trang. Cuộn liên tục: mọi trang; 1 trang: chỉ trang đang xem.</summary>
@@ -112,6 +215,8 @@ public sealed class ContinuousPdfView : Grid
 
     public ContinuousPdfView()
     {
+        AdaptiveMemoryController.Register(this);
+        _memoryPressure = AdaptiveMemoryController.State;
         ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -151,7 +256,7 @@ public sealed class ContinuousPdfView : Grid
         _updateTimer = new DispatcherTimer(DispatcherPriority.Render, Dispatcher)
             { Interval = TimeSpan.FromMilliseconds(16) };
         _updateTimer.Tick += (_, _) => { _updateTimer.Stop(); UpdateRequests(); };
-        Unloaded += (_, _) => CancelAll();
+        Unloaded += (_, _) => { CancelAll(); Volatile.Write(ref _memoryProtectedPages, new()); Volatile.Write(ref _nativeProtectedPages, new()); Volatile.Write(ref _memoryProtectedImages, new(ReferenceEqualityComparer.Instance)); };
         IsVisibleChanged += (_, _) => { if (IsVisible) ScheduleUpdate(immediate: true); };
     }
 
@@ -199,10 +304,21 @@ public sealed class ContinuousPdfView : Grid
         if (_observed != null) _observed.CollectionChanged -= Pages_CollectionChanged;
         _observed = pages as INotifyCollectionChanged;
         if (_observed != null) _observed.CollectionChanged += Pages_CollectionChanged;
+        if (_currentPage >= 0 && _currentPage < _pages.Count)
+        {
+            var departing = _pages[_currentPage];
+            if (_retainedTabPages.Contains(departing) && _states.TryGetValue(departing, out var saved))
+                _tabStates[departing] = saved;
+        }
         CancelAll();
+        _warmed.Clear(); // Completion bookkeeping belongs to this document, not the previous tab.
         _pv = null; _rv = null; _frozen = null;
         _states.Clear();
+        Volatile.Write(ref _memoryProtectedPages, new());
+        Volatile.Write(ref _memoryProtectedImages, new(ReferenceEqualityComparer.Instance));
         _pages = pages ?? Array.Empty<PageRow>();
+        foreach (var row in _pages)
+            if (_tabStates.Remove(row, out var saved)) _states[row] = saved;
         _single = 0;
         RebuildIndex();
         _vp.SetPages(BaseSizes(), Math.Clamp(zoom, MinZoom, MaxZoom));
@@ -210,6 +326,7 @@ public sealed class ContinuousPdfView : Grid
         // its left edge may put the selected page entirely outside the viewport.
         _vp.SetOffset(_vp.MaxOffsetX / 2, 0);
         _currentPage = _pages.Count > 0 ? 0 : -1;
+        PublishMemoryProtection();
         OnViewChanged(ChangeKind.Navigate);
     }
 
@@ -482,6 +599,11 @@ public sealed class ContinuousPdfView : Grid
     public void ZoomKeepTop(double zoom) => ZoomAt(zoom, new Point(_vp.ViewportWidth / 2, 0));
 
     public Point ViewportCenter => new(_vp.ViewportWidth / 2, _vp.ViewportHeight / 2);
+    internal Point ViewOffset => new(_vp.OffsetX, _vp.OffsetY);
+    internal void RestoreViewOffset(Point offset)
+    {
+        if (_vp.SetOffset(offset.X, offset.Y)) OnViewChanged(ChangeKind.Navigate);
+    }
 
     /// <summary>Đỉnh trang <paramref name="index"/> lên đỉnh khung nhìn (Home/End, ô số trang, bấm thumbnail).</summary>
     public void ScrollToPage(int index) => ScrollToPage(index, bottom: false);
@@ -585,15 +707,16 @@ public sealed class ContinuousPdfView : Grid
             InvalidateCachedRegions((path, page) => page == row.PageNumber &&
                 string.Equals(path, row.SourcePath, StringComparison.OrdinalIgnoreCase));
         // Ảnh Reader của trang (dùng chung với chế độ 1 trang) là nội dung cũ; ảnh riêng của view vẫn hiện tạm tới khi có ảnh mới.
-        foreach (var row in _pages)
+        foreach (var row in _pages.Concat(_retainedTabPages).Distinct())
             if (match(row)) row.ReaderBitmap = null;
-        foreach (var (row, state) in _states.ToArray())
+        foreach (var (row, state) in _states.Concat(_tabStates).ToArray())
         {
             if (!match(row)) continue;
             state.Version++;
             state.CancelAll();
             if (dropImages) { state.Bitmap = null; state.Preview = null; state.Regions.Clear(); }
         }
+        PublishMemoryProtection();
         _surface.InvalidateVisual();
         ScheduleUpdate(immediate: true);
     }
@@ -620,6 +743,8 @@ public sealed class ContinuousPdfView : Grid
     /// <summary>Huỷ mọi việc vẽ đang chờ (ẩn Viewer, đổi chế độ xem).</summary>
     public void CancelAll()
     {
+        _warmCts?.Cancel();
+        _warmCts = null;
         foreach (var state in _states.Values) state.CancelAll();
         _updateTimer.Stop();
     }
@@ -639,6 +764,7 @@ public sealed class ContinuousPdfView : Grid
 
     private void OnViewChanged(ChangeKind kind)
     {
+        if (kind is ChangeKind.Navigate or ChangeKind.UserScroll or ChangeKind.Zoom) AdaptiveMemoryController.NoteActivity();
         // Cuộn/nhảy trang khi đang giữ khung: hiện khung logic ngay (khung cũ đã lệch so với vị trí cuộn mới). Đổi cỡ vùng vẽ thì KHÔNG chốt:
         // zoom vào làm hiện thanh cuộn ngang nên vùng vẽ thấp đi vài điểm ảnh — khung đang hiện chỉ cập nhật cỡ khung nhìn của nó.
         if (kind is ChangeKind.Navigate or ChangeKind.UserScroll)
@@ -1159,7 +1285,7 @@ public sealed class ContinuousPdfView : Grid
 
     private void MaybeSpeculate()
     {
-        if (!SpeculateZoomSteps || !ExactRaster || PresentTimeoutMilliseconds <= 0 || !_hasZoomAnchor || _renderingSuspended || _pages.Count == 0 || !IsVisible) return;
+        if (!AdaptiveMemoryController.AllowSpeculation || !SpeculateZoomSteps || !ExactRaster || PresentTimeoutMilliseconds <= 0 || !_hasZoomAnchor || _renderingSuspended || _pages.Count == 0 || !IsVisible) return;
         double sinceZoom = Stopwatch.GetElapsedTime(_lastWheelZoomTimestamp).TotalMilliseconds;
         if (sinceZoom > SpeculationWindowMilliseconds || sinceZoom < 60) return; // chưa lăn gần đây, hoặc còn đang lăn
         if (Math.Abs(_vp.Zoom - _speculatedFor) < 1e-9) return;
@@ -1251,10 +1377,13 @@ public sealed class ContinuousPdfView : Grid
         var (firstSlot, lastSlot) = vp.VisibleRange();
         if (firstSlot < 0 || lastSlot >= _slots.Length) return;
         int first = _slots[firstSlot], last = _slots[lastSlot];
-        int prefetchPages = Math.Clamp(PrefetchPageCount, 0, KeepPages);
-        int keepAhead = Math.Max(KeepPages, PreviewAheadPages);
-        int keepFirst = Math.Max(0, first - (_scrollDirection < 0 ? keepAhead : KeepPages)),
-            keepLast = Math.Min(_pages.Count - 1, last + (_scrollDirection >= 0 ? keepAhead : KeepPages));
+        PublishMemoryProtection();
+        int prefetchPages = Math.Clamp(PrefetchPageCount, 0, _memoryPressure == MemoryPressureState.Normal ? ReaderPerformanceProfile.Current.PrefetchPages : _memoryPressure == MemoryPressureState.Critical ? 0 : 1);
+        int previewAhead = _memoryPressure == MemoryPressureState.Normal ? PreviewAheadPages : _memoryPressure == MemoryPressureState.Pressure ? 2 : 0;
+        int keepPages = 1;
+        int keepAhead = Math.Max(keepPages, previewAhead);
+        int keepFirst = Math.Max(0, first - (_scrollDirection < 0 ? keepAhead : keepPages)),
+            keepLast = Math.Min(_pages.Count - 1, last + (_scrollDirection >= 0 ? keepAhead : keepPages));
         int renderFirst = first - (!scrollSettling && _scrollDirection < 0 ? prefetchPages : 0);
         int renderLast = last + (!scrollSettling && _scrollDirection >= 0 ? prefetchPages : 0);
 
@@ -1267,6 +1396,7 @@ public sealed class ContinuousPdfView : Grid
                 continue;
             }
             state.CancelAll();
+            AdaptiveMemoryController.NoteReleasedBytes(state.Bitmap == null ? 0 : BitmapMemoryCache<int>.SizeOf(state.Bitmap));
             _states.Remove(row);
         }
 
@@ -1333,7 +1463,7 @@ public sealed class ContinuousPdfView : Grid
         // Vòng ảnh xem trước phía trước theo hướng cuộn (rẻ: ~340 px): khi cuộn nhanh, trang vừa lăn tới đã có sẵn ảnh thô để hiện ngay.
         {
             int ahead = _scrollDirection >= 0 ? 1 : -1, aheadEdge = ahead > 0 ? last : first;
-            for (int step = 1; step <= PreviewAheadPages; step++)
+            for (int step = 1; step <= previewAhead; step++)
             {
                 int i = aheadEdge + ahead * step;
                 if (i < 0 || i >= _pages.Count) break;
@@ -1396,7 +1526,7 @@ public sealed class ContinuousPdfView : Grid
 
     private void MaybeWarmPreviews()
     {
-        if (!WarmAllPreviews || _pages.Count == 0 || _renderingSuspended || !IsVisible || _pv != null) return;
+        if (!AdaptiveMemoryController.AllowSpeculation || !WarmAllPreviews || _pages.Count == 0 || _renderingSuspended || !IsVisible || _pv != null) return;
         long now = Stopwatch.GetTimestamp();
         double idle = Math.Min(Stopwatch.GetElapsedTime(_lastScrollTimestamp, now).TotalMilliseconds,
             Math.Min(Stopwatch.GetElapsedTime(_lastZoomTimestamp, now).TotalMilliseconds, Stopwatch.GetElapsedTime(_lastPanTimestamp, now).TotalMilliseconds));
@@ -1643,7 +1773,7 @@ public sealed class ContinuousPdfView : Grid
 
         var source = RenderCacheKeys.Thumbnail(row.SourcePath, row.PageNumber);
         // Vùng rộng chạy riêng, song song, ở mức nền: không chờ vùng thật đang vẽ, nên pan liên tục (kể cả đổi chiều) vẫn có nét sẵn.
-        if (renderMissing && ExactRaster && WideRegions) MaybeRequestWide();
+        if (renderMissing && ExactRaster && WideRegions && AdaptiveMemoryController.AllowSpeculation) MaybeRequestWide();
         bool covered = state.Regions.Any(r => Covers(r.Key));
         if (covered && (!panning || state.Regions.Any(r => Comfortable(r.Key)) ||
             (state.RegionPending is { } ahead && Comfortable(ahead)))) return true;
@@ -1888,6 +2018,7 @@ public sealed class ContinuousPdfView : Grid
 
     internal static void InvalidateCachedRegions(Func<string, int, bool> match)
     {
+        ExperimentalMuPdfViewport.InvalidateRasterCache(match);
         lock (RegionCacheLock)
         {
             Interlocked.Increment(ref _regionCacheGeneration);

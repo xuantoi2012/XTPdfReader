@@ -142,7 +142,7 @@
                                                      ToolTip="Strikethrough: drag across text" Click="ReaderStrikethroughTool_Click"/>
                                         <xt:XTButton x:Name="ReaderSquigglyToolButton" Grid.Row="1" Grid.Column="0" Style="{StaticResource UiMiniIconButton}" Width="94" Icon="{StaticResource Ui.Icon.squiggly}" Text="Squiggly"
                                                      ToolTip="Squiggly underline: drag across text" Click="ReaderSquigglyTool_Click"/>
-                                        <xt:XTButton x:Name="ReaderEraserToolButton" Grid.Row="1" Grid.Column="1" Style="{StaticResource UiMiniIconButton}" Icon="{StaticResource Ui.Icon.trash}" Text="Eraser"
+                                        <xt:XTButton x:Name="ReaderEraserToolButton" Grid.Row="1" Grid.Column="1" Style="{StaticResource UiMiniIconButton}" Icon="{StaticResource Ui.Icon.eraser}" Text="Eraser"
                                                      ToolTip="Delete an annotation: click it. Undo restores it." Click="ReaderEraserTool_Click"/>
                                     </Grid>
                                 </StackPanel>
@@ -565,6 +565,7 @@
                                  ToolTip="Next page" Click="ReaderNextPage_Click"/>
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0">
+                    <TextBlock x:Name="ReaderPresenceText" Visibility="Collapsed" MaxWidth="220" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,12,0" Foreground="{DynamicResource Ui.Muted}"/>
                     <!-- Tiến độ nạp file vào bộ đệm (đọc nền) — hết khi nạp xong. Không chặn thao tác. -->
                     <TextBlock x:Name="ReaderLoadProgressText" Visibility="Collapsed" VerticalAlignment="Center" Margin="0,0,12,0"
                                Foreground="{DynamicResource Ui.Muted}"

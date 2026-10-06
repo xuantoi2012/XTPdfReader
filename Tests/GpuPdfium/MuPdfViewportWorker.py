@@ -8,6 +8,62 @@ import sys
 import time
 import pymupdf as fitz
 
+# Resolve unembedded TrueType fonts against the Windows font registry.
+# Font streams are attached only to the worker's in-memory document; never saved.
+def font_key(name):
+    name = re.sub(r"^[A-Z]{6}\+", "", name)
+    name = re.sub(r"\s*\(TrueType\)\s*$", "", name, flags=re.I)
+    name = name.replace("PSMT", "").replace("PS-", "").removesuffix("MT")
+    return re.sub(r"[^a-z0-9]", "", name.lower()).removesuffix("regular")
+
+def windows_fonts():
+    found = {}
+    if os.name != "nt":
+        return found
+    import winreg
+    for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            with winreg.OpenKey(root, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts") as key:
+                for index in range(winreg.QueryInfoKey(key)[1]):
+                    name, file, _ = winreg.EnumValue(key, index)
+                    path = Path(file)
+                    if not path.is_absolute():
+                        path = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / path
+                    if path.suffix.lower() == ".ttf" and path.is_file():
+                        found[font_key(name)] = path
+        except OSError:
+            pass
+    return found
+
+system_fonts = windows_fonts()
+
+def resolve_unembedded_fonts(document, page):
+    streams = getattr(document, "_xt_system_font_streams", None)
+    if streams is None:
+        streams = document._xt_system_font_streams = {}
+    # Only inspect resources of the requested page. Scanning an entire large PDF
+    # on each worker's first request would delay opening and waste network reads.
+    for xref in {font[0] for font in page.get_fonts(full=True) if font[0] > 0}:
+        if document.xref_get_key(xref, "Subtype") != ("name", "/TrueType"):
+            continue
+        kind, descriptor = document.xref_get_key(xref, "FontDescriptor")
+        if kind != "xref":
+            continue
+        descriptor = int(descriptor.split()[0])
+        if any(document.xref_get_key(descriptor, key)[0] != "null" for key in ("FontFile", "FontFile2", "FontFile3")):
+            continue
+        name = document.xref_get_key(xref, "BaseFont")[1].lstrip("/")
+        path = system_fonts.get(font_key(name))
+        if path is None:
+            continue
+        if path not in streams:
+            data = path.read_bytes()
+            stream = document.get_new_xref()
+            document.update_object(stream, f"<< /Length1 {len(data)} >>")
+            document.update_stream(stream, data)
+            streams[path] = stream
+        document.xref_set_key(descriptor, "FontFile2", f"{streams[path]} 0 R")
+
 documents = OrderedDict()
 signature_appearances = {}
 lists = OrderedDict()
@@ -16,6 +72,9 @@ raster_bytes = 0
 list_limit = int(os.environ.get("XTPDF_MUPDF_LISTS", "64"))
 document_limit = int(os.environ.get("XTPDF_MUPDF_DOCUMENTS", "64"))
 raster_limit = 0 if os.environ.get("XTPDF_MUPDF_NO_RASTER_CACHE") == "1" else 512 * 1024 * 1024
+normal_list_limit = list_limit
+normal_document_limit = document_limit
+last_rendered_key = None
 
 def send(value):
     sys.stdout.buffer.write((json.dumps(value) + "\n").encode("utf-8"))
@@ -56,6 +115,25 @@ def rectangles(page, chars):
 for line in sys.stdin:
     try:
         request = json.loads(line)
+        memory_state = request.get("memoryState", 0)
+        configured_lists = max(1, min(64, request.get("nativeListLimit", normal_list_limit)))
+        list_limit = configured_lists if memory_state == 0 else min(configured_lists, 2 if memory_state == 1 else 1)
+        document_limit = normal_document_limit if memory_state == 0 else min(normal_document_limit, 1)
+        if request.get("op") == "memory":
+            protected = {(str(Path(p["path"]).resolve()).casefold(), p["page"]) for p in (request.get("data") or [])}
+            protected_paths = {p[0] for p in protected}
+            # Keep native resources for the visible/presentation pages even if they exceed the target.
+            for old in list(documents):
+                if old[0].casefold() not in protected_paths:
+                    close_document(old)
+            for key in list(lists):
+                if (key[0][0].casefold(), key[1]) not in protected:
+                    del lists[key]
+            rasters.clear()
+            raster_bytes = 0
+            fitz.TOOLS.store_shrink(100 if memory_state == 2 else 50)
+            send(dict(ok=True, documents=len(documents), displayLists=len(lists), storeBytes=fitz.TOOLS.store_size()))
+            continue
         if request.get("op") == "stats":
             send(dict(documents=len(documents), displayLists=len(lists), rasterBytes=raster_bytes,
                       storeBytes=fitz.TOOLS.store_size()))
@@ -112,6 +190,7 @@ for line in sys.stdin:
             continue
         if op in ("search", "select"):
             page = document[request["page"]]
+            resolve_unembedded_fonts(document, page)
             chars = characters(page)
             text = "".join(c for c, _ in chars)
             data = request["data"]
@@ -146,6 +225,7 @@ for line in sys.stdin:
         key = (stamp, request["page"], annotations)
         if key not in lists:
             page = document[request["page"]]
+            resolve_unembedded_fonts(document, page)
             widget_key = (stamp, request["page"])
             if widget_key not in signature_appearances:
                 signatures = {widget.xref for widget in (page.widgets() or [])
@@ -220,11 +300,17 @@ for line in sys.stdin:
         raster_bytes += len(data)
         while raster_bytes > raster_limit:
             raster_bytes -= len(rasters.popitem(last=False)[1][1])
+        del pix
+        display = page = None
+        # PyMuPDF 1.28.2 reports store_size as None. Purge on page transitions
+        # rather than treating the unavailable measurement as zero.
+        if key != last_rendered_key:
+            fitz.TOOLS.store_shrink(50 if memory_state == 0 else 100)
+        last_rendered_key = key
         sys.stdout.buffer.write((json.dumps(header) + "\n").encode("utf-8"))
         sys.stdout.buffer.write(data)
         sys.stdout.buffer.flush()
-        del data, pix
-        display = page = None
+        del data
     except Exception as error:
         sys.stdout.buffer.write((json.dumps(dict(error=str(error))) + "\n").encode("utf-8"))
         sys.stdout.buffer.flush()

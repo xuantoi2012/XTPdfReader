@@ -178,8 +178,8 @@ internal static partial class Program
             Check(pages[0].ReaderBitmap?.PixelWidth == expectedWidth && pages[1].ReaderBitmap?.PixelWidth == expectedWidth,
                 "Both pages refine to screen resolution without another zoom or scroll event");
             var prefetch = requests.Where(r => r.Priority == PdfRenderPriority.Background).GroupBy(r => r.Page).Take(4).ToArray();
-            Check(prefetch.Length == 4 && prefetch.All(g => g.First().Width == expectedWidth),
-                "All four pages ahead request screen resolution rather than coarse preview images");
+            Check(prefetch.Length == 1 && prefetch.All(g => g.First().Width == expectedWidth),
+                "Only the nearest page ahead is prefetched, retaining full screen resolution");
             view.IsRenderingSuspended = true;
             requests.Clear();
             view.ScrollToPage(4);
@@ -200,16 +200,16 @@ internal static partial class Program
             }).ToArray();
             view.SetDocument(coldPages, 1);
             Pump(TimeSpan.FromMilliseconds(80));
-            Check(requests.Where(r => r.Priority == PdfRenderPriority.Background).Select(r => r.Page).Distinct().Count() == 2,
-                "Background profiling can limit prefetch without reducing visible-page resolution");
+            Check(requests.Where(r => r.Priority == PdfRenderPriority.Background).Select(r => r.Page).Distinct().Count() == 1,
+                "A configured prefetch count cannot bypass the nearest-page memory limit");
             view.PrefetchPageCount = 4;
             view.KeepPrefetchedNativePages = true;
             view.SetDocument(pages, 1);
             Pump(TimeSpan.FromMilliseconds(80));
             var hotPages = (IEnumerable<(string Path, int Index)>)typeof(PdfThumbnailService)
                 .GetField("_hotPages", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
-            Check(hotPages.Select(p => p.Index).Order().SequenceEqual(Enumerable.Range(0, 6)),
-                "Native retention experiment includes visible pages and all four prefetched pages");
+            Check(hotPages.Select(p => p.Index).Order().SequenceEqual(Enumerable.Range(0, 3)),
+                "Native retention includes visible pages and the nearest prefetched page");
             view.KeepPrefetchedNativePages = false;
             bool renderedDuringMotion = false;
             int scrollSteps = 0;

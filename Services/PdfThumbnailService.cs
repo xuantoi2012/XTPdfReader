@@ -277,6 +277,7 @@ namespace XTPdfMergeApp.Services
         /// FPDF_DestroyLibrary() phá huỷ.</summary>
         public static void PrepareForShutdown(TimeSpan timeout)
         {
+            AdaptiveMemoryController.Stop();
             _shuttingDown = true;
             var deadline = DateTime.UtcNow + timeout;
             while ((Volatile.Read(ref _inFlightPublicCalls) > 0 ||

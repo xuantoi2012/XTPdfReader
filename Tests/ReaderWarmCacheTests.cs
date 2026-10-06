@@ -325,8 +325,9 @@ internal static partial class Program
             view.PageRenderer = (_, _, _, _) => Task.FromResult<BitmapSource?>(full);
             var regionPage = new PagePlacement { SourcePath = source, PageNumber = 1, BaseWidth = 1200, AspectRatio = .4 };
             var otherPage = new PagePlacement { SourcePath = "other-warm-fixture.pdf", PageNumber = 1, BaseWidth = 1200, AspectRatio = .4 };
+            double regionZoom = ExperimentalMuPdfViewport.ThroughputMode ? 6 : 3;
             ContinuousPdfView.InvalidateCachedRegions((_, _) => true);
-            view.SetDocument(new[] { regionPage }, 3);
+            view.SetDocument(new[] { regionPage }, regionZoom);
             WaitRegion(regionPage);
             TryRenderedRegion(view, regionPage, out var original);
             long raster = RenderDiagnostics.RasterSlice.Count;
@@ -339,16 +340,16 @@ internal static partial class Program
             Pump(TimeSpan.FromMilliseconds(80));
             Check(view.MemoryStats.Regions == 0 && view.MemoryStats.RegionBytes == ContinuousPdfView.CachedRegionStats.Bytes,
                 "Diagnostics still account for retained crop storage after its document is unbound");
-            view.SetDocument(new[] { regionPage }, 3);
+            view.SetDocument(new[] { regionPage }, regionZoom);
             WaitRegion(regionPage);
             TryRenderedRegion(view, regionPage, out var returned);
             Check(ReferenceEquals(original, returned) && RenderDiagnostics.RasterSlice.Count == raster,
                 "Returning from another document restores its viewport region without native rasterization");
             view.SetDocument(new[] { otherPage }, 1);
-            ContinuousPdfView.InvalidateCachedRegions((path, page) => path == source && page == 1);
+            ContinuousPdfView.InvalidateCachedRegions((path, page) => string.Equals(path, source, StringComparison.OrdinalIgnoreCase) && page == 1);
             Check(ContinuousPdfView.CachedRegionStats.Count == 0,
                 "An inactive source edit can invalidate its viewport cache independently of the bound document");
-            view.SetDocument(new[] { regionPage }, 3);
+            view.SetDocument(new[] { regionPage }, regionZoom);
             WaitRegion(regionPage);
             TryRenderedRegion(view, regionPage, out var fresh);
             Check(!ReferenceEquals(original, fresh) && RenderDiagnostics.RasterSlice.Count > raster,
@@ -369,6 +370,14 @@ internal static partial class Program
         {
             var wait = Stopwatch.StartNew();
             while (!TryRenderedRegion(view, page, out _) && wait.Elapsed < TimeSpan.FromSeconds(5)) Pump(TimeSpan.FromMilliseconds(20));
+            if (!TryRenderedRegion(view, page, out _))
+            {
+                var states = (System.Collections.IDictionary)typeof(ContinuousPdfView).GetField("_states", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(view)!;
+                var state = states[page]!;
+                var regions = (System.Collections.IEnumerable)state.GetType().GetField("Regions")!.GetValue(state)!;
+                Console.WriteLine($"Region failure: zoom={view.Zoom}, state regions={view.MemoryStats.Regions}, exact={ContinuousPdfView.ExactRaster}");
+                foreach (var region in regions) Console.WriteLine(region!.GetType().GetProperty("Key")!.GetValue(region));
+            }
             Check(TryRenderedRegion(view, page, out _), "The sampled viewport region fully covers the page's visible area");
         }
     }

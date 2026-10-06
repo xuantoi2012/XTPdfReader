@@ -57,6 +57,32 @@ internal static class MemoryProbe
 
     [DllImport("kernel32.dll")] private static extern bool GlobalMemoryStatusEx(ref MemoryStatusEx status);
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PerformanceInformation
+    {
+        public uint Size;
+        public UIntPtr CommitTotal, CommitLimit, CommitPeak, PhysicalTotal, PhysicalAvailable,
+            SystemCache, KernelTotal, KernelPaged, KernelNonpaged, PageSize;
+        public uint HandleCount, ProcessCount, ThreadCount;
+    }
+    [DllImport("psapi.dll", SetLastError = true)]
+    private static extern bool GetPerformanceInfo(ref PerformanceInformation info, uint size);
+
+    internal static bool TrySampleSystemMemory(out SystemMemorySample sample)
+    {
+        sample = default;
+        if (!OperatingSystem.IsWindows()) return false;
+        var status = new MemoryStatusEx { Length = (uint)Marshal.SizeOf<MemoryStatusEx>() };
+        var info = new PerformanceInformation { Size = (uint)Marshal.SizeOf<PerformanceInformation>() };
+        if (!GlobalMemoryStatusEx(ref status) || !GetPerformanceInfo(ref info, info.Size)) return false;
+        long page = checked((long)info.PageSize.ToUInt64());
+        long limit = checked((long)info.CommitLimit.ToUInt64() * page);
+        long used = checked((long)info.CommitTotal.ToUInt64() * page);
+        sample = new(checked((long)status.TotalPhys), checked((long)status.AvailPhys), (int)status.MemoryLoad,
+            limit, Math.Max(0, limit - used), 0, 0);
+        return sample.IsValid;
+    }
+
     /// <summary>% RAM vật lý của máy đang dùng (0–100); 0 nếu không đọc được.</summary>
     public static int SystemMemoryLoadPercent()
     {

@@ -7,7 +7,7 @@ namespace XTPdfMergeApp.Services
 {
     /// <summary>
     /// "Ai đang mở file này": mỗi Reader đang mở 1 PDF ghi 1 file nhỏ ẩn cạnh PDF (".tên.xtopen.user@máy.pid") và cập nhật giờ ghi mỗi ~30 giây;
-    /// Reader khác trong cùng thư mục (kể cả thư mục mạng) đọc các file đó để biết có ai đang mở. Bật trong Settings (mặc định tắt vì ghi file phụ vào thư mục của PDF).
+    /// Reader khác trong cùng thư mục (kể cả thư mục mạng) đọc các file đó để biết có ai đang mở. Bật mặc định; có thể tắt trong Settings.
     /// </summary>
     internal static class XTPresence
     {

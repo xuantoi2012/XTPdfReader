@@ -13,7 +13,13 @@ internal sealed class BitmapMemoryCache<TKey> where TKey : notnull
     private readonly Dictionary<TKey, LinkedListNode<(TKey Key, BitmapSource Bitmap)>> _items = new();
     private readonly LinkedList<(TKey Key, BitmapSource Bitmap)> _lru = new();
     public BitmapMemoryCache(long budgetBytes) => BudgetBytes = budgetBytes;
-    public long BudgetBytes { get; }
+    public long BudgetBytes { get; private set; }
+    internal Func<BitmapSource, bool>? KeepImage { get; set; }
+    public void SetBudget(long bytes, Func<TKey, bool>? keep = null)
+    {
+        BudgetBytes = Math.Max(0, bytes);
+        Trim(keep);
+    }
     public long Bytes { get; private set; }
     public int Count => _items.Count;
     public IEnumerable<BitmapSource> Bitmaps => _lru.Select(entry => entry.Bitmap);
@@ -52,7 +58,7 @@ internal sealed class BitmapMemoryCache<TKey> where TKey : notnull
         Remove(key);
         // Oversized images can still be displayed by the caller without occupying the cache.
         long size = SizeOf(bitmap);
-        if (size > BudgetBytes && keep?.Invoke(key) != true) return;
+        if (size > BudgetBytes && keep?.Invoke(key) != true && KeepImage?.Invoke(bitmap) != true) return;
         _items.Add(key, _lru.AddLast((key, bitmap)));
         Bytes += size;
         Trim(keep);
@@ -66,7 +72,7 @@ internal sealed class BitmapMemoryCache<TKey> where TKey : notnull
         while (Bytes > BudgetBytes && node != null)
         {
             var next = node.Next;
-            if (keep?.Invoke(node.Value.Key) != true) Remove(node.Value.Key);
+            if (keep?.Invoke(node.Value.Key) != true && KeepImage?.Invoke(node.Value.Bitmap) != true) Remove(node.Value.Key);
             node = next;
         }
     }
@@ -74,7 +80,9 @@ internal sealed class BitmapMemoryCache<TKey> where TKey : notnull
     public void Remove(TKey key)
     {
         if (!_items.Remove(key, out var node)) return;
-        Bytes -= SizeOf(node.Value.Bitmap);
+        long size = SizeOf(node.Value.Bitmap);
+        Bytes -= size;
+        AdaptiveMemoryController.NoteReleasedBytes(size);
         _lru.Remove(node);
     }
 
@@ -83,5 +91,5 @@ internal sealed class BitmapMemoryCache<TKey> where TKey : notnull
         foreach (var key in _items.Keys.Where(predicate).ToArray()) Remove(key);
     }
 
-    public void Clear() { _items.Clear(); _lru.Clear(); Bytes = 0; }
+    public void Clear() { AdaptiveMemoryController.NoteReleasedBytes(Bytes); _items.Clear(); _lru.Clear(); Bytes = 0; }
 }

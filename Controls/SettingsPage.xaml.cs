@@ -37,6 +37,8 @@ namespace XTPdfMergeApp.Controls
                 ViewModeBox.SelectedIndex = AppSettings.ContinuousByDefault ? 0 : 1;
                 ZoomBox.SelectedIndex = (int)AppSettings.ZoomOnOpen;
                 DefaultToolBox.SelectedIndex = AppSettings.DefaultTool == "Select" ? 1 : 0;
+                PerformanceModeBox.SelectedIndex = (int)AppSettings.PerformanceMode;
+                RefreshPerformanceHint();
                 WarmBox.SelectedIndex = PdfThumbnailService.WarmFiles is >= 0 and <= 8 ? PdfThumbnailService.WarmFiles : AppSettings.WarmFiles;
                 PdfFactoryToggle.IsChecked = MergeAppSettingsStore.GetPdfFactoryViewEnabled();
                 PresenceToggle.IsChecked = AppSettings.ShowPresence;
@@ -115,6 +117,26 @@ namespace XTPdfMergeApp.Controls
         }
 
         // ── Performance & memory ──────────────────────────────────────
+
+        private void PerformanceMode_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loading || PerformanceModeBox.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
+            AppSettings.PerformanceMode = Enum.Parse<ReaderPerformanceMode>(tag);
+            RefreshPerformanceHint();
+        }
+
+        private void RefreshPerformanceHint()
+        {
+            PerformanceModeHint.Text = AppSettings.PerformanceMode switch
+            {
+                ReaderPerformanceMode.Balance => "Keeps more recent pages and preloads up to 2 pages ahead. Uses more memory to speed up revisits.",
+                ReaderPerformanceMode.Performance => "Preloads 3 pages ahead with a 1.25 GB image cache for faster revisits.",
+                ReaderPerformanceMode.Ultra => "Preloads 3 pages ahead with a 1.5 GB image cache and longer background retention.",
+                ReaderPerformanceMode.Maximum => "Keeps the largest cache and preloads up to 4 pages ahead. Best for powerful PCs; may use several GB of memory.",
+                _ => "Reclaims distant pages promptly and preloads 1 page ahead. Recommended for keeping memory usage low."
+            };
+            PerformanceModeHint.Text += " Applies while reading; all modes reduce memory use when Windows is low on memory.";
+        }
 
         private void Warm_Changed(object sender, SelectionChangedEventArgs e)
         {

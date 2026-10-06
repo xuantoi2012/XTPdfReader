@@ -131,6 +131,9 @@ namespace XTPdfMergeApp
             ScheduleRecovery();
             EnsureLoadProgressTimer();
             _lastPageByGroup[group] = row;
+            ReaderContinuousView.RetainTabPages(_lastPageByGroup.Values);
+            if (_presenceReported.ContainsKey(row.SourcePath)) UpdatePresenceStatus(row.SourcePath);
+            else { ReaderPresenceText.Visibility = Visibility.Collapsed; _ = PresenceTickAsync(); }
             ScheduleViewPositionSave(row);
             UpdateDocumentTabs(group);
             if (!ReferenceEquals(ReaderDocumentTabs.SelectedItem, group))
@@ -310,6 +313,8 @@ namespace XTPdfMergeApp
             UpdateDocumentTabs(_readerGroup);
             foreach (var removed in _lastPageByGroup.Keys.Where(g => !_groups.Contains(g)).ToList())
                 _lastPageByGroup.Remove(removed);
+            foreach (var removed in _tabViewPositions.Keys.Where(g => !_groups.Contains(g)).ToList()) _tabViewPositions.Remove(removed);
+            ReaderContinuousView.RetainTabPages(_lastPageByGroup.Values);
             if (_readerGroup == null || _groups.Contains(_readerGroup)) return;
             var next = _groups.FirstOrDefault(g => g.Pages.Count > 0);
             if (next == null)

@@ -20,6 +20,24 @@ internal sealed class ReaderPageRenderCache
     private readonly Dictionary<(string Path, int Page, int Width, string Layers), Request> _loads = new();
     private readonly Func<(string Path, int Page, int Width, string Layers), PdfRenderPriority, CancellationToken, Task<BitmapSource?>> _render;
     internal bool ReuseLargerImages { get; set; } = true;
+    internal long BudgetBytes { get { lock (_sync) return _images.BudgetBytes + _previews.BudgetBytes; } }
+    internal void ApplyMemoryBudget(long bytes, Func<(string Path, int Page, int Width, string Layers), bool> keep,
+        bool cancelBackground)
+    {
+        lock (_sync)
+        {
+            _images.KeepImage = AdaptiveMemoryController.IsProtectedImage;
+            _previews.KeepImage = AdaptiveMemoryController.IsProtectedImage;
+            if (AdaptiveMemoryController.HasRegisteredViews && (!ReaderPerformanceProfile.Current.RetainDistantImages || !AdaptiveMemoryController.AllowSpeculation))
+                _images.RemoveWhere(key => !keep(key));
+            long previews = Math.Min(PreviewBudgetBytes, bytes / 16);
+            _images.SetBudget(bytes - previews);
+            _previews.SetBudget(previews);
+            if (cancelBackground)
+                foreach (var (key, request) in _loads)
+                    if (request.Priority != PdfRenderPriority.Visible && !keep(key)) request.Cancellation.Cancel();
+        }
+    }
 
     private sealed class Request
     {

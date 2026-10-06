@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -22,11 +24,29 @@ internal static class ExperimentalMuPdfViewport
         internal readonly PdfRenderGate Scheduling = new();
         internal Process? Worker;
         internal long LastUse;
+        internal long LastMemoryTrim;
+        internal int Pending;
+        internal string? LastPath;
+        internal int LastPage;
     }
     private static readonly WorkerSlot[] Workers = { new(), new(), new(), new() };
     private readonly record struct RasterKey(string Path, long Modified, long Length, string Layers, bool Annotations, bool Alpha, int Page, int Width, int Height, Int32Rect Rect);
     private static readonly object CacheLock = new();
-    private static readonly BitmapMemoryCache<RasterKey> Cache = new((BalancedMode ? 768L : 2048L) * 1024 * 1024);
+    private static long _rasterGeneration;
+    internal static void InvalidateRasterCache(Func<string, int, bool> match)
+    {
+        lock (CacheLock)
+        {
+            _rasterGeneration++;
+            Cache.RemoveWhere(key => match(key.Path, key.Page + 1));
+        }
+    }
+    private static readonly BitmapMemoryCache<RasterKey> Cache = new((BalancedMode ? 192L : 2048L) * 1024 * 1024);
+    private static readonly RenderMemoryBudget RasterBudget = new(192 * AdaptiveMemoryPolicy.MiB);
+    private static readonly ConcurrentDictionary<(string Path, int Page), double> PageAspects = new();
+    internal static (long Used, long Peak) RasterMemoryStats => RasterBudget.Stats;
+    private static long _recycledWorkers;
+    internal static long RecycledWorkerCount => Interlocked.Read(ref _recycledWorkers);
 #if MUPDF_ONLY
     internal static bool BalancedMode => true;
     internal static bool ThroughputMode => true;
@@ -50,6 +70,28 @@ internal static class ExperimentalMuPdfViewport
     internal static (int Count, long Bytes) CacheStats
     {
         get { lock (CacheLock) return (Cache.Count, Cache.Bytes); }
+    }
+    internal static int RunningBackgroundWorkerCount
+    {
+        get
+        {
+            int count = 0;
+            for (int index = 2; index < Workers.Length; index++)
+                try { if (Workers[index].Worker is { HasExited: false }) count++; }
+                catch (InvalidOperationException) { }
+            return count;
+        }
+    }
+    internal static long CurrentCacheBudget { get { lock (CacheLock) return Cache.BudgetBytes; } }
+    internal static void ApplyMemoryBudget(long bytes)
+    {
+        lock (CacheLock)
+        {
+            Cache.KeepImage = AdaptiveMemoryController.IsProtectedImage;
+            if (AdaptiveMemoryController.HasRegisteredViews && (!ReaderPerformanceProfile.Current.RetainDistantImages || !AdaptiveMemoryController.AllowSpeculation))
+                Cache.RemoveWhere(key => !AdaptiveMemoryController.IsProtected(key.Path, key.Page + 1));
+            Cache.SetBudget(bytes);
+        }
     }
     private static volatile bool _failed;
     private static readonly Timer IdleTimer = new(_ => TrimIdle(), null, 10000, 10000);
@@ -87,17 +129,19 @@ internal static class ExperimentalMuPdfViewport
             return new Dictionary<string, string>();
         }
     }
-    internal static double WorkerPrivateMiB
+    internal static double WorkerPrivateMiB => WorkerPrivateBytes / 1048576d;
+    internal static long WorkerPrivateBytes
     {
         get
         {
-            double total = 0;
+            long total = 0;
             foreach (var slot in Workers)
             {
                 var worker = slot.Worker;
                 if (worker == null) continue;
-                try { worker.Refresh(); total += worker.PrivateMemorySize64 / 1048576d; }
+                try { worker.Refresh(); total += worker.PrivateMemorySize64; }
                 catch (InvalidOperationException) { }
+                catch (System.ComponentModel.Win32Exception) { }
             }
             return total;
         }
@@ -150,6 +194,8 @@ internal static class ExperimentalMuPdfViewport
         string normalized = identity.Path;
         long modified = identity.Modified;
         long fileLength = identity.Length;
+        long rasterGeneration;
+        lock (CacheLock) rasterGeneration = _rasterGeneration;
         string layers = PdfLayerStateStore.GetToken(path);
         RasterKey Key(Int32Rect rect) => new(normalized, modified, fileLength, layers, withAnnotations, alpha, page, fullWidth, fullHeight, rect);
         if (ThroughputMode)
@@ -165,19 +211,15 @@ internal static class ExperimentalMuPdfViewport
         }
         // Reserve two independent processes for visible work. Speculation cannot
         // occupy them; two background lanes can prepare separate pages concurrently.
-        var slot = Workers[ThroughputMode ? (priority == PdfRenderPriority.Visible ? 0 : 2) + (page & 1) : 0];
-        var Gate = slot.Gate;
-        var Scheduling = slot.Scheduling;
-        await Scheduling.WaitAsync(priority, token).ConfigureAwait(false);
-        try { await Gate.WaitAsync(token).ConfigureAwait(false); }
-        catch { Scheduling.Release(); throw; }
+        int parity = priority == PdfRenderPriority.Visible || AdaptiveMemoryController.BackgroundLanes == 2 ? page & 1 : 0;
+        var slot = Workers[ThroughputMode ? (priority == PdfRenderPriority.Visible ? 0 : 2) + parity : 0];
+        await EnterSlotAsync(slot, priority, token).ConfigureAwait(false);
         bool replyDrained = true;
         try
         {
             token.ThrowIfCancellationRequested();
             if (PdfThumbnailService.IsDocumentSuspended(path))
                 return new List<BitmapSource?>(new BitmapSource?[rectangles.Count]);
-            var _worker = StartWorker(slot);
             var results = new List<BitmapSource?>();
             foreach (var rect in rectangles)
             {
@@ -190,6 +232,14 @@ internal static class ExperimentalMuPdfViewport
                         if (Cache.TryGetValue(Key(rect), out var cached)) { results.Add(cached); continue; }
                     }
                 }
+                double aspect = PageAspects.TryGetValue((normalized, page), out var ratio) ? ratio : 1.5;
+                long heightEstimate = fullHeight == 0 ? Math.Max(1, (long)Math.Ceiling(fullWidth * aspect)) : rect.Height;
+                long widthEstimate = fullHeight == 0 ? fullWidth : rect.Width;
+                RasterBudget.SetCapacity(AdaptiveMemoryController.State == MemoryPressureState.Normal ? ReaderPerformanceProfile.Current.RasterLimit : 192 * AdaptiveMemoryPolicy.MiB);
+                using var reservation = await RasterBudget.AcquireAsync(checked(widthEstimate * heightEstimate * (alpha ? 4 : 3) * 4), priority, token).ConfigureAwait(false);
+                RecycleColdWorker(slot, normalized, page);
+                var _worker = StartWorker(slot);
+                slot.LastPath = normalized; slot.LastPage = page;
                 var watch = Stopwatch.StartNew();
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 string request = JsonSerializer.Serialize(new
@@ -201,6 +251,8 @@ internal static class ExperimentalMuPdfViewport
                     annotations = withAnnotations,
                     alpha,
                     password = PdfThumbnailService.TryGetDocumentPassword(path),
+                    memoryState = (int)AdaptiveMemoryController.State,
+                    nativeListLimit = ReaderPerformanceProfile.Current.NativeLists,
                     hidden = PdfLayerStateStore.GetHiddenOverride(path, out _),
                     rect = new[] { rect.X, rect.Y, rect.Width, rect.Height }
                 });
@@ -225,7 +277,9 @@ internal static class ExperimentalMuPdfViewport
                     return new List<BitmapSource?>(new BitmapSource?[rectangles.Count]);
                 var bitmap = BitmapSource.Create(width, height, 96, 96, alpha ? PixelFormats.Pbgra32 : PixelFormats.Rgb24, null, pixels, stride);
                 bitmap.Freeze();
-                if (ThroughputMode) lock (CacheLock) Cache.Set(Key(rect), bitmap);
+                RenderDiagnostics.RasterSlice.AddMilliseconds(root.GetProperty("renderMs").GetDouble());
+                if (ThroughputMode) lock (CacheLock)
+                    if (rasterGeneration == _rasterGeneration) Cache.Set(Key(rect), bitmap);
                 results.Add(bitmap);
                 Debug.WriteLine($"[MuPDF viewport] total={watch.Elapsed.TotalMilliseconds:F1}ms prepare={root.GetProperty("prepareMs").GetDouble():F1}ms render={root.GetProperty("renderMs").GetDouble():F1}ms");
             }
@@ -237,7 +291,7 @@ internal static class ExperimentalMuPdfViewport
             throw;
         }
         catch { if (!ThroughputMode) _failed = true; Stop(slot); throw; }
-        finally { slot.LastUse = Stopwatch.GetTimestamp(); Gate.Release(); Scheduling.Release(); }
+        finally { LeaveSlot(slot); }
     }
 
     private static Process StartWorker(WorkerSlot slot)
@@ -266,7 +320,7 @@ internal static class ExperimentalMuPdfViewport
         if (BalancedMode)
         {
             info.Environment["XTPDF_MUPDF_NO_RASTER_CACHE"] = "1";
-            info.Environment["XTPDF_MUPDF_LISTS"] = "8";
+            info.Environment["XTPDF_MUPDF_LISTS"] = "4";
             info.Environment["XTPDF_MUPDF_DOCUMENTS"] = "2";
         }
         var _worker = Process.Start(info) ?? throw new InvalidOperationException("Worker did not start");
@@ -279,10 +333,8 @@ internal static class ExperimentalMuPdfViewport
     internal static async Task<JsonElement> CommandAsync(string path, string op, int page = 0,
         object? data = null, CancellationToken token = default, int? workerIndex = null)
     {
-        var slot = Workers[workerIndex ?? (ThroughputMode ? 2 + (page & 1) : 0)];
-        await slot.Scheduling.WaitAsync(PdfRenderPriority.Background, token).ConfigureAwait(false);
-        try { await slot.Gate.WaitAsync(token).ConfigureAwait(false); }
-        catch { slot.Scheduling.Release(); throw; }
+        var slot = Workers[workerIndex ?? (ThroughputMode ? 2 + (AdaptiveMemoryController.BackgroundLanes == 2 ? page & 1 : 0) : 0)];
+        await EnterSlotAsync(slot, PdfRenderPriority.Background, token).ConfigureAwait(false);
         bool replyDrained = true;
         try
         {
@@ -297,6 +349,7 @@ internal static class ExperimentalMuPdfViewport
                 op,
                 page,
                 data,
+                memoryState = (int)AdaptiveMemoryController.State,
                 password = string.IsNullOrEmpty(path) ? null : PdfThumbnailService.TryGetDocumentPassword(path)
             });
             replyDrained = false;
@@ -307,6 +360,11 @@ internal static class ExperimentalMuPdfViewport
             replyDrained = true;
             token.ThrowIfCancellationRequested();
             if (reply.RootElement.TryGetProperty("error", out var error)) throw new InvalidOperationException(error.GetString());
+            if (op == "metadata" && reply.RootElement.TryGetProperty("sizes", out var sizes))
+            {
+                string normalized = Path.GetFullPath(path).ToUpperInvariant(); int index = 0;
+                foreach (var size in sizes.EnumerateArray()) PageAspects[(normalized, index++)] = size[1].GetDouble() / size[0].GetDouble();
+            }
             return reply.RootElement.Clone();
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -316,7 +374,26 @@ internal static class ExperimentalMuPdfViewport
         }
         catch (OperationCanceledException) when (replyDrained) { throw; }
         catch { Stop(slot); throw; }
-        finally { slot.LastUse = Stopwatch.GetTimestamp(); slot.Gate.Release(); slot.Scheduling.Release(); }
+        finally { LeaveSlot(slot); }
+    }
+
+    private static async Task EnterSlotAsync(WorkerSlot slot, PdfRenderPriority priority, CancellationToken token)
+    {
+        Interlocked.Increment(ref slot.Pending);
+        try
+        {
+            await slot.Scheduling.WaitAsync(priority, token).ConfigureAwait(false);
+            try { await slot.Gate.WaitAsync(token).ConfigureAwait(false); }
+            catch { slot.Scheduling.Release(); throw; }
+        }
+        catch { Interlocked.Decrement(ref slot.Pending); throw; }
+    }
+
+    private static void LeaveSlot(WorkerSlot slot)
+    {
+        slot.LastUse = Stopwatch.GetTimestamp();
+        slot.Gate.Release(); slot.Scheduling.Release();
+        Interlocked.Decrement(ref slot.Pending);
     }
 
     internal static async Task RetireAsync(string path)
@@ -338,11 +415,13 @@ internal static class ExperimentalMuPdfViewport
             finally { slot.Gate.Release(); }
         }
         lock (CacheLock) Cache.RemoveWhere(k => k.Path == normalized);
+        foreach (var key in PageAspects.Keys.Where(k => k.Path == normalized)) PageAspects.TryRemove(key, out _);
     }
 
     internal static async Task ReleaseUnusedAsync(IReadOnlySet<string> active)
     {
         lock (CacheLock) Cache.RemoveWhere(k => !active.Contains(k.Path));
+        foreach (var key in PageAspects.Keys.Where(k => !active.Contains(k.Path))) PageAspects.TryRemove(key, out _);
         foreach (var slot in Workers)
         {
             await slot.Gate.WaitAsync().ConfigureAwait(false);
@@ -378,8 +457,37 @@ internal static class ExperimentalMuPdfViewport
         for (int index = 0; index < Workers.Length; index++)
         {
             var slot = Workers[index];
-            if (!slot.Gate.Wait(0)) continue;
-            try { if (Stopwatch.GetElapsedTime(slot.LastUse).TotalSeconds > (BalancedMode && index >= 2 ? 120 : ThroughputMode ? 1800 : 60)) Stop(slot); }
+            if (Volatile.Read(ref slot.Pending) != 0 || !slot.Gate.Wait(0)) continue;
+            try { if (Volatile.Read(ref slot.Pending) == 0 && Stopwatch.GetElapsedTime(slot.LastUse).TotalSeconds > (BalancedMode && index >= 2 ? 120 : ThroughputMode ? 1800 : 60)) Stop(slot); }
+            finally { slot.Gate.Release(); }
+        }
+    }
+
+    // Never starts a worker or interrupts an active request. All IPC replies are drained under its gate.
+    internal static async Task TrimMemoryAsync(MemoryPressureState pressure, CancellationToken token = default)
+    {
+        if (!BalancedMode) return;
+        for (int index = 0; index < Workers.Length; index++)
+        {
+            token.ThrowIfCancellationRequested();
+            var slot = Workers[index];
+            if (Volatile.Read(ref slot.Pending) != 0 || !slot.Gate.Wait(0)) continue;
+            try
+            {
+                if (Volatile.Read(ref slot.Pending) != 0 || slot.Worker is not { HasExited: false } worker || Stopwatch.GetElapsedTime(slot.LastUse).TotalSeconds < 2) continue;
+                if (index >= 2 && Stopwatch.GetElapsedTime(slot.LastUse).TotalSeconds >= (pressure == MemoryPressureState.Normal ? ReaderPerformanceProfile.Current.BackgroundIdleSeconds : 10))
+                { Stop(slot); continue; }
+                if (Stopwatch.GetElapsedTime(slot.LastMemoryTrim).TotalSeconds < 10) continue;
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var pages = AdaptiveMemoryController.NativeProtectedPages().Select(p => new { path = p.Path, page = p.Page - 1 }).ToArray();
+                await worker.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new
+                    { path = "", op = "memory", memoryState = (int)pressure, data = pages }).AsMemory(), timeout.Token).ConfigureAwait(false);
+                await worker.StandardInput.FlushAsync(timeout.Token).ConfigureAwait(false);
+                using var reply = JsonDocument.Parse(await ReadHeaderAsync(worker.StandardOutput.BaseStream, timeout.Token).ConfigureAwait(false));
+                if (!reply.RootElement.TryGetProperty("ok", out _)) Stop(slot);
+                slot.LastMemoryTrim = Stopwatch.GetTimestamp();
+            }
+            catch (Exception ex) { Debug.WriteLine($"MuPDF memory trim failed: {ex.Message}"); Stop(slot); }
             finally { slot.Gate.Release(); }
         }
     }
@@ -392,6 +500,42 @@ internal static class ExperimentalMuPdfViewport
         catch (InvalidOperationException) { }
         catch (System.ComponentModel.Win32Exception) { }
         finally { worker.Dispose(); }
+    }
+
+    // Lane gate is held: recycle only an oversized context no longer backing the viewport.
+    private static void RecycleColdWorker(WorkerSlot slot, string path, int page)
+    {
+        if (slot.Worker is not { HasExited: false } worker || slot.LastPath == null ||
+            (slot.LastPath == path && slot.LastPage == page) ||
+            AdaptiveMemoryController.IsNativeProtected(slot.LastPath, slot.LastPage + 1)) return;
+        try
+        {
+            worker.Refresh();
+            if (worker.PrivateMemorySize64 < (AdaptiveMemoryController.State == MemoryPressureState.Normal ? ReaderPerformanceProfile.Current.WorkerRecycleLimit : 320 * AdaptiveMemoryPolicy.MiB)) return;
+            Stop(slot); Interlocked.Increment(ref _recycledWorkers);
+        }
+        catch (InvalidOperationException) { }
+        catch (System.ComponentModel.Win32Exception) { }
+    }
+
+    // Experiment/idle-policy primitive: keeps displayed bitmaps and never waits for a busy IPC lane.
+    internal static int RetireIdleWorkers(int retainedForeground, double minimumIdleSeconds)
+    {
+        if (retainedForeground < -1 || retainedForeground > 1) throw new ArgumentOutOfRangeException(nameof(retainedForeground));
+        int retired = 0;
+        for (int index = 0; index < Workers.Length; index++)
+        {
+            if (index == retainedForeground) continue;
+            var slot = Workers[index];
+            if (Volatile.Read(ref slot.Pending) != 0 || !slot.Gate.Wait(0)) continue;
+            try
+            {
+                if (Volatile.Read(ref slot.Pending) != 0 || slot.Worker == null || Stopwatch.GetElapsedTime(slot.LastUse).TotalSeconds < minimumIdleSeconds) continue;
+                Stop(slot); retired++;
+            }
+            finally { slot.Gate.Release(); }
+        }
+        return retired;
     }
 
     internal static void Shutdown()
