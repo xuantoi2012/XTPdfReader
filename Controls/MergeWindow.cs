@@ -16,6 +16,7 @@ internal sealed class MergeWindow : XTWindow
     private readonly XTButton _redoButton;
 
     public MergeView View { get; } = new();
+    internal bool IsShowing => IsVisible;
 
     public MergeWindow()
     {

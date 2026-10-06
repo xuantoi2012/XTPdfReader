@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -61,6 +63,7 @@ namespace XTPdfMergeApp.Controls
 
         internal event Action? DoneRequested;
         internal event Action? OpenFileRequested;
+        internal event Action<string>? ViewTemporaryRequested;
         internal event EventHandler? HistoryStateChanged;
 
         internal bool CanUndo => _draft?.History.CanUndo == true;
@@ -101,6 +104,17 @@ namespace XTPdfMergeApp.Controls
             entry.Minimized = false;
             entry.LastActive = ++_tick;
             Relayout();
+            HistoryStateChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        internal async Task ImportIncomingPdfAsync(string path)
+        {
+            if (_draft == null) BeginSession(Array.Empty<DocumentGroup>());
+            if (!File.Exists(path) || _draft == null) return;
+            var result = await PdfThumbnailService.TryGetPageCountAsync(path).ConfigureAwait(true);
+            if (result.Failure != PdfOpenFailure.None || result.PageCount <= 0) return;
+            var group = _draft.AddIncomingPdf(path, result.PageCount);
+            Sync();
             HistoryStateChanged?.Invoke(this, EventArgs.Empty);
         }
 
@@ -407,6 +421,8 @@ namespace XTPdfMergeApp.Controls
                     Sync();
                     ShowGroup(group);
                 }));
+                hoverActions.Children.Add(CreateChipActionButton("Ui.Icon.eye", "View in Reader", () =>
+                    ViewTemporaryRequested?.Invoke(group.SourcePath)));
                 if (canReturn)
                 {
                     hoverActions.Children.Add(CreateChipActionButton("Ui.Icon.undo", "Return pages to their source file", () =>

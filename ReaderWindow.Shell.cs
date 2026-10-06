@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using XTPdfMergeApp.Services;
@@ -669,7 +671,23 @@ namespace XTPdfMergeApp
                 if (EditHost != null) await EditHost.OpenFilesAsync();
                 view.BeginSession(_groups);
             };
+            view.ViewTemporaryRequested += async path =>
+            {
+                await Session.OpenFilesInReaderAsync(new[] { path });
+                if (_groups.FirstOrDefault(g => string.Equals(g.SourcePath, path, StringComparison.OrdinalIgnoreCase)) is { } group)
+                    ShowGroup(group);
+            };
             return _mergeWindow = window;
+        }
+
+        internal void ReceiveIncomingPdfs(IEnumerable<string> paths)
+        {
+            var incoming = paths.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            if (incoming.Length == 0) return;
+            var window = EnsureMergeWindow();
+            if (!window.IsVisible) window.Show();
+            _ = Task.WhenAll(incoming.Select(window.View.ImportIncomingPdfAsync));
+            window.Activate();
         }
 
         private void InitializeMerge()

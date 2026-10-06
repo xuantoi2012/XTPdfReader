@@ -89,6 +89,19 @@ internal sealed class MergeDraftSession
     internal WorkspaceDocument CreateWindowDocument()
         => CreateDocument(temporary: false);
 
+    internal WorkspaceDocument AddIncomingPdf(string path, int pageCount)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var document = new WorkspaceDocument { SourcePath = fullPath };
+        _workspace.Execute(new AddDocumentCommand(_workspace, document));
+        _temporaryDocumentIds.Add(document.DocumentId);
+        document.SetDisplayName(Path.GetFileNameWithoutExtension(fullPath));
+        for (int page = 1; page <= pageCount; page++)
+            document.Pages.Add(_workspace.CreatePlacement(document.SourcePath, page));
+        document.SetBaseline();
+        return document;
+    }
+
     internal void PromoteTemporaryDocument(WorkspaceDocument document)
         => _temporaryDocumentIds.Remove(document.DocumentId);
 

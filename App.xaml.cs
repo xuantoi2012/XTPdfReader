@@ -151,8 +151,7 @@ namespace XTPdfMergeApp
                         if (paths.Count > 0)
                             Dispatcher.Invoke(() =>
                             {
-                                if (_reader != null) _ = _reader.Session.OpenFilesInReaderAsync(paths);
-                                _reader?.Activate(); // đưa lên trước cho user thấy, KHÔNG đổi WindowState/kích thước hiện có
+                                _reader?.ReceiveIncomingPdfs(paths);
                             });
                     }
                     catch { await Task.Delay(500); }
