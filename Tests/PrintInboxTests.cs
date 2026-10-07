@@ -299,16 +299,11 @@ internal static partial class Program
             Check(shapeBar.Margin.Left == 14 && shapeBar.Margin.Top == 14, "With nothing selected the bar sits at the top-left as the tool default");
             shapeBar.Visibility = Visibility.Collapsed;
 
-            // arming the Callout tool shows the text bar with the extra callout row (line, arrow head, fill, border)
+            // arming a tool shows no bar (it appears once there is a box to edit): see TestBarsAndTypewriterFlow
             var toolType = typeof(ReaderWindow).GetNestedType("ReaderTool", flags)!;
             typeof(ReaderWindow).GetMethod("SetReaderTool", flags)!.Invoke(reader, new[] { Enum.Parse(toolType, "Callout") });
             reader.UpdateLayout();
-            var textBar = (Border)reader.FindName("TextFormatBar");
-            var calloutRow = (FrameworkElement)reader.FindName("CalloutRow");
-            Check(textBar.Visibility == Visibility.Visible && calloutRow.Visibility == Visibility.Visible, "The Callout tool shows the format bar with the callout row");
-            typeof(ReaderWindow).GetMethod("SetReaderTool", flags)!.Invoke(reader, new[] { Enum.Parse(toolType, "Typewriter") });
-            reader.UpdateLayout();
-            Check(textBar.Visibility == Visibility.Visible && calloutRow.Visibility == Visibility.Collapsed, "The Typewriter tool hides the callout row");
+            Check(((Border)reader.FindName("TextFormatBar")).Visibility == Visibility.Collapsed, "Arming the Callout tool does not pop the format bar");
             typeof(ReaderWindow).GetMethod("SetReaderTool", flags)!.Invoke(reader, new[] { Enum.Parse(toolType, "Hand") });
         }
         finally { reader.Close(); Application.Current.MainWindow = priorOwner; }

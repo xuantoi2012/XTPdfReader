@@ -117,6 +117,7 @@ namespace XTPdfMergeApp
                 U1 = spec.U1, V1 = spec.V1, U2 = spec.U2, V2 = spec.V2
             };
             Controls.AnnotationLayer.Edit.HiddenName = spec.Name;
+            HoldDragCursor(grip.Tag is "NW" or "SE" ? Cursors.SizeNWSE : grip.Tag is "NE" or "SW" ? Cursors.SizeNESW : grip.Tag is "N" or "S" ? Cursors.SizeNS : Cursors.SizeWE);
             ReaderContentHost.CaptureMouse();
             ReaderContinuousView.Redraw();
         }
@@ -145,6 +146,7 @@ namespace XTPdfMergeApp
             HideShapePreview();
             Controls.AnnotationLayer.Edit.HiddenName = null;
             if (ReaderContentHost.IsMouseCaptured) ReaderContentHost.ReleaseMouseCapture();
+            ApplyToolCursor();
 
             var s = drag.Spec;
             if (Math.Abs(drag.U1 - s.U1) > 1e-9 || Math.Abs(drag.V1 - s.V1) > 1e-9 || Math.Abs(drag.U2 - s.U2) > 1e-9 || Math.Abs(drag.V2 - s.V2) > 1e-9)
@@ -195,6 +197,7 @@ namespace XTPdfMergeApp
             bool draggingTail = (string)grip.Tag == "LineA";
             var fixedLocal = draggingTail ? corners[3 - style.Corner] : corners[style.Corner]; // the endpoint that stays put
 
+            HoldDragCursor(Cursors.Cross);
             _lineResizeDrag = new LineResizeDrag
             {
                 Row = row, Spec = spec, Style = style, DraggingTail = draggingTail,
@@ -241,6 +244,7 @@ namespace XTPdfMergeApp
             HideShapePreview();
             Controls.AnnotationLayer.Edit.HiddenName = null;
             if (ReaderContentHost.IsMouseCaptured) ReaderContentHost.ReleaseMouseCapture();
+            ApplyToolCursor();
 
             var s = drag.Spec;
             var newStyle = drag.Style with { Corner = drag.Corner };

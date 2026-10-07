@@ -62,6 +62,14 @@ namespace XTPdfMergeApp.Controls
                 double du = 0, dv = 0;
                 if (live && Edit.IsMoving(spec.Name)) { du = Edit.MoveDU; dv = Edit.MoveDV; }
 
+                // The note icon is drawn here as vector art, not from a rendered PDF appearance: MuPDF places sticky-note (Text) annotations wrongly
+                // on rotated pages (a landscape CAD sheet is usually a portrait page with /Rotate 90/270), which left the icon blank on real drawings.
+                if (spec.Kind == QuickAnnotationKind.Comment)
+                {
+                    DrawNoteIcon(dc, spec, page, du, dv);
+                    continue;
+                }
+
                 var image = AnnotationAppearance.Get(row.SourcePath, row.PageNumber, spec, geometry, ppp);
                 if (image == null) continue;
                 double u = spec.U1 + du, v = spec.V1 + dv;
@@ -70,6 +78,38 @@ namespace XTPdfMergeApp.Controls
                 dc.DrawImage(image.Bitmap, rect);
             }
             dc.Pop();
+        }
+
+        // ── Note icon (speech bubble) ─────────────────────────────────
+
+        private static readonly Brush NoteFill = Freeze(new SolidColorBrush(Color.FromRgb(0xFF, 0xD1, 0x33)));
+        private static readonly Brush NoteResolvedFill = Freeze(new SolidColorBrush(Color.FromRgb(0xC9, 0xCD, 0xD3)));
+        private static readonly Brush NoteInk = Freeze(new SolidColorBrush(Color.FromRgb(0x73, 0x54, 0x00)));
+        private static T Freeze<T>(T freezable) where T : Freezable { freezable.Freeze(); return freezable; }
+
+        /// <summary>Speech bubble with three text lines in the annotation's rectangle (a fixed size on the page, so it scales with the zoom).</summary>
+        private static void DrawNoteIcon(DrawingContext dc, QuickAnnotationSpec spec, Rect page, double du, double dv)
+        {
+            double x = page.X + (spec.U1 + du) * page.Width, y = page.Y + (spec.V1 + dv) * page.Height;
+            double size = Math.Max(6, Math.Max((spec.U2 - spec.U1) * page.Width, (spec.V2 - spec.V1) * page.Height));
+            double k = size / 20.0; // the artwork is drawn on a 20 x 20 grid
+            var pen = new Pen(NoteInk, Math.Max(0.75, k)) { LineJoin = PenLineJoin.Round };
+            var body = new StreamGeometry();
+            using (var ctx = body.Open())
+            {
+                ctx.BeginFigure(new Point(x + 2 * k, y + 2 * k), true, true);
+                ctx.LineTo(new Point(x + 18 * k, y + 2 * k), true, false);
+                ctx.LineTo(new Point(x + 18 * k, y + 14 * k), true, false);
+                ctx.LineTo(new Point(x + 9 * k, y + 14 * k), true, false);
+                ctx.LineTo(new Point(x + 5 * k, y + 18 * k), true, false);
+                ctx.LineTo(new Point(x + 6 * k, y + 14 * k), true, false);
+                ctx.LineTo(new Point(x + 2 * k, y + 14 * k), true, false);
+            }
+            body.Freeze();
+            dc.DrawGeometry(spec.Resolved ? NoteResolvedFill : NoteFill, pen, body);
+            var linePen = new Pen(NoteInk, Math.Max(0.75, 1.2 * k)) { StartLineCap = PenLineCap.Flat, EndLineCap = PenLineCap.Flat };
+            foreach (double offset in new[] { 5.5, 8.5, 11.5 })
+                dc.DrawLine(linePen, new Point(x + 5 * k, y + offset * k), new Point(x + 15 * k, y + offset * k));
         }
 
         // ── Highlights: multiply into the page pixels ─────────────────

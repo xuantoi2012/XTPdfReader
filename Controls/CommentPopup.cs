@@ -321,35 +321,61 @@ namespace XTPdfMergeApp.Controls
 
         // ── Mở ────────────────────────────────────────────────────────
 
-        private static T Place<T>(T popup, Window owner, Point screenPoint) where T : Window
+        /// <summary>
+        /// Opens the card beside <paramref name="devicePoint"/> = the clicked point in screen DEVICE pixels, on the monitor that point is on.
+        /// (It used to be placed in DIPs and clamped to the primary monitor's work area, so with the window dragged to the other screen the card
+        /// jumped back to the primary one.)
+        /// </summary>
+        private static T Place<T>(T popup, Window owner, Point devicePoint) where T : Window
         {
             popup.Owner = owner;
-            popup.Left = screenPoint.X + 12;
-            popup.Top = screenPoint.Y + 12;
-            popup.ContentRendered += (_, _) => Clamp(popup);
-            popup.SizeChanged += (_, _) => Clamp(popup);
+            popup.WindowStartupLocation = WindowStartupLocation.Manual;
+            popup.SourceInitialized += (_, _) => MoveNear(popup, devicePoint);
+            popup.ContentRendered += (_, _) => MoveNear(popup, devicePoint);
+            popup.SizeChanged += (_, _) => MoveNear(popup, devicePoint);
             popup.Show();
             return popup;
         }
 
-        private static void Clamp(Window popup)
+        private static void MoveNear(Window popup, Point devicePoint)
         {
-            var area = SystemParameters.WorkArea;
-            if (popup.Left + popup.ActualWidth > area.Right) popup.Left = Math.Max(area.Left, area.Right - popup.ActualWidth);
-            if (popup.Top + popup.ActualHeight > area.Bottom) popup.Top = Math.Max(area.Top, area.Bottom - popup.ActualHeight);
+            IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(popup).Handle;
+            if (hwnd == IntPtr.Zero || !NativeWindow.GetWindowRect(hwnd, out var rect)) return;
+            int width = rect.Right - rect.Left, height = rect.Bottom - rect.Top;
+            double k = VisualTreeHelper.GetDpi(popup).DpiScaleX;
+            int x = (int)Math.Round(devicePoint.X + 12 * k), y = (int)Math.Round(devicePoint.Y + 12 * k);
+            var monitor = NativeWindow.MonitorFromPoint(new NativeWindow.POINT { X = (int)devicePoint.X, Y = (int)devicePoint.Y }, 2 /* nearest */);
+            var info = new NativeWindow.MONITORINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<NativeWindow.MONITORINFO>() };
+            if (monitor != IntPtr.Zero && NativeWindow.GetMonitorInfo(monitor, ref info))
+            {
+                x = Math.Max(info.rcWork.Left, Math.Min(x, info.rcWork.Right - width));
+                y = Math.Max(info.rcWork.Top, Math.Min(y, info.rcWork.Bottom - height));
+            }
+            if (x != rect.Left || y != rect.Top) NativeWindow.SetWindowPos(hwnd, IntPtr.Zero, x, y, 0, 0, 0x0001 | 0x0004 | 0x0010); // no size, no z-order, no activate
+        }
+
+        private static class NativeWindow
+        {
+            [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)] internal struct POINT { public int X, Y; }
+            [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)] internal struct RECT { public int Left, Top, Right, Bottom; }
+            [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)] internal struct MONITORINFO { public int cbSize; public RECT rcMonitor, rcWork; public int dwFlags; }
+            [System.Runtime.InteropServices.DllImport("user32.dll")] [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] internal static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+            [System.Runtime.InteropServices.DllImport("user32.dll")] internal static extern IntPtr MonitorFromPoint(POINT point, uint flags);
+            [System.Runtime.InteropServices.DllImport("user32.dll")] [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] internal static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
+            [System.Runtime.InteropServices.DllImport("user32.dll")] [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] internal static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
         }
 
         /// <summary>Mở luồng có sẵn cạnh điểm bấm (toạ độ màn hình), kẹp trong biên màn hình.</summary>
-        public static CommentPopup Show(Window owner, Point screenPoint, CommentInfo root, IReadOnlyList<CommentInfo> replies, bool focusReply = false)
+        public static CommentPopup Show(Window owner, Point devicePoint, CommentInfo root, IReadOnlyList<CommentInfo> replies, bool focusReply = false)
         {
-            var popup = Place(new CommentPopup(root, replies), owner, screenPoint);
+            var popup = Place(new CommentPopup(root, replies), owner, devicePoint);
             if (focusReply)
                 popup.Dispatcher.BeginInvoke(() => popup._replyBox?.Focus(), System.Windows.Threading.DispatcherPriority.Input);
             return popup;
         }
 
         /// <summary>Mở thẻ soạn ghi chú mới cạnh điểm bấm.</summary>
-        public static CommentPopup Compose(Window owner, Point screenPoint, string author)
-            => Place(new CommentPopup(author), owner, screenPoint);
+        public static CommentPopup Compose(Window owner, Point devicePoint, string author)
+            => Place(new CommentPopup(author), owner, devicePoint);
     }
 }

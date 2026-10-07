@@ -49,7 +49,10 @@ namespace XTPdfMergeApp
             while (node != null)
             {
                 if (ReferenceEquals(node, ancestor)) return true;
-                node = node is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node);
+                // The list of a ComboBox lives in a Popup (its own window, no visual parent): follow it back to the ComboBox, otherwise a click on
+                // "6 pt" / a font name in a property bar looks like a click on the page, deselects the annotation and nothing changes.
+                node = node is FrameworkElement { Parent: System.Windows.Controls.Primitives.Popup popup } ? popup
+                    : node is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node);
             }
             return false;
         }
@@ -173,6 +176,7 @@ namespace XTPdfMergeApp
             if (_annMove is not { } move) return false;
             _annMove = null;
             if (ReaderContentHost.IsMouseCaptured) ReaderContentHost.ReleaseMouseCapture();
+            ApplyToolCursor();
             if (AnnotationLayer.Edit.MoveName != null)
             {
                 AnnotationLayer.Edit.MoveName = null;
@@ -519,15 +523,16 @@ namespace XTPdfMergeApp
 
         private void UpdateFormatBarVisibility()
         {
-            bool callout = _readerTool == ReaderTool.Callout || _annotationEditor is { Kind: QuickAnnotationKind.Callout } || _selAnn is { Kind: QuickAnnotationKind.Callout };
-            bool show = callout || _readerTool == ReaderTool.Typewriter || _annotationEditor is { Kind: QuickAnnotationKind.Typewriter } || _selAnn is { Kind: QuickAnnotationKind.Typewriter };
+            // A bar appears with something to edit (an annotation being typed or selected), never just because a tool was armed.
+            bool callout = _annotationEditor is { Kind: QuickAnnotationKind.Callout } || _selAnn is { Kind: QuickAnnotationKind.Callout };
+            bool show = callout || _annotationEditor is { Kind: QuickAnnotationKind.Typewriter } || _selAnn is { Kind: QuickAnnotationKind.Typewriter };
             if (show && TextFormatBar.Visibility != Visibility.Visible) LoadFormatBar();
             if (callout) LoadCalloutRow();
             CalloutRow.Visibility = callout ? Visibility.Visible : Visibility.Collapsed;
             TextFormatBar.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
 
 
-            bool shapes = _readerTool == ReaderTool.Shape || _selAnn is { Kind: QuickAnnotationKind.Shape };
+            bool shapes = _selAnn is { Kind: QuickAnnotationKind.Shape };
             if (shapes && ShapeBar.Visibility != Visibility.Visible) LoadShapeBar();
             ShapeBar.Visibility = shapes ? Visibility.Visible : Visibility.Collapsed;
 

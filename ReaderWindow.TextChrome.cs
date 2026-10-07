@@ -22,6 +22,40 @@ namespace XTPdfMergeApp
 
         private bool IsTextChrome(DependencyObject? source) => IsInside(source, TextGrip) || IsInside(source, TextWidthHandle) || IsShapeTextHandle(source);
 
+        // ── Pointer over the handles ──────────────────────────────────
+
+        private static Cursor? ChromeCursorFor(DependencyObject? source, object? raw, ReaderWindow window)
+        {
+            if (window.IsInsideElement(source, window.TextGrip)) return Cursors.SizeAll;
+            if (window.IsInsideElement(source, window.TextWidthHandle)) return Cursors.SizeWE;
+            if (window.IsShapeTextHandle(source)) return Cursors.Hand;
+            if (raw is System.Windows.Shapes.Rectangle { Tag: string tag })
+                return tag switch
+                {
+                    "NW" or "SE" => Cursors.SizeNWSE, "NE" or "SW" => Cursors.SizeNESW, "N" or "S" => Cursors.SizeNS,
+                    "E" or "W" => Cursors.SizeWE, "LineA" or "LineB" => Cursors.Cross, _ => null
+                };
+            return null;
+        }
+
+        private bool IsInsideElement(DependencyObject? node, DependencyObject ancestor) => IsInside(node, ancestor);
+
+        /// <summary>Over a move / resize handle the pointer shows what dragging it does (the armed tool's pointer would otherwise cover it).</summary>
+        private void UpdateChromeCursor(object? source)
+        {
+            if (_chromeDrag != TextChromeDrag.None || _shapeResizeDrag != null || _lineResizeDrag != null || _annMove?.Moved == true) return; // a drag keeps its own pointer
+            bool over = ChromeCursorFor(source as DependencyObject, source, this) != null;
+            bool force = !over && _readerTool != ReaderTool.Hand;
+            if (ReaderContentHost.ForceCursor != force) ReaderContentHost.ForceCursor = force;
+        }
+
+        /// <summary>While a handle is being dragged the mouse is captured by the page area: give it the handle's pointer.</summary>
+        private void HoldDragCursor(Cursor cursor)
+        {
+            ReaderContentHost.Cursor = cursor;
+            ReaderContentHost.ForceCursor = true;
+        }
+
         private static void SetCanvasIfChanged(UIElement element, double left, double top)
         {
             if (double.IsNaN(Canvas.GetLeft(element)) || Math.Abs(Canvas.GetLeft(element) - left) > 0.25) Canvas.SetLeft(element, left);
@@ -73,7 +107,9 @@ namespace XTPdfMergeApp
             TextHint.Visibility = hint ? Visibility.Visible : Visibility.Collapsed;
             if (hint)
             {
-                TextHint.FontSize = ReaderAnnotationEditor.FontSize;
+                // One small size on the page whatever text size is chosen; it scales with the zoom like the page does.
+                TryChromePixelsPerPoint(out double ppp);
+                TextHint.FontSize = Math.Max(6, 9 * ppp);
                 TextHint.FontFamily = ReaderAnnotationEditor.FontFamily;
                 SetCanvasIfChanged(TextHint, r.X + 3, r.Y + 2);
             }
@@ -94,6 +130,7 @@ namespace XTPdfMergeApp
             if (_annotationEditor is { Kind: QuickAnnotationKind.Typewriter } state)
             {
                 if (!TryGetPagePoint(state.Row, point, clamp: true, out var p)) return;
+                HoldDragCursor(Cursors.SizeAll);
                 _chromeDrag = TextChromeDrag.GripWhileEditing;
                 _gripStartU = p.U; _gripStartV = p.V; _gripEditStartU = state.U; _gripEditStartV = state.V;
                 ReaderContentHost.CaptureMouse();
@@ -101,13 +138,17 @@ namespace XTPdfMergeApp
             }
             // Selected, not typing: the same move as dragging the text itself (also undoable).
             if (_selAnn is { Kind: QuickAnnotationKind.Typewriter } spec && _selRow is { } row && TryGetPagePoint(row, point, clamp: true, out var hit))
+            {
+                HoldDragCursor(Cursors.SizeAll);
                 BeginAnnotationMove(hit, spec);
+            }
         }
 
         private void TextWidthHandle_MouseDown(object sender, MouseButtonEventArgs e)
         {
             e.Handled = true;
             if (_annotationEditor is not { Kind: QuickAnnotationKind.Typewriter } && _selAnn is not { Kind: QuickAnnotationKind.Typewriter }) return;
+            HoldDragCursor(Cursors.SizeWE);
             _chromeDrag = TextChromeDrag.Width;
             _chromeWidthPreview = _annotationEditor != null ? _textFormat.Width : 0;
             if (_chromeWidthPreview <= 0 && TryGetTextChromeAnchor(out var r) && TryChromePixelsPerPoint(out double ppp)) _chromeWidthPreview = r.Width / ppp;
@@ -159,6 +200,7 @@ namespace XTPdfMergeApp
             var kind = _chromeDrag;
             _chromeDrag = TextChromeDrag.None;
             if (ReaderContentHost.IsMouseCaptured) ReaderContentHost.ReleaseMouseCapture();
+            ApplyToolCursor();
             if (kind == TextChromeDrag.Width && _annotationEditor == null && _selAnn is { Kind: QuickAnnotationKind.Typewriter } spec && _selRow is { } row &&
                 GetCachedPageAnnotations(row) is { } page)
             {

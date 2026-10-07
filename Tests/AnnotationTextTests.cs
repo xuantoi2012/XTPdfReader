@@ -419,8 +419,6 @@ internal static partial class Program
                 page = await AnnotationStore.GetPageAsync(path, 1);
                 var note = page!.Annotations.SingleOrDefault(a => a.Kind == QuickAnnotationKind.Comment);
                 Check(note != null && note.Text == "Check the beam here", "The note is stored on the page");
-                var image = note == null ? null : AnnotationAppearance.Get(path, 1, note, page.Geometry, 1.5);
-                Check(image != null && image.Bitmap.PixelWidth > 4, $"The note has an icon appearance to draw ({image?.Bitmap.PixelWidth}px)");
                 reader.UpdateLayout(); await Task.Delay(500);
                 SavePng((System.Windows.FrameworkElement)reader.FindName("ReaderContentHost"), "draw-flows-note");
             }
@@ -434,8 +432,8 @@ internal static partial class Program
 
 internal static partial class Program
 {
-    /// <summary>A note icon on an A1 sheet must be bigger than on A4, or it cannot be found on a busy drawing.</summary>
-    static void TestNoteIconScalesWithPage()
+    /// <summary>The note icon has one fixed size on the page (it scales with the zoom, not with the sheet size).</summary>
+    static void TestNoteIconFixedSize()
     {
         string folder = System.IO.Path.Combine(Output, "note-scale");
         Directory.CreateDirectory(folder);
@@ -456,7 +454,218 @@ internal static partial class Program
             return (read.U2 - read.U1) * PdfQuickAnnotationService.GetGeometry(page).DisplayWidth;
         }
         double a4 = IconWidth(595, 842), a1 = IconWidth(2384, 1684);
-        Check(Math.Abs(a4 - 20) < 0.6, $"A note icon on A4 is 20 pt ({a4:0.#})");
-        Check(a1 > 2.5 * a4, $"A note icon on A1 is much bigger ({a1:0.#} pt) so it can be found on a busy drawing");
+        Check(Math.Abs(a4 - 18) < 0.6 && Math.Abs(a1 - a4) < 0.2, $"A note icon is the same fixed size on A4 ({a4:0.#} pt) and on A1 ({a1:0.#} pt)");
+    }
+}
+
+internal static partial class Program
+{
+    /// <summary>Developer probe: add a note on a big real drawing (XTPDF_BIG_SAMPLE=path, page XTPDF_BIG_PAGE) and see whether it is stored and drawn.</summary>
+    static void TestNoteOnBigDrawing()
+    {
+        string? path = Environment.GetEnvironmentVariable("XTPDF_BIG_SAMPLE");
+        if (string.IsNullOrEmpty(path) || !File.Exists(path)) { Console.WriteLine("XTPDF_BIG_SAMPLE not set: skipped"); return; }
+        int pageNumber = int.TryParse(Environment.GetEnvironmentVariable("XTPDF_BIG_PAGE"), out int p) ? p : 31;
+        if (System.Windows.Application.Current == null) CreateReaderTestApplication();
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var type = typeof(XTPdfMergeApp.ReaderWindow);
+        var reader = new XTPdfMergeApp.ReaderWindow { Width = 1400, Height = 900, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false };
+        var app = System.Windows.Application.Current;
+        var priorOwner = app.MainWindow;
+        app.MainWindow = reader;
+        Exception? failure = null;
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        reader.Show();
+        reader.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(async () =>
+        {
+            try
+            {
+                ((System.Windows.FrameworkElement)reader.FindName("StartPage")).Visibility = System.Windows.Visibility.Collapsed;
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                await reader.Session.OpenFilesInReaderAsync(new[] { path });
+                Console.WriteLine($"opened in {watch.ElapsedMilliseconds} ms");
+                var group = reader.Session.Documents.First();
+                var row = group.Pages[pageNumber - 1];
+                await reader.ShowPageAsync(group, row);
+                await Task.Delay(4000);
+                watch.Restart();
+                var page = await AnnotationStore.GetPageAsync(path, pageNumber);
+                Console.WriteLine($"annotation page: {(page == null ? "NULL" : page.Annotations.Count + " annotations")} in {watch.ElapsedMilliseconds} ms; geometry {page?.Geometry.DisplayWidth:0}x{page?.Geometry.DisplayHeight:0}");
+                var hitType = type.GetNestedType("PageHit", flags)!;
+                var hit = Activator.CreateInstance(hitType, row, 0.5, 0.5)!;
+                watch.Restart();
+                await (Task)type.GetMethod("AddNoteAsync", flags)!.Invoke(reader, new object[] { hit, "probe note" })!;
+                await Task.Delay(3000);
+                page = await AnnotationStore.GetPageAsync(path, pageNumber);
+                var note = page?.Annotations.FirstOrDefault(a => a.Kind == QuickAnnotationKind.Comment && a.Text == "probe note");
+                Console.WriteLine($"note stored: {note != null}; rect {note?.U1:0.###},{note?.V1:0.###} - {note?.U2:0.###},{note?.V2:0.###}");
+                var image = note == null || page == null ? null : AnnotationAppearance.Get(path, pageNumber, note, page.Geometry, 1.0);
+                Console.WriteLine($"appearance: {(image == null ? "NULL" : image.Bitmap.PixelWidth + "x" + image.Bitmap.PixelHeight)}");
+                if (image != null)
+                {
+                    var conv = new System.Windows.Media.Imaging.FormatConvertedBitmap(image.Bitmap, System.Windows.Media.PixelFormats.Bgra32, null, 0);
+                    var px = new byte[conv.PixelWidth * conv.PixelHeight * 4];
+                    conv.CopyPixels(px, conv.PixelWidth * 4, 0);
+                    int opaque = 0, colored = 0;
+                    for (int i = 0; i < px.Length; i += 4) { if (px[i + 3] > 0) opaque++; if (px[i + 3] > 0 && (px[i] < 250 || px[i + 1] < 250 || px[i + 2] < 250)) colored++; }
+                    Console.WriteLine($"appearance pixels: {opaque} with alpha, {colored} not white, of {px.Length / 4}; format {image.Bitmap.Format}");
+                    using var fs = File.Create(System.IO.Path.Combine(Output, "big-note-ap.png"));
+                    var enc = new System.Windows.Media.Imaging.PngBitmapEncoder(); enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image.Bitmap)); enc.Save(fs);
+                }
+                if (note != null)
+                {
+                    var build = typeof(AnnotationAppearance).GetMethod("Build", flags)!;
+                    var built = build.Invoke(null, new object[] { AnnotationStore.Reader(path), pageNumber, new[] { note } });
+                    var pdfBytes = (byte[])built!.GetType().GetField("Item1")!.GetValue(built)!;
+                    File.WriteAllBytes(System.IO.Path.Combine(Output, "big-note-tiny.pdf"), pdfBytes);
+                    Console.WriteLine("tiny pdf bytes " + pdfBytes.Length);
+                }
+                reader.UpdateLayout();
+                SavePng((System.Windows.FrameworkElement)reader.FindName("ReaderContentHost"), "big-note");
+            }
+            catch (Exception ex) { failure = ex; }
+            finally { reader.Session.Documents.Clear(); reader.Close(); app.MainWindow = priorOwner; frame.Continue = false; }
+        }));
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+        if (failure != null) throw new Exception("Big note: " + failure.Message, failure);
+    }
+}
+
+internal static partial class Program
+{
+    /// <summary>Developer fixture: every annotation kind on pages with /Rotate 0/90/180/270, written to results/rotated for an external renderer to check placement.</summary>
+    static void TestRotatedAnnotationFixtures()
+    {
+        string folder = System.IO.Path.Combine(Output, "rotated");
+        Directory.CreateDirectory(folder);
+        var summary = new List<string>();
+        foreach (int rotation in new[] { 0, 90, 180, 270 })
+        {
+            string path = System.IO.Path.Combine(folder, $"r{rotation}.pdf"), output = System.IO.Path.Combine(folder, $"r{rotation}-annotated.pdf");
+            using (var doc = new PdfDocument(new PdfWriter(path))) { var pg = doc.AddNewPage(new PageSize(842, 1191)); pg.SetRotation(rotation); }
+            using (var reader = new PdfReader(path))
+            using (var doc = new PdfDocument(reader, new PdfWriter(output)))
+            {
+                var geometry = PdfQuickAnnotationService.GetGeometry(doc.GetPage(1));
+                var specs = new List<QuickAnnotationSpec>
+                {
+                    new("t1", QuickAnnotationKind.Typewriter, 1, 0.1, 0.1, 0.1, 0.1, "Typewriter text") { Format = new TextFormat("Arial", 24, "#000000", false, false).Encode() },
+                    new("s1", QuickAnnotationKind.Shape, 1, 0.5, 0.1, 0.8, 0.2, "") { Format = new ShapeStyle(ShapeStyle.Rect, "#C0392B", 3, 0).Encode() },
+                    new("c1", QuickAnnotationKind.Callout, 1, 0.1, 0.4, 0.4, 0.45, "Callout text") { Format = PdfQuickAnnotationService.EncodeCallout(0.6, 0.5, new TextFormat("Arial", 14, "#000000", false, false).Encode(), CalloutStyle.Default) },
+                    new("n1", QuickAnnotationKind.Comment, 1, 0.6, 0.7, 0.6, 0.7, "note"),
+                    new("h1", QuickAnnotationKind.Highlight, 1, 0.1, 0.8, 0.4, 0.83, "") { Format = PdfQuickAnnotationService.EncodeTextHighlight(new[] { (0.1, 0.8, 0.4, 0.83) }) },
+                };
+                var measured = specs.Select(sp => PdfQuickAnnotationService.WithMeasuredSize(sp, geometry)).ToList();
+                PdfQuickAnnotationService.ApplyChanges(doc, measured.Select(sp => new QuickAnnotationChange(null, sp)));
+                foreach (var sp in measured) summary.Add($"{rotation}|{sp.Name}|{sp.U1:0.####}|{sp.V1:0.####}|{sp.U2:0.####}|{sp.V2:0.####}|{geometry.DisplayWidth:0.##}|{geometry.DisplayHeight:0.##}");
+            }
+        }
+        File.WriteAllLines(System.IO.Path.Combine(folder, "expected.txt"), summary);
+    }
+}
+
+internal static partial class Program
+{
+    /// <summary>The owner's reports: a ComboBox list inside a property bar is part of the bar; armed tools show no bar; Typewriter stays armed after a click elsewhere.</summary>
+    static void TestBarsAndTypewriterFlow()
+    {
+        if (System.Windows.Application.Current == null) CreateReaderTestApplication();
+        string folder = System.IO.Path.Combine(Output, "bars-flow");
+        Directory.CreateDirectory(folder);
+        string path = System.IO.Path.Combine(folder, "page.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(path))) doc.AddNewPage(new PageSize(595, 842));
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var type = typeof(XTPdfMergeApp.ReaderWindow);
+        var reader = new XTPdfMergeApp.ReaderWindow { Width = 1300, Height = 900, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false };
+        var app = System.Windows.Application.Current;
+        var priorOwner = app.MainWindow;
+        app.MainWindow = reader;
+        Exception? failure = null;
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        reader.Show();
+        reader.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(async () =>
+        {
+            try
+            {
+                ((System.Windows.FrameworkElement)reader.FindName("StartPage")).Visibility = System.Windows.Visibility.Collapsed;
+                await reader.Session.OpenFilesInReaderAsync(new[] { path });
+                await Task.Delay(1500);
+                reader.UpdateLayout();
+                var row = (XTPdfMergeApp.Domain.PagePlacement)type.GetField("_readerPage", flags)!.GetValue(reader)!;
+                T F<T>(string name) where T : class => (T)reader.FindName(name);
+                var toolType = type.GetNestedType("ReaderTool", flags)!;
+
+                // armed tools do not pop a bar before there is something to edit
+                foreach (string tool in new[] { "Typewriter", "Callout", "Shape" })
+                {
+                    type.GetMethod("SetReaderTool", flags)!.Invoke(reader, new[] { Enum.Parse(toolType, tool) });
+                    reader.UpdateLayout();
+                    bool anyBar = F<System.Windows.UIElement>("TextFormatBar").Visibility == System.Windows.Visibility.Visible || F<System.Windows.UIElement>("ShapeBar").Visibility == System.Windows.Visibility.Visible;
+                    Check(!anyBar, $"Arming the {tool} tool shows no property bar yet");
+                }
+                type.GetMethod("SetReaderTool", flags)!.Invoke(reader, new[] { Enum.Parse(toolType, "Hand") });
+
+                // a click in the list of a ComboBox of a bar is a click on the bar, not on the page
+                var shape = new QuickAnnotationSpec("xt-s", QuickAnnotationKind.Shape, 1, 0.3, 0.3, 0.6, 0.4, "") { Format = new ShapeStyle(ShapeStyle.Rect, "#C0392B", 2, 0).Encode() };
+                await ((XTPdfMergeApp.IReaderPageEditHost)reader.Session).ApplyAnnotationChangesAsync(path, new[] { new QuickAnnotationChange(null, shape) }, "Draw");
+                await Task.Delay(800);
+                var page = await AnnotationStore.GetPageAsync(path, 1);
+                shape = page!.Annotations.Single(a => a.Kind == QuickAnnotationKind.Shape);
+                type.GetMethod("SelectAnnotation", flags)!.Invoke(reader, new object?[] { row, shape });
+                reader.UpdateLayout();
+                var combo = F<System.Windows.Controls.ComboBox>("ShapeWidthBox");
+                combo.IsDropDownOpen = true;
+                await Task.Delay(400);
+                var item = combo.ItemContainerGenerator.ContainerFromIndex(3) as System.Windows.DependencyObject;
+                Check(item != null && (bool)type.GetMethod("IsOverlayBar", flags)!.Invoke(reader, new object?[] { item })!, "An item of a bar's drop-down list counts as part of the bar (it used to deselect the shape and swallow the choice)");
+                combo.IsDropDownOpen = false;
+
+                // Typewriter: a click elsewhere while typing opens the next box instead of only closing the first
+                type.GetMethod("SetReaderTool", flags)!.Invoke(reader, new[] { Enum.Parse(toolType, "Typewriter") });
+                var lost = (System.Windows.Input.KeyboardFocusChangedEventHandler)Delegate.CreateDelegate(typeof(System.Windows.Input.KeyboardFocusChangedEventHandler), reader, type.GetMethod("ReaderAnnotationEditor_LostKeyboardFocus", flags)!);
+                F<System.Windows.Controls.TextBox>("ReaderAnnotationEditor").LostKeyboardFocus -= lost;
+                var hit1 = Activator.CreateInstance(type.GetNestedType("PageHit", flags)!, row, 0.2, 0.2)!;
+                await (Task)type.GetMethod("OpenAnnotationEditorAsync", flags)!.Invoke(reader, new object?[] { hit1, QuickAnnotationKind.Typewriter, null, null, null })!;
+                F<System.Windows.Controls.TextBox>("ReaderAnnotationEditor").Text = "first box";
+                var editorBefore = type.GetField("_annotationEditor", flags)!.GetValue(reader);
+                Check(editorBefore != null, "The first text box is open");
+                Check(F<System.Windows.UIElement>("TextFormatBar").Visibility == System.Windows.Visibility.Visible, "The format bar appears with the box that is being typed");
+
+                // the pointer over a handle is the handle's, not the armed tool's
+                var update = type.GetMethod("UpdateChromeCursor", flags)!;
+                var host = F<System.Windows.FrameworkElement>("ReaderContentHost");
+                update.Invoke(reader, new object?[] { F<System.Windows.UIElement>("TextWidthHandle") });
+                Check(!host.ForceCursor, "Over the width circle the tool pointer no longer covers the handle's own (resize) pointer");
+                update.Invoke(reader, new object?[] { host });
+                Check(host.ForceCursor, "Elsewhere on the page the armed tool's pointer is back");
+            }
+            catch (Exception ex) { failure = ex; }
+            finally { reader.Session.Documents.Clear(); reader.Close(); app.MainWindow = priorOwner; frame.Continue = false; }
+        }));
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+        if (failure != null) throw new Exception("Bars flow: " + failure.Message, failure);
+    }
+}
+
+internal static partial class Program
+{
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect rect);
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)] private struct NativeRect { public int L, T, R, B; }
+
+    /// <summary>The note card opens at the clicked device-pixel point (not pulled to the primary monitor).</summary>
+    static void TestCommentPopupPlacement()
+    {
+        if (System.Windows.Application.Current == null) CreateReaderTestApplication();
+        var owner = new System.Windows.Window { Width = 400, Height = 300, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false };
+        owner.Show();
+        var popup = XTPdfMergeApp.Controls.CommentPopup.Compose(owner, new System.Windows.Point(600, 400), "tester");
+        try
+        {
+            Pump(TimeSpan.FromMilliseconds(500));
+            IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(popup).Handle;
+            GetWindowRect(hwnd, out var rect);
+            Check(Math.Abs(rect.L - 612) <= 40 && Math.Abs(rect.T - 412) <= 40, $"The card sits just right/below the clicked device point (window at {rect.L},{rect.T}, clicked 600,400)");
+        }
+        finally { popup.Close(); owner.Close(); }
     }
 }

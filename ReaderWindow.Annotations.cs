@@ -114,6 +114,13 @@ namespace XTPdfMergeApp
             ReaderMeasureToolButton.Tag = tool == ReaderTool.Measure ? "Active" : null;
             if (tool != ReaderTool.Select) ClearTextSelection();
 
+            ApplyToolCursor();
+        }
+
+        /// <summary>The pointer of the armed tool over the page area (the hover/drag cursors of handles temporarily replace it).</summary>
+        private void ApplyToolCursor()
+        {
+            var tool = _readerTool;
             // ForceCursor: con trỏ của vùng xem đè lên Cursor="Hand" sẵn có của ReaderImage.
             ReaderContentHost.Cursor = tool switch
             {
@@ -223,9 +230,10 @@ namespace XTPdfMergeApp
             if (_annotationEditor != null)
             {
                 if (ReaderAnnotationEditor.IsMouseOver) return;
+                bool typewriterTool = _readerTool == ReaderTool.Typewriter && _annotationEditor.Kind == QuickAnnotationKind.Typewriter;
                 CommitAnnotationEditor();
-                e.Handled = true;
-                return;
+                if (!typewriterTool) { e.Handled = true; return; }
+                // Typewriter stays armed: the same click starts the next text box right there (Word / Edge style), it does not just close the last one.
             }
 
             if (!TryHitPage(e.GetPosition(ReaderContentHost), out var hit)) return;
@@ -348,6 +356,7 @@ namespace XTPdfMergeApp
         private void ReaderContentHost_PreviewMouseMove(object sender, MouseEventArgs e)
         {
             Point point = e.GetPosition(ReaderContentHost);
+            UpdateChromeCursor(e.OriginalSource);
             if (UpdateMeasure(point) || UpdateTextChromeDrag(point) || UpdateAnnotationMove(point) || UpdateShapeDrag(point) || UpdateShapeResize(point) || UpdateLineResize(point))
             {
                 e.Handled = true;
@@ -723,9 +732,7 @@ namespace XTPdfMergeApp
         {
             screen = default;
             if (!TryPageToLayer(row, u, v, out Point anchor)) return false;
-            Point devicePoint = ReaderInteractionLayer.PointToScreen(anchor);
-            var fromDevice = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
-            screen = fromDevice.Transform(devicePoint);
+            screen = ReaderInteractionLayer.PointToScreen(anchor); // screen DEVICE pixels: CommentPopup puts the card on the monitor this point is on
             return true;
         }
 
@@ -887,7 +894,7 @@ namespace XTPdfMergeApp
         }
 
         private AnnotationEditorState? _annotationEditor;
-        private const double CommentIconPoints = 20;
+        private const double CommentIconPoints = 18;
 
         private async Task OpenAnnotationEditorAsync(PageHit hit, QuickAnnotationKind kind, QuickAnnotationSpec? existing, QuickAnnotationSpec? groupShape = null, TextFormat? initialFormat = null)
         {

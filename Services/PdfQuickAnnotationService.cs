@@ -87,7 +87,7 @@ namespace XTPdfMergeApp.Services
         public const float TypewriterFontSize = 12f;
         private const float TypewriterLineHeight = 1.2f;
         private const float TypewriterPadding = 2f;
-        private const float CommentIconSize = 20f;
+        private const float CommentIconSize = 18f; // a fixed size on the page (it scales with the zoom like everything on the page)
         private static readonly PdfName TypewriterIntent = new("FreeTextTypeWriter");
         private static readonly PdfName IntentKey = new("IT");
         private static readonly PdfName FormatKey = new("XTFormat");
@@ -321,7 +321,7 @@ namespace XTPdfMergeApp.Services
                     break;
                 }
                 case QuickAnnotationKind.Comment:
-                    width = height = CommentIconSize * ShapeStyle.PageScale(geometry.DisplayWidth); // A1/A0 sheets get a bigger icon so a note can be found
+                    width = height = CommentIconSize;
                     break;
                 default:
                     return spec;
@@ -745,7 +745,7 @@ namespace XTPdfMergeApp.Services
         private static PdfTextAnnotation AddComment(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec)
         {
             var geometry = GetGeometry(page);
-            float scale = (float)ShapeStyle.PageScale(geometry.DisplayWidth), iconSize = CommentIconSize * scale;
+            float scale = 1f, iconSize = CommentIconSize;
             var rect = DisplayBoxToUser(geometry, spec.U1, spec.V1, iconSize, iconSize);
             var annot = new PdfTextAnnotation(rect);
             annot.SetContents(new PdfString(spec.Text, PdfEncodings.UNICODE_BIG));
@@ -757,7 +757,6 @@ namespace XTPdfMergeApp.Services
             var form = new PdfFormXObject(new Rectangle(0, 0, iconSize, iconSize));
             SetRotationMatrix(form, geometry.Rotation);
             var canvas = new PdfCanvas(form, doc);
-            canvas.ConcatMatrix(scale, 0, 0, scale, 0, 0); // the icon is drawn on a 20 x 20 grid, scaled with the page size
             float s = CommentIconSize;
             canvas.SetLineWidth(1).SetStrokeColor(new DeviceRgb(0.45f, 0.33f, 0f)).SetFillColor(new DeviceRgb(1f, 0.82f, 0.2f))
                 .MoveTo(2, 6).LineTo(2, s - 2).LineTo(s - 2, s - 2).LineTo(s - 2, 6).LineTo(9, 6).LineTo(5, 2).LineTo(6, 6)
