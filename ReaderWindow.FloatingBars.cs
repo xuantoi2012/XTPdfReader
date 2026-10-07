@@ -44,15 +44,17 @@ namespace XTPdfMergeApp
         private void PlaceBar(Border bar)
         {
             if (bar.Visibility != Visibility.Visible) return;
-            if (!TryGetAnnotationAnchor(out var anchor)) { bar.Margin = BarHome; return; }
-            bar.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            double bw = bar.DesiredSize.Width, bh = bar.DesiredSize.Height;
+            if (!TryGetAnnotationAnchor(out var anchor)) { if (bar.Margin != BarHome) bar.Margin = BarHome; return; }
+            // Use the laid-out size; calling Measure on every pass would invalidate the layout again and loop forever (LayoutUpdated -> place -> layout).
+            if (bar.ActualWidth <= 0 || bar.ActualHeight <= 0) bar.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            double bw = bar.ActualWidth > 0 ? bar.ActualWidth : bar.DesiredSize.Width, bh = bar.ActualHeight > 0 ? bar.ActualHeight : bar.DesiredSize.Height;
             double hostW = ReaderContentHost.ActualWidth > 0 ? ReaderContentHost.ActualWidth : 4000, hostH = ReaderContentHost.ActualHeight > 0 ? ReaderContentHost.ActualHeight : 4000;
             double x = Math.Clamp(anchor.X, 6, Math.Max(6, hostW - bw - 6));
             double y = anchor.Y - bh - 10;
             if (y < 6) y = anchor.Bottom + 10;
             if (y + bh > hostH - 6) y = Math.Max(6, Math.Min(hostH - bh - 6, anchor.Y + 8)); // no room either side: tuck inside the annotation's top edge
-            bar.Margin = new Thickness(x, y, 0, 0);
+            var margin = new Thickness(Math.Round(x), Math.Round(y), 0, 0);
+            if (bar.Margin != margin) bar.Margin = margin;
         }
     }
 }

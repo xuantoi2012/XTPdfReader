@@ -173,7 +173,7 @@ internal static partial class Program
     static void TestUiRibbonTitleAbout()
     {
         if (Application.Current == null) CreateReaderTestApplication();
-        var reader = new ReaderWindow { Width = 1400, Height = 700 };
+        var reader = new ReaderWindow { Width = 1400, Height = 700, WindowStartupLocation = WindowStartupLocation.Manual, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false };
         var priorOwner = Application.Current.MainWindow;
         Application.Current.MainWindow = reader;
         try
@@ -257,7 +257,7 @@ internal static partial class Program
     {
         if (Application.Current == null) CreateReaderTestApplication();
         var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
-        var reader = new ReaderWindow { Width = 1300, Height = 800 };
+        var reader = new ReaderWindow { Width = 1300, Height = 800, WindowStartupLocation = WindowStartupLocation.Manual, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false };
         var priorOwner = Application.Current.MainWindow;
         Application.Current.MainWindow = reader;
         try

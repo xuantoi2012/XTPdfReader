@@ -213,6 +213,8 @@ namespace XTPdfMergeApp
             _linkPress = null;
             // Thanh Find / thanh định dạng nằm đè lên trang: bấm vào chúng không được coi là bấm lên trang.
             if (IsOverlayBar(e.OriginalSource as DependencyObject)) return;
+            // Grip / width circle of a text box: their own handlers (Preview runs root-first, so leave the event alone here).
+            if (IsTextChrome(e.OriginalSource as DependencyObject)) return;
             // Grip resize nằm ngay trên hình đã chọn: để nguyên (không Handled) cho Grip_MouseDown của chính nó xử lý,
             // vì Preview đi từ gốc xuống — handler này chạy TRƯỚC handler của grip nếu không trả sớm ở đây.
             if (e.OriginalSource is System.Windows.Shapes.Rectangle { Tag: string tag } && Array.IndexOf(new[] { "NW", "N", "NE", "E", "SE", "S", "SW", "W", "LineA", "LineB" }, tag) >= 0) return;
@@ -237,6 +239,7 @@ namespace XTPdfMergeApp
                     {
                         e.Handled = true;
                         Focus();
+                        bool alreadySelected = _selAnn?.Name == picked.Name;
                         SelectAnnotation(hit.Row, picked);
                         if (e.ClickCount >= 2 && picked.Kind == QuickAnnotationKind.Callout)
                             _ = OpenAnnotationEditorAsync(hit, picked.Kind, picked);
@@ -245,7 +248,11 @@ namespace XTPdfMergeApp
                         else
                             // Ghi chú (icon Note): thả chuột không kéo = hiện popup ngay tại chỗ (kiểu Word) —
                             // xem FinishAnnotationMove (chỉ khi move.Moved vẫn false, tức bấm chứ không kéo).
+                        {
                             BeginAnnotationMove(hit, picked);
+                            // Like Edge: click a text box that is already selected (without dragging) = edit it.
+                            if (alreadySelected && picked.Kind == QuickAnnotationKind.Typewriter && _annMove != null) _annMove.OpenEditOnClick = true;
+                        }
                     }
                     else
                     {
@@ -341,7 +348,7 @@ namespace XTPdfMergeApp
         private void ReaderContentHost_PreviewMouseMove(object sender, MouseEventArgs e)
         {
             Point point = e.GetPosition(ReaderContentHost);
-            if (UpdateMeasure(point) || UpdateAnnotationMove(point) || UpdateShapeDrag(point) || UpdateShapeResize(point) || UpdateLineResize(point))
+            if (UpdateMeasure(point) || UpdateTextChromeDrag(point) || UpdateAnnotationMove(point) || UpdateShapeDrag(point) || UpdateShapeResize(point) || UpdateLineResize(point))
             {
                 e.Handled = true;
                 return;
@@ -378,7 +385,7 @@ namespace XTPdfMergeApp
 
         private void ReaderContentHost_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (FinishMeasure(e.GetPosition(ReaderContentHost)) || FinishAnnotationMove() || FinishShapeDrag(e.GetPosition(ReaderContentHost)) || FinishShapeResize() || FinishLineResize())
+            if (FinishMeasure(e.GetPosition(ReaderContentHost)) || FinishTextChromeDrag() || FinishAnnotationMove() || FinishShapeDrag(e.GetPosition(ReaderContentHost)) || FinishShapeResize() || FinishLineResize())
             {
                 e.Handled = true;
                 return;
@@ -864,8 +871,8 @@ namespace XTPdfMergeApp
         {
             public required PageRow Row { get; init; }
             public required QuickAnnotationKind Kind { get; init; }
-            public required double U { get; init; }
-            public required double V { get; init; }
+            public required double U { get; set; }
+            public required double V { get; set; }
             public required PdfPageGeometry Geometry { get; init; }
             public double TipU { get; init; }
             public double TipV { get; init; }
@@ -928,6 +935,7 @@ namespace XTPdfMergeApp
             {
                 // Cùng font/kiểu/màu với chữ sẽ ghi vào PDF để khi Enter chữ không "nhảy".
                 if (existing != null) _textFormat = TextFormat.Decode(existing.Format);
+                else if (kind == QuickAnnotationKind.Typewriter) _textFormat = _textFormat with { Width = 0 }; // a new box grows with its text until the circle is dragged
                 LoadFormatBar();
                 ApplyEditorFormat();
                 editor.Background = new SolidColorBrush(Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF));
@@ -967,6 +975,16 @@ namespace XTPdfMergeApp
                 ReaderAnnotationEditor.FontSize = Math.Max(6, _textFormat.Size * pixelsPerPoint);
                 if (state.Kind == QuickAnnotationKind.Callout)
                     ReaderAnnotationEditor.Width = Math.Max(60, state.BoxWidthPoints * pixelsPerPoint);
+                else if (_textFormat.Width > 0)
+                {
+                    ReaderAnnotationEditor.TextWrapping = TextWrapping.Wrap;
+                    ReaderAnnotationEditor.Width = Math.Max(30, _textFormat.Width * pixelsPerPoint);
+                }
+                else
+                {
+                    ReaderAnnotationEditor.TextWrapping = TextWrapping.NoWrap;
+                    ReaderAnnotationEditor.Width = double.NaN;
+                }
                 left = anchor.X;
                 top = anchor.Y;
             }
@@ -981,6 +999,8 @@ namespace XTPdfMergeApp
                 Canvas.SetLeft(ReaderAnnotationEditor, left);
             if (Math.Abs(Canvas.GetTop(ReaderAnnotationEditor) - top) > 0.5 || double.IsNaN(Canvas.GetTop(ReaderAnnotationEditor)))
                 Canvas.SetTop(ReaderAnnotationEditor, top);
+            UpdateTextChrome();
+            PositionFloatingBars();
         }
 
         private void ReaderContentHost_LayoutUpdated(object? sender, EventArgs e)
@@ -1038,7 +1058,8 @@ namespace XTPdfMergeApp
                     state.Row.PageNumber, state.U, state.V, state.U, state.V, text) { Format = format }, state.Geometry));
                 description = "Add " + label;
             }
-            else if (text == existing.Text && (state.Kind != QuickAnnotationKind.Typewriter || TextFormat.Decode(existing.Format) == _textFormat))
+            else if (text == existing.Text && (state.Kind != QuickAnnotationKind.Typewriter ||
+                     (TextFormat.Decode(existing.Format) == _textFormat && state.U == existing.U1 && state.V == existing.V1)))
             {
                 return;
             }
@@ -1055,7 +1076,7 @@ namespace XTPdfMergeApp
                 {
                     QuickAnnotationKind.Comment => existing with { Text = text },
                     QuickAnnotationKind.Callout => Regenerated(existing) with { Text = text, Format = format },
-                    _ => PdfQuickAnnotationService.WithMeasuredSize(Regenerated(existing) with { Text = text, Format = format }, state.Geometry)
+                    _ => PdfQuickAnnotationService.WithMeasuredSize(Regenerated(existing) with { Text = text, Format = format, U1 = state.U, V1 = state.V }, state.Geometry)
                 };
                 change = new QuickAnnotationChange(existing, edited);
                 description = "Edit " + label;

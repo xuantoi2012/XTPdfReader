@@ -104,7 +104,21 @@ internal static partial class Program
                 Console.WriteLine($"{child.Id} {XTPdfMergeApp.Services.WorkerJob.Assign(child)}");
                 Thread.Sleep(Timeout.Infinite);
             }
-            if (args.Contains("--ui-smoke")) { TestUiSmoke(); TestUiTabsAndMerge(); TestPrintInbox(); TestPrintInboxView(); TestMergeLayoutModes(); TestPrintedFilesCleanup(); TestUiRibbonTitleAbout(); TestShapePropertiesFloating(); TestUiPrintSizes(); TestUiReadSheetInfo(); TestUiCompare(); Console.WriteLine($"UI smoke passed ({_checks})."); return 0; }
+            int onlyIndex = Array.IndexOf(args, "--test"); // --test <Name>: run one static test method (fast loop while developing)
+            if (onlyIndex >= 0)
+            {
+                if (Application.Current == null) CreateReaderTestApplication();
+                foreach (string name in args[onlyIndex + 1].Split(','))
+                {
+                    var method = typeof(Program).GetMethod(name, System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public)
+                        ?? throw new ArgumentException("No test method " + name);
+                    var result = method.Invoke(null, null);
+                    if (result is Task task) task.GetAwaiter().GetResult();
+                }
+                Console.WriteLine($"Selected tests passed ({_checks}).");
+                return 0;
+            }
+            if (args.Contains("--ui-smoke")) { TestUiSmoke(); TestUiTabsAndMerge(); TestPrintInbox(); TestPrintInboxView(); TestMergeLayoutModes(); TestPrintedFilesCleanup(); TestUiRibbonTitleAbout(); TestShapePropertiesFloating(); TestTypewriterTextBox(); TestTypewriterEditorChrome(); TestUiPrintSizes(); TestUiReadSheetInfo(); TestUiCompare(); Console.WriteLine($"UI smoke passed ({_checks})."); return 0; }
             if (args.Contains("--layer-merge-only")) { TestLayerMerge(); TestLayerToggleRendersAsync().GetAwaiter().GetResult(); TestLayerEdit(); TestSheetInfoSurvivesMerge(); TestSheetMatch(); TestSequentialInPlaceEdits(); TestXtSetRebuild(); TestLayerRenameOnMerge(); TestSaveHistory(); TestPrintSizePlan(); TestSheetRegisterCsv(); TestTitleBlockReader(); TestPageMeasure(); TestPageDiff(); TestPageLabels(); TestSheetLinks(); TestPresence(); TestWorkerJob(); TestRegionReuseFormats(); TestRegionReuseWithMuPdfAsync().GetAwaiter().GetResult(); TestAnnotationConflictAsync().GetAwaiter().GetResult(); Console.WriteLine($"Layer merge checks passed ({_checks})."); return 0; }
             if (regionProfile >= 0)
             {

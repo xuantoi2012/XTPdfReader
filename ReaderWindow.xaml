@@ -405,7 +405,19 @@
                              Padding="1" BorderThickness="1"
                              BorderBrush="{DynamicResource XTSelectionBlue}" Foreground="Black"
                              PreviewKeyDown="ReaderAnnotationEditor_PreviewKeyDown"
+                             TextChanged="ReaderAnnotationEditor_TextChanged"
                              LostKeyboardFocus="ReaderAnnotationEditor_LostKeyboardFocus"/>
+                    <!-- Text box chrome like Edge's PDF viewer: dashed outline, grip on the left (drag = move), circle on the right (drag = width). -->
+                    <TextBlock x:Name="TextHint" Text="Start typing here…" Visibility="Collapsed" IsHitTestVisible="False" Foreground="#80000000" Panel.ZIndex="4"/>
+                    <Rectangle x:Name="TextChromeBox" Visibility="Collapsed" IsHitTestVisible="False" Stroke="#FF2F6FED" StrokeThickness="1.5" StrokeDashArray="4 3" Fill="Transparent" RadiusX="2" RadiusY="2" Panel.ZIndex="5"/>
+                    <Border x:Name="TextGrip" Tag="TextGrip" Visibility="Collapsed" Width="14" Height="28" CornerRadius="3" Background="#FF2F6FED" Cursor="SizeAll" Panel.ZIndex="6"
+                            ToolTip="Drag to move" PreviewMouseLeftButtonDown="TextGrip_MouseDown">
+                        <Viewbox Width="10" Height="14"><Canvas Width="10" Height="14">
+                            <Path Fill="White" Data="M1,1 h3 v3 h-3 z M6,1 h3 v3 h-3 z M1,5.5 h3 v3 h-3 z M6,5.5 h3 v3 h-3 z M1,10 h3 v3 h-3 z M6,10 h3 v3 h-3 z"/>
+                        </Canvas></Viewbox>
+                    </Border>
+                    <Ellipse x:Name="TextWidthHandle" Tag="TextWidth" Visibility="Collapsed" Width="12" Height="12" Fill="White" Stroke="#FF2F6FED" StrokeThickness="2" Cursor="SizeWE" Panel.ZIndex="6"
+                             ToolTip="Drag to change the width" PreviewMouseLeftButtonDown="TextWidthHandle_MouseDown"/>
                 </Canvas>
 
                 <!-- Định dạng Typewriter: font, cỡ, đậm/nghiêng, màu. Hiện khi chọn công cụ Typewriter hoặc chọn 1 đoạn chữ đã đặt. Không nhận focus để ô gõ không bị đóng. -->
@@ -443,7 +455,20 @@
                         <ToggleButton x:Name="FmtItalic" Style="{StaticResource FmtToggle}" Click="FmtControl_Changed" ToolTip="Italic">
                             <TextBlock Text="I" FontStyle="Italic" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
                         </ToggleButton>
-                        <Border Width="1" Height="18" Margin="8,0" Background="{DynamicResource Ui.Border}"/>
+                        <ToggleButton x:Name="FmtUnderline" Style="{StaticResource FmtToggle}" Click="FmtControl_Changed" ToolTip="Underline">
+                            <TextBlock Text="U" TextDecorations="Underline" FontWeight="SemiBold" Foreground="{DynamicResource Ui.Text}"/>
+                        </ToggleButton>
+                        <Border Width="1" Height="18" Margin="6,0" Background="{DynamicResource Ui.Border}"/>
+                        <ToggleButton x:Name="FmtAlignLeft" Style="{StaticResource FmtToggle}" Click="FmtAlign_Click" Tag="0" ToolTip="Align left">
+                            <Path Stroke="{DynamicResource Ui.Text}" StrokeThickness="1.6" Data="M2,4 h14 M2,9 h9 M2,14 h12" Width="18" Height="18"/>
+                        </ToggleButton>
+                        <ToggleButton x:Name="FmtAlignCenter" Style="{StaticResource FmtToggle}" Click="FmtAlign_Click" Tag="1" ToolTip="Centre">
+                            <Path Stroke="{DynamicResource Ui.Text}" StrokeThickness="1.6" Data="M2,4 h14 M4.5,9 h9 M3,14 h12" Width="18" Height="18"/>
+                        </ToggleButton>
+                        <ToggleButton x:Name="FmtAlignRight" Style="{StaticResource FmtToggle}" Click="FmtAlign_Click" Tag="2" ToolTip="Align right">
+                            <Path Stroke="{DynamicResource Ui.Text}" StrokeThickness="1.6" Data="M2,4 h14 M7,9 h9 M4,14 h12" Width="18" Height="18"/>
+                        </ToggleButton>
+                        <Border Width="1" Height="18" Margin="6,0,8,0" Background="{DynamicResource Ui.Border}"/>
                         <StackPanel x:Name="FmtColors" Orientation="Horizontal" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Border>

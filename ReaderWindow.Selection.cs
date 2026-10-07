@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using XTPdfMergeApp.Controls;
@@ -29,6 +30,8 @@ namespace XTPdfMergeApp
             public required double StartV { get; init; }
             public double DeltaU, DeltaV;
             public bool Moved;
+            /// <summary>Plain click (no drag) on a text box that was already selected: open it for editing.</summary>
+            public bool OpenEditOnClick;
         }
 
         private AnnotationMove? _annMove;
@@ -70,6 +73,7 @@ namespace XTPdfMergeApp
         private void UpdateSelectionVisual()
         {
             UpdateSelectionVisualCore();
+            UpdateTextChrome();
             PositionFloatingBars();
         }
 
@@ -153,6 +157,7 @@ namespace XTPdfMergeApp
             {
                 UpdateSelectionVisual();
                 if (!move.Moved && move.Spec.Kind == QuickAnnotationKind.Comment) ShowCommentPopup(move.Row, move.Spec);
+                else if (!move.Moved && move.OpenEditOnClick) _ = OpenAnnotationEditorAsync(new PageHit(move.Row, move.StartU, move.StartV), move.Spec.Kind, move.Spec);
                 return true;
             }
 
@@ -398,6 +403,10 @@ namespace XTPdfMergeApp
                 if (FmtSize.SelectedIndex < 0) FmtSize.Text = _textFormat.Size.ToString("0.##");
                 FmtBold.IsChecked = _textFormat.Bold;
                 FmtItalic.IsChecked = _textFormat.Italic;
+                FmtUnderline.IsChecked = _textFormat.Underline;
+                FmtAlignLeft.IsChecked = _textFormat.Align == 0;
+                FmtAlignCenter.IsChecked = _textFormat.Align == 1;
+                FmtAlignRight.IsChecked = _textFormat.Align == 2;
                 foreach (RadioButton swatch in FmtColors.Children)
                     swatch.IsChecked = string.Equals((string)swatch.Tag, _textFormat.Color, StringComparison.OrdinalIgnoreCase);
             }
@@ -474,7 +483,15 @@ namespace XTPdfMergeApp
             var family = FmtFont.SelectedIndex >= 0 ? TextFormat.Families[FmtFont.SelectedIndex] : _textFormat.Family;
             double size = _textFormat.Size;
             if (FmtSize.SelectedItem is ComboBoxItem { Tag: double picked }) size = picked;
-            _textFormat = _textFormat with { Family = family, Size = size, Bold = FmtBold.IsChecked == true, Italic = FmtItalic.IsChecked == true };
+            _textFormat = _textFormat with { Family = family, Size = size, Bold = FmtBold.IsChecked == true, Italic = FmtItalic.IsChecked == true, Underline = FmtUnderline.IsChecked == true };
+            FormatBarChanged();
+        }
+
+        private void FmtAlign_Click(object sender, RoutedEventArgs e)
+        {
+            if (_formatLoading || !_formatBarBuilt || sender is not ToggleButton { Tag: string tag } || !int.TryParse(tag, out int align)) return;
+            _textFormat = _textFormat with { Align = align };
+            LoadFormatBar(); // radio behaviour: exactly one alignment lit
             FormatBarChanged();
         }
 
@@ -490,7 +507,7 @@ namespace XTPdfMergeApp
 
         private void FormatBarChanged()
         {
-            AppSettings.TypewriterFormat = _textFormat.Encode();
+            AppSettings.TypewriterFormat = (_textFormat with { Width = 0 }).Encode(); // the box width belongs to one text box, never to the tool default
             if (_annotationEditor is { Kind: QuickAnnotationKind.Typewriter })
             {
                 ApplyEditorFormat();
@@ -501,6 +518,7 @@ namespace XTPdfMergeApp
             {
                 if (spec.Format == _textFormat.Encode() || GetCachedPageAnnotations(row) is not { } page) return;
                 var changed = PdfQuickAnnotationService.WithMeasuredSize(Regenerated(spec) with { Format = _textFormat.Encode() }, page.Geometry);
+                // WithMeasuredSize re-grows from the anchor; a fixed-width box keeps its width (carried in the format).
                 _selAnn = changed;
                 CommitAnnotationChange(row, new QuickAnnotationChange(spec, changed), "Change text format");
             }
@@ -515,6 +533,8 @@ namespace XTPdfMergeApp
             editor.FontStyle = _textFormat.Italic ? FontStyles.Italic : FontStyles.Normal;
             try { editor.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(_textFormat.Color)); }
             catch { editor.Foreground = Brushes.Black; }
+            editor.TextDecorations = _textFormat.Underline ? TextDecorations.Underline : null;
+            editor.TextAlignment = _textFormat.Align switch { 1 => TextAlignment.Center, 2 => TextAlignment.Right, _ => TextAlignment.Left };
         }
     }
 }

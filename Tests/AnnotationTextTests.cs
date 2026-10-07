@@ -1,0 +1,136 @@
+using System.IO;
+using iText.Kernel.Geom;
+using iText.Kernel.Pdf;
+using XTPdfMergeApp.Services;
+
+internal static partial class Program
+{
+    /// <summary>Typewriter text boxes (Edge style): fixed width wraps the text, alignment and underline are written, old formats still read.</summary>
+    static void TestTypewriterTextBox()
+    {
+        string folder = System.IO.Path.Combine(Output, "typewriter-box");
+        Directory.CreateDirectory(folder);
+        string path = System.IO.Path.Combine(folder, "t.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(path))) doc.AddNewPage(new PageSize(595, 842));
+
+        Check(TextFormat.Decode("Arial|12|#000000|0|0") == new TextFormat("Arial", 12, "#000000", false, false), "An old five-field text format still decodes");
+        Check(new TextFormat("Arial", 12, "#000000", false, false).Encode() == "Arial|12|#000000|0|0", "A plain format still encodes to the old string");
+        var wide = new TextFormat("Arial", 12, "#2563EB", false, false, Underline: true, Align: 1, Width: 150);
+        Check(TextFormat.Decode(wide.Encode()) == wide, "Underline, alignment and width survive encode/decode");
+
+        string text = "This sentence is long enough to need several lines in a narrow box";
+        string tempOut = System.IO.Path.Combine(folder, "t-out.pdf");
+        using (var reader = new PdfReader(path))
+        using (var doc = new PdfDocument(reader, new PdfWriter(tempOut)))
+        {
+            var geometry = PdfQuickAnnotationService.GetGeometry(doc.GetPage(1));
+            var spec = new QuickAnnotationSpec("xt-1", QuickAnnotationKind.Typewriter, 1, 0.1, 0.1, 0.1, 0.1, text) { Format = wide.Encode() };
+            spec = PdfQuickAnnotationService.WithMeasuredSize(spec, geometry);
+            Check(Math.Abs((spec.U2 - spec.U1) * geometry.DisplayWidth - 150) < 0.5, "A fixed-width text box measures exactly its width");
+            Check((spec.V2 - spec.V1) * geometry.DisplayHeight > 2 * 12 * 1.2, "The wrapped text makes the box taller than one line");
+            PdfQuickAnnotationService.ApplyChanges(doc, new[] { new QuickAnnotationChange(null, spec) });
+        }
+        using (var doc = new PdfDocument(new PdfReader(tempOut)))
+        {
+            var page = doc.GetPage(1);
+            var geometry = PdfQuickAnnotationService.GetGeometry(page);
+            var read = PdfQuickAnnotationService.ReadAnnotations(page, geometry, 1).Single();
+            Check(read.Kind == QuickAnnotationKind.Typewriter && read.Text == text, "The written text box reads back");
+            Check(TextFormat.Decode(read.Format) == wide, "The format (width, centre, underline) is stored in the file");
+            Check(Math.Abs((read.U2 - read.U1) * geometry.DisplayWidth - 150) < 0.5, "The annotation rectangle is the fixed width");
+            var annot = page.GetAnnotations().Single();
+            var ap = annot.GetNormalAppearanceObject() as PdfStream;
+            string content = ap == null ? "" : System.Text.Encoding.Latin1.GetString(ap.GetBytes());
+            Check(content.Contains(" re") == false && content.Contains(" l\n") || content.Contains(" l"), "An underline is drawn in the appearance");
+        }
+    }
+}
+
+internal static partial class Program
+{
+    /// <summary>End to end in the real reader: type a new text box, see the Edge-style chrome, drag its width circle, commit, read the saved box back.</summary>
+    static void TestTypewriterEditorChrome()
+    {
+        if (System.Windows.Application.Current == null) CreateReaderTestApplication();
+        string folder = System.IO.Path.Combine(Output, "typewriter-chrome");
+        Directory.CreateDirectory(folder);
+        string path = System.IO.Path.Combine(folder, "page.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(path))) doc.AddNewPage(new PageSize(595, 842));
+
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var reader = new XTPdfMergeApp.ReaderWindow { Width = 1300, Height = 900, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false };
+        var app = System.Windows.Application.Current;
+        var priorOwner = app.MainWindow;
+        app.MainWindow = reader;
+        Exception? failure = null;
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        reader.Show();
+        reader.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(async () =>
+        {
+            try
+            {
+                ((System.Windows.FrameworkElement)reader.FindName("StartPage")).Visibility = System.Windows.Visibility.Collapsed;
+                await reader.Session.OpenFilesInReaderAsync(new[] { path });                 await Task.Delay(1500);
+                reader.UpdateLayout();
+                var row = (XTPdfMergeApp.Domain.PagePlacement)typeof(XTPdfMergeApp.ReaderWindow).GetField("_readerPage", flags)!.GetValue(reader)!;
+                var hitType = typeof(XTPdfMergeApp.ReaderWindow).GetNestedType("PageHit", flags)!;
+                var hit = Activator.CreateInstance(hitType, row, 0.2, 0.2)!;
+                reader.Activate(); reader.Focus();
+                // A background test window has no keyboard focus; do not let the focus-lost rule close the box under test.
+                var lost = (System.Windows.Input.KeyboardFocusChangedEventHandler)Delegate.CreateDelegate(typeof(System.Windows.Input.KeyboardFocusChangedEventHandler), reader,
+                    typeof(XTPdfMergeApp.ReaderWindow).GetMethod("ReaderAnnotationEditor_LostKeyboardFocus", flags)!);
+                ((System.Windows.Controls.TextBox)reader.FindName("ReaderAnnotationEditor")).LostKeyboardFocus -= lost;
+                var open = typeof(XTPdfMergeApp.ReaderWindow).GetMethod("OpenAnnotationEditorAsync", flags)!;
+                await (Task)open.Invoke(reader, new object?[] { hit, QuickAnnotationKind.Typewriter, null })!;                 await Task.Delay(300);
+                reader.UpdateLayout(); 
+                T Find<T>(string name) where T : class => (T)reader.FindName(name);
+                var box = Find<System.Windows.Shapes.Rectangle>("TextChromeBox");
+                var grip = Find<System.Windows.Controls.Border>("TextGrip");
+                var handle = Find<System.Windows.Shapes.Ellipse>("TextWidthHandle");
+                var hint = Find<System.Windows.Controls.TextBlock>("TextHint");
+                var editor = Find<System.Windows.Controls.TextBox>("ReaderAnnotationEditor");
+                var format = Find<System.Windows.Controls.Border>("TextFormatBar");
+                Check(box.Visibility == System.Windows.Visibility.Visible && grip.Visibility == System.Windows.Visibility.Visible && handle.Visibility == System.Windows.Visibility.Visible,
+                    $"A new text box shows the dashed outline, the grip and the width circle (box {box.Visibility}, editor {editor.Visibility} {editor.ActualWidth}x{editor.ActualHeight} at {Canvas_Left(editor)},{Canvas_Top(editor)}, editorState={typeof(XTPdfMergeApp.ReaderWindow).GetField("_annotationEditor", flags)!.GetValue(reader) != null})");
+                Check(hint.Visibility == System.Windows.Visibility.Visible, "An empty new text box shows 'Start typing here…'");
+                Check(Canvas_Left(grip) < Canvas_Left(editor) && Canvas_Left(handle) > Canvas_Left(editor), "The grip is on the left of the box and the circle on its right");
+                Check(format.Visibility == System.Windows.Visibility.Visible && format.Margin.Top < Canvas_Top(editor) + 2, $"The format bar floats next to the box (bar top {format.Margin.Top:0}, box top {Canvas_Top(editor):0})");
+
+                                editor.Text = "A text box that is made narrow so that it must wrap onto several lines";
+                await Task.Delay(100);                 Check(hint.Visibility == System.Windows.Visibility.Collapsed, "The hint disappears once there is text");
+
+                // drag the circle to u = 0.6 (the box starts at u = 0.2 => 0.4 x 595 pt wide)
+                var toLayer = typeof(XTPdfMergeApp.ReaderWindow).GetMethod("TryPageToLayer", flags)!;
+                object[] args = { row, 0.6, 0.2, null! };
+                Check((bool)toLayer.Invoke(reader, args)!, "The page is on screen");
+                var target = (System.Windows.Point)args[3];
+                typeof(XTPdfMergeApp.ReaderWindow).GetField("_chromeDrag", flags)!.SetValue(reader, Enum.ToObject(typeof(XTPdfMergeApp.ReaderWindow).GetNestedType("TextChromeDrag", flags)!, 2));
+                TextFormat fmt = TextFormat.Default;
+                for (int attempt = 0; attempt < 20 && fmt.Width <= 0; attempt++) // the page may still be laying out on a busy machine
+                {
+                    typeof(XTPdfMergeApp.ReaderWindow).GetMethod("UpdateTextChromeDrag", flags)!.Invoke(reader, new object[] { target });
+                    fmt = (TextFormat)typeof(XTPdfMergeApp.ReaderWindow).GetField("_textFormat", flags)!.GetValue(reader)!;
+                    if (fmt.Width <= 0) await Task.Delay(250);
+                }
+                typeof(XTPdfMergeApp.ReaderWindow).GetMethod("FinishTextChromeDrag", flags)!.Invoke(reader, null);
+                Check(Math.Abs(fmt.Width - 0.4 * 595) < 2, $"Dragging the circle sets the box width to about 238 pt (got {fmt.Width:0.#})");
+                reader.UpdateLayout();
+                Check(editor.TextWrapping == System.Windows.TextWrapping.Wrap, "A fixed-width box wraps the text it is typed in");
+
+                typeof(XTPdfMergeApp.ReaderWindow).GetMethod("CommitAnnotationEditor", flags)!.Invoke(reader, new object?[] { false });
+                await Task.Delay(1500);
+                var saved = await AnnotationStore.GetPageAsync(path, 1);
+                var spec = saved?.Annotations.FirstOrDefault(a => a.Kind == QuickAnnotationKind.Typewriter);
+                Check(spec != null && TextFormat.Decode(spec.Format).Width > 200 && (spec.V2 - spec.V1) * saved!.Geometry.DisplayHeight > 2 * 12 * 1.2,
+                    "The committed box keeps its fixed width and is taller than one line");
+            }
+            catch (Exception ex) { failure = ex; }
+            finally { reader.Session.Documents.Clear(); reader.Close(); app.MainWindow = priorOwner; frame.Continue = false; }
+        }));
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+        if (failure != null) throw new Exception("Typewriter chrome: " + failure.Message, failure);
+    }
+
+    static double Canvas_Left(System.Windows.UIElement e) => System.Windows.Controls.Canvas.GetLeft(e);
+    static double Canvas_Top(System.Windows.UIElement e) => System.Windows.Controls.Canvas.GetTop(e);
+}

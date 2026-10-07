@@ -297,15 +297,23 @@ namespace XTPdfMergeApp.Services
                 case QuickAnnotationKind.Callout:
                 {
                     var format = TextFormat.Decode(spec.Kind == QuickAnnotationKind.Callout ? DecodeCallout(spec.Format).TextFormat : spec.Format);
-                    string[] lines = SplitLines(spec.Text);
                     float size = (float)format.Size;
                     lock (_measureFonts)
                     {
                         string key = format.Family + format.Bold + format.Italic;
                         if (!_measureFonts.TryGetValue(key, out var font)) _measureFonts[key] = font = CreateFormatFont(format);
-                        width = Math.Max(spec.Kind == QuickAnnotationKind.Callout ? 100f : 20f, lines.Max(l => font.GetWidth(l, size)) + 2 * TypewriterPadding);
+                        if (spec.Kind == QuickAnnotationKind.Typewriter)
+                        {
+                            var layout = LayoutTypewriter(spec.Text, font, format);
+                            (width, height) = (layout.Width, layout.Height);
+                        }
+                        else
+                        {
+                            string[] lines = SplitLines(spec.Text);
+                            width = Math.Max(100f, lines.Max(l => font.GetWidth(l, size)) + 2 * TypewriterPadding);
+                            height = lines.Length * size * TypewriterLineHeight + 2 * TypewriterPadding;
+                        }
                     }
-                    height = lines.Length * size * TypewriterLineHeight + 2 * TypewriterPadding;
                     break;
                 }
                 case QuickAnnotationKind.Comment:
@@ -481,16 +489,34 @@ namespace XTPdfMergeApp.Services
 
         // ── Typewriter (FreeText không viền, chữ hiện thẳng trên trang) ──
 
+        /// <summary>The lines of a Typewriter box and its size in points: auto width follows the longest line, a fixed width (<see cref="TextFormat.Width"/>) wraps the text.</summary>
+        internal static (string[] Lines, float Width, float Height) LayoutTypewriter(string text, PdfFont font, TextFormat format)
+        {
+            float size = (float)format.Size, lead = size * TypewriterLineHeight;
+            string[] paragraphs = SplitLines(text);
+            string[] lines;
+            float width;
+            if (format.Width > 0)
+            {
+                width = (float)Math.Max(40, format.Width);
+                lines = WrapLines(paragraphs, font, size, width - 2 * TypewriterPadding);
+            }
+            else
+            {
+                lines = paragraphs;
+                width = Math.Max(20f, lines.Max(l => font.GetWidth(l, size)) + 2 * TypewriterPadding);
+            }
+            return (lines, width, lines.Length * lead + 2 * TypewriterPadding);
+        }
+
         private static void AddTypewriter(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec, PdfFont font, TextFormat format)
         {
             var geometry = GetGeometry(page);
-            string[] lines = SplitLines(spec.Text);
             float size = (float)format.Size;
             var color = ParseColor(format.Color);
             var rgb = color.GetColorValue();
             float lead = size * TypewriterLineHeight;
-            float width = Math.Max(20f, lines.Max(l => font.GetWidth(l, size)) + 2 * TypewriterPadding);
-            float height = lines.Length * lead + 2 * TypewriterPadding;
+            var (lines, width, height) = LayoutTypewriter(spec.Text, font, format);
 
             var rect = DisplayBoxToUser(geometry, spec.U1, spec.V1, width, height);
             var annot = new PdfFreeTextAnnotation(rect, new PdfString(spec.Text, PdfEncodings.UNICODE_BIG));
@@ -505,14 +531,29 @@ namespace XTPdfMergeApp.Services
             var form = new PdfFormXObject(new Rectangle(0, 0, width, height));
             SetRotationMatrix(form, geometry.Rotation);
             var canvas = new PdfCanvas(form, doc);
-            canvas.BeginText().SetFontAndSize(font, size).SetFillColor(color)
-                .MoveText(TypewriterPadding, height - TypewriterPadding - size * 0.9);
+            float inner = width - 2 * TypewriterPadding, firstBaseline = height - TypewriterPadding - size * 0.9f;
+            float StartX(string line) => TypewriterPadding + (format.Align == 1 ? (inner - font.GetWidth(line, size)) / 2 : format.Align == 2 ? inner - font.GetWidth(line, size) : 0);
+            canvas.BeginText().SetFontAndSize(font, size).SetFillColor(color);
+            float previousX = 0;
             for (int i = 0; i < lines.Length; i++)
             {
-                if (i > 0) canvas.MoveText(0, -lead);
+                float x = Math.Max(0, StartX(lines[i]));
+                if (i == 0) canvas.MoveText(x, firstBaseline); else canvas.MoveText(x - previousX, -lead);
+                previousX = x;
                 canvas.ShowText(lines[i]);
             }
-            canvas.EndText().Release();
+            canvas.EndText();
+            if (format.Underline)
+            {
+                canvas.SetStrokeColor(color).SetLineWidth(Math.Max(0.5f, size * 0.06f));
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    if (lines[i].Length == 0) continue;
+                    float x = Math.Max(0, StartX(lines[i])), y = firstBaseline - i * lead - size * 0.14f;
+                    canvas.MoveTo(x, y).LineTo(x + font.GetWidth(lines[i], size), y).Stroke();
+                }
+            }
+            canvas.Release();
             annot.SetNormalAppearance(form.GetPdfObject());
             page.AddAnnotation(annot);
         }
