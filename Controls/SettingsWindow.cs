@@ -13,10 +13,9 @@ internal sealed class SettingsWindow : XTWindow
     {
         Title = "Settings";
         TitleBarMode = TitleBarMode.Tool;
-        Width = 940;
-        Height = 560;
-        MinWidth = 720;
-        MinHeight = 480;
+        Width = 720;
+        Height = 620;
+        ResizeMode = ResizeMode.NoResize; // fixed size: one scrolling page
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
         FontFamily = new FontFamily("Segoe UI");

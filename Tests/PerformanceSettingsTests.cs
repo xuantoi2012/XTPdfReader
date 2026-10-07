@@ -20,7 +20,7 @@ internal static partial class Program
             Left = -32000, Top = -32000, WindowStyle = WindowStyle.None };
         try
         {
-            host.Show(); ((RadioButton)page.FindName("NavPerformance")).IsChecked = true;
+            host.Show();
             host.UpdateLayout(); Pump(TimeSpan.FromMilliseconds(100));
             var bitmap = new RenderTargetBitmap(940, 560, 96, 96, PixelFormats.Pbgra32); bitmap.Render(page);
             var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));

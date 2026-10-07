@@ -57,37 +57,12 @@
             </Setter>
         </Style>
 
-        <!-- Mục điều hướng bên trái. -->
-        <Style x:Key="NavItem" TargetType="RadioButton">
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-            <Setter Property="Margin" Value="0,1"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="Bd" Height="36" Padding="12,0" CornerRadius="6" Background="Transparent">
-                            <TextBlock x:Name="Tx" Text="{TemplateBinding Content}" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/>
-                            </Trigger>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
-                                <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource Ui.Accent}"/>
-                                <Setter TargetName="Tx" Property="FontWeight" Value="SemiBold"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
         <Style x:Key="SectionTitle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontSize" Value="13.5"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Margin" Value="0,26,0,2"/>
-            <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+            <Setter Property="Margin" Value="0,16,0,0"/>
+            <Setter Property="Padding" Value="0,0,0,5"/>
+            <Setter Property="Foreground" Value="{DynamicResource Ui.Accent}"/>
         </Style>
         <Style x:Key="RowHint" TargetType="TextBlock">
             <Setter Property="FontSize" Value="12"/>
@@ -98,28 +73,18 @@
     </UserControl.Resources>
 
     <Grid Background="{DynamicResource Ui.Surface}">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="236"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
 
-        <Border Background="{DynamicResource Ui.Panel}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,1,0" Padding="12,16">
-            <StackPanel>
-                <RadioButton x:Name="NavAppearance" Style="{StaticResource NavItem}" GroupName="SettingsNav" Content="Appearance" IsChecked="True" Checked="Nav_Checked"/>
-                <RadioButton x:Name="NavDisplay" Style="{StaticResource NavItem}" GroupName="SettingsNav" Content="Display" Checked="Nav_Checked"/>
-                <RadioButton x:Name="NavPerformance" Style="{StaticResource NavItem}" GroupName="SettingsNav" Content="Performance &amp; memory" Checked="Nav_Checked"/>
-                <RadioButton x:Name="NavIntegration" Style="{StaticResource NavItem}" GroupName="SettingsNav" Content="Integration" Checked="Nav_Checked"/>
-            </StackPanel>
-        </Border>
-
-        <ScrollViewer x:Name="Scroll" Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Margin="48,20,48,40" MaxWidth="760" HorizontalAlignment="Left">
-                <TextBlock Text="Settings" FontSize="20" FontWeight="SemiBold" Margin="0,6,0,0" Foreground="{DynamicResource Ui.Text}"/>
-
+        <!-- One page, top to bottom: every section has its own header. -->
+        <ScrollViewer x:Name="Scroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="28,6,28,12">
                 <StackPanel x:Name="PageAppearance">
                 <!-- Appearance -->
                 <TextBlock x:Name="SecAppearance" Text="Appearance" Style="{StaticResource SectionTitle}"/>
-                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel>
@@ -135,7 +100,7 @@
                         </Border>
                     </Grid>
                 </Border>
-                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel>
@@ -147,10 +112,10 @@
                 </Border>
                 </StackPanel>
 
-                <StackPanel x:Name="PageDisplay" Visibility="Collapsed">
+                <StackPanel x:Name="PageDisplay">
                 <!-- Display -->
                 <TextBlock x:Name="SecDisplay" Text="Display" Style="{StaticResource SectionTitle}"/>
-                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel>
@@ -163,7 +128,7 @@
                         </ComboBox>
                     </Grid>
                 </Border>
-                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel>
@@ -176,7 +141,7 @@
                         </ComboBox>
                     </Grid>
                 </Border>
-                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel>
@@ -191,10 +156,10 @@
                 </Border>
                 </StackPanel>
 
-                <StackPanel x:Name="PagePerformance" Visibility="Collapsed">
+                <StackPanel x:Name="PagePerformance">
                 <!-- Performance & memory -->
                 <TextBlock x:Name="SecPerformance" Text="Performance &amp; memory" Style="{StaticResource SectionTitle}"/>
-                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
                     <StackPanel>
                         <TextBlock Text="Reader performance" Foreground="{DynamicResource Ui.Text}"/>
                         <ComboBox x:Name="PerformanceModeBox" Width="260" Height="32" HorizontalAlignment="Left" Margin="0,10,0,0" SelectionChanged="PerformanceMode_Changed">
@@ -205,7 +170,7 @@
                         <TextBlock x:Name="PerformanceModeHint" Style="{StaticResource RowHint}"/>
                     </StackPanel>
                 </Border>
-                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel>
@@ -215,7 +180,7 @@
                         <ComboBox x:Name="WarmBox" Grid.Column="1" Width="110" Height="30" Margin="24,0,0,0" VerticalAlignment="Center" SelectionChanged="Warm_Changed"/>
                     </Grid>
                 </Border>
-                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel>
@@ -229,10 +194,10 @@
                 </Border>
                 </StackPanel>
 
-                <StackPanel x:Name="PageIntegration" Visibility="Collapsed">
+                <StackPanel x:Name="PageIntegration">
                 <!-- Integration -->
                 <TextBlock x:Name="SecIntegration" Text="Integration" Style="{StaticResource SectionTitle}"/>
-                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel>
@@ -243,7 +208,7 @@
                                   Checked="Presence_Changed" Unchecked="Presence_Changed"/>
                     </Grid>
                 </Border>
-                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,14">
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel>
@@ -256,8 +221,8 @@
                 </Border>
                 </StackPanel>
 
-                <TextBlock x:Name="AboutText" Style="{StaticResource RowHint}" Margin="0,30,0,0"/>
             </StackPanel>
         </ScrollViewer>
+        <TextBlock x:Name="AboutText" Grid.Row="1" Style="{StaticResource RowHint}" HorizontalAlignment="Right" Margin="0,4,20,10"/>
     </Grid>
 </UserControl>

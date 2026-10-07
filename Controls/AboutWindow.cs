@@ -1,5 +1,4 @@
 using System;
-using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -18,13 +17,7 @@ internal sealed class AboutWindow : XTWindow
         ("VirtualizingWrapPanel", "thumbnail grids (MIT)")
     ];
 
-    internal static string VersionText()
-    {
-        var assembly = typeof(AboutWindow).Assembly;
-        string? informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-        string version = (informational ?? assembly.GetName().Version?.ToString() ?? "1.0.0").Split('+')[0];
-        return $"Version {version}";
-    }
+    internal static string VersionText() => "Version " + XTPdfMergeApp.Services.AppInfo.Version;
 
     public AboutWindow()
     {

@@ -74,8 +74,8 @@
             <Border x:Name="ReaderToolbarBar" Grid.Row="0" Height="80" Background="{DynamicResource Ui.Surface}"
                     BorderBrush="{DynamicResource Ui.ToolbarBorder}" BorderThickness="0,0,0,1">
                 <DockPanel Margin="8,0">
-                    <xt:XTButton x:Name="ReaderToolbarMore" DockPanel.Dock="Right" Style="{StaticResource UiGhostButton}"
-                                 Icon="{StaticResource Ui.Icon.more}" Text="More tools" Height="30" Margin="8,0,0,0"
+                    <xt:XTButton x:Name="ReaderToolbarMore" DockPanel.Dock="Right" Style="{StaticResource UiRibbonButton}"
+                                 Icon="{StaticResource Ui.Icon.tablist}" Text="More tools" Margin="6,0,0,0"
                                  VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Tools that do not fit the window width" Click="ReaderToolbarMore_Click"/>
                     <ScrollViewer x:Name="ReaderToolsScroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Focusable="False">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -157,7 +157,7 @@
                             <StackPanel VerticalAlignment="Bottom">
                                 <Grid VerticalAlignment="Center">
                                     <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="62"/><ColumnDefinition Width="62"/><ColumnDefinition Width="62"/></Grid.ColumnDefinitions>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="64"/><ColumnDefinition Width="64"/><ColumnDefinition Width="68"/></Grid.ColumnDefinitions>
                                     <xt:XTButton x:Name="ReaderShapeRectButton" Grid.Row="0" Grid.Column="0" Style="{StaticResource UiMiniIconButton}"
                                                  Icon="{StaticResource Ui.Icon.shape_rect}" Text="Rect" ToolTip="Rectangle" Click="ReaderShapeRect_Click"/>
                                     <xt:XTButton x:Name="ReaderShapeCloudButton" Grid.Row="0" Grid.Column="1" Style="{StaticResource UiMiniIconButton}"

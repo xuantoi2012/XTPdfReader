@@ -79,18 +79,6 @@ namespace XTPdfMergeApp.Controls
             ThemeService.ApplySaved();
         }
 
-        // ── Điều hướng bên trái ───────────────────────────────────────
-
-        private void Nav_Checked(object sender, RoutedEventArgs e)
-        {
-            if (!IsLoaded) return;
-            PageAppearance.Visibility = sender == NavAppearance ? Visibility.Visible : Visibility.Collapsed;
-            PageDisplay.Visibility = sender == NavDisplay ? Visibility.Visible : Visibility.Collapsed;
-            PagePerformance.Visibility = sender == NavPerformance ? Visibility.Visible : Visibility.Collapsed;
-            PageIntegration.Visibility = sender == NavIntegration ? Visibility.Visible : Visibility.Collapsed;
-            Scroll.ScrollToVerticalOffset(0);
-        }
-
         // ── Display ───────────────────────────────────────────────────
 
         private void Presence_Changed(object sender, RoutedEventArgs e)

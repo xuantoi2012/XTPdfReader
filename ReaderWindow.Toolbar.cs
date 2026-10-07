@@ -53,7 +53,10 @@ public partial class ReaderWindow
         // Keep complete controls at both viewport edges; the menu exposes every clipped command.
         ReaderToolsScroll.Clip = new RectangleGeometry(new Rect(first, 0, Math.Max(0, last - first), ReaderToolsScroll.ActualHeight));
     }
-    /// <summary>"More tools": the popup lists only the buttons the window is too narrow to show (cut off at the right edge), grouped like the ribbon.</summary>
+    internal int LastMoreToolsCount { get; private set; }
+
+    /// <summary>"More tools": a popup that lists only the buttons the window is too narrow to show (cut off at the right edge), grouped like the ribbon.
+    /// Own popup (not a ContextMenu): the menu clipped its last entry.</summary>
     private void ReaderToolbarMore_Click(object sender, RoutedEventArgs e)
     {
         double width = ReaderToolsScroll.ViewportWidth;
@@ -62,23 +65,56 @@ public partial class ReaderWindow
             double left = b.TranslatePoint(new Point(), ReaderToolsScroll).X;
             return left >= -.5 && left + b.ActualWidth <= width + .5;
         }
-        var menu = new ContextMenu { PlacementTarget = ReaderToolbarMore, Placement = PlacementMode.Bottom, MaxHeight = Math.Max(180, SystemParameters.WorkArea.Height - 120) };
+        Popup? popup = null;
+        var list = new StackPanel();
         foreach (var group in ((Panel)ReaderToolsScroll.Content).Children.OfType<StackPanel>())
         {
             var buttons = VisualTreeHelpers.FindVisualChildren<XTButton>(group).Where(b => b.Visibility == Visibility.Visible && !Shown(b)).ToList();
             if (buttons.Count == 0) continue;
-            if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+            if (list.Children.Count > 0)
+            {
+                var line = new Border { Height = 1, Margin = new Thickness(6, 4, 6, 4) };
+                line.SetResourceReference(Border.BackgroundProperty, "Ui.Border");
+                list.Children.Add(line);
+            }
             foreach (var button in buttons)
             {
-                var item = new MenuItem { Header = (button.Text ?? "").Replace('\n', ' '), IsEnabled = button.IsEnabled,
-                    ToolTip = button.ToolTip, IsCheckable = button.Tag as string == "Active", IsChecked = button.Tag as string == "Active" };
-                if (button.Icon is Geometry icon) item.Icon = new System.Windows.Shapes.Path { Data = icon, Width = 16, Height = 16, Stretch = Stretch.Uniform, Fill = (Brush)FindResource("Ui.Text") };
-                item.Click += (_, _) => button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, button));
-                menu.Items.Add(item);
+                var captured = button;
+                bool active = captured.Tag as string == "Active";
+                var row = new Border { Height = 30, Padding = new Thickness(8, 0, 12, 0), CornerRadius = new CornerRadius(5), Background = Brushes.Transparent,
+                    Cursor = System.Windows.Input.Cursors.Hand, ToolTip = captured.ToolTip, IsEnabled = captured.IsEnabled, Opacity = captured.IsEnabled ? 1 : 0.45 };
+                var content = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                if (captured.Icon is Geometry icon)
+                {
+                    var path = new System.Windows.Shapes.Path { Data = icon };
+                    path.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, active ? "Ui.Accent" : "Ui.Text");
+                    content.Children.Add(new Viewbox { Width = 16, Height = 16, Margin = new Thickness(0, 0, 10, 0), Child = new Canvas { Width = 24, Height = 24, Children = { path } } });
+                }
+                var label = new TextBlock { Text = (captured.Text ?? "").Replace('\n', ' '), VerticalAlignment = VerticalAlignment.Center };
+                label.SetResourceReference(TextBlock.ForegroundProperty, active ? "Ui.Accent" : "Ui.Text");
+                content.Children.Add(label);
+                row.Child = content;
+                row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "Ui.Hover");
+                row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
+                row.MouseLeftButtonUp += (_, _) =>
+                {
+                    if (popup != null) popup.IsOpen = false;
+                    Dispatcher.BeginInvoke(() => captured.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, captured)), DispatcherPriority.Input);
+                };
+                list.Children.Add(row);
             }
         }
-        if (menu.Items.Count == 0) return;
-        ReaderToolbarMore.ContextMenu = menu;
-        menu.IsOpen = true;
+        if (list.Children.Count == 0) return;
+        LastMoreToolsCount = list.Children.OfType<Border>().Count(b => b.Height == 30);
+        var frame = new Border { Padding = new Thickness(6), CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Margin = new Thickness(8, 2, 8, 12),
+            Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 12, ShadowDepth = 2, Opacity = 0.18, Direction = 270 },
+            Child = new ScrollViewer { MaxHeight = Math.Max(180, SystemParameters.WorkArea.Height - 160), VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = list } };
+        frame.SetResourceReference(Border.BackgroundProperty, "Ui.Surface");
+        frame.SetResourceReference(Border.BorderBrushProperty, "Ui.Border");
+        popup = new Popup
+        {
+            PlacementTarget = ReaderToolbarMore, Placement = PlacementMode.Bottom, StaysOpen = false, AllowsTransparency = true,
+            MinWidth = 210, Child = frame, IsOpen = true
+        };
     }
 }

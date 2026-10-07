@@ -200,9 +200,8 @@ internal static partial class Program
             Check(more.Visibility == Visibility.Visible && more.Text == "More tools", "In a narrow window the 'More tools' button (icon + text) appears");
             more.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, more));
             Pump(TimeSpan.FromMilliseconds(150));
-            int listed = more.ContextMenu?.Items.OfType<MenuItem>().Count() ?? 0;
+            int listed = reader.LastMoreToolsCount;
             Check(listed > 0 && listed < buttons.Count, $"More tools lists only the hidden buttons ({listed} of {buttons.Count})");
-            if (more.ContextMenu != null) more.ContextMenu.IsOpen = false;
             SavePng(bar, "ui-ribbon-narrow");
 
             var search = (XTStyle.Controls.XTButton)reader.FindName("TitleSearchButton");
@@ -211,8 +210,15 @@ internal static partial class Program
             search.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, search));
             Pump(TimeSpan.FromMilliseconds(250));
             Check(palette.IsOpen, "Clicking the search box opens the command palette as a popup");
+            Pump(TimeSpan.FromMilliseconds(250));
+            SavePng(palette.Panel, "ui-palette");
             palette.Close();
 
+            var settings = new SettingsWindow(() => Task.CompletedTask) { Owner = reader };
+            settings.Show(); settings.UpdateLayout(); Pump(TimeSpan.FromMilliseconds(300));
+            Check(settings.ResizeMode == ResizeMode.NoResize && Math.Abs(settings.Width - 720) < 1, "Settings is a fixed-size 720 px window");
+            SavePng((FrameworkElement)settings.Content, "ui-settings");
+            settings.Close();
             Check(AboutWindow.VersionText().StartsWith("Version "), "About window reports a version: " + AboutWindow.VersionText());
             var about = new AboutWindow { Owner = reader };
             about.Show(); about.UpdateLayout(); Pump(TimeSpan.FromMilliseconds(200));

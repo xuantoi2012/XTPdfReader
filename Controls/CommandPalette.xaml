@@ -5,13 +5,13 @@
              FontFamily="Segoe UI" FontSize="13">
     <!-- The palette is a drop-down popup under the title-bar search box (no full-window backdrop); the control itself takes no room. -->
     <Popup x:Name="Pop" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade" Placement="Bottom" Closed="Pop_Closed">
-        <Border Width="640" Margin="12,2,12,24" CornerRadius="12" BorderThickness="1"
+        <Border Width="520" Margin="10,2,10,14" CornerRadius="10" BorderThickness="1"
                 BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}" MouseLeftButtonDown="Panel_MouseLeftButtonDown">
             <Border.Effect>
-                <DropShadowEffect BlurRadius="40" ShadowDepth="10" Opacity="0.35" Direction="270"/>
+                <DropShadowEffect BlurRadius="14" ShadowDepth="3" Opacity="0.18" Direction="270"/>
             </Border.Effect>
             <DockPanel>
-                <Border DockPanel.Dock="Top" Height="52" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="16,0">
+                <Border DockPanel.Dock="Top" Height="42" CornerRadius="10,10,0,0" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="14,0">
                     <DockPanel>
                         <Border DockPanel.Dock="Right" CornerRadius="9" Background="{DynamicResource Ui.Chip}" Padding="8,2" VerticalAlignment="Center">
                             <TextBlock Text="Ctrl+K" FontSize="11" Foreground="{DynamicResource Ui.Muted}"/>
@@ -21,39 +21,39 @@
                                 <Path Data="{StaticResource Ui.Icon.search}" Fill="{DynamicResource Ui.Muted}"/>
                             </Canvas>
                         </Viewbox>
-                        <TextBox x:Name="Query" BorderThickness="0" Background="Transparent" FontSize="15" VerticalContentAlignment="Center"
+                        <TextBox x:Name="Query" BorderThickness="0" Background="Transparent" FontSize="13.5" VerticalContentAlignment="Center"
                                  Foreground="{DynamicResource Ui.Text}" CaretBrush="{DynamicResource Ui.Text}"
                                  TextChanged="Query_TextChanged" PreviewKeyDown="Query_PreviewKeyDown"/>
                     </DockPanel>
                 </Border>
-                <Border DockPanel.Dock="Bottom" Background="{DynamicResource Ui.Panel}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" Padding="16,8">
+                <Border DockPanel.Dock="Bottom" CornerRadius="0,0,9,9" Background="{DynamicResource Ui.Panel}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" Padding="14,6">
                     <StackPanel Orientation="Horizontal" TextElement.Foreground="{DynamicResource Ui.Muted}" TextElement.FontSize="11.5">
                         <TextBlock Text="↑↓ navigate" Margin="0,0,16,0"/>
                         <TextBlock Text="Enter run" Margin="0,0,16,0"/>
                         <TextBlock Text="Esc close"/>
                     </StackPanel>
                 </Border>
-                <ListBox x:Name="Rows" BorderThickness="0" Background="Transparent" MaxHeight="400" Padding="0,4,0,8"
+                <ListBox x:Name="Rows" BorderThickness="0" Background="Transparent" MaxHeight="300" Padding="0,2,0,4"
                          ItemContainerStyle="{StaticResource UiRowItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          PreviewMouseLeftButtonUp="Rows_PreviewMouseLeftButtonUp">
                     <ListBox.GroupStyle>
                         <GroupStyle>
                             <GroupStyle.HeaderTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="SemiBold" Margin="18,8,12,2" Foreground="{DynamicResource Ui.Muted}"/>
+                                    <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="SemiBold" Margin="14,6,12,1" Foreground="{DynamicResource Ui.Muted}"/>
                                 </DataTemplate>
                             </GroupStyle.HeaderTemplate>
                         </GroupStyle>
                     </ListBox.GroupStyle>
                     <ListBox.ItemTemplate>
                         <DataTemplate DataType="{x:Type local:PaletteItem}">
-                            <Grid Height="36" Margin="12,0">
+                            <Grid Height="30" Margin="8,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <Viewbox Width="17" Height="17" Margin="6,0,12,0">
+                                <Viewbox Width="15" Height="15" Margin="6,0,10,0">
                                     <Canvas Width="24" Height="24">
                                         <Path Data="{Binding Icon}" Fill="{DynamicResource Ui.Text}"/>
                                     </Canvas>
