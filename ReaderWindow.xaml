@@ -74,9 +74,15 @@
             <Border x:Name="ReaderToolbarBar" Grid.Row="0" Height="80" Background="{DynamicResource Ui.Surface}"
                     BorderBrush="{DynamicResource Ui.ToolbarBorder}" BorderThickness="0,0,0,1">
                 <DockPanel Margin="8,0">
-                    <xt:XTButton x:Name="ReaderToolbarMore" DockPanel.Dock="Right" Style="{StaticResource UiRibbonButton}"
-                                 Icon="{StaticResource Ui.Icon.tablist}" Text="More tools" Margin="6,0,0,0"
-                                 VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Tools that do not fit the window width" Click="ReaderToolbarMore_Click"/>
+                    <!-- Same two-row shape as the other groups (button row + caption row, caption invisible), so the icon and the label sit on the
+                         same lines as the neighbouring commands instead of being centred in the whole bar. -->
+                    <StackPanel DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center"
+                                Visibility="{Binding Visibility, ElementName=ReaderToolbarMore}">
+                        <xt:XTButton x:Name="ReaderToolbarMore" Style="{StaticResource UiRibbonButton}"
+                                     Icon="{StaticResource Ui.Icon.tablist}" Text="More tools"
+                                     Visibility="Collapsed" ToolTip="Tools that do not fit the window width" Click="ReaderToolbarMore_Click"/>
+                        <TextBlock Style="{StaticResource UiGroupCaption}" Text="Tools" Visibility="Hidden"/>
+                    </StackPanel>
                     <ScrollViewer x:Name="ReaderToolsScroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Focusable="False">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <!-- Tools -->

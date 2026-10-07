@@ -137,6 +137,14 @@ namespace XTPdfMergeApp.Controls
 
         private TextBox? _replyBox;
 
+        // Closed from outside (Post, delete, owner closing): later Deactivated events must not call Close again while it is already closing
+        // (WPF throws "Cannot set Visibility ... while a Window is closing" - seen as an unhandled exception in the UI smoke run).
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            _closed = true;
+            base.OnClosing(e);
+        }
+
         private void CloseOnce()
         {
             if (_closed) return;
