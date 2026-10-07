@@ -446,6 +446,7 @@
                             </Setter>
                         </Style>
                     </Border.Resources>
+                    <StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <ComboBox x:Name="FmtFont" Width="150" Height="28" Focusable="False" SelectionChanged="FmtControl_Changed" ToolTip="Font"/>
                         <ComboBox x:Name="FmtSize" Width="66" Height="28" Margin="6,0,0,0" Focusable="False" SelectionChanged="FmtControl_Changed" ToolTip="Font size (pt)"/>
@@ -470,6 +471,24 @@
                         </ToggleButton>
                         <Border Width="1" Height="18" Margin="6,0,8,0" Background="{DynamicResource Ui.Border}"/>
                         <StackPanel x:Name="FmtColors" Orientation="Horizontal" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <!-- Callout only: the arrow and the box (line colour/width, arrow head, box fill, border). -->
+                    <StackPanel x:Name="CalloutRow" Orientation="Horizontal" Margin="0,6,0,0" Visibility="Collapsed">
+                        <TextBlock Text="Line" VerticalAlignment="Center" Margin="2,0,6,0" Foreground="{DynamicResource Ui.Muted}"/>
+                        <StackPanel x:Name="CalloutLineColors" Orientation="Horizontal" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="CalloutWidthBox" Width="70" Height="28" Margin="8,0,0,0" Focusable="False" SelectionChanged="CalloutStyle_Changed" ToolTip="Line width"/>
+                        <ComboBox x:Name="CalloutArrowBox" Width="86" Height="28" Margin="6,0,0,0" Focusable="False" SelectionChanged="CalloutStyle_Changed" ToolTip="Arrow head">
+                            <ComboBoxItem Content="No arrow" Tag="0"/>
+                            <ComboBoxItem Content="Open" Tag="1"/>
+                            <ComboBoxItem Content="Closed" Tag="2"/>
+                        </ComboBox>
+                        <Border Width="1" Height="18" Margin="8,0" Background="{DynamicResource Ui.Border}"/>
+                        <TextBlock Text="Fill" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Ui.Muted}"/>
+                        <StackPanel x:Name="CalloutFillColors" Orientation="Horizontal" VerticalAlignment="Center"/>
+                        <ToggleButton x:Name="CalloutBorderToggle" Style="{StaticResource FmtToggle}" Margin="8,0,0,0" Click="CalloutStyle_Changed" ToolTip="Box border">
+                            <Path Stroke="{DynamicResource Ui.Text}" StrokeThickness="1.6" Data="M3,3 h12 v12 h-12 z" Width="18" Height="18"/>
+                        </ToggleButton>
+                    </StackPanel>
                     </StackPanel>
                 </Border>
 

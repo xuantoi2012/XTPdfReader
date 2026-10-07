@@ -566,6 +566,7 @@ namespace XTPdfMergeApp
                 return;
             }
             if (!TryPageToLayer(hit.Row, hit.U, hit.V, out Point tip)) return;
+            _calloutStyle = AppSettings.CalloutStyleSetting.Length > 0 ? CalloutStyle.Decode(AppSettings.CalloutStyleSetting) : CalloutStyle.Default; // a new callout starts from the tool's remembered look
             _calloutPlacement = new CalloutPlacement { Row = hit.Row, TipU = hit.U, TipV = hit.V, Start = pointInHost };
             ReaderInkPreview.Points.Clear();
             ReaderInkPreview.Points.Add(tip);
@@ -706,7 +707,7 @@ namespace XTPdfMergeApp
             var (u, v) = _calloutTipDragPoint;
             if (Math.Abs(u - old.TipU) > 1e-6 || Math.Abs(v - old.TipV) > 1e-6)
             {
-                var changed = Regenerated(s) with { Format = PdfQuickAnnotationService.EncodeCallout(u, v, old.TextFormat) };
+                var changed = Regenerated(s) with { Format = PdfQuickAnnotationService.EncodeCallout(u, v, old.TextFormat, old.Style) };
                 _selAnn = changed;
                 CommitAnnotationChange(drag.Row, new QuickAnnotationChange(s, changed), "Move callout arrow");
             }
@@ -895,6 +896,7 @@ namespace XTPdfMergeApp
                 // Sửa chữ ngay trong hộp như Foxit (bấm đúp): ô nhập đè đúng hộp, callout gốc ẩn trong lúc sửa.
                 var callout = PdfQuickAnnotationService.DecodeCallout(existing.Format);
                 _textFormat = TextFormat.Decode(callout.TextFormat);
+                _calloutStyle = callout.Style;
                 _annotationEditor = new AnnotationEditorState
                 {
                     Row = hit.Row, Kind = kind, U = existing.U1, V = existing.V1, Geometry = page.Geometry, Existing = existing,
@@ -1047,7 +1049,7 @@ namespace XTPdfMergeApp
             UpdateSelectionVisual();
             if (cancel) return;
 
-            string format = state.Kind == QuickAnnotationKind.Callout ? PdfQuickAnnotationService.EncodeCallout(state.TipU, state.TipV, _textFormat.Encode()) : state.Kind == QuickAnnotationKind.Typewriter ? _textFormat.Encode() : "";
+            string format = state.Kind == QuickAnnotationKind.Callout ? PdfQuickAnnotationService.EncodeCallout(state.TipU, state.TipV, _textFormat.Encode(), _calloutStyle) : state.Kind == QuickAnnotationKind.Typewriter ? _textFormat.Encode() : "";
             QuickAnnotationChange change;
             string description;
             string label = state.Kind == QuickAnnotationKind.Comment ? "note" : state.Kind == QuickAnnotationKind.Callout ? "callout" : "typewriter";

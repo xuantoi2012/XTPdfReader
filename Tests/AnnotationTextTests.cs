@@ -134,3 +134,41 @@ internal static partial class Program
     static double Canvas_Left(System.Windows.UIElement e) => System.Windows.Controls.Canvas.GetLeft(e);
     static double Canvas_Top(System.Windows.UIElement e) => System.Windows.Controls.Canvas.GetTop(e);
 }
+
+internal static partial class Program
+{
+    /// <summary>Callouts: arrow head + line/box style are stored, old callouts read as before, the appearance draws the head.</summary>
+    static void TestCalloutStyle()
+    {
+        string folder = System.IO.Path.Combine(Output, "callout-style");
+        Directory.CreateDirectory(folder);
+        string path = System.IO.Path.Combine(folder, "c.pdf"), output = System.IO.Path.Combine(folder, "c-out.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(path))) doc.AddNewPage(new PageSize(595, 842));
+
+        var legacy = PdfQuickAnnotationService.DecodeCallout("C|0.5,0.5|Arial|12|#000000|0|0");
+        Check(legacy.Style == CalloutStyle.Legacy && legacy.Style.Arrow == 0 && legacy.TextFormat == "Arial|12|#000000|0|0", "A callout saved before styles keeps the old look (no arrow head) and its text format");
+        var style = new CalloutStyle("#C0392B", 2, 2, "#FFF6C4", "#C0392B", 1.5);
+        string encoded = PdfQuickAnnotationService.EncodeCallout(0.5, 0.5, "Arial|12|#000000|0|0", style);
+        var back = PdfQuickAnnotationService.DecodeCallout(encoded);
+        Check(back.Style == style && back.TextFormat == "Arial|12|#000000|0|0" && back.TipU == 0.5, "The callout style survives encode/decode next to the tip point and text format");
+        Check(PdfQuickAnnotationService.EncodeCallout(0.5, 0.5, "Arial|12|#000000|0|0", CalloutStyle.Legacy) == "C|0.5,0.5|Arial|12|#000000|0|0", "The legacy look writes the same string as before");
+        Check(new CalloutStyle("#000000", 1, 1, CalloutStyle.None, CalloutStyle.None, 1).Encode().Contains("-"), "'No fill / no border' is representable");
+
+        using (var reader = new PdfReader(path))
+        using (var doc = new PdfDocument(reader, new PdfWriter(output)))
+        {
+            var spec = new QuickAnnotationSpec("xt-c1", QuickAnnotationKind.Callout, 1, 0.4, 0.2, 0.7, 0.25, "Check this beam") { Format = encoded };
+            PdfQuickAnnotationService.ApplyChanges(doc, new[] { new QuickAnnotationChange(null, spec) });
+        }
+        using (var doc = new PdfDocument(new PdfReader(output)))
+        {
+            var page = doc.GetPage(1);
+            var read = PdfQuickAnnotationService.ReadAnnotations(page, PdfQuickAnnotationService.GetGeometry(page), 1).Single();
+            Check(read.Kind == QuickAnnotationKind.Callout && PdfQuickAnnotationService.DecodeCallout(read.Format).Style == style, "The written callout reads back with its style");
+            var annot = page.GetAnnotations().Single().GetPdfObject();
+            Check(annot.GetAsName(new iText.Kernel.Pdf.PdfName("LE"))?.GetValue() == "ClosedArrow", "The callout declares its arrow head (/LE) for other viewers");
+            string content = System.Text.Encoding.Latin1.GetString(((PdfStream)page.GetAnnotations().Single().GetNormalAppearanceObject()).GetBytes());
+            Check(content.Contains("\nf\n") || content.Contains(" f\n") || content.Contains("\nf*"), "The closed arrow head is a filled triangle in the appearance");
+        }
+    }
+}

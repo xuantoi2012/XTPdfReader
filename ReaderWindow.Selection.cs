@@ -59,6 +59,14 @@ namespace XTPdfMergeApp
                 _textFormat = TextFormat.Decode(spec.Format);
                 LoadFormatBar();
             }
+            else if (spec is { Kind: QuickAnnotationKind.Callout })
+            {
+                var callout = PdfQuickAnnotationService.DecodeCallout(spec.Format);
+                _textFormat = TextFormat.Decode(callout.TextFormat);
+                _calloutStyle = callout.Style;
+                LoadFormatBar();
+                LoadCalloutRow();
+            }
             else if (spec is { Kind: QuickAnnotationKind.Shape })
             {
                 var style = ShapeStyle.Decode(spec.Format);
@@ -344,6 +352,79 @@ namespace XTPdfMergeApp
         // ── Typewriter format bar ─────────────────────────────────────
 
         private TextFormat _textFormat = TextFormat.Decode(AppSettings.TypewriterFormat);
+        private CalloutStyle _calloutStyle = AppSettings.CalloutStyleSetting.Length > 0 ? CalloutStyle.Decode(AppSettings.CalloutStyleSetting) : CalloutStyle.Default;
+        private bool _calloutBuilt, _calloutLoading;
+
+        private void EnsureCalloutRow()
+        {
+            if (_calloutBuilt) return;
+            _calloutBuilt = true;
+            foreach (double width in CalloutStyle.Widths)
+                CalloutWidthBox.Items.Add(new ComboBoxItem { Content = width.ToString("0.#") + " pt", Tag = width, Focusable = false });
+            void Swatches(Panel host, string[] colors, string group, string tip, Action<string> choose)
+            {
+                foreach (string hex in colors)
+                {
+                    var swatch = new RadioButton
+                    {
+                        GroupName = group, Tag = hex, Focusable = false, Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 4, 0), ToolTip = tip,
+                        Template = SwatchTemplate((Color)ColorConverter.ConvertFromString(hex))
+                    };
+                    swatch.Checked += (_, _) => { if (!_calloutLoading) choose(hex); };
+                    host.Children.Add(swatch);
+                }
+            }
+            Swatches(CalloutLineColors, TextFormat.Colors.Append("#759DB8").ToArray(), "CalloutLine", "Arrow and line colour", hex => { _calloutStyle = _calloutStyle with { LineColor = hex }; CalloutStyleApplied(); });
+            Swatches(CalloutFillColors, CalloutStyle.FillColors, "CalloutFill", "Box fill", hex => { _calloutStyle = _calloutStyle with { Fill = hex }; CalloutStyleApplied(); });
+        }
+
+        private void LoadCalloutRow()
+        {
+            EnsureCalloutRow();
+            _calloutLoading = true;
+            try
+            {
+                int index = Array.FindIndex(CalloutStyle.Widths, w => Math.Abs(w - _calloutStyle.LineWidth) < 0.01);
+                if (index < 0)
+                {
+                    CalloutWidthBox.Items.Add(new ComboBoxItem { Content = _calloutStyle.LineWidth.ToString("0.#") + " pt", Tag = _calloutStyle.LineWidth, Focusable = false });
+                    index = CalloutWidthBox.Items.Count - 1;
+                }
+                CalloutWidthBox.SelectedIndex = index;
+                CalloutArrowBox.SelectedIndex = Math.Clamp(_calloutStyle.Arrow, 0, 2);
+                foreach (RadioButton swatch in CalloutLineColors.Children)
+                    swatch.IsChecked = string.Equals((string)swatch.Tag, _calloutStyle.LineColor, StringComparison.OrdinalIgnoreCase);
+                foreach (RadioButton swatch in CalloutFillColors.Children)
+                    swatch.IsChecked = string.Equals((string)swatch.Tag, _calloutStyle.Fill, StringComparison.OrdinalIgnoreCase);
+                CalloutBorderToggle.IsChecked = _calloutStyle.Border != CalloutStyle.None;
+            }
+            finally { _calloutLoading = false; }
+        }
+
+        private void CalloutStyle_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_calloutLoading || !_calloutBuilt) return;
+            double width = CalloutWidthBox.SelectedItem is ComboBoxItem { Tag: double w } ? w : _calloutStyle.LineWidth;
+            int arrow = CalloutArrowBox.SelectedItem is ComboBoxItem { Tag: string a } && int.TryParse(a, out int parsed) ? parsed : _calloutStyle.Arrow;
+            string border = CalloutBorderToggle.IsChecked == true ? (_calloutStyle.Border == CalloutStyle.None ? _calloutStyle.LineColor : _calloutStyle.Border) : CalloutStyle.None;
+            _calloutStyle = _calloutStyle with { LineWidth = width, Arrow = arrow, Border = border, BorderWidth = Math.Max(0.5, width) };
+            CalloutStyleApplied();
+        }
+
+        /// <summary>The callout look changed in the bar: remember it for the tool and, when a callout is selected, rewrite that callout.</summary>
+        private void CalloutStyleApplied()
+        {
+            AppSettings.CalloutStyleSetting = _calloutStyle.Encode();
+            if (_selAnn is { Kind: QuickAnnotationKind.Callout } spec && _selRow is { } row && _annotationEditor == null)
+            {
+                var callout = PdfQuickAnnotationService.DecodeCallout(spec.Format);
+                string format = PdfQuickAnnotationService.EncodeCallout(callout.TipU, callout.TipV, callout.TextFormat, _calloutStyle);
+                if (format == spec.Format) return;
+                var changed = Regenerated(spec) with { Format = format };
+                _selAnn = changed;
+                CommitAnnotationChange(row, new QuickAnnotationChange(spec, changed), "Change callout style");
+            }
+        }
         private bool _formatLoading;
         private bool _formatBarBuilt;
 
@@ -415,8 +496,11 @@ namespace XTPdfMergeApp
 
         private void UpdateFormatBarVisibility()
         {
-            bool show = _readerTool == ReaderTool.Typewriter || _annotationEditor is { Kind: QuickAnnotationKind.Typewriter } || _selAnn is { Kind: QuickAnnotationKind.Typewriter };
+            bool callout = _readerTool == ReaderTool.Callout || _annotationEditor is { Kind: QuickAnnotationKind.Callout } || _selAnn is { Kind: QuickAnnotationKind.Callout };
+            bool show = callout || _readerTool == ReaderTool.Typewriter || _annotationEditor is { Kind: QuickAnnotationKind.Typewriter } || _selAnn is { Kind: QuickAnnotationKind.Typewriter };
             if (show && TextFormatBar.Visibility != Visibility.Visible) LoadFormatBar();
+            if (callout) LoadCalloutRow();
+            CalloutRow.Visibility = callout ? Visibility.Visible : Visibility.Collapsed;
             TextFormatBar.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
 
 
@@ -508,10 +592,20 @@ namespace XTPdfMergeApp
         private void FormatBarChanged()
         {
             AppSettings.TypewriterFormat = (_textFormat with { Width = 0 }).Encode(); // the box width belongs to one text box, never to the tool default
-            if (_annotationEditor is { Kind: QuickAnnotationKind.Typewriter })
+            if (_annotationEditor is { Kind: QuickAnnotationKind.Typewriter or QuickAnnotationKind.Callout })
             {
                 ApplyEditorFormat();
                 PositionAnnotationEditor();
+                return;
+            }
+            if (_selAnn is { Kind: QuickAnnotationKind.Callout } calloutSpec && _selRow is { } calloutRow)
+            {
+                var callout = PdfQuickAnnotationService.DecodeCallout(calloutSpec.Format);
+                string format = PdfQuickAnnotationService.EncodeCallout(callout.TipU, callout.TipV, _textFormat.Encode(), callout.Style);
+                if (format == calloutSpec.Format) return;
+                var changedCallout = Regenerated(calloutSpec) with { Format = format }; // the box keeps its size; the text re-wraps inside it
+                _selAnn = changedCallout;
+                CommitAnnotationChange(calloutRow, new QuickAnnotationChange(calloutSpec, changedCallout), "Change callout text format");
                 return;
             }
             if (_selAnn is { Kind: QuickAnnotationKind.Typewriter } spec && _selRow is { } row)

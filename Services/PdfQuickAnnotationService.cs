@@ -62,7 +62,7 @@ namespace XTPdfMergeApp.Services
             {
                 // Dời callout = dời cả mũi tên (như Foxit), không chỉ hộp.
                 var callout = PdfQuickAnnotationService.DecodeCallout(format);
-                format = PdfQuickAnnotationService.EncodeCallout(callout.TipU + du, callout.TipV + dv, callout.TextFormat);
+                format = PdfQuickAnnotationService.EncodeCallout(callout.TipU + du, callout.TipV + dv, callout.TextFormat, callout.Style);
             }
             return this with { U1 = U1 + du, V1 = V1 + dv, U2 = U2 + du, V2 = V2 + dv, Format = format };
         }
@@ -203,7 +203,7 @@ namespace XTPdfMergeApp.Services
             var box = rect;
             if (obj.GetAsArray(CalloutBoxKey) is { } b && b.Size() == 4 && b.GetAsNumber(0) is { } l && b.GetAsNumber(1) is { } bo && b.GetAsNumber(2) is { } r && b.GetAsNumber(3) is { } t)
                 box = geometry.UserRectToDisplay(l.DoubleValue(), bo.DoubleValue(), r.DoubleValue(), t.DoubleValue());
-            return (box.U1, box.V1, box.U2, box.V2, EncodeCallout(tipU, tipV, stored.TextFormat));
+            return (box.U1, box.V1, box.U2, box.V2, EncodeCallout(tipU, tipV, stored.TextFormat, stored.Style));
         }
 
         private static string ColorOf(PdfArray? c)
@@ -902,8 +902,11 @@ namespace XTPdfMergeApp.Services
 
             // /Rect (và AP) phải phủ luôn cả điểm chỉ + đường dẫn, không chỉ riêng hộp chữ — nếu không đường dẫn
             // sẽ bị cắt ở đúng mép hộp khi vẽ.
-            double unionDispLeft = Math.Min(boxDispLeft, tipDispX), unionDispRight = Math.Max(boxDispRight, tipDispX);
-            double unionDispTop = Math.Min(boxDispTop, tipDispY), unionDispBottom = Math.Max(boxDispBottom, tipDispY);
+            var style = callout.Style;
+            bool hasBorder = style.Border != CalloutStyle.None, hasFill = style.Fill != CalloutStyle.None;
+            float headLength = style.Arrow > 0 ? (float)Math.Max(7, 5 * style.LineWidth) : 0f;
+            double unionDispLeft = Math.Min(boxDispLeft, tipDispX) - headLength, unionDispRight = Math.Max(boxDispRight, tipDispX) + headLength;
+            double unionDispTop = Math.Min(boxDispTop, tipDispY) - headLength, unionDispBottom = Math.Max(boxDispBottom, tipDispY) + headLength;
             double unionDispWidth = unionDispRight - unionDispLeft, unionDispHeight = unionDispBottom - unionDispTop;
 
             var (rLeft, rBottom, rRight, rTop) = geometry.DisplayRectToUser(
@@ -927,13 +930,15 @@ namespace XTPdfMergeApp.Services
             }));
             var (bLeft, bBottom, bRight, bTop) = geometry.DisplayRectToUser(boxDispLeft / dw, boxDispTop / dh, boxDispRight / dw, boxDispBottom / dh);
             annot.GetPdfObject().Put(CalloutBoxKey, new PdfArray(new double[] { bLeft, bBottom, bRight, bTop }));
-            annot.GetPdfObject().Put(PdfName.BS, new PdfDictionary(new Dictionary<PdfName, PdfObject> { [PdfName.W] = new PdfNumber(1.2) }));
+            annot.GetPdfObject().Put(PdfName.BS, new PdfDictionary(new Dictionary<PdfName, PdfObject> { [PdfName.W] = new PdfNumber(hasBorder ? style.BorderWidth : 0) }));
             // Viền + nền xanh nhạt kiểu Foxit — đo trực tiếp màu pixel trên 1 callout Foxit thật vẽ ra (RGB 117,157,184
             // viền / 235,243,245 nền), không phải đoán mắt thường.
-            var borderColor = new DeviceRgb(0.459f, 0.616f, 0.722f);
-            var fillColor = new DeviceRgb(0.922f, 0.953f, 0.961f);
-            annot.GetPdfObject().Put(PdfName.C, new PdfArray(new float[] { 0.459f, 0.616f, 0.722f }));
-            annot.GetPdfObject().Put(PdfName.IC, new PdfArray(new float[] { 0.922f, 0.953f, 0.961f }));
+            var lineColor = ParseColor(style.LineColor);
+            var borderColor = hasBorder ? ParseColor(style.Border) : lineColor;
+            var fillColor = hasFill ? ParseColor(style.Fill) : new DeviceRgb(1f, 1f, 1f);
+            annot.GetPdfObject().Put(PdfName.C, new PdfArray(borderColor.GetColorValue()));
+            if (hasFill) annot.GetPdfObject().Put(PdfName.IC, new PdfArray(fillColor.GetColorValue()));
+            annot.GetPdfObject().Put(new PdfName("LE"), new PdfName(style.Arrow == 1 ? "OpenArrow" : style.Arrow == 2 ? "ClosedArrow" : "None"));
             StampCommon(annot, spec);
 
             // AP thật (tự vẽ đường dẫn + hộp viền/nền + chữ) thay vì để PDFium tự sinh appearance từ /CL, /C, /IC —
@@ -949,10 +954,32 @@ namespace XTPdfMergeApp.Services
             float ltx = ToLocalX(tipDispX), lty = ToLocalY(tipDispY);
             float lax = ToLocalX(attachDispX), lay = ToLocalY(attachDispY);
 
-            canvas.SaveState().SetStrokeColor(borderColor).SetLineWidth(1.2f)
-                .SetLineCapStyle(PdfCanvasConstants.LineCapStyle.ROUND).SetLineJoinStyle(PdfCanvasConstants.LineJoinStyle.ROUND)
-                .MoveTo(ltx, lty).LineTo(lax, lay).Stroke();
-            canvas.SetFillColor(fillColor).SetStrokeColor(borderColor).Rectangle(lox, loy, width, height).FillStroke();
+            // Leader line from the box edge to the tip; the arrow head sits at the tip and points at it.
+            float lineWidth = (float)style.LineWidth;
+            canvas.SaveState().SetStrokeColor(lineColor).SetFillColor(lineColor).SetLineWidth(lineWidth)
+                .SetLineCapStyle(PdfCanvasConstants.LineCapStyle.ROUND).SetLineJoinStyle(PdfCanvasConstants.LineJoinStyle.ROUND);
+            double ldx = ltx - lax, ldy = lty - lay, llen = Math.Sqrt(ldx * ldx + ldy * ldy);
+            if (style.Arrow > 0 && llen > 1)
+            {
+                double ux = ldx / llen, uy = ldy / llen, head = Math.Min(headLength, llen * 0.8), half = head * 0.42;
+                double bx = ltx - ux * head, by = lty - uy * head;
+                if (style.Arrow == 2)
+                {
+                    canvas.MoveTo(lax, lay).LineTo(bx + ux, by + uy).Stroke();
+                    canvas.MoveTo(ltx, lty).LineTo(bx - uy * half, by + ux * half).LineTo(bx + uy * half, by - ux * half).ClosePath().Fill();
+                }
+                else
+                {
+                    canvas.MoveTo(lax, lay).LineTo(ltx, lty).Stroke();
+                    canvas.MoveTo(bx - uy * half, by + ux * half).LineTo(ltx, lty).LineTo(bx + uy * half, by - ux * half).Stroke();
+                }
+            }
+            else canvas.MoveTo(ltx, lty).LineTo(lax, lay).Stroke();
+            canvas.RestoreState();
+            canvas.SaveState().SetFillColor(fillColor).SetStrokeColor(borderColor).SetLineWidth(hasBorder ? (float)style.BorderWidth : 0);
+            canvas.Rectangle(lox, loy, width, height);
+            if (hasFill && hasBorder) canvas.FillStroke(); else if (hasFill) canvas.Fill(); else if (hasBorder) canvas.Stroke(); else canvas.EndPath();
+            canvas.RestoreState();
             canvas.SaveState().Rectangle(lox, loy, width, height).Clip().EndPath()
                 .BeginText().SetFontAndSize(font, size).SetFillColor(color)
                 .MoveText(lox + TypewriterPadding, loy + height - TypewriterPadding - size * 0.9f);
@@ -961,7 +988,7 @@ namespace XTPdfMergeApp.Services
                 if (i > 0) canvas.MoveText(0, -lead);
                 canvas.ShowText(lines[i]);
             }
-            canvas.EndText().RestoreState().RestoreState().Release();
+            canvas.EndText().RestoreState().Release();
             annot.SetNormalAppearance(form.GetPdfObject());
 
             page.AddAnnotation(annot);
@@ -1069,20 +1096,25 @@ namespace XTPdfMergeApp.Services
         internal static string EncodeInkPoints(IEnumerable<(double U, double V)> points)
             => "I|" + string.Join(";", points.Select(p => p.U.ToString("0.#####", System.Globalization.CultureInfo.InvariantCulture) + "," + p.V.ToString("0.#####", System.Globalization.CultureInfo.InvariantCulture)));
 
-        internal static string EncodeCallout(double tipU, double tipV, string textFormat)
-            => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"C|{tipU:0.#####},{tipV:0.#####}|{textFormat}");
+        internal static string EncodeCallout(double tipU, double tipV, string textFormat, CalloutStyle? style = null)
+        {
+            // "C|u,v[;style]|textFormat" - the style segment is left out for the legacy look so old files round-trip byte for byte.
+            string styleText = style == null || style == CalloutStyle.Legacy ? "" : ";" + style.Encode();
+            return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"C|{tipU:0.#####},{tipV:0.#####}{styleText}|{textFormat}");
+        }
 
-        internal static (double TipU, double TipV, string TextFormat) DecodeCallout(string format)
+        internal static (double TipU, double TipV, string TextFormat, CalloutStyle Style) DecodeCallout(string format)
         {
             if (format.StartsWith("C|", StringComparison.Ordinal))
             {
                 var parts = format[2..].Split('|', 2);
-                var point = parts[0].Split(',');
+                var head = parts[0].Split(';', 2);
+                var point = head[0].Split(',');
                 if (point.Length == 2 && double.TryParse(point[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double u) &&
                     double.TryParse(point[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v))
-                    return (u, v, parts.Length == 2 ? parts[1] : "");
+                    return (u, v, parts.Length == 2 ? parts[1] : "", CalloutStyle.Decode(head.Length == 2 ? head[1] : null));
             }
-            return (0, 0, "");
+            return (0, 0, "", CalloutStyle.Legacy);
         }
 
         public static string EncodeTextHighlight(System.Collections.Generic.IEnumerable<(double U1, double V1, double U2, double V2)> rects)

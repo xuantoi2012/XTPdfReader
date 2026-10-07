@@ -107,6 +107,13 @@ namespace XTPdfMergeApp.Services
             set => Set("HighlightMode", value);
         }
 
+        /// <summary>Last look of the Callout tool (<see cref="CalloutStyle"/> text); "" = the default look.</summary>
+        public static string CalloutStyleSetting
+        {
+            get => GetString("CalloutStyle", "");
+            set => Set("CalloutStyle", value);
+        }
+
         /// <summary>Last style of ONE shape tool (rect, cloud, oval, arrow, line), encoded <see cref="ShapeStyle"/>; "" = never set.</summary>
         public static string GetShapeStyleFor(string type) => GetString("ShapeStyle." + type, "");
         public static void SetShapeStyleFor(string type, string encoded) => Set("ShapeStyle." + type, encoded);
