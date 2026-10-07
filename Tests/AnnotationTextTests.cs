@@ -341,3 +341,122 @@ internal static partial class Program
         if (failure != null) throw new Exception("Shape group: " + failure.Message, failure);
     }
 }
+
+internal static partial class Program
+{
+    /// <summary>The owner's report: after drawing a shape it must stay selected with its bar and grips; a note must leave a visible icon.</summary>
+    static void TestDrawShapeAndNoteFlows()
+    {
+        if (System.Windows.Application.Current == null) CreateReaderTestApplication();
+        string folder = System.IO.Path.Combine(Output, "draw-flows");
+        Directory.CreateDirectory(folder);
+        string path = System.IO.Path.Combine(folder, "page.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(path))) doc.AddNewPage(new PageSize(595, 842));
+
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var type = typeof(XTPdfMergeApp.ReaderWindow);
+        var reader = new XTPdfMergeApp.ReaderWindow { Width = 1300, Height = 900, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false };
+        var app = System.Windows.Application.Current;
+        var priorOwner = app.MainWindow;
+        app.MainWindow = reader;
+        Exception? failure = null;
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        reader.Show();
+        reader.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(async () =>
+        {
+            try
+            {
+                ((System.Windows.FrameworkElement)reader.FindName("StartPage")).Visibility = System.Windows.Visibility.Collapsed;
+                await reader.Session.OpenFilesInReaderAsync(new[] { path });
+                await Task.Delay(1500);
+                reader.UpdateLayout();
+                var row = (XTPdfMergeApp.Domain.PagePlacement)type.GetField("_readerPage", flags)!.GetValue(reader)!;
+                T F<T>(string name) where T : class => (T)reader.FindName(name);
+
+                // ---- draw a rectangle exactly as the mouse flow does ----
+                var toolType = type.GetNestedType("ReaderTool", flags)!;
+                type.GetMethod("SelectShapeType", flags)!.Invoke(reader, new object[] { ShapeStyle.Rect });
+                var dragType = type.GetNestedType("ShapeDrag", flags)!;
+                var drag = Activator.CreateInstance(dragType, row, 0.3, 0.3)!;
+                await (Task)type.GetMethod("CommitShapeAsync", flags)!.Invoke(reader, new object[] { drag, 0.6, 0.4 })!;
+                await Task.Delay(1500);
+                reader.UpdateLayout();
+                var selected = type.GetField("_selAnn", flags)!.GetValue(reader) as QuickAnnotationSpec;
+                Check(selected is { Kind: QuickAnnotationKind.Shape }, "A rectangle that was just drawn stays selected");
+                var grips = new[] { "GripNW", "GripN", "GripNE", "GripE", "GripSE", "GripS", "GripSW", "GripW" };
+                int visibleGrips = grips.Count(g => F<System.Windows.UIElement>(g).Visibility == System.Windows.Visibility.Visible);
+                Check(visibleGrips == 8, $"The selected rectangle shows its 8 resize grips ({visibleGrips})");
+                var bar = F<System.Windows.Controls.Border>("ShapeBar");
+                Check(bar.Visibility == System.Windows.Visibility.Visible, "The shape bar (colour, width) is shown for the selected rectangle");
+                SavePng((System.Windows.FrameworkElement)reader.FindName("ReaderContentHost"), "draw-flows-rect");
+
+                // change the width from the bar
+                var widthBox = F<System.Windows.Controls.ComboBox>("ShapeWidthBox");
+                widthBox.SelectedIndex = 4; // 6 pt
+                await Task.Delay(1500);
+                var page = await AnnotationStore.GetPageAsync(path, 1);
+                var shape = page!.Annotations.Single(a => a.Kind == QuickAnnotationKind.Shape);
+                Check(Math.Abs(ShapeStyle.Decode(shape.Format).Width - 6) < 0.01, $"Choosing 6 pt in the bar rewrites the rectangle with that width ({ShapeStyle.Decode(shape.Format).Width})");
+
+                // ---- an arrow ----
+                type.GetMethod("SelectShapeType", flags)!.Invoke(reader, new object[] { ShapeStyle.Arrow });
+                var arrowDrag = Activator.CreateInstance(dragType, row, 0.2, 0.6)!;
+                await (Task)type.GetMethod("CommitShapeAsync", flags)!.Invoke(reader, new object[] { arrowDrag, 0.5, 0.7 })!;
+                await Task.Delay(1500);
+                reader.UpdateLayout();
+                selected = type.GetField("_selAnn", flags)!.GetValue(reader) as QuickAnnotationSpec;
+                Check(selected is { Kind: QuickAnnotationKind.Shape } && ShapeStyle.Decode(selected.Format).Type == ShapeStyle.Arrow, "An arrow that was just drawn stays selected");
+                Check(F<System.Windows.UIElement>("GripLineA").Visibility == System.Windows.Visibility.Visible && F<System.Windows.UIElement>("GripLineB").Visibility == System.Windows.Visibility.Visible,
+                    "The selected arrow shows grips on both ends");
+                Check(bar.Visibility == System.Windows.Visibility.Visible, "The shape bar is shown for the selected arrow");
+                SavePng((System.Windows.FrameworkElement)reader.FindName("ReaderContentHost"), "draw-flows-arrow");
+
+                // ---- a note ----
+                var hitType = type.GetNestedType("PageHit", flags)!;
+                var hit = Activator.CreateInstance(hitType, row, 0.5, 0.2)!;
+                await (Task)type.GetMethod("AddNoteAsync", flags)!.Invoke(reader, new object[] { hit, "Check the beam here" })!;
+                await Task.Delay(1500);
+                page = await AnnotationStore.GetPageAsync(path, 1);
+                var note = page!.Annotations.SingleOrDefault(a => a.Kind == QuickAnnotationKind.Comment);
+                Check(note != null && note.Text == "Check the beam here", "The note is stored on the page");
+                var image = note == null ? null : AnnotationAppearance.Get(path, 1, note, page.Geometry, 1.5);
+                Check(image != null && image.Bitmap.PixelWidth > 4, $"The note has an icon appearance to draw ({image?.Bitmap.PixelWidth}px)");
+                reader.UpdateLayout(); await Task.Delay(500);
+                SavePng((System.Windows.FrameworkElement)reader.FindName("ReaderContentHost"), "draw-flows-note");
+            }
+            catch (Exception ex) { failure = ex; }
+            finally { reader.Session.Documents.Clear(); reader.Close(); app.MainWindow = priorOwner; frame.Continue = false; }
+        }));
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+        if (failure != null) throw new Exception("Draw flows: " + failure.Message, failure);
+    }
+}
+
+internal static partial class Program
+{
+    /// <summary>A note icon on an A1 sheet must be bigger than on A4, or it cannot be found on a busy drawing.</summary>
+    static void TestNoteIconScalesWithPage()
+    {
+        string folder = System.IO.Path.Combine(Output, "note-scale");
+        Directory.CreateDirectory(folder);
+        double IconWidth(float pageWidth, float pageHeight)
+        {
+            string path = System.IO.Path.Combine(folder, $"p{pageWidth}.pdf"), output = System.IO.Path.Combine(folder, $"p{pageWidth}-out.pdf");
+            using (var doc = new PdfDocument(new PdfWriter(path))) doc.AddNewPage(new PageSize(pageWidth, pageHeight));
+            using (var reader = new PdfReader(path))
+            using (var doc = new PdfDocument(reader, new PdfWriter(output)))
+            {
+                var geometry = PdfQuickAnnotationService.GetGeometry(doc.GetPage(1));
+                var spec = PdfQuickAnnotationService.WithMeasuredSize(new QuickAnnotationSpec("xt-n", QuickAnnotationKind.Comment, 1, 0.5, 0.5, 0.5, 0.5, "note"), geometry);
+                PdfQuickAnnotationService.ApplyChanges(doc, new[] { new QuickAnnotationChange(null, spec) });
+            }
+            using var check = new PdfDocument(new PdfReader(output));
+            var page = check.GetPage(1);
+            var read = PdfQuickAnnotationService.ReadAnnotations(page, PdfQuickAnnotationService.GetGeometry(page), 1).Single(a => a.Kind == QuickAnnotationKind.Comment);
+            return (read.U2 - read.U1) * PdfQuickAnnotationService.GetGeometry(page).DisplayWidth;
+        }
+        double a4 = IconWidth(595, 842), a1 = IconWidth(2384, 1684);
+        Check(Math.Abs(a4 - 20) < 0.6, $"A note icon on A4 is 20 pt ({a4:0.#})");
+        Check(a1 > 2.5 * a4, $"A note icon on A1 is much bigger ({a1:0.#} pt) so it can be found on a busy drawing");
+    }
+}

@@ -747,6 +747,7 @@ namespace XTPdfMergeApp
             var spec = PdfQuickAnnotationService.WithMeasuredSize(new QuickAnnotationSpec(NewAnnotationName(), QuickAnnotationKind.Comment,
                 hit.Row.PageNumber, hit.U, hit.V, hit.U, hit.V, text), page.Geometry);
             CommitAnnotationChange(hit.Row, new QuickAnnotationChange(null, spec), "Add note");
+            SelectAnnotation(hit.Row, spec); // the new note stays framed so it is obvious where it went
         }
         private async void AddInlineReply(CommentInfo parent, string text)
         {

@@ -321,7 +321,7 @@ namespace XTPdfMergeApp.Services
                     break;
                 }
                 case QuickAnnotationKind.Comment:
-                    width = height = CommentIconSize;
+                    width = height = CommentIconSize * ShapeStyle.PageScale(geometry.DisplayWidth); // A1/A0 sheets get a bigger icon so a note can be found
                     break;
                 default:
                     return spec;
@@ -745,7 +745,8 @@ namespace XTPdfMergeApp.Services
         private static PdfTextAnnotation AddComment(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec)
         {
             var geometry = GetGeometry(page);
-            var rect = DisplayBoxToUser(geometry, spec.U1, spec.V1, CommentIconSize, CommentIconSize);
+            float scale = (float)ShapeStyle.PageScale(geometry.DisplayWidth), iconSize = CommentIconSize * scale;
+            var rect = DisplayBoxToUser(geometry, spec.U1, spec.V1, iconSize, iconSize);
             var annot = new PdfTextAnnotation(rect);
             annot.SetContents(new PdfString(spec.Text, PdfEncodings.UNICODE_BIG));
             annot.SetIconName(new PdfName("Comment"));
@@ -753,9 +754,10 @@ namespace XTPdfMergeApp.Services
             annot.SetColor(new DeviceRgb(1f, 0.82f, 0.2f));
             StampCommon(annot, spec);
 
-            var form = new PdfFormXObject(new Rectangle(0, 0, CommentIconSize, CommentIconSize));
+            var form = new PdfFormXObject(new Rectangle(0, 0, iconSize, iconSize));
             SetRotationMatrix(form, geometry.Rotation);
             var canvas = new PdfCanvas(form, doc);
+            canvas.ConcatMatrix(scale, 0, 0, scale, 0, 0); // the icon is drawn on a 20 x 20 grid, scaled with the page size
             float s = CommentIconSize;
             canvas.SetLineWidth(1).SetStrokeColor(new DeviceRgb(0.45f, 0.33f, 0f)).SetFillColor(new DeviceRgb(1f, 0.82f, 0.2f))
                 .MoveTo(2, 6).LineTo(2, s - 2).LineTo(s - 2, s - 2).LineTo(s - 2, 6).LineTo(9, 6).LineTo(5, 2).LineTo(6, 6)
@@ -768,7 +770,7 @@ namespace XTPdfMergeApp.Services
             page.AddAnnotation(annot);
 
             // Popup để Foxit/Acrobat mở nội dung khi bấm icon — đặt bên phải icon trên trang hiển thị.
-            double popupU = Math.Min(spec.U1 + CommentIconSize / geometry.DisplayWidth, 0.7);
+            double popupU = Math.Min(spec.U1 + iconSize / geometry.DisplayWidth, 0.7);
             var popup = new PdfPopupAnnotation(DisplayBoxToUser(geometry, popupU, spec.V1, 200, 110));
             popup.SetOpen(false);
             popup.SetParent(annot);
