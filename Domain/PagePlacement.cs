@@ -41,6 +41,8 @@ internal sealed class PagePlacement : INotifyPropertyChanged
     public int Index { get => _index; set { _index = value; Notify(); } }
 
     public string FileName => Path.GetFileName(SourcePath);
+    /// <summary>Caption under a thumbnail in the Print inbox: which printed file the page belongs to.</summary>
+    public string FileLabel => $"{Path.GetFileNameWithoutExtension(SourcePath)} · {PageNumber}";
     public string PageLabel => IsImported
         ? $"Source: {FileName} · Page {PageNumber}"
         : $"{FileName} · Page {PageNumber}";

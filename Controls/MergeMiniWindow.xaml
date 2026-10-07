@@ -35,6 +35,7 @@
             </Setter>
         </Style>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <local:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
         <Style x:Key="MiniThumbItem" TargetType="ListBoxItem" BasedOn="{StaticResource UiThumbItem}"/>
     </UserControl.Resources>
 
@@ -104,7 +105,12 @@
                                     <local:PageThumbnailImage Source="{Binding Thumbnail}" Stretch="Uniform"
                                            Loaded="ThumbImage_Loaded" Unloaded="ThumbImage_Unloaded" DataContextChanged="ThumbImage_DataContextChanged"/>
                                 </Border>
-                                <TextBlock Text="{Binding Index}" FontSize="11" HorizontalAlignment="Center" Margin="0,4,0,0" Foreground="{DynamicResource Ui.Muted}"/>
+                                <TextBlock Text="{Binding Index}" FontSize="11" HorizontalAlignment="Center" Margin="0,4,0,0" Foreground="{DynamicResource Ui.Muted}"
+                                           Visibility="{Binding ShowFileNames, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource InverseBoolToVis}}"/>
+                                <TextBlock Text="{Binding FileLabel}" ToolTip="{Binding SourcePath}" FontSize="10.5" HorizontalAlignment="Center" Margin="0,4,0,0"
+                                           TextTrimming="CharacterEllipsis" MaxWidth="{Binding ThumbWidth, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                           Foreground="{DynamicResource Ui.Muted}"
+                                           Visibility="{Binding ShowFileNames, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVis}}"/>
                             </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>

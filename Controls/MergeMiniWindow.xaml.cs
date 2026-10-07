@@ -30,6 +30,11 @@ namespace XTPdfMergeApp.Controls
         public double ThumbHeight { get => (double)GetValue(ThumbHeightProperty); private set => SetValue(ThumbHeightProperty, value); }
         public Size CellSize { get => (Size)GetValue(CellSizeProperty); private set => SetValue(CellSizeProperty, value); }
 
+        public static readonly DependencyProperty ShowFileNamesProperty = DependencyProperty.Register(nameof(ShowFileNames), typeof(bool), typeof(MergeMiniWindow), new PropertyMetadata(false));
+        /// <summary>Print inbox: captions show the printed file's name instead of the page index.</summary>
+        public bool ShowFileNames { get => (bool)GetValue(ShowFileNamesProperty); set => SetValue(ShowFileNamesProperty, value); }
+        internal bool IsInbox { get; }
+
         private void OnThumbWidthChanged()
         {
             double w = ThumbWidth, h = Math.Round(w * 0.74);
@@ -53,10 +58,18 @@ namespace XTPdfMergeApp.Controls
             Thumbs.Focus();
         }
 
-        internal MergeMiniWindow(DocumentGroup group)
+        internal MergeMiniWindow(DocumentGroup group, bool isInbox = false)
         {
             Group = group;
+            IsInbox = isInbox;
             InitializeComponent();
+            if (isInbox)
+            {
+                ShowFileNames = true;
+                Thumbs.MouseDoubleClick += InboxThumb_DoubleClick;
+                Thumbs.PreviewMouseRightButtonDown += InboxThumb_RightClick;
+                Thumbs.ContextMenuOpening += InboxThumbs_ContextMenuOpening;
+            }
             DataContext = group;
             Thumbs.ItemsSource = group.Pages;
             void UpdateCount() => CountText.Text = group.Pages.Count == 1 ? "1 page" : group.Pages.Count + " pages";
@@ -75,6 +88,54 @@ namespace XTPdfMergeApp.Controls
         /// <summary>Thả trang/file vào cửa sổ: (cửa sổ đích, dữ liệu kéo, chỉ số chèn, sao chép?).</summary>
         internal event Action<MergeMiniWindow, ReaderSidePanel.PageDragData, int, bool>? PagesDropped;
         internal event Action<MergeMiniWindow, IReadOnlyList<PageRow>>? DeleteRequested;
+        /// <summary>Print inbox menu: ("view" | "folder" | "remove", pages of the chosen file).</summary>
+        internal event Action<MergeMiniWindow, string, IReadOnlyList<PageRow>>? InboxActionRequested;
+
+        // ── Print inbox: select/see/remove a whole printed file ───────
+        private IReadOnlyList<PageRow> PagesOfFileUnder(DependencyObject? source)
+        {
+            if (ItemUnder(source)?.DataContext is not PageRow row) return Array.Empty<PageRow>();
+            return Group.Pages.Where(p => string.Equals(p.SourcePath, row.SourcePath, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+
+        private void InboxThumb_DoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            var pages = PagesOfFileUnder(e.OriginalSource as DependencyObject);
+            if (pages.Count == 0) return;
+            SelectPages(pages);
+            e.Handled = true;
+        }
+
+        private void InboxThumb_RightClick(object sender, MouseButtonEventArgs e)
+        {
+            if (ItemUnder(e.OriginalSource as DependencyObject) is { IsSelected: false } item)
+            {
+                Thumbs.SelectedItems.Clear();
+                item.IsSelected = true;
+            }
+        }
+
+        private void InboxThumbs_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+        {
+            var selected = SelectedPages;
+            if (selected.Count == 0) { e.Handled = true; return; }
+            var file = Group.Pages.Where(p => string.Equals(p.SourcePath, selected[0].SourcePath, StringComparison.OrdinalIgnoreCase)).ToList();
+            var menu = new ContextMenu();
+            MenuItem Item(string header, Action action)
+            {
+                var item = new MenuItem { Header = header };
+                item.Click += (_, _) => action();
+                return item;
+            }
+            menu.Items.Add(Item("Select all pages of this file", () => SelectPages(file)));
+            menu.Items.Add(Item("View in Reader", () => InboxActionRequested?.Invoke(this, "view", file)));
+            menu.Items.Add(Item("Show in folder", () => InboxActionRequested?.Invoke(this, "folder", file)));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(Item("Remove this file from the inbox", () => InboxActionRequested?.Invoke(this, "remove", file)));
+            menu.PlacementTarget = Thumbs;
+            menu.IsOpen = true;
+            e.Handled = true; // opened by hand so the menu is built for the page that was just clicked
+        }
 
         internal void SetActive(bool active)
             => Frame.BorderBrush = (Brush)FindResource(active ? "Ui.Accent" : "Ui.Border");
@@ -359,5 +420,13 @@ namespace XTPdfMergeApp.Controls
             if (e.OldValue is PageRow old) CancelThumbnail(old);
             if (e.NewValue is PageRow { Thumbnail: null } row && ((FrameworkElement)sender).IsLoaded) RequestThumbnail(row);
         }
+    }
+
+    /// <summary>true → Collapsed, false → Visible.</summary>
+    internal sealed class InverseBoolToVisibilityConverter : System.Windows.Data.IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+            => value is true ? Visibility.Collapsed : Visibility.Visible;
+        public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture) => throw new NotSupportedException();
     }
 }

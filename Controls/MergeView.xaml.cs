@@ -44,7 +44,7 @@ namespace XTPdfMergeApp.Controls
         private bool _updatingLayoutButtons;
         private bool _isExporting;
         private bool _restoredDraft;
-        internal bool HasUnsavedDraft => _restoredDraft || _draft?.History.CanUndo == true || _draft?.Documents.Any(d => d.IsDirty) == true;
+        internal bool HasUnsavedDraft => _restoredDraft || _draft?.History.CanUndo == true || _draft?.Documents.Any(d => d.IsDirty && !_draft.IsInbox(d)) == true;
 
         public MergeView()
         {
@@ -68,7 +68,7 @@ namespace XTPdfMergeApp.Controls
 
         internal bool CanUndo => _draft?.History.CanUndo == true;
         internal bool CanRedo => _draft?.History.CanRedo == true;
-        internal List<SavedDocument> CaptureDraft() => _draft == null ? new() : SessionRecoveryStore.CaptureDocuments(_draft.Documents, _draft.IsTemporary);
+        internal List<SavedDocument> CaptureDraft() => _draft == null ? new() : SessionRecoveryStore.CaptureDocuments(_draft.Documents.Where(d => !_draft.IsInbox(d)), _draft.IsTemporary); // the inbox keeps its own file (PrintInboxStore)
         internal void RestoreDraft(IEnumerable<(DocumentGroup Document, bool Temporary)> documents)
         {
             _restoredDraft = true;
@@ -113,8 +113,15 @@ namespace XTPdfMergeApp.Controls
             if (!File.Exists(path) || _draft == null) return;
             var result = await PdfThumbnailService.TryGetPageCountAsync(path).ConfigureAwait(true);
             if (result.Failure != PdfOpenFailure.None || result.PageCount <= 0) return;
-            var group = _draft.AddIncomingPdf(path, result.PageCount);
+            var inbox = _draft.AddIncomingPdf(path, result.PageCount);
             Sync();
+            // A hidden inbox comes back when something arrives; a visible one is left where the user has it.
+            if (_entries.FirstOrDefault(e => ReferenceEquals(e.Window.Group, inbox)) is { Minimized: true } entry)
+            {
+                entry.Minimized = false;
+                entry.LastActive = ++_tick;
+                Relayout();
+            }
             HistoryStateChanged?.Invoke(this, EventArgs.Empty);
         }
 
@@ -123,21 +130,24 @@ namespace XTPdfMergeApp.Controls
         private void Sync()
         {
             if (_draft == null) return;
-            foreach (var entry in _entries.Where(e => !_draft.WindowDocuments.Contains(e.Window.Group)).ToList())
+            var shown = _draft.DisplayedDocuments.ToList();
+            foreach (var entry in _entries.Where(e => !shown.Contains(e.Window.Group)).ToList())
             {
                 Workspace.Children.Remove(entry.Window);
                 _entries.Remove(entry);
             }
-            foreach (var group in _draft.WindowDocuments)
+            foreach (var group in shown)
             {
                 if (_entries.Any(e => ReferenceEquals(e.Window.Group, group))) continue;
-                var window = new MergeMiniWindow(group) { ThumbWidth = PageSizeSlider.Value };
+                var window = new MergeMiniWindow(group, _draft.IsInbox(group)) { ThumbWidth = PageSizeSlider.Value };
                 Hook(window);
                 Workspace.Children.Add(window);
                 _entries.Add(new Entry { Window = window, LastActive = ++_tick });
             }
             _entries.Sort((a, b) => _draft.Documents.IndexOf(a.Window.Group).CompareTo(_draft.Documents.IndexOf(b.Window.Group)));
             WindowListButton.Text = _entries.Count == 1 ? "1 window" : $"{_entries.Count} windows";
+            int inboxPages = _draft.Inbox?.Pages.Count ?? 0;
+            InboxButton.Text = inboxPages == 0 ? "Inbox" : $"Inbox ({inboxPages})";
             Relayout();
             HistoryStateChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -149,11 +159,50 @@ namespace XTPdfMergeApp.Controls
             window.MoveFinished += OnMoveFinished;
             window.ResizeDelta += OnResizeDelta;
             window.ToggleMaximizeRequested += ToggleMaximize;
-            window.MinimizeRequested += w => { _draft?.MoveToTemporaryShelf(w.Group); Sync(); };
-            window.CloseRequested += w => { _draft?.RemoveDocument(w.Group); Sync(); };
+            // The inbox is never a merge window: minimize/close only hide it (the "Print inbox" button brings it back).
+            window.MinimizeRequested += w => { if (HideIfInbox(w)) return; _draft?.MoveToTemporaryShelf(w.Group); Sync(); };
+            window.CloseRequested += w => { if (HideIfInbox(w)) return; _draft?.RemoveDocument(w.Group); Sync(); };
+            window.InboxActionRequested += OnInboxAction;
             window.SaveRequested += async w => await ExportAsync(w.Group);
             window.PagesDropped += OnPagesDropped;
             window.DeleteRequested += (w, pages) => { _draft?.DeletePages(w.Group, pages); Sync(); };
+        }
+
+        private bool HideIfInbox(MergeMiniWindow window)
+        {
+            if (_draft == null || !_draft.IsInbox(window.Group)) return false;
+            EntryOf(window).Minimized = true;
+            Relayout();
+            return true;
+        }
+
+        private void Inbox_Click(object sender, RoutedEventArgs e)
+        {
+            if (_draft?.Inbox is not { Pages.Count: > 0 } inbox)
+            {
+                XTStyle.Controls.XTGrowl.Info("The print inbox is empty. Printed and plotted PDFs arrive here.", Window.GetWindow(this));
+                return;
+            }
+            ShowGroup(inbox);
+        }
+
+        private void OnInboxAction(MergeMiniWindow window, string action, IReadOnlyList<PageRow> pages)
+        {
+            if (_draft == null || pages.Count == 0) return;
+            string path = pages[0].SourcePath;
+            switch (action)
+            {
+                case "view": ViewTemporaryRequested?.Invoke(path); break;
+                case "folder":
+                    try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true }); }
+                    catch { /* explorer missing / path gone */ }
+                    break;
+                case "remove":
+                    PrintInboxStore.Remove(pages.Select(p => new PrintInboxStore.Entry(p.SourcePath, p.PageNumber)));
+                    _draft.DeletePages(window.Group, pages);
+                    Sync();
+                    break;
+            }
         }
 
         private Entry EntryOf(MergeMiniWindow window) => _entries.First(e => ReferenceEquals(e.Window, window));
@@ -637,6 +686,7 @@ namespace XTPdfMergeApp.Controls
             if (!await SignedPdfConfirmation.ConfirmAsync(Window.GetWindow(this), pages.Select(p => p.SourcePath),
                 "Merge PDFs", false, new[] { dialog.OutputPath })) return;
 
+            var exported = pages.Select(p => new PrintInboxStore.Entry(p.SourcePath, p.PageNumber)).ToList();
             string error = "";
             Mouse.OverrideCursor = Cursors.Wait;
             _isExporting = true;
@@ -655,6 +705,7 @@ namespace XTPdfMergeApp.Controls
                 AppDialog.Show(Window.GetWindow(this), "Could not create the PDF:\n" + error, "Merge", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
+            PrintInboxStore.Remove(exported); // merged pages are consumed: they leave the print inbox for good
             XTStyle.Controls.XTGrowl.Success($"Created {System.IO.Path.GetFileName(dialog.OutputPath)}", Window.GetWindow(this));
         }
     }

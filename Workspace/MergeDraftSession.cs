@@ -20,7 +20,13 @@ internal sealed class MergeDraftSession
 
     internal ObservableCollection<WorkspaceDocument> Documents => _workspace.Documents;
     /// <summary>Những nhóm đang là window thật và được phép xuất bằng Merge all.</summary>
-    internal IEnumerable<WorkspaceDocument> WindowDocuments => _workspace.Documents.Where(document => !IsTemporary(document));
+    internal IEnumerable<WorkspaceDocument> WindowDocuments => _workspace.Documents.Where(document => !IsTemporary(document) && !IsInbox(document));
+    /// <summary>Print inbox: one persistent window holding the pages of every printed/plotted PDF; never part of Merge all.</summary>
+    internal WorkspaceDocument? Inbox { get; private set; }
+    internal bool IsInbox(WorkspaceDocument document) => ReferenceEquals(document, Inbox);
+    /// <summary>Every document that gets a window on the Merge canvas: the inbox (when it holds pages) plus the real windows.</summary>
+    internal IEnumerable<WorkspaceDocument> DisplayedDocuments
+        => _workspace.Documents.Where(document => IsInbox(document) ? document.Pages.Count > 0 : !IsTemporary(document));
     /// <summary>Bãi giữ trang; không bao giờ được đưa vào Merge all cho tới khi người dùng mở thành window.</summary>
     internal IEnumerable<WorkspaceDocument> TemporaryDocuments => _workspace.Documents.Where(IsTemporary);
     internal UndoRedoManager History => _workspace.History;
@@ -34,6 +40,29 @@ internal sealed class MergeDraftSession
             _workspace.Documents.Add(document);
             if (temporary) _temporaryDocumentIds.Add(document.DocumentId);
         }
+        LoadInbox();
+    }
+
+    /// <summary>Recreate the inbox window from the saved page list (new workspace = new document object).</summary>
+    private void LoadInbox()
+    {
+        Inbox = null;
+        var saved = Services.PrintInboxStore.Load();
+        if (saved.Count == 0) return;
+        var inbox = EnsureInbox();
+        inbox.Pages.AddRange(saved.Select(e => _workspace.CreatePlacement(e.Path, e.Page)));
+        inbox.SetBaseline();
+    }
+
+    private WorkspaceDocument EnsureInbox()
+    {
+        if (Inbox != null && _workspace.Documents.Contains(Inbox)) return Inbox;
+        var inbox = new WorkspaceDocument { SourcePath = Path.Combine(Path.GetTempPath(), $"XTPdfReader-PrintInbox-{Guid.NewGuid():N}.pdf") };
+        inbox.SetDisplayName("Print inbox");
+        inbox.SetBaseline();
+        _workspace.Documents.Insert(0, inbox);
+        Inbox = inbox;
+        return inbox;
     }
 
     internal void Begin(IEnumerable<WorkspaceDocument> sourceDocuments)
@@ -49,6 +78,7 @@ internal sealed class MergeDraftSession
             _workspace.Documents.Add(draft);
             _draftBySourceId[source.DocumentId] = draft;
         }
+        LoadInbox();
     }
 
     internal WorkspaceDocument? GetDraftFor(WorkspaceDocument source)
@@ -89,17 +119,17 @@ internal sealed class MergeDraftSession
     internal WorkspaceDocument CreateWindowDocument()
         => CreateDocument(temporary: false);
 
+    /// <summary>Append all pages of a printed/plotted PDF to the print inbox. A path already in the inbox is not added twice
+    /// (the print agent may redeliver a path after a crash); returns the inbox.</summary>
     internal WorkspaceDocument AddIncomingPdf(string path, int pageCount)
     {
         var fullPath = Path.GetFullPath(path);
-        var document = new WorkspaceDocument { SourcePath = fullPath };
-        _workspace.Execute(new AddDocumentCommand(_workspace, document));
-        _temporaryDocumentIds.Add(document.DocumentId);
-        document.SetDisplayName(Path.GetFileNameWithoutExtension(fullPath));
-        for (int page = 1; page <= pageCount; page++)
-            document.Pages.Add(_workspace.CreatePlacement(document.SourcePath, page));
-        document.SetBaseline();
-        return document;
+        var inbox = EnsureInbox();
+        if (inbox.Pages.Any(p => string.Equals(p.SourcePath, fullPath, StringComparison.OrdinalIgnoreCase))) return inbox;
+        inbox.Pages.AddRange(Enumerable.Range(1, pageCount).Select(page => _workspace.CreatePlacement(fullPath, page)));
+        inbox.SetBaseline();
+        Services.PrintInboxStore.Add(Enumerable.Range(1, pageCount).Select(page => new Services.PrintInboxStore.Entry(fullPath, page)));
+        return inbox;
     }
 
     internal void PromoteTemporaryDocument(WorkspaceDocument document)

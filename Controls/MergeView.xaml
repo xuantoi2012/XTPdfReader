@@ -87,6 +87,8 @@
                     <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Done" Margin="8,0,0,0" Click="Done_Click" ToolTip="Discard this merge draft and return to the reader"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <xt:XTButton x:Name="InboxButton" Style="{StaticResource UiGhostButton}" Icon="{StaticResource Ui.Icon.tray}" Text="Inbox" Margin="0,0,8,0"
+                                 ToolTip="Show the window holding every printed / plotted PDF. Drag its pages into a merge window." Click="Inbox_Click"/>
                     <xt:XTButton x:Name="WindowListButton" Style="{StaticResource UiGhostButton}" Text="0 windows" Margin="0,0,12,0"
                                  ToolTip="Switch to a window outside the current layout" Click="WindowList_Click"/>
                     <TextBlock Text="Layout" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource Ui.Muted}"/>
