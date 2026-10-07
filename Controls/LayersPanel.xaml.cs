@@ -30,15 +30,21 @@ namespace XTPdfMergeApp.Controls
         internal event Action<IReadOnlySet<string>, string>? ExportViewRequested;
         /// <summary>Mở hộp thoại quản lý layer (đổi tên / gộp) của file đang xem.</summary>
         internal event Action? ManageRequested;
+        /// <summary>Đăng ký layer mồ côi của file (đường dẫn) vào chính file.</summary>
+        internal event Action<string>? RegisterOrphansRequested;
+        private string? _orphanPath;
         /// <summary>Số layer sau khi gộp (null = không có layer).</summary>
         internal event Action<int?>? CountChanged;
 
         private Window? OwnerWindow => Window.GetWindow(this);
 
         /// <summary>Nạp layer của các file (thứ tự = thứ tự xuất hiện trong window). <paramref name="read"/> có cache ở người gọi.</summary>
-        internal async Task SetFilesAsync(IReadOnlyList<string> paths, Func<string, Task<PdfLayerInfo>> read)
+        internal async Task SetFilesAsync(IReadOnlyList<string> paths, Func<string, Task<PdfLayerInfo>> read,
+            Func<string, Task<IReadOnlyList<(string Id, string Name)>>>? findOrphans = null)
         {
             int generation = ++_generation;
+            OrphanBanner.Visibility = Visibility.Collapsed;
+            _orphanPath = null;
             var infos = await Task.WhenAll(paths.Select(async p => (Path: p, Info: await read(p))));
             if (generation != _generation) return;
 
@@ -50,13 +56,33 @@ namespace XTPdfMergeApp.Controls
                 EmptyText.Text = paths.Count > 1 ? "These documents have no layers." : "This document has no layers.";
                 EmptyText.Visibility = Visibility.Visible;
                 CountChanged?.Invoke(null);
-                return;
             }
-            ContentRoot.Visibility = Visibility.Visible;
-            EmptyText.Visibility = Visibility.Collapsed;
-            SearchBox.Text = "";
-            Rebuild();
-            CountChanged?.Invoke(_scope.LayerCount);
+            else
+            {
+                ContentRoot.Visibility = Visibility.Visible;
+                EmptyText.Visibility = Visibility.Collapsed;
+                SearchBox.Text = "";
+                Rebuild();
+                CountChanged?.Invoke(_scope.LayerCount);
+            }
+            if (findOrphans != null && paths.Count == 1) _ = ShowOrphansAsync(paths[0], findOrphans, generation);
+        }
+
+        /// <summary>Quét nền (có thể vài giây với file CAD lớn): layer trang dùng mà /OCProperties chưa liệt kê thì hiện thanh báo + nút đăng ký.</summary>
+        private async Task ShowOrphansAsync(string path, Func<string, Task<IReadOnlyList<(string Id, string Name)>>> find, int generation)
+        {
+            var orphans = await find(path);
+            if (generation != _generation || orphans.Count == 0) return;
+            _orphanPath = path;
+            OrphanText.Text = orphans.Count == 1
+                ? "1 layer used by the pages is not listed in this file, so it can't be switched."
+                : $"{orphans.Count} layers used by the pages are not listed in this file, so they can't be switched.";
+            OrphanBanner.Visibility = Visibility.Visible;
+        }
+
+        private void RegisterOrphans_Click(object sender, RoutedEventArgs e)
+        {
+            if (_orphanPath != null) RegisterOrphansRequested?.Invoke(_orphanPath);
         }
 
         /// <summary>Không có gì để hiện (chưa mở file).</summary>
@@ -64,6 +90,7 @@ namespace XTPdfMergeApp.Controls
         {
             _generation++;
             _scope = null;
+            OrphanBanner.Visibility = Visibility.Collapsed;
             ContentRoot.Visibility = Visibility.Collapsed;
             EmptyText.Text = message;
             EmptyText.Visibility = Visibility.Visible;

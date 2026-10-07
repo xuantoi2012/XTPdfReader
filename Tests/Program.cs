@@ -95,6 +95,7 @@ internal static partial class Program
             int warmProfile = Array.IndexOf(args, "--warm-cache-profile");
             int regionProfile = Array.IndexOf(args, "--region-pan-profile");
             int layerReal = Array.IndexOf(args, "--layer-real");
+            if (layerReal >= 0 && args.Contains("--register-orphans")) { var sw = System.Diagnostics.Stopwatch.StartNew(); PdfLayerOrphanService.RegisterInPlace(args[layerReal + 1]); Console.WriteLine($"registered orphan layers in {sw.ElapsedMilliseconds} ms"); }
             if (layerReal >= 0) { LayerRealFileCheckAsync(args[layerReal + 1], int.Parse(args[layerReal + 2]), int.Parse(args[layerReal + 3])).GetAwaiter().GetResult(); return 0; }
             if (args.Contains("--worker-job-holder"))
             {

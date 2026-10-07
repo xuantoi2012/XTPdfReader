@@ -92,6 +92,42 @@ internal static partial class Program
             Check(await IsRedAsync(), "Showing the layer again restores the pixels");
         }
         finally { PdfLayerStateStore.Forget(path); }
+
+        // Orphan layer: the page draws with an OCG that /OCProperties does not list (a merge that kept a stale layer list).
+        string orphan = System.IO.Path.Combine(Output, "layer-merge", "orphan.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(orphan)))
+        {
+            var page = doc.AddNewPage(new PageSize(200, 200));
+            new PdfCanvas(page).BeginLayer(new PdfLayer("Red", doc)).SetFillColorRgb(1, 0, 0).Rectangle(0, 0, 200, 200).Fill().EndLayer();
+        }
+        string orphanStripped = System.IO.Path.Combine(Output, "layer-merge", "orphan-stripped.pdf");
+        using (var doc = new PdfDocument(new PdfReader(orphan), new PdfWriter(orphanStripped)))
+            doc.GetCatalog().GetPdfObject().Remove(PdfName.OCProperties);
+        Check(!PdfLayerService.ReadLayers(orphanStripped).HasLayers, "Orphan fixture: the layer list is empty");
+        var found = PdfLayerOrphanService.Find(orphanStripped);
+        Check(found.Count == 1 && found[0].Name == "Red", "Orphan layer used by the page is found, got " + found.Count);
+        PdfLayerOrphanService.RegisterInPlace(orphanStripped);
+        var registered = PdfLayerService.ReadLayers(orphanStripped);
+        Check(registered.Names.Values.SequenceEqual(new[] { "Red" }) && PdfLayerOrphanService.Find(orphanStripped).Count == 0,
+            "Registering adds the layer to the list and leaves no orphans");
+        string orphanId = registered.Names.Keys.Single();
+        async Task<bool> OrphanRedAsync()
+        {
+            var bmp = await PdfThumbnailService.RenderPageAsync(orphanStripped, 0, 100);
+            if (bmp != null && bmp.Format != System.Windows.Media.PixelFormats.Bgra32)
+                bmp = new System.Windows.Media.Imaging.FormatConvertedBitmap(bmp, System.Windows.Media.PixelFormats.Bgra32, null, 0);
+            var px = new byte[4];
+            bmp!.CopyPixels(new System.Windows.Int32Rect(50, 50, 1, 1), px, 4, 0);
+            return px[2] > 200 && px[1] < 60;
+        }
+        try
+        {
+            Check(await OrphanRedAsync(), "Registered orphan layer renders while visible");
+            PdfLayerStateStore.SetHidden(orphanStripped, new HashSet<string> { orphanId }, registered.DefaultHidden);
+            await PdfThumbnailService.RetireDocumentAsync(orphanStripped);
+            Check(!await OrphanRedAsync(), "Hiding a registered orphan layer changes the page");
+        }
+        finally { PdfLayerStateStore.Forget(orphanStripped); }
     }
 }
 

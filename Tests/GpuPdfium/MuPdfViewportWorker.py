@@ -108,6 +108,50 @@ normal_list_limit = list_limit
 normal_document_limit = document_limit
 last_rendered_key = None
 
+def layer_index_by_xref(pdf, ocgs):
+    """Map OCG xref -> the index pdf_enable_layer expects.
+
+    MuPDF keeps its own layer list whose order is NOT the /OCGs array order (nor /D/Order) on real CAD files, so indexing by
+    get_ocgs() order toggles the wrong layers. Probe it: for each bit of the index enable the layers having that bit set and read
+    every OCG's hidden state. The result is verified against pdf_layer_name; None = could not be trusted.
+    """
+    count = fitz.mupdf.pdf_count_layers(pdf)
+    xrefs = list(ocgs)
+    if count == 0 or count != len(xrefs):
+        return None
+    stack = fitz.mupdf.PdfResourceStack()
+    objects = {x: fitz.mupdf.pdf_new_indirect(pdf, x, 0) for x in xrefs}
+    index = {x: 0 for x in xrefs}
+    try:
+        for bit in range(max(1, (count - 1).bit_length())):
+            for i in range(count):
+                fitz.mupdf.pdf_enable_layer(pdf, i, (i >> bit) & 1)
+            for x in xrefs:
+                if not fitz.mupdf.pdf_is_ocg_hidden(pdf, stack, "View", objects[x]):
+                    index[x] |= 1 << bit
+    finally:
+        for i in range(count):
+            fitz.mupdf.pdf_enable_layer(pdf, i, 1)
+    if len(set(index.values())) != count or any(i >= count for i in index.values()):
+        return None
+    for x, i in index.items():
+        if fitz.mupdf.pdf_layer_name(pdf, i) != ocgs[x]["name"]:
+            return None
+    return index
+
+
+def apply_hidden_layers(opened, hidden):
+    ocgs = opened.get_ocgs()
+    off = {int(identifier.split()[0]) for identifier in hidden}
+    pdf = fitz._as_pdf_document(opened)
+    index = layer_index_by_xref(pdf, ocgs)
+    if index is None:
+        # Probe failed: fall back to the OCG array order (right for files whose layer list is in array order).
+        index = {xref: i for i, xref in enumerate(ocgs)}
+    for xref, i in index.items():
+        fitz.mupdf.pdf_enable_layer(pdf, i, int(xref not in off))
+
+
 def send(value):
     sys.stdout.buffer.write((json.dumps(value) + "\n").encode("utf-8"))
     sys.stdout.buffer.flush()
@@ -204,13 +248,7 @@ for line in sys.stdin:
                 opened.close()
                 raise ValueError("Password required or incorrect")
             if hidden is not None:
-                ocgs = opened.get_ocgs()
-                off = {int(identifier.split()[0]) for identifier in hidden}
-                # Address OCGs by object identity, not names (names may repeat).
-                # get_ocgs preserves the PDF OCG array order in pinned PyMuPDF 1.28.2.
-                pdf = fitz._as_pdf_document(opened)
-                for index, xref in enumerate(ocgs):
-                    fitz.mupdf.pdf_enable_layer(pdf, index, int(xref not in off))
+                apply_hidden_layers(opened, hidden)
             documents[stamp] = opened
         document = documents[stamp]
         documents.move_to_end(stamp)

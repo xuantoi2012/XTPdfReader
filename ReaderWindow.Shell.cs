@@ -66,6 +66,7 @@ namespace XTPdfMergeApp
             ReaderSidePanel.LayerHiddenChanged += OnLayerHiddenChanged;
             ReaderSidePanel.ExportLayerViewRequested += OnExportLayerView;
             ReaderSidePanel.ManageLayersRequested += OnManageLayers;
+            ReaderSidePanel.RegisterOrphanLayersRequested += OnRegisterOrphanLayers;
             ReaderSidePanel.SheetSplitRequested += OnSplitSheets;
             ReaderSidePanel.SheetReadInfoRequested += OnReadSheetInfo;
             ReaderSidePanel.SheetPageLabelsRequested += OnSheetPageLabels;
@@ -934,6 +935,29 @@ namespace XTPdfMergeApp
             catch (Exception ex)
             {
                 AppDialog.Show(this, "Could not change the layers:\n" + ex.Message, "Manage layers", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>Thanh báo của panel Layers: ghi các layer mồ côi (trang dùng, /OCProperties chưa liệt kê) vào file.</summary>
+        private async void OnRegisterOrphanLayers(string path)
+        {
+            try
+            {
+                var paths = new[] { path };
+                if (!await Controls.PdfPermissionDialog.RequireAsync(this, paths, PdfPermissionOperation.Modify)) return;
+                if (!await Controls.SignedPdfConfirmation.ConfirmAsync(this, paths, "Add missing layers to the layer list", true)) return;
+                AnnotationStore.ReleaseReader(path);
+                using (await PdfThumbnailService.SuspendDocumentAsync(path, TimeSpan.FromSeconds(3)))
+                    await System.Threading.Tasks.Task.Run(() => PdfLayerOrphanService.RegisterInPlace(path));
+                Session.RefreshDiskStamp(path);
+                PdfLayerStateStore.Forget(path);
+                ReaderSidePanel.InvalidateSource(path, false, true);
+                OnLayerStateChanged(path);
+                XTStyle.Controls.XTGrowl.Success("Missing layers added to " + System.IO.Path.GetFileName(path), this);
+            }
+            catch (Exception ex)
+            {
+                AppDialog.Show(this, "Could not add the layers:\n" + ex.Message, "Layers", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

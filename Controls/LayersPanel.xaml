@@ -99,7 +99,16 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid>
+    <DockPanel>
+        <Border x:Name="OrphanBanner" DockPanel.Dock="Top" Visibility="Collapsed" Margin="12,0,12,8" Padding="10,8" CornerRadius="6"
+                BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}">
+            <StackPanel>
+                <TextBlock x:Name="OrphanText" TextWrapping="Wrap" Foreground="{DynamicResource Ui.Text}"/>
+                <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Add them to the layer list" Margin="0,8,0,0" HorizontalAlignment="Left"
+                             ToolTip="Registers the missing layers in the file (appended update) so they can be hidden and shown" Click="RegisterOrphans_Click"/>
+            </StackPanel>
+        </Border>
+        <Grid>
         <DockPanel x:Name="ContentRoot">
             <!-- View đã lưu -->
             <StackPanel DockPanel.Dock="Top" Margin="12,0,12,8">
@@ -189,5 +198,6 @@
         </DockPanel>
 
         <TextBlock x:Name="EmptyText" Visibility="Collapsed" Margin="14" TextWrapping="Wrap" Foreground="{DynamicResource Ui.Muted}"/>
-    </Grid>
+        </Grid>
+    </DockPanel>
 </UserControl>

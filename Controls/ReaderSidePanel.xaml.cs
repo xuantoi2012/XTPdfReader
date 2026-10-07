@@ -32,6 +32,7 @@ namespace XTPdfMergeApp.Controls
         private bool _syncingSelection;
         private readonly Dictionary<string, Task<IReadOnlyList<PdfBookmarkNode>>> _bookmarks = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, Task<PdfLayerInfo>> _layers = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, Task<IReadOnlyList<(string Id, string Name)>>> _orphans = new(StringComparer.OrdinalIgnoreCase);
 
         public ReaderSidePanel()
         {
@@ -51,6 +52,7 @@ namespace XTPdfMergeApp.Controls
             SheetsView.CountChanged += count => { _sheetCount = count; if (_tab == Tab.Sheets) UpdateCount(); };
             CommentsView.CountChanged += count => { _commentCount = count; if (_tab == Tab.Comments) UpdateCount(); };
             LayersView.ManageRequested += () => ManageLayersRequested?.Invoke();
+            LayersView.RegisterOrphansRequested += path => RegisterOrphanLayersRequested?.Invoke(path);
             LayersView.ExportViewRequested += (names, view) => ExportLayerViewRequested?.Invoke(names, view);
             LayersView.CountChanged += count =>
             {
@@ -99,6 +101,8 @@ namespace XTPdfMergeApp.Controls
         internal event Action<string, PdfLayerInfo, IReadOnlySet<string>>? LayerHiddenChanged;
         /// <summary>Bấm "Manage…" ở tab Layers.</summary>
         internal event Action? ManageLayersRequested;
+        /// <summary>Đăng ký các layer mà trang dùng nhưng /OCProperties chưa liệt kê vào file.</summary>
+        internal event Action<string>? RegisterOrphanLayersRequested;
         /// <summary>Xuất PDF theo View layer hiện tại: (tên layer đang tắt, tên View).</summary>
         internal event Action<IReadOnlySet<string>, string>? ExportLayerViewRequested;
         /// <summary>Panel vừa tự ghi thẳng vào 1 file nguồn (sửa bookmark) — ReaderWindow cập nhật lại dấu
@@ -408,7 +412,7 @@ namespace XTPdfMergeApp.Controls
         internal void InvalidateSource(string path, bool bookmarks, bool layers)
         {
             if (bookmarks) _bookmarks.Remove(path);
-            if (layers) _layers.Remove(path);
+            if (layers) { _layers.Remove(path); _orphans.Remove(path); }
             if (_tab == Tab.Layers) { if (layers) _ = RefreshLayersAsync(force: true); }
             else if (string.Equals(path, _sourcePath, StringComparison.OrdinalIgnoreCase)) _ = RefreshSourceTabAsync();
         }
@@ -532,7 +536,14 @@ namespace XTPdfMergeApp.Controls
             }
             _layerPathsKey = key;
             if (paths.Count == 0) { LayersView.Clear("No document is open."); return; }
-            await LayersView.SetFilesAsync(paths, ReadLayersAsync);
+            await LayersView.SetFilesAsync(paths, ReadLayersAsync, ReadOrphansAsync);
+        }
+
+        private Task<IReadOnlyList<(string Id, string Name)>> ReadOrphansAsync(string path)
+        {
+            if (!_orphans.TryGetValue(path, out var task))
+                _orphans[path] = task = Task.Run(() => SafeRead(() => PdfLayerOrphanService.Find(path), (IReadOnlyList<(string Id, string Name)>)Array.Empty<(string Id, string Name)>()));
+            return task;
         }
 
         private Task<PdfLayerInfo> ReadLayersAsync(string path)
