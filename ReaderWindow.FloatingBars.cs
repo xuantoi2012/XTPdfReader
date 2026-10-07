@@ -18,6 +18,7 @@ namespace XTPdfMergeApp
             PlaceBar(TextFormatBar);
             PlaceBar(MarkupColorBar);
             PlaceBar(ShapeBar);
+            PlaceBar(TextSelectionBar);
         }
 
         /// <summary>Where the annotation being edited is, in page-area coordinates: the text editor while typing, else the selection box.</summary>
@@ -38,6 +39,7 @@ namespace XTPdfMergeApp
                 rect = new Rect(Canvas.GetLeft(AnnotationSelectionBox), Canvas.GetTop(AnnotationSelectionBox), AnnotationSelectionBox.Width, AnnotationSelectionBox.Height);
                 return !double.IsNaN(rect.X) && !double.IsNaN(rect.Y);
             }
+            if (TextSelectionBar.Visibility == Visibility.Visible && _textSelectionAnchor is { } selected) { rect = selected; return true; }
             return false;
         }
 

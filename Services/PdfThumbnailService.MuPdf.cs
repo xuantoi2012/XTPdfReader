@@ -43,6 +43,19 @@ public static partial class PdfThumbnailService
     private static IReadOnlyList<(double U1, double V1, double U2, double V2)> MuPdfRects(JsonElement reply)
         => reply.GetProperty("rects").EnumerateArray().Select(r => (r[0].GetDouble(), r[1].GetDouble(), r[2].GetDouble(), r[3].GetDouble())).ToArray();
 
+    /// <summary>Boxes of every word on a page (normalised 0..1 display coordinates). null = could not be read (or not available in this engine);
+    /// an empty list = the page has no text layer (a scan).</summary>
+    public static async Task<IReadOnlyList<(double U1, double V1, double U2, double V2)>?> GetWordRectsAsync(string path, int pageNumber)
+    {
+        if (!ExperimentalMuPdfViewport.BalancedMode) return null;
+        try
+        {
+            var reply = await ExperimentalMuPdfViewport.CommandAsync(path, "words", pageNumber - 1).ConfigureAwait(false);
+            return MuPdfRects(reply);
+        }
+        catch { return null; }
+    }
+
     private static async Task<(IReadOnlyList<(double U1, double V1, double U2, double V2)> Rects, string Text)?> MuPdfSelectAsync(
         string path, int pageNumber, double ax, double ay, double bx, double by)
     {

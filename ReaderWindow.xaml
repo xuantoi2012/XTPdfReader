@@ -502,6 +502,21 @@
                     </StackPanel>
                 </Border>
 
+                <!-- After dragging across text with the Select tool: one click to highlight / underline / strike / squiggle it, add a note at it, or copy it. -->
+                <Border x:Name="TextSelectionBar" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="14,14,0,0" Panel.ZIndex="19"
+                        Padding="4" CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}">
+                    <Border.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="3" Opacity="0.2" Direction="270"/></Border.Effect>
+                    <StackPanel Orientation="Horizontal">
+                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.hl_text}" Width="32" Height="32" IconSize="20" ToolTip="Highlight" Click="SelBarHighlight_Click"/>
+                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.underline}" Width="32" Height="32" IconSize="20" ToolTip="Underline" Click="SelBarUnderline_Click"/>
+                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.strike}" Width="32" Height="32" IconSize="20" ToolTip="Strikethrough" Click="SelBarStrike_Click"/>
+                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.squiggly}" Width="32" Height="32" IconSize="20" ToolTip="Squiggly underline" Click="SelBarSquiggly_Click"/>
+                        <Border Width="1" Height="20" Margin="4,0" Background="{DynamicResource Ui.Border}"/>
+                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.note}" Width="32" Height="32" IconSize="20" ToolTip="Add a note at this text" Click="SelBarNote_Click"/>
+                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.copy}" Width="32" Height="32" IconSize="20" ToolTip="Copy" Click="SelBarCopy_Click"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Kiểu nét của hình vẽ: màu + độ dày. Hiện khi chọn công cụ Shapes hoặc chọn 1 hình đã vẽ. -->
                 <Border x:Name="ShapeBar" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="14,14,0,0" Panel.ZIndex="19"
                         Padding="8,6" CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}">

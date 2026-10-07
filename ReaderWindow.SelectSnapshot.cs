@@ -20,7 +20,7 @@ namespace XTPdfMergeApp
         // ── Select: copy text ────────────────────────────────────────────
 
         private sealed record TextSelDrag(PageRow Row, double StartU, double StartV);
-        private sealed record TextSelection(PageRow Row, string Text);
+        private sealed record TextSelection(PageRow Row, string Text, IReadOnlyList<(double U1, double V1, double U2, double V2)> Rects);
 
         private TextSelDrag? _textSelDrag;
         private TextSelection? _textSelection;
@@ -72,20 +72,15 @@ namespace XTPdfMergeApp
             }
             if (_readerTool != ReaderTool.Select) return; // tool changed while the text lookup ran
 
-            foreach (var (u1, v1, u2, v2) in value.Rects)
+            _textSelection = new TextSelection(drag.Row, value.Text.Trim(), value.Rects);
+            foreach (var _ in value.Rects)
             {
-                if (!TryPageToLayer(drag.Row, u1, v1, out Point p1) || !TryPageToLayer(drag.Row, u2, v2, out Point p2)) continue;
-                var box = new System.Windows.Shapes.Rectangle
-                {
-                    Width = Math.Abs(p2.X - p1.X), Height = Math.Abs(p2.Y - p1.Y),
-                    Fill = new SolidColorBrush(Color.FromArgb(0x55, 0x25, 0x63, 0xEB)), IsHitTestVisible = false
-                };
-                Canvas.SetLeft(box, Math.Min(p1.X, p2.X));
-                Canvas.SetTop(box, Math.Min(p1.Y, p2.Y));
+                var box = new System.Windows.Shapes.Rectangle { Fill = new SolidColorBrush(Color.FromArgb(0x55, 0x25, 0x63, 0xEB)), IsHitTestVisible = false };
                 ReaderInteractionLayer.Children.Add(box);
                 _textSelectionVisuals.Add(box);
             }
-            _textSelection = new TextSelection(drag.Row, value.Text.Trim());
+            RefreshTextSelectionVisuals();
+            ShowTextSelectionBar();
         }
 
         /// <summary>Drops the highlighted selection (tool change, Escape, new drag, click elsewhere).</summary>
@@ -94,6 +89,8 @@ namespace XTPdfMergeApp
             foreach (var box in _textSelectionVisuals) ReaderInteractionLayer.Children.Remove(box);
             _textSelectionVisuals.Clear();
             _textSelection = null;
+            _textSelectionAnchor = null;
+            TextSelectionBar.Visibility = Visibility.Collapsed;
         }
 
         private void CopySelectedText()

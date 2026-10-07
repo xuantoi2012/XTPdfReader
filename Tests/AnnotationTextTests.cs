@@ -172,3 +172,84 @@ internal static partial class Program
         }
     }
 }
+
+internal static partial class Program
+{
+    /// <summary>Select tool: I-beam only over words, a selection bar after dragging across text, markup from the bar lands in the file.</summary>
+    static void TestSelectToolBar()
+    {
+        if (System.Windows.Application.Current == null) CreateReaderTestApplication();
+        string folder = System.IO.Path.Combine(Output, "select-bar");
+        Directory.CreateDirectory(folder);
+        string path = System.IO.Path.Combine(folder, "text.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(path)))
+        {
+            var page = doc.AddNewPage(new PageSize(595, 842));
+            var canvas = new iText.Kernel.Pdf.Canvas.PdfCanvas(page);
+            canvas.BeginText().SetFontAndSize(iText.Kernel.Font.PdfFontFactory.CreateFont(iText.IO.Font.Constants.StandardFonts.HELVETICA), 24)
+                .MoveText(100, 700).ShowText("Hello selectable world").EndText();
+        }
+
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var reader = new XTPdfMergeApp.ReaderWindow { Width = 1300, Height = 900, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false };
+        var app = System.Windows.Application.Current;
+        var priorOwner = app.MainWindow;
+        app.MainWindow = reader;
+        Exception? failure = null;
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        reader.Show();
+        reader.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(async () =>
+        {
+            try
+            {
+                ((System.Windows.FrameworkElement)reader.FindName("StartPage")).Visibility = System.Windows.Visibility.Collapsed;
+                await reader.Session.OpenFilesInReaderAsync(new[] { path });
+                await Task.Delay(1500);
+                reader.UpdateLayout();
+                var rowType = typeof(XTPdfMergeApp.ReaderWindow);
+                var row = (XTPdfMergeApp.Domain.PagePlacement)rowType.GetField("_readerPage", flags)!.GetValue(reader)!;
+                var toolType = rowType.GetNestedType("ReaderTool", flags)!;
+                rowType.GetMethod("SetReaderTool", flags)!.Invoke(reader, new[] { Enum.Parse(toolType, "Select") });
+
+                var words = await PdfThumbnailService.GetWordRectsAsync(path, 1);
+                Check(words is { Count: 3 }, $"The worker reports the 3 words of the page ({words?.Count})");
+                var host = (System.Windows.FrameworkElement)reader.FindName("ReaderContentHost");
+                object[] a1 = { row, (words![0].U1 + words[0].U2) / 2, (words[0].V1 + words[0].V2) / 2, null! };
+                object[] a2 = { row, 0.9, 0.9, null! };
+                var toLayer = rowType.GetMethod("TryPageToLayer", flags)!;
+                Check((bool)toLayer.Invoke(reader, a1)! && (bool)toLayer.Invoke(reader, a2)!, "The page is on screen");
+                var update = rowType.GetMethod("UpdateSelectCursor", flags)!;
+                update.Invoke(reader, new object[] { a1[3] });
+                await Task.Delay(300);
+                update.Invoke(reader, new object[] { a1[3] });
+                Check(ReferenceEquals(host.Cursor, System.Windows.Input.Cursors.IBeam), "Over a word the pointer is an I-beam");
+                update.Invoke(reader, new object[] { a2[3] });
+                Check(ReferenceEquals(host.Cursor, System.Windows.Input.Cursors.Arrow), "Over empty paper the pointer is an arrow");
+
+                // drag across the whole line
+                var dragType = rowType.GetNestedType("TextSelDrag", flags)!;
+                var drag = Activator.CreateInstance(dragType, row, words[0].U1 - 0.005, (words[0].V1 + words[0].V2) / 2)!;
+                ((System.Windows.Shapes.Rectangle)reader.FindName("TextSelectDragRubber")).Width = 20;
+                ((System.Windows.Shapes.Rectangle)reader.FindName("TextSelectDragRubber")).Height = 20;
+                object[] endArgs = { row, words[2].U2 + 0.005, (words[2].V1 + words[2].V2) / 2, null! };
+                toLayer.Invoke(reader, endArgs);
+                await (Task)rowType.GetMethod("FinishTextSelectionDragAsync", flags)!.Invoke(reader, new object[] { drag, endArgs[3] })!;
+                var bar = (System.Windows.Controls.Border)reader.FindName("TextSelectionBar");
+                reader.UpdateLayout();
+                Check(bar.Visibility == System.Windows.Visibility.Visible, "After selecting text the selection bar appears");
+                Check(bar.Margin.Top < ((System.Windows.Point)a1[3]).Y, $"The bar sits above the selected line (bar top {bar.Margin.Top:0}, text y {((System.Windows.Point)a1[3]).Y:0})");
+
+                rowType.GetMethod("SelBarUnderline_Click", flags)!.Invoke(reader, new object?[] { null, null });
+                await Task.Delay(1500);
+                var saved = await AnnotationStore.GetPageAsync(path, 1);
+                var markup = saved?.Annotations.FirstOrDefault(x => x.Kind == QuickAnnotationKind.Underline);
+                Check(markup != null && PdfQuickAnnotationService.TextHighlightRects(markup.Format).Count >= 1, "The Underline button writes an underline over the selected words");
+                Check(bar.Visibility == System.Windows.Visibility.Collapsed, "The bar closes after the markup is made");
+            }
+            catch (Exception ex) { failure = ex; }
+            finally { reader.Session.Documents.Clear(); reader.Close(); app.MainWindow = priorOwner; frame.Continue = false; }
+        }));
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+        if (failure != null) throw new Exception("Select bar: " + failure.Message, failure);
+    }
+}

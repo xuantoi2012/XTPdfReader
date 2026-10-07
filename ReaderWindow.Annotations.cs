@@ -117,7 +117,7 @@ namespace XTPdfMergeApp
             // ForceCursor: con trỏ của vùng xem đè lên Cursor="Hand" sẵn có của ReaderImage.
             ReaderContentHost.Cursor = tool switch
             {
-                ReaderTool.Select => Cursors.IBeam,
+                ReaderTool.Select => Cursors.Arrow, // switches to the I-beam over text, see UpdateSelectCursor
                 ReaderTool.Typewriter => Cursors.IBeam,
                 ReaderTool.Comment => Cursors.Pen,
                 ReaderTool.Callout => Cursors.Pen,
@@ -380,6 +380,7 @@ namespace XTPdfMergeApp
             if (_linkPress is { } press && (point - press.Start).Length > 4)
                 _linkPress = null;
 
+            UpdateSelectCursor(point);
             UpdateCommentHover(point);
         }
 
@@ -1007,6 +1008,7 @@ namespace XTPdfMergeApp
 
         private void ReaderContentHost_LayoutUpdated(object? sender, EventArgs e)
         {
+            if (_textSelection != null) RefreshTextSelectionVisuals();
             if (_annotationEditor != null) PositionAnnotationEditor();
             else if (_selAnn != null)
             {

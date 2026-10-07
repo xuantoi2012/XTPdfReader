@@ -275,6 +275,15 @@ for line in sys.stdin:
                 results.append(result)
             send(dict(pages=results))
             continue
+        if op == "words":
+            # Word boxes of one page (normalised display coordinates): the reader uses them to switch the pointer to an I-beam over real text.
+            page = document[request["page"]]
+            rects = []
+            for word in page.get_text("words"):
+                rect = fitz.Rect(word[:4]) * page.rotation_matrix
+                rects.append([rect.x0 / page.rect.width, rect.y0 / page.rect.height, rect.x1 / page.rect.width, rect.y1 / page.rect.height])
+            send(dict(rects=rects))
+            continue
         if op in ("search", "select"):
             page = document[request["page"]]
             resolve_unembedded_fonts(document, page)
