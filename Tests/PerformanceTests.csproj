@@ -11,9 +11,9 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- PdfBench, PoolTest là project riêng (không WPF) — không gom vào đây. -->
-    <Compile Remove="PdfBench\**;PoolTest\**;MuPdfNativeWorker\**" />
-    <None Remove="PdfBench\**;PoolTest\**" />
-    <EmbeddedResource Remove="PdfBench\**;PoolTest\**" />
+    <Compile Remove="PdfBench\**;PoolTest\**;MuPdfNativeWorker\**;VirtualPrinter\**" />
+    <None Remove="PdfBench\**;PoolTest\**;VirtualPrinter\**" />
+    <EmbeddedResource Remove="PdfBench\**;PoolTest\**;VirtualPrinter\**" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XTPdfMergeApp.csproj" />

@@ -614,7 +614,48 @@ internal static partial class Program
         }
         string baseline = await HashAsync();
         int changed = 0, tried = 0;
-        foreach (var (id, name) in info.Names.Take(maxLayers))
+        // Only layers the page actually draws with (page + nested form XObject resources) can change it; scanning the first N of 700 would mostly miss them.
+        var used = new HashSet<string>();
+        using (var doc = new PdfDocument(new PdfReader(path)))
+        {
+            var seen = new HashSet<PdfDictionary>();
+            void Walk(PdfDictionary? res)
+            {
+                if (res == null || !seen.Add(res)) return;
+                if (res.GetAsDictionary(PdfName.Properties) is { } props)
+                    foreach (var key in props.KeySet())
+                        if (props.GetAsDictionary(key) is { } d)
+                        {
+                            string id = PdfLayerService.IdOf(d);
+                            if (id.Length > 0) used.Add(id);
+                            if (PdfName.OCMD.Equals(d.GetAsName(PdfName.Type)))
+                            {
+                                if (d.GetAsDictionary(PdfName.OCGs) is { } one) used.Add(PdfLayerService.IdOf(one));
+                                if (d.GetAsArray(PdfName.OCGs) is { } many) for (int i = 0; i < many.Size(); i++) if (many.GetAsDictionary(i) is { } g) used.Add(PdfLayerService.IdOf(g));
+                            }
+                        }
+                if (res.GetAsDictionary(PdfName.XObject) is { } xo)
+                    foreach (var key in xo.KeySet()) if (xo.GetAsStream(key) is { } form) Walk(form.GetAsDictionary(PdfName.Resources));
+            }
+            Walk(doc.GetPage(page).GetPdfObject().GetAsDictionary(PdfName.Resources));
+        }
+        Console.WriteLine($"layers referenced by page {page}: {used.Count}");
+        Console.WriteLine("  used ids: " + string.Join(", ", used.Take(25)) + " | names sample: " + string.Join(", ", info.Names.Keys.Take(3)) + " | in names: " + used.Count(info.Names.ContainsKey));
+        using (var doc2 = new PdfDocument(new PdfReader(path)))
+        {
+            var ocp = doc2.GetCatalog().GetPdfObject().GetAsDictionary(PdfName.OCProperties);
+            var all = new HashSet<string>(); var ord = new HashSet<string>();
+            if (ocp?.GetAsArray(PdfName.OCGs) is { } arr) for (int i = 0; i < arr.Size(); i++) all.Add(PdfLayerService.IdOf(arr.Get(i)));
+            Console.WriteLine($"  /OCProperties /OCGs entries: {all.Count}; used ids in /OCGs: {used.Count(all.Contains)}");
+            foreach (string id in used.Take(25))
+            {
+                var parts = id.Split(' ');
+                var o = doc2.GetPdfObject(int.Parse(parts[0])) as PdfDictionary;
+                Console.WriteLine($"  used {id}: name={o?.GetAsString(PdfName.Name)} type={o?.GetAsName(PdfName.Type)}");
+            }
+        }
+        var candidates = info.Names.Where(kv => used.Contains(kv.Key)).ToList();
+        foreach (var (id, name) in candidates.Take(maxLayers))
         {
             PdfLayerStateStore.SetHidden(path, new HashSet<string> { id }, info.DefaultHidden);
             await PdfThumbnailService.RetireDocumentAsync(path);
