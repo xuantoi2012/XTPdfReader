@@ -628,3 +628,77 @@ internal static partial class Program
         Console.WriteLine($"{changed} of {tried} layers change page {page}; {sw.ElapsedMilliseconds} ms");
     }
 }
+
+internal static partial class Program
+{
+    static System.Windows.Media.Imaging.BitmapSource FormatBitmap(System.Windows.Media.PixelFormat format, int w, int h, byte value)
+    {
+        int bpp = format.BitsPerPixel / 8;
+        var data = new byte[w * h * bpp]; Array.Fill(data, value);
+        var bmp = System.Windows.Media.Imaging.BitmapSource.Create(w, h, 96, 96, format, null, data, w * bpp);
+        bmp.Freeze();
+        return bmp;
+    }
+
+    static void TestRegionReuseFormats()
+    {
+        foreach (var format in new[] { System.Windows.Media.PixelFormats.Bgr24, System.Windows.Media.PixelFormats.Bgra32, System.Windows.Media.PixelFormats.Pbgra32, System.Windows.Media.PixelFormats.Bgr32 })
+        {
+            // Mảnh cũ 0..400 × 0..200 (giá trị 77); khung mới dịch phải 100 điểm: chỉ thiếu dải x 400..500.
+            var oldBounds = new System.Windows.Int32Rect(0, 0, 400, 200);
+            var piece = new ViewportRegionReuse.Piece(oldBounds, FormatBitmap(format, 400, 200, 77));
+            var target = new System.Windows.Int32Rect(100, 0, 400, 200);
+            var plan = ViewportRegionReuse.Plan(target, new[] { piece });
+            Check(plan.Length == 1 && plan[0].X == 400 && plan[0].Width == 100, $"{format}: an overlapping crop is reused and only the new band is planned");
+            var fresh = new ViewportRegionReuse.Piece(new System.Windows.Int32Rect(400, 0, 100, 200), FormatBitmap(format, 100, 200, 200));
+            var composed = ViewportRegionReuse.Compose(target, new[] { piece, fresh }, default);
+            Check(composed.Format == format && composed.PixelWidth == 400 && composed.PixelHeight == 200, $"{format}: the composed crop keeps the pieces' pixel format");
+            int bpp = format.BitsPerPixel / 8;
+            var row = new byte[400 * bpp];
+            composed.CopyPixels(new System.Windows.Int32Rect(0, 100, 400, 1), row, row.Length, 0);
+            Check(row[0] == 77 && row[299 * bpp] == 77 && row[300 * bpp] == 200 && row[399 * bpp] == 200, $"{format}: reused pixels and the new band meet at the right column");
+        }
+        // Mảnh khác format với mảnh đầu bị bỏ qua (không ép chuyển đổi)
+        var a = new ViewportRegionReuse.Piece(new System.Windows.Int32Rect(0, 0, 100, 100), FormatBitmap(System.Windows.Media.PixelFormats.Bgr24, 100, 100, 1));
+        var b = new ViewportRegionReuse.Piece(new System.Windows.Int32Rect(100, 0, 100, 100), FormatBitmap(System.Windows.Media.PixelFormats.Bgra32, 100, 100, 2));
+        var mixed = ViewportRegionReuse.Plan(new System.Windows.Int32Rect(0, 0, 200, 100), new[] { a, b });
+        Check(mixed.Length == 1 && mixed[0].X == 100, "A piece in another pixel format than the first is not mixed in; its area is planned for a fresh render");
+    }
+}
+
+internal static partial class Program
+{
+    /// <summary>Ảnh thật từ worker MuPDF (Bgr24): ghép "mảnh cũ dịch + dải mới" phải ra đúng ảnh vẽ thẳng cả khung — kể cả đường nối.</summary>
+    static async Task TestRegionReuseWithMuPdfAsync()
+    {
+        if (!ExperimentalMuPdfViewport.CanRender("engine-probe.pdf", 5, "changed")) return; // PDFium test build: the MuPDF worker is not part of it
+        string folder = System.IO.Path.Combine(Output, "region-reuse-mupdf");
+        Directory.CreateDirectory(folder);
+        string path = System.IO.Path.Combine(folder, "detail.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(path)))
+        {
+            var page = doc.AddNewPage(new PageSize(842, 595));
+            var canvas = new PdfCanvas(page);
+            for (int i = 0; i < 120; i++) canvas.MoveTo(10 + i * 6.5, 10).LineTo(830 - i * 3.1, 585).Stroke();
+        }
+        int fullW = 4200, fullH = (int)(fullW * 595.0 / 842);
+        var oldRect = new System.Windows.Int32Rect(600, 300, 1600, 900);
+        var target = new System.Windows.Int32Rect(800, 300, 1600, 900);          // kéo ngang 200 điểm
+        var oldImage = (await ExperimentalMuPdfViewport.RenderAsync(path, 0, fullW, fullH, new[] { oldRect }, default))[0]!;
+        var band = new System.Windows.Int32Rect(2200, 300, 200, 900);
+        var bandImage = (await ExperimentalMuPdfViewport.RenderAsync(path, 0, fullW, fullH, new[] { band }, default))[0]!;
+        var direct = (await ExperimentalMuPdfViewport.RenderAsync(path, 0, fullW, fullH, new[] { target }, default))[0]!;
+        Check(oldImage.Format == System.Windows.Media.PixelFormats.Bgr24, "MuPDF crops arrive as Bgr24 (the case that used to disable overlap reuse)");
+
+        var pieces = new List<ViewportRegionReuse.Piece> { new(oldRect, oldImage), new(band, bandImage, band) };
+        var plan = ViewportRegionReuse.Plan(target, new[] { pieces[0] });
+        Check(plan.Length == 1 && plan[0].X == 2200 && plan[0].Width == 200, "A MuPDF crop that overlaps the next viewport is reused: only the 200 px band needs rendering");
+        var composed = ViewportRegionReuse.Compose(target, pieces, default);
+        var a = new byte[target.Width * target.Height * 3]; var b = new byte[a.Length];
+        composed.CopyPixels(a, target.Width * 3, 0); direct.CopyPixels(b, target.Width * 3, 0);
+        int different = 0;
+        for (int i = 0; i < a.Length; i += 3) if (a[i] != b[i] || a[i + 1] != b[i + 1] || a[i + 2] != b[i + 2]) different++;
+        Check(composed.Format == direct.Format && different == 0, $"The reused crop plus the new band equals a direct render of the whole viewport pixel for pixel ({different} different pixels)");
+        ExperimentalMuPdfViewport.Shutdown();
+    }
+}

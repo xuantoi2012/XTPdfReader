@@ -43,9 +43,23 @@ internal static class ViewportRegionReuse
             ? new[] { target } : new[] { band };
     }
 
-    internal static bool CanReuse(Piece piece) => piece.Bitmap.IsFrozen && piece.Bitmap.Format == PixelFormats.Bgra32 &&
+    // PDFium crops are Bgra32; MuPDF workers deliver Bgr24 (opaque pages) or Pbgra32 (alpha). A composition keeps ONE format: converting every
+    // piece to Bgra32 would cost more than re-rendering the overlap.
+    private static bool IsSupportedFormat(PixelFormat format)
+        => format == PixelFormats.Bgra32 || format == PixelFormats.Pbgra32 || format == PixelFormats.Bgr32 || format == PixelFormats.Bgr24;
+
+    internal static bool CanReuse(Piece piece) => piece.Bitmap.IsFrozen && IsSupportedFormat(piece.Bitmap.Format) &&
         piece.Bounds.Width > 0 && piece.Bounds.Height > 0 &&
         piece.Bitmap.PixelWidth == piece.Bounds.Width && piece.Bitmap.PixelHeight == piece.Bounds.Height;
+
+    /// <summary>Format của lần ghép: format của mảnh dùng lại được ĐẦU TIÊN; mảnh khác format bị bỏ qua (Plan và Compose cùng quy tắc nên nhất quán).</summary>
+    private static PixelFormat? DominantFormat(IReadOnlyList<Piece> pieces)
+    {
+        foreach (var piece in pieces) if (CanReuse(piece)) return piece.Bitmap.Format;
+        return null;
+    }
+
+    private static bool Usable(Piece piece, PixelFormat? format) => format != null && CanReuse(piece) && piece.Bitmap.Format == format.Value;
 
     internal static Int32Rect Intersect(Int32Rect a, Int32Rect b)
     {
@@ -65,9 +79,10 @@ internal static class ViewportRegionReuse
     private static List<Int32Rect> Uncovered(Int32Rect target, IReadOnlyList<Piece> sources)
     {
         var missing = new List<Int32Rect> { target };
+        var format = DominantFormat(sources);
         foreach (var source in sources)
         {
-            if (!CanReuse(source)) continue;
+            if (!Usable(source, format)) continue;
             var next = new List<Int32Rect>();
             foreach (var rect in missing)
             {
@@ -94,7 +109,9 @@ internal static class ViewportRegionReuse
         token.ThrowIfCancellationRequested();
         if (target.Width <= 0 || target.Height <= 0 || Uncovered(target, pieces).Count != 0)
             throw new ArgumentException("Viewport pieces must cover the entire target.", nameof(pieces));
-        int stride = checked(target.Width * 4), bytes = checked(stride * target.Height);
+        var format = DominantFormat(pieces) ?? PixelFormats.Bgra32;
+        int bytesPerPixel = format.BitsPerPixel / 8;
+        int stride = checked(target.Width * bytesPerPixel), bytes = checked(stride * target.Height);
         // A transient native buffer avoids a large managed allocation on every pan.
         IntPtr pixels = Marshal.AllocHGlobal(bytes);
         try
@@ -102,15 +119,15 @@ internal static class ViewportRegionReuse
             foreach (var piece in pieces)
             {
                 token.ThrowIfCancellationRequested();
-                if (!CanReuse(piece)) continue;
+                if (!Usable(piece, format)) continue;
                 var clip = Intersect(target, piece.CopyBounds);
                 if (clip.IsEmpty) continue;
-                int offset = checked((clip.Y - target.Y) * stride + (clip.X - target.X) * 4);
+                int offset = checked((clip.Y - target.Y) * stride + (clip.X - target.X) * bytesPerPixel);
                 piece.Bitmap.CopyPixels(new Int32Rect(clip.X - piece.Bounds.X, clip.Y - piece.Bounds.Y, clip.Width, clip.Height),
                     IntPtr.Add(pixels, offset), bytes - offset, stride);
             }
             token.ThrowIfCancellationRequested();
-            var bitmap = BitmapSource.Create(target.Width, target.Height, 96, 96, PixelFormats.Bgra32, null, pixels, bytes, stride);
+            var bitmap = BitmapSource.Create(target.Width, target.Height, 96, 96, format, null, pixels, bytes, stride);
             bitmap.Freeze();
             return bitmap;
         }
