@@ -33,6 +33,7 @@
 
   <ItemGroup>
     <Compile Remove="Tests\**\*.cs" />
+    <Compile Remove="VirtualPrinter\**\*.cs" />
     <EmbeddedResource Remove="Tests\**\*" />
     <None Remove="Tests\**\*" />
     <InternalsVisibleTo Include="XTPdfMergeApp.PerformanceTests" />

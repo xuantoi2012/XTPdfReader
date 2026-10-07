@@ -1,0 +1,15 @@
+{
+  "checks": 32,
+  "endToEndSeconds": 1.1260158,
+  "servicePrivateBytes": 37261312,
+  "outputPdfs": [
+    "C:\\Users\\Admin\\source\\repos\\xuantoi2012\\XTPdfReader\\Tests\\bin\\virtual-printer\\service\\348b629cff7a462e86f0857d177774e9\\agent\\135d271db77441eabd0e51495437dc1b\\T\u00E0i li\u1EC7u 120 trang-1-copy-1.pdf",
+    "C:\\Users\\Admin\\source\\repos\\xuantoi2012\\XTPdfReader\\Tests\\bin\\virtual-printer\\service\\348b629cff7a462e86f0857d177774e9\\agent\\135d271db77441eabd0e51495437dc1b\\T\u00E0i li\u1EC7u 120 trang-1-copy-2.pdf",
+    "C:\\Users\\Admin\\source\\repos\\xuantoi2012\\XTPdfReader\\Tests\\bin\\virtual-printer\\service\\348b629cff7a462e86f0857d177774e9\\agent\\135d271db77441eabd0e51495437dc1b\\T\u00E0i li\u1EC7u 120 trang-2-copy-1.pdf",
+    "C:\\Users\\Admin\\source\\repos\\xuantoi2012\\XTPdfReader\\Tests\\bin\\virtual-printer\\service\\348b629cff7a462e86f0857d177774e9\\agent\\135d271db77441eabd0e51495437dc1b\\T\u00E0i li\u1EC7u 120 trang-2-copy-2.pdf",
+    "C:\\Users\\Admin\\source\\repos\\xuantoi2012\\XTPdfReader\\Tests\\bin\\virtual-printer\\service\\348b629cff7a462e86f0857d177774e9\\agent\\135d271db77441eabd0e51495437dc1b\\T\u00E0i li\u1EC7u 120 trang-3-copy-1.pdf",
+    "C:\\Users\\Admin\\source\\repos\\xuantoi2012\\XTPdfReader\\Tests\\bin\\virtual-printer\\service\\348b629cff7a462e86f0857d177774e9\\agent\\135d271db77441eabd0e51495437dc1b\\T\u00E0i li\u1EC7u 120 trang-3-copy-2.pdf"
+  ],
+  "xpsPdf": "C:\\Users\\Admin\\source\\repos\\xuantoi2012\\XTPdfReader\\Tests\\bin\\virtual-printer\\service\\348b629cff7a462e86f0857d177774e9\\vector.pdf",
+  "generatedRoot": "C:\\Users\\Admin\\source\\repos\\xuantoi2012\\XTPdfReader\\Tests\\bin\\virtual-printer\\service\\348b629cff7a462e86f0857d177774e9"
+}

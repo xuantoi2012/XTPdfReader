@@ -2,6 +2,8 @@
 
 Disposable probes only: no service, add-in, converter or product installer. Requirements: installed Word/Office 15 PIAs, .NET 10, existing bundled Python/python-docx and Reader MuPDF runtime. No new dependencies. COM controls only a new hidden Word instance and closes it; no mouse/keyboard automation.
 
+Service implementation was subsequently authorized. Its component tests run with `Run-ServiceTests.ps1`; production component documentation is `VirtualPrinter/README.md`. The phase 0 probes below remain separate from the service.
+
 Run from the repository root:
 
 ```powershell

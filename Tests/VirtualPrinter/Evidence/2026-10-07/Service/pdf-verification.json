@@ -1,0 +1,70 @@
+{
+  "wordCopies": [
+    {
+      "file": "C:\\Users\\Admin\\source\\repos\\xuantoi2012\\XTPdfReader\\Tests\\bin\\virtual-printer\\service\\348b629cff7a462e86f0857d177774e9\\agent\\135d271db77441eabd0e51495437dc1b\\Tài liệu 120 trang-1-copy-1.pdf",
+      "pages": 120,
+      "bookmarks": 108,
+      "textMatch": 1.0,
+      "fontsEmbedded": true,
+      "title": "Tài liệu 120 trang",
+      "author": "TRANVANTHOAI\\Admin"
+    },
+    {
+      "file": "C:\\Users\\Admin\\source\\repos\\xuantoi2012\\XTPdfReader\\Tests\\bin\\virtual-printer\\service\\348b629cff7a462e86f0857d177774e9\\agent\\135d271db77441eabd0e51495437dc1b\\Tài liệu 120 trang-1-copy-2.pdf",
+      "pages": 120,
+      "bookmarks": 108,
+      "textMatch": 1.0,
+      "fontsEmbedded": true,
+      "title": "Tài liệu 120 trang",
+      "author": "TRANVANTHOAI\\Admin"
+    },
+    {
+      "file": "C:\\Users\\Admin\\source\\repos\\xuantoi2012\\XTPdfReader\\Tests\\bin\\virtual-printer\\service\\348b629cff7a462e86f0857d177774e9\\agent\\135d271db77441eabd0e51495437dc1b\\Tài liệu 120 trang-2-copy-1.pdf",
+      "pages": 120,
+      "bookmarks": 108,
+      "textMatch": 1.0,
+      "fontsEmbedded": true,
+      "title": "Tài liệu 120 trang",
+      "author": "TRANVANTHOAI\\Admin"
+    },
+    {
+      "file": "C:\\Users\\Admin\\source\\repos\\xuantoi2012\\XTPdfReader\\Tests\\bin\\virtual-printer\\service\\348b629cff7a462e86f0857d177774e9\\agent\\135d271db77441eabd0e51495437dc1b\\Tài liệu 120 trang-2-copy-2.pdf",
+      "pages": 120,
+      "bookmarks": 108,
+      "textMatch": 1.0,
+      "fontsEmbedded": true,
+      "title": "Tài liệu 120 trang",
+      "author": "TRANVANTHOAI\\Admin"
+    },
+    {
+      "file": "C:\\Users\\Admin\\source\\repos\\xuantoi2012\\XTPdfReader\\Tests\\bin\\virtual-printer\\service\\348b629cff7a462e86f0857d177774e9\\agent\\135d271db77441eabd0e51495437dc1b\\Tài liệu 120 trang-3-copy-1.pdf",
+      "pages": 120,
+      "bookmarks": 108,
+      "textMatch": 1.0,
+      "fontsEmbedded": true,
+      "title": "Tài liệu 120 trang",
+      "author": "TRANVANTHOAI\\Admin"
+    },
+    {
+      "file": "C:\\Users\\Admin\\source\\repos\\xuantoi2012\\XTPdfReader\\Tests\\bin\\virtual-printer\\service\\348b629cff7a462e86f0857d177774e9\\agent\\135d271db77441eabd0e51495437dc1b\\Tài liệu 120 trang-3-copy-2.pdf",
+      "pages": 120,
+      "bookmarks": 108,
+      "textMatch": 1.0,
+      "fontsEmbedded": true,
+      "title": "Tài liệu 120 trang",
+      "author": "TRANVANTHOAI\\Admin"
+    }
+  ],
+  "xps": {
+    "searchableText": "Vector text: Tiếng Việt có dấu",
+    "vectorPaths": 1,
+    "images": 0,
+    "embeddedFonts": true
+  },
+  "oxps": {
+    "syntheticFixture": true,
+    "textMatch": 1.0,
+    "vectorPaths": 1,
+    "images": 0
+  }
+}
