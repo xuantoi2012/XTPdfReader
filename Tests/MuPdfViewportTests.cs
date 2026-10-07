@@ -170,11 +170,13 @@ internal static partial class Program
         byte[]? baseline = null;
         try
         {
+            double lastMs = 20;
             for (int i = 0; i < 4; i++)
             {
                 var watch = Stopwatch.StartNew();
                 var batch = await ExperimentalMuPdfViewport.RenderAsync(source, 0, 6000, 4242, new[] { rect }, default);
                 double ms = watch.Elapsed.TotalMilliseconds;
+                lastMs = ms;
                 Check(batch.Count == 1 && batch[0] is { IsFrozen: true }, "Worker delivers immutable WPF bitmap");
                 Check(batch[0]!.PixelWidth == 1920 && batch[0]!.PixelHeight == 1080, "Viewport dimensions stay exact");
                 var pixels = RegionPixels(batch[0]!);
@@ -185,9 +187,11 @@ internal static partial class Program
                     ParentPrivateMiB = Process.GetCurrentProcess().PrivateMemorySize64 / 1048576d,
                     WorkerPrivateMiB = ExperimentalMuPdfViewport.WorkerPrivateMiB }));
             }
-            using var cancel = new CancellationTokenSource(20);
+            // The request must still be running when the token fires, even on a light first page: ask for the whole 6000 px page (12x the viewport's
+            // area, so far slower than the replays above) and cancel after a fraction of the viewport's own time.
+            using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(Math.Clamp(lastMs / 3, 2, 20)));
             bool cancelled = false;
-            var uncachedRect = new Int32Rect(rect.X + 17, rect.Y, rect.Width, rect.Height);
+            var uncachedRect = new Int32Rect(0, 0, 6000, 4242);
             try { await ExperimentalMuPdfViewport.RenderAsync(source, 0, 6000, 4242, new[] { uncachedRect }, cancel.Token); }
             catch (OperationCanceledException) { cancelled = true; }
             Check(cancelled, "Cancelled in-flight request does not publish obsolete image");
