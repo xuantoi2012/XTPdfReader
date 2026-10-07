@@ -983,9 +983,11 @@ public sealed class ContinuousPdfView : Grid
     /// tới khi ảnh đúng cỡ về (hoặc quá <see cref="PresentTimeoutMilliseconds"/>). XTPDF_EXACT_RASTER=0 tắt, trở về chính sách cũ.
     /// </summary>
     private static bool _exactRaster = Environment.GetEnvironmentVariable("XTPDF_EXACT_RASTER") != "0";
+    private static readonly bool ForceExact = Environment.GetEnvironmentVariable("XTPDF_FORCE_EXACT") == "1";
     internal static bool ExactRaster
     {
-        get => !ExperimentalMuPdfViewport.ThroughputMode && _exactRaster;
+        // XTPDF_FORCE_EXACT=1: measurement switch to compare exact-raster zoom against throughput mode on the MuPDF build; off by default.
+        get => (!ExperimentalMuPdfViewport.ThroughputMode || ForceExact) && _exactRaster;
         set => _exactRaster = value;
     }
 
