@@ -147,6 +147,19 @@ namespace XTPdfMergeApp.Controls
             ResizeRight.Visibility = ResizeBottom.Visibility = ResizeCorner.Visibility = visibility;
         }
 
+        private bool _rowMode;
+
+        /// <summary>Rows layout: the thumbnails form one horizontal strip that scrolls sideways; otherwise a wrapping grid that scrolls down.</summary>
+        internal void SetRowMode(bool row)
+        {
+            if (_rowMode == row) return;
+            _rowMode = row;
+            Thumbs.ItemsPanel = (ItemsPanelTemplate)FindResource(row ? "RowPanelTemplate" : "WrapPanelTemplate");
+            ScrollViewer.SetHorizontalScrollBarVisibility(Thumbs, row ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled);
+            ScrollViewer.SetVerticalScrollBarVisibility(Thumbs, row ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto);
+            _thumbScroll = null;
+        }
+
         internal void ShowDropGlow(bool on) => DropGlow.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
 
         internal IReadOnlyList<PageRow> SelectedPages
@@ -354,7 +367,12 @@ namespace XTPdfMergeApp.Controls
             _thumbScroll ??= VisualTreeHelpers.FindVisualChildren<ScrollViewer>(Thumbs).FirstOrDefault();
             if (_thumbScroll != null)
             {
-                if (point.Y < 32) _thumbScroll.ScrollToVerticalOffset(Math.Max(0, _thumbScroll.VerticalOffset - 22));
+                if (_rowMode)
+                {
+                    if (point.X < 32) _thumbScroll.ScrollToHorizontalOffset(Math.Max(0, _thumbScroll.HorizontalOffset - 22));
+                    else if (point.X > Thumbs.ActualWidth - 32) _thumbScroll.ScrollToHorizontalOffset(_thumbScroll.HorizontalOffset + 22);
+                }
+                else if (point.Y < 32) _thumbScroll.ScrollToVerticalOffset(Math.Max(0, _thumbScroll.VerticalOffset - 22));
                 else if (point.Y > Thumbs.ActualHeight - 32) _thumbScroll.ScrollToVerticalOffset(_thumbScroll.VerticalOffset + 22);
             }
             e.Handled = true;

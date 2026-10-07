@@ -665,7 +665,6 @@ namespace XTPdfMergeApp
             if (_mergeWindow != null) return _mergeWindow;
             var window = new Controls.MergeWindow { Owner = this };
             var view = window.View;
-            view.DoneRequested += () => window.Hide();
             view.HistoryStateChanged += (_, _) => ScheduleRecovery();
             view.OpenFileRequested += async () =>
             {

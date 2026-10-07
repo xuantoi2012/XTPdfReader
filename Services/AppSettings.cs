@@ -64,6 +64,13 @@ namespace XTPdfMergeApp.Services
 
         // ── Performance & memory ──────────────────────────────────────
 
+        /// <summary>Merge screen layout: "Columns" (max 3 across, scroll sideways) or "Rows" (one thumbnail row per window).</summary>
+        public static string MergeLayoutMode
+        {
+            get => GetString("MergeLayoutMode", "Columns");
+            set => Set("MergeLayoutMode", value);
+        }
+
         public static ReaderPerformanceMode PerformanceMode
         {
             get

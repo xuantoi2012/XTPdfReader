@@ -108,6 +108,12 @@ internal sealed class MergeDraftSession
         if (draftPages.Count > 0) _workspace.Execute(new RemovePagesCommand(_workspace, document, draftPages));
     }
 
+    /// <summary>Window order = merge order: put the document at another window's position (undoable).</summary>
+    internal void MoveDocument(WorkspaceDocument document, int newIndex)
+    {
+        if (newIndex >= 0 && _workspace.Documents.Contains(document)) _workspace.Execute(new ReorderDocumentsCommand(_workspace, document, newIndex));
+    }
+
     internal void RemoveDocument(WorkspaceDocument document)
     {
         if (_workspace.Documents.Contains(document)) _workspace.Execute(new RemoveDocumentCommand(_workspace, document));

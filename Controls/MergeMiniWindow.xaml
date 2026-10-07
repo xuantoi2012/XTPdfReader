@@ -6,6 +6,13 @@
              xmlns:local="clr-namespace:XTPdfMergeApp.Controls"
              FontFamily="Segoe UI" FontSize="12">
     <UserControl.Resources>
+        <ItemsPanelTemplate x:Key="WrapPanelTemplate">
+            <vwp:VirtualizingWrapPanel Orientation="Horizontal" SpacingMode="Uniform" StretchItems="False"
+                                       IsGridLayoutEnabled="True" ItemSize="{Binding CellSize, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+        </ItemsPanelTemplate>
+        <ItemsPanelTemplate x:Key="RowPanelTemplate">
+            <VirtualizingStackPanel Orientation="Horizontal"/>
+        </ItemsPanelTemplate>
         <Style x:Key="GoToBox" TargetType="TextBox">
             <Setter Property="Height" Value="26"/>
             <Setter Property="Padding" Value="8,0"/>
@@ -83,19 +90,13 @@
             </Border>
 
             <Grid Grid.Row="1">
-                <ListBox x:Name="Thumbs" BorderThickness="0" Background="Transparent" Padding="6,6,6,0" SelectionMode="Extended"
+                <ListBox x:Name="Thumbs" ItemsPanel="{StaticResource WrapPanelTemplate}" BorderThickness="0" Background="Transparent" Padding="6,6,6,0" SelectionMode="Extended"
                          ItemContainerStyle="{StaticResource MiniThumbItem}" AllowDrop="True"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True"
                          VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Pixel"
                          PreviewMouseLeftButtonDown="Thumb_PreviewMouseLeftButtonDown" PreviewMouseMove="Thumb_PreviewMouseMove"
                          PreviewMouseLeftButtonUp="Thumb_PreviewMouseLeftButtonUp" PreviewKeyDown="Thumbs_PreviewKeyDown"
                          DragOver="Thumb_DragOver" DragLeave="Thumb_DragLeave" Drop="Thumb_Drop">
-                    <ListBox.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <vwp:VirtualizingWrapPanel Orientation="Horizontal" SpacingMode="Uniform" StretchItems="False"
-                                                       IsGridLayoutEnabled="True" ItemSize="{Binding CellSize, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
-                        </ItemsPanelTemplate>
-                    </ListBox.ItemsPanel>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Margin="0,4,0,2" Width="{Binding ThumbWidth, RelativeSource={RelativeSource AncestorType=UserControl}}">

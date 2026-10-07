@@ -37,7 +37,7 @@
         <Geometry x:Key="Lay.Vertical">M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM4 12h16</Geometry>
         <Geometry x:Key="Lay.Three">M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM9.3 4v16M14.7 4v16</Geometry>
         <Geometry x:Key="Lay.Grid">M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM12 4v16M4 12h16</Geometry>
-        <Geometry x:Key="Lay.Free">M4 4h10v9H4zM10 11h10v9H10z</Geometry>
+        <Geometry x:Key="Lay.Rows">M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM4 9.3h16M4 14.7h16</Geometry>
         <Style x:Key="ChipToggle" TargetType="ToggleButton">
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -84,7 +84,6 @@
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                     <xt:XTButton Style="{StaticResource UiPrimaryButton}" Icon="{StaticResource Ui.Icon.merge}" Text="Merge into one file…" Click="MergeAll_Click"
                                  ToolTip="Export this temporary arrangement, in this order, as a new PDF. Original tabs are not changed."/>
-                    <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Done" Margin="8,0,0,0" Click="Done_Click" ToolTip="Discard this merge draft and return to the reader"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <xt:XTButton x:Name="InboxButton" Style="{StaticResource UiGhostButton}" Icon="{StaticResource Ui.Icon.tray}" Text="Inbox" Margin="0,0,8,0"
@@ -94,12 +93,10 @@
                     <TextBlock Text="Layout" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="{DynamicResource Ui.Muted}"/>
                     <Border CornerRadius="8" Background="{DynamicResource Ui.Chip}" Padding="2" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal">
-                            <RadioButton x:Name="LayoutOne" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.One}" Tag="One" ToolTip="One window" Checked="Layout_Checked"/>
-                            <RadioButton x:Name="LayoutTwo" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Two}" Tag="Two" ToolTip="Two side by side" Checked="Layout_Checked"/>
-                            <RadioButton x:Name="LayoutVertical" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Vertical}" Tag="Vertical" ToolTip="Two windows stacked vertically" Checked="Layout_Checked"/>
-                            <RadioButton x:Name="LayoutThree" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Three}" Tag="Three" ToolTip="Three columns" Checked="Layout_Checked"/>
-                            <RadioButton x:Name="LayoutGrid" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Grid}" Tag="Grid" ToolTip="2 × 2 grid" Checked="Layout_Checked"/>
-                            <RadioButton x:Name="LayoutFree" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Free}" Tag="Free" ToolTip="Move and resize windows freely" Checked="Layout_Checked"/>
+                            <RadioButton x:Name="LayoutColumns" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Three}" Tag="Columns"
+                                         ToolTip="Columns: up to 3 windows side by side, the rest scroll sideways" Checked="Layout_Checked"/>
+                            <RadioButton x:Name="LayoutRows" Style="{StaticResource LayoutItem}" GroupName="MergeLayout" Content="{StaticResource Lay.Rows}" Tag="Rows"
+                                         ToolTip="Rows: one thumbnail row per window, up to 3 rows, the rest scroll down" Checked="Layout_Checked"/>
                         </StackPanel>
                     </Border>
                     <Border Width="1" Height="36" Margin="14,0,12,0" Background="{DynamicResource Ui.Border}"/>
@@ -116,8 +113,11 @@
             </DockPanel>
         </Border>
 
-        <Canvas x:Name="Workspace" Grid.Row="1" ClipToBounds="True" Background="Transparent" SizeChanged="Workspace_SizeChanged"
-                AllowDrop="True" DragOver="EmptyArea_DragOver" Drop="Workspace_Drop"/>
+        <!-- The canvas is as large as the laid-out windows: more windows than fit scroll (sideways in Columns, down in Rows). -->
+        <ScrollViewer x:Name="WorkspaceScroll" Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" SizeChanged="Workspace_SizeChanged">
+            <Canvas x:Name="Workspace" HorizontalAlignment="Left" VerticalAlignment="Top" Background="Transparent"
+                    AllowDrop="True" DragOver="EmptyArea_DragOver" Drop="Workspace_Drop"/>
+        </ScrollViewer>
         <StackPanel x:Name="EmptyHint" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
             <TextBlock Text="No files open" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
             <TextBlock Text="Open PDF files to arrange and merge their pages here. This is a temporary draft." Margin="0,6,0,14" Foreground="{DynamicResource Ui.Muted}"/>

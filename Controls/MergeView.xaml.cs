@@ -22,7 +22,7 @@ namespace XTPdfMergeApp.Controls
     /// </summary>
     public partial class MergeView : UserControl
     {
-        private enum MergeLayout { One, Two, Vertical, Three, Grid, Free }
+        private enum MergeLayout { Columns, Rows }
 
         private sealed class Entry
         {
@@ -30,17 +30,16 @@ namespace XTPdfMergeApp.Controls
             public bool Minimized;
             public bool Maximized;
             public long LastActive;
-            public Rect FreeRect = Rect.Empty;
+            public Rect Slot;
         }
 
-        private const double MinWidth_ = 320, MinHeight_ = 240, Gap = 10;
+        private const double MinColumnWidth = 320, Gap = 10;
 
         private readonly List<Entry> _entries = new();
         private MergeDraftSession? _draft;
         private readonly Dictionary<PageRow, System.Threading.CancellationTokenSource> _tempThumbnailRequests = new();
         private long _tick;
-        private MergeLayout _layout = MergeLayout.Two;
-        private bool _layoutChosen; // false = tự chọn layout theo số cửa sổ
+        private MergeLayout _layout = Enum.TryParse<MergeLayout>(Services.AppSettings.MergeLayoutMode, out var savedLayout) ? savedLayout : MergeLayout.Columns;
         private bool _updatingLayoutButtons;
         private bool _isExporting;
         private bool _restoredDraft;
@@ -61,7 +60,6 @@ namespace XTPdfMergeApp.Controls
         private void MergeLayersToggle_Click(object sender, RoutedEventArgs e)
             => Services.AppSettings.MergeOptionsSaved = Services.AppSettings.MergeOptionsSaved with { MergeLayers = MergeLayersToggle.IsChecked == true };
 
-        internal event Action? DoneRequested;
         internal event Action? OpenFileRequested;
         internal event Action<string>? ViewTemporaryRequested;
         internal event EventHandler? HistoryStateChanged;
@@ -104,6 +102,7 @@ namespace XTPdfMergeApp.Controls
             entry.Minimized = false;
             entry.LastActive = ++_tick;
             Relayout();
+            ScrollToEntry(entry);
             HistoryStateChanged?.Invoke(this, EventArgs.Empty);
         }
 
@@ -145,7 +144,6 @@ namespace XTPdfMergeApp.Controls
                 _entries.Add(new Entry { Window = window, LastActive = ++_tick });
             }
             _entries.Sort((a, b) => _draft.Documents.IndexOf(a.Window.Group).CompareTo(_draft.Documents.IndexOf(b.Window.Group)));
-            WindowListButton.Text = _entries.Count == 1 ? "1 window" : $"{_entries.Count} windows";
             int inboxPages = _draft.Inbox?.Pages.Count ?? 0;
             InboxButton.Text = inboxPages == 0 ? "Inbox" : $"Inbox ({inboxPages})";
             Relayout();
@@ -157,7 +155,6 @@ namespace XTPdfMergeApp.Controls
             window.Activated += OnActivated;
             window.MoveDelta += OnMoveDelta;
             window.MoveFinished += OnMoveFinished;
-            window.ResizeDelta += OnResizeDelta;
             window.ToggleMaximizeRequested += ToggleMaximize;
             // The inbox is never a merge window: minimize/close only hide it (the "Print inbox" button brings it back).
             window.MinimizeRequested += w => { if (HideIfInbox(w)) return; _draft?.MoveToTemporaryShelf(w.Group); Sync(); };
@@ -208,23 +205,18 @@ namespace XTPdfMergeApp.Controls
         private Entry EntryOf(MergeMiniWindow window) => _entries.First(e => ReferenceEquals(e.Window, window));
 
         // ── Layout ────────────────────────────────────────────────────
+        // Two modes, no free placement (the user chose this: windows may be re-ordered, never left anywhere).
+        //  Columns: at most 3 windows side by side, each with a fixed width taken from the Merge window's size; more windows scroll sideways.
+        //  Rows:    one window per row (a single row of thumbnails), at most 3 rows share the height; more windows scroll down.
+        // With 1-2 windows (3 in rows) they are stretched to fill the area evenly.
 
-        private static int Capacity(MergeLayout layout) => layout switch { MergeLayout.One => 1, MergeLayout.Two or MergeLayout.Vertical => 2, MergeLayout.Three => 3, _ => 4 };
-
-        private MergeLayout EffectiveLayout()
-        {
-            if (_layoutChosen) return _layout;
-            int open = _entries.Count(e => !e.Minimized);
-            return open <= 1 ? MergeLayout.One : open == 2 ? MergeLayout.Two : open == 3 ? MergeLayout.Three : MergeLayout.Grid;
-        }
+        private const int MaxVisibleSlots = 3;
 
         private void Layout_Checked(object sender, RoutedEventArgs e)
         {
             if (_updatingLayoutButtons || sender is not RadioButton { Tag: string tag }) return;
-            var chosen = Enum.Parse<MergeLayout>(tag);
-            if (chosen == MergeLayout.Free) EnterFree(); // giữ nguyên vị trí hiện tại làm điểm xuất phát
-            _layout = chosen;
-            _layoutChosen = true;
+            _layout = Enum.Parse<MergeLayout>(tag);
+            Services.AppSettings.MergeLayoutMode = tag;
             foreach (var entry in _entries) entry.Maximized = false;
             Relayout();
         }
@@ -232,100 +224,86 @@ namespace XTPdfMergeApp.Controls
         private void UpdateLayoutButtons()
         {
             _updatingLayoutButtons = true;
-            try
-            {
-                var layout = EffectiveLayout();
-                (layout switch { MergeLayout.One => LayoutOne, MergeLayout.Two => LayoutTwo, MergeLayout.Vertical => LayoutVertical, MergeLayout.Three => LayoutThree, MergeLayout.Grid => LayoutGrid, _ => LayoutFree }).IsChecked = true;
-            }
+            try { (_layout == MergeLayout.Rows ? LayoutRows : LayoutColumns).IsChecked = true; }
             finally { _updatingLayoutButtons = false; }
         }
 
-        private Rect Area => new(Gap, Gap, Math.Max(MinWidth_, Workspace.ActualWidth - 2 * Gap), Math.Max(MinHeight_, Workspace.ActualHeight - 2 * Gap));
-
-        /// <summary>Cửa sổ đang hiện: tối đa theo sức chứa của layout, ưu tiên cửa sổ dùng gần nhất.</summary>
-        private List<Entry> VisibleEntries(MergeLayout layout)
-            => _entries.Where(e => !e.Minimized).OrderByDescending(e => e.LastActive).Take(Capacity(layout)).ToList();
+        /// <summary>Smallest height of a window in Rows mode: header + one row of thumbnails (+ its sideways scroll bar).</summary>
+        private double MinRowHeight => 34 + Math.Round(PageSizeSlider.Value * 0.74) + 38 + 34;
 
         private void Relayout()
         {
-            var layout = EffectiveLayout();
-            var visible = VisibleEntries(layout);
-            var area = Area;
-            // Vị trí theo thứ tự file (ổn định), riêng layout "1" chỉ có cửa sổ dùng gần nhất.
-            var ordered = visible.OrderBy(e => _entries.IndexOf(e)).ToList();
+            var shown = _entries.Where(e => !e.Minimized).ToList();
+            var maximized = shown.FirstOrDefault(e => e.Maximized);
+            if (maximized != null) shown = [maximized];
+            int n = shown.Count;
+            double viewW = Math.Max(MinColumnWidth, WorkspaceScroll.ActualWidth), viewH = Math.Max(MinRowHeight + 2 * Gap, WorkspaceScroll.ActualHeight);
+            double canvasW = viewW, canvasH = viewH;
+            bool rows = _layout == MergeLayout.Rows && maximized == null;
 
-            for (int i = 0; i < ordered.Count; i++)
+            if (maximized != null)
+                maximized.Slot = new Rect(Gap, Gap, viewW - 2 * Gap, viewH - 2 * Gap);
+            else if (n > 0 && !rows)
             {
-                var entry = ordered[i];
-                Rect rect = entry.Maximized ? area : layout switch
-                {
-                    MergeLayout.One => area,
-                    MergeLayout.Two => Column(area, i, Math.Max(2, ordered.Count)),
-                    MergeLayout.Vertical => Row(area, i, Math.Max(2, ordered.Count)),
-                    MergeLayout.Three => Column(area, i, Math.Max(3, ordered.Count)),
-                    MergeLayout.Grid => GridCell(area, i, ordered.Count),
-                    _ => FreeRectOf(entry, i, area)
-                };
-                Place(entry, rect);
+                int cols = Math.Clamp((int)Math.Floor((viewW - Gap) / (MinColumnWidth + Gap)), 1, MaxVisibleSlots);
+                bool scrolls = n > cols;
+                int slots = Math.Min(cols, n);
+                double w = (viewW - Gap * (slots + 1)) / slots, h = viewH - 2 * Gap - (scrolls ? SystemParameters.HorizontalScrollBarHeight : 0);
+                for (int i = 0; i < n; i++) shown[i].Slot = new Rect(Gap + i * (w + Gap), Gap, w, h);
+                canvasW = Gap + n * (w + Gap);
             }
+            else if (n > 0)
+            {
+                int rowSlots = Math.Clamp((int)Math.Floor((viewH - Gap) / (MinRowHeight + Gap)), 1, MaxVisibleSlots);
+                bool scrolls = n > rowSlots;
+                int slots = Math.Min(rowSlots, n);
+                double w = viewW - 2 * Gap - (scrolls ? SystemParameters.VerticalScrollBarWidth : 0), h = Math.Max(MinRowHeight, (viewH - Gap * (slots + 1)) / slots);
+                for (int i = 0; i < n; i++) shown[i].Slot = new Rect(Gap, Gap + i * (h + Gap), w, h);
+                canvasH = Gap + n * (h + Gap);
+            }
+            Workspace.Width = canvasW;
+            Workspace.Height = canvasH;
 
-            var rank = visible.OrderBy(e => e.LastActive).ToList();
-            long top = visible.Count == 0 ? 0 : visible.Max(e => e.LastActive);
             foreach (var entry in _entries)
             {
-                bool shown = visible.Contains(entry);
-                entry.Window.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
-                entry.Window.SetActive(shown && entry.LastActive == top);
-                entry.Window.SetResizable(layout == MergeLayout.Free && !entry.Maximized);
-                Panel.SetZIndex(entry.Window, entry.Maximized ? 1000 : rank.IndexOf(entry) + 1);
+                bool visible = shown.Contains(entry);
+                entry.Window.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+                entry.Window.SetRowMode(rows);
+                entry.Window.SetResizable(false);
+                if (visible) Place(entry, entry.Slot);
+                Panel.SetZIndex(entry.Window, entry.Maximized ? 1000 : 1);
             }
-
+            HighlightActive();
+            WindowListButton.Text = _entries.Count == 0 ? "0 windows" : $"{_entries.Count(e => !e.Minimized)} of {_entries.Count} windows";
             UpdateLayoutButtons();
-            RebuildDock(visible);
+            RebuildDock(shown);
             EmptyHint.Visibility = _entries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        private static Rect Column(Rect area, int index, int count)
+        /// <summary>The windows that Merge into one file takes: ticked ones, in window order; the print inbox is never part of it.</summary>
+        internal IEnumerable<DocumentGroup> TickedDocuments()
+            => _entries.Where(e => !e.Minimized && _draft?.IsInbox(e.Window.Group) != true).Select(e => e.Window.Group);
+
+        internal int WindowCount => _entries.Count;
+        internal int ShownWindowCount => _entries.Count(e => !e.Minimized);
+        internal IReadOnlyList<Rect> ShownSlots => _entries.Where(e => !e.Minimized).Select(e => e.Slot).ToList();
+        internal Size CanvasSize => new(Workspace.Width, Workspace.Height);
+        internal Size ViewSize => new(WorkspaceScroll.ActualWidth, WorkspaceScroll.ActualHeight);
+        internal void SetAllWindowsShown(bool shown)
         {
-            double width = (area.Width - Gap * (count - 1)) / count;
-            return new Rect(area.X + index * (width + Gap), area.Y, width, area.Height);
+            foreach (var entry in _entries) { entry.Minimized = !shown; entry.Maximized &= shown; }
+            Relayout();
+        }
+        internal void ChooseLayout(string name)
+        {
+            _layout = Enum.Parse<MergeLayout>(name);
+            Relayout();
         }
 
-        private static Rect Row(Rect area, int index, int count)
+        private void HighlightActive()
         {
-            double height = (area.Height - Gap * (count - 1)) / count;
-            return new Rect(area.X, area.Y + index * (height + Gap), area.Width, height);
-        }
-
-        private static Rect GridCell(Rect area, int index, int count)
-        {
-            double w = (area.Width - Gap) / 2, h = (area.Height - Gap) / 2;
-            int row = index / 2, col = index % 2;
-            // 3 cửa sổ: ô cuối trải hết chiều ngang.
-            if (count == 3 && index == 2) return new Rect(area.X, area.Y + h + Gap, area.Width, h);
-            if (count <= 2) return Column(area, index, Math.Max(1, count));
-            return new Rect(area.X + col * (w + Gap), area.Y + row * (h + Gap), w, h);
-        }
-
-        private Rect FreeRectOf(Entry entry, int index, Rect area)
-        {
-            if (entry.FreeRect.IsEmpty)
-            {
-                double w = Math.Min(area.Width, Math.Max(MinWidth_, area.Width * 0.45)), h = Math.Min(area.Height, Math.Max(MinHeight_, area.Height * 0.7));
-                entry.FreeRect = new Rect(area.X + 30 * index, area.Y + 30 * index, w, h);
-            }
-            entry.FreeRect = Clamp(entry.FreeRect, area);
-            return entry.FreeRect;
-        }
-
-        /// <summary>Giữ cửa sổ trong vùng làm việc và không nhỏ hơn 320×240.</summary>
-        private static Rect Clamp(Rect rect, Rect area)
-        {
-            double w = Math.Clamp(rect.Width, Math.Min(MinWidth_, area.Width), area.Width);
-            double h = Math.Clamp(rect.Height, Math.Min(MinHeight_, area.Height), area.Height);
-            double x = Math.Clamp(rect.X, area.Left, Math.Max(area.Left, area.Right - w));
-            double y = Math.Clamp(rect.Y, area.Top, Math.Max(area.Top, area.Bottom - h));
-            return new Rect(x, y, w, h);
+            long top = _entries.Where(e => !e.Minimized).Select(e => e.LastActive).DefaultIfEmpty(0).Max();
+            foreach (var entry in _entries) entry.Window.SetActive(!entry.Minimized && entry.LastActive == top);
         }
 
         private static void Place(Entry entry, Rect rect)
@@ -337,56 +315,52 @@ namespace XTPdfMergeApp.Controls
             window.Height = Math.Max(1, rect.Height);
         }
 
-        /// <summary>Chuyển sang Free nhưng giữ cửa sổ ở đúng chỗ đang đứng.</summary>
-        private void EnterFree()
+        /// <summary>Scroll the canvas so the window's slot is on screen (after the user ticks it or something is added to it).</summary>
+        private void ScrollToEntry(Entry entry)
         {
-            if (_layout == MergeLayout.Free && _layoutChosen) return;
-            var current = EffectiveLayout();
-            var visible = VisibleEntries(current).OrderBy(e => _entries.IndexOf(e)).ToList();
-            foreach (var entry in visible)
-                if (entry.Window.Width > 0 && !double.IsNaN(entry.Window.Width))
-                    entry.FreeRect = new Rect(Canvas.GetLeft(entry.Window), Canvas.GetTop(entry.Window), entry.Window.Width, entry.Window.Height);
-            _layout = MergeLayout.Free;
-            _layoutChosen = true;
+            WorkspaceScroll.UpdateLayout();
+            var slot = entry.Slot;
+            if (slot.Left < WorkspaceScroll.HorizontalOffset) WorkspaceScroll.ScrollToHorizontalOffset(slot.Left - Gap);
+            else if (slot.Right > WorkspaceScroll.HorizontalOffset + WorkspaceScroll.ViewportWidth) WorkspaceScroll.ScrollToHorizontalOffset(slot.Right - WorkspaceScroll.ViewportWidth + Gap);
+            if (slot.Top < WorkspaceScroll.VerticalOffset) WorkspaceScroll.ScrollToVerticalOffset(slot.Top - Gap);
+            else if (slot.Bottom > WorkspaceScroll.VerticalOffset + WorkspaceScroll.ViewportHeight) WorkspaceScroll.ScrollToVerticalOffset(slot.Bottom - WorkspaceScroll.ViewportHeight + Gap);
         }
 
         private void Workspace_SizeChanged(object sender, SizeChangedEventArgs e) => Relayout();
 
-        // ── Di chuyển / đổi cỡ / snap ─────────────────────────────────
+        // ── Đổi chỗ window bằng thanh tiêu đề (thứ tự window = thứ tự ghép) ──
 
         private void OnActivated(MergeMiniWindow window)
         {
             var entry = EntryOf(window);
             if (entry.LastActive == _tick) return; // đã là cửa sổ đang dùng
             entry.LastActive = ++_tick;
-            Relayout();
+            HighlightActive();
         }
 
         private void OnMoveDelta(MergeMiniWindow window, Vector delta)
         {
             var entry = EntryOf(window);
             if (entry.Maximized) return;
-            if (!(_layout == MergeLayout.Free && _layoutChosen))
-            {
-                EnterFree();
-                Relayout();
-            }
-            var rect = entry.FreeRect;
-            rect.Offset(delta);
-            entry.FreeRect = Clamp(rect, Area);
-            Place(entry, entry.FreeRect);
+            // The window follows the pointer while dragged; it snaps back (or into the new slot) when released.
+            Canvas.SetLeft(window, Canvas.GetLeft(window) + delta.X);
+            Canvas.SetTop(window, Canvas.GetTop(window) + delta.Y);
+            Panel.SetZIndex(window, 1000);
+            var pointer = Mouse.GetPosition(WorkspaceScroll);
+            const double edge = 36, step = 24;
+            if (pointer.X < edge) WorkspaceScroll.ScrollToHorizontalOffset(WorkspaceScroll.HorizontalOffset - step);
+            else if (pointer.X > WorkspaceScroll.ActualWidth - edge) WorkspaceScroll.ScrollToHorizontalOffset(WorkspaceScroll.HorizontalOffset + step);
+            if (pointer.Y < edge) WorkspaceScroll.ScrollToVerticalOffset(WorkspaceScroll.VerticalOffset - step);
+            else if (pointer.Y > WorkspaceScroll.ActualHeight - edge) WorkspaceScroll.ScrollToVerticalOffset(WorkspaceScroll.VerticalOffset + step);
         }
 
         private void OnMoveFinished(MergeMiniWindow window, Point pointer)
         {
             var entry = EntryOf(window);
-            if (entry.Maximized || !(_layout == MergeLayout.Free && _layoutChosen)) return;
-            var area = Area;
-            const double edge = 8;
-            if (pointer.Y < edge) { MaximizeEntry(entry); return; }
-            else if (pointer.X < edge) entry.FreeRect = new Rect(area.X, area.Y, (area.Width - Gap) / 2, area.Height);
-            else if (pointer.X > Workspace.ActualWidth - edge) entry.FreeRect = new Rect(area.X + (area.Width + Gap) / 2, area.Y, (area.Width - Gap) / 2, area.Height);
-            Relayout();
+            var target = _entries.FirstOrDefault(e => !ReferenceEquals(e, entry) && !e.Minimized && e.Slot.Contains(pointer));
+            if (entry.Maximized || target == null || _draft == null) { Relayout(); return; }
+            _draft.MoveDocument(entry.Window.Group, _draft.Documents.IndexOf(target.Window.Group));
+            Sync();
         }
 
         private void ToggleMaximize(MergeMiniWindow window)
@@ -407,20 +381,7 @@ namespace XTPdfMergeApp.Controls
             entry.Maximized = true;
             entry.Minimized = false;
             entry.LastActive = ++_tick;
-            _layout = MergeLayout.One;
-            _layoutChosen = true;
             Relayout();
-        }
-
-        private void OnResizeDelta(MergeMiniWindow window, Vector delta, string edge)
-        {
-            var entry = EntryOf(window);
-            if (!(_layout == MergeLayout.Free && _layoutChosen) || entry.Maximized) return;
-            var rect = entry.FreeRect;
-            if (edge.Contains('R')) rect.Width += delta.X;
-            if (edge.Contains('B')) rect.Height += delta.Y;
-            entry.FreeRect = Clamp(rect, Area);
-            Place(entry, entry.FreeRect);
         }
 
         // ── Kéo thả trang / file ──────────────────────────────────────
@@ -438,6 +399,7 @@ namespace XTPdfMergeApp.Controls
         {
             DockChips.Children.Clear();
             var temporaryGroups = _draft?.TemporaryDocuments.ToList() ?? [];
+            DockBar.Height = temporaryGroups.Count == 0 ? 64 : 172; // an empty shelf is just a drop target: give the windows the room
             foreach (var group in temporaryGroups)
             {
                 var cardContent = new Grid();
@@ -633,38 +595,80 @@ namespace XTPdfMergeApp.Controls
             if (group != null) { Sync(); ShowGroup(group); }
         }
 
+        /// <summary>Popup with a tick per window: only ticked windows are shown on the canvas and merged. Select all / Deselect all on top.</summary>
         private void WindowList_Click(object sender, RoutedEventArgs e)
         {
-            var menu = new ContextMenu { PlacementTarget = WindowListButton };
+            if (_entries.Count == 0) return;
+            var boxes = new List<(CheckBox Box, Entry Entry)>();
+            var list = new StackPanel();
             foreach (var entry in _entries)
             {
                 var captured = entry;
-                var item = new MenuItem
+                var label = new TextBlock
                 {
-                    Header = $"{captured.Window.Group.FileName}  (#{_entries.IndexOf(captured) + 1})",
-                    IsCheckable = true,
-                    IsChecked = captured.Window.Visibility == Visibility.Visible
+                    Text = $"{captured.Window.Group.FileName}  ·  {captured.Window.Group.Pages.Count}p",
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    ToolTip = captured.Window.Group.SourcePath
                 };
-                item.Click += (_, _) =>
+                var box = new CheckBox { Content = label, IsChecked = !captured.Minimized, Margin = new Thickness(2, 3, 2, 3) };
+                box.Click += (_, _) =>
                 {
-                    captured.Minimized = false;
-                    captured.LastActive = ++_tick;
+                    captured.Minimized = box.IsChecked != true;
+                    if (!captured.Minimized) { captured.LastActive = ++_tick; }
                     Relayout();
+                    if (!captured.Minimized) ScrollToEntry(captured);
                 };
-                menu.Items.Add(item);
+                boxes.Add((box, captured));
+                list.Children.Add(box);
             }
-            menu.IsOpen = true;
+
+            void SetAll(bool shown)
+            {
+                foreach (var (box, entry) in boxes) { entry.Minimized = !shown; box.IsChecked = shown; entry.Maximized &= shown; }
+                Relayout();
+            }
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+            var selectAll = new XTStyle.Controls.XTButton { Style = (Style)FindResource("UiGhostButton"), Text = "Select all" };
+            var deselectAll = new XTStyle.Controls.XTButton { Style = (Style)FindResource("UiGhostButton"), Text = "Deselect all", Margin = new Thickness(8, 0, 0, 0) };
+            selectAll.Click += (_, _) => SetAll(true);
+            deselectAll.Click += (_, _) => SetAll(false);
+            buttons.Children.Add(selectAll);
+            buttons.Children.Add(deselectAll);
+
+            var hint = new TextBlock { Text = "Only ticked windows are shown and merged.", FontSize = 11.5, Margin = new Thickness(0, 0, 0, 6) };
+            hint.SetResourceReference(TextBlock.ForegroundProperty, "Ui.Muted");
+            var content = new DockPanel { Width = 340 };
+            DockPanel.SetDock(buttons, Dock.Top);
+            DockPanel.SetDock(hint, Dock.Top);
+            content.Children.Add(buttons);
+            content.Children.Add(hint);
+            content.Children.Add(new ScrollViewer { MaxHeight = 360, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = list });
+            var frame = new Border { Padding = new Thickness(12), CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Margin = new Thickness(0, 4, 0, 0), Child = content };
+            frame.SetResourceReference(Border.BackgroundProperty, "Ui.Surface");
+            frame.SetResourceReference(Border.BorderBrushProperty, "Ui.Border");
+            new System.Windows.Controls.Primitives.Popup
+            {
+                PlacementTarget = WindowListButton,
+                Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+                StaysOpen = false,
+                AllowsTransparency = true,
+                Child = frame,
+                IsOpen = true
+            };
         }
 
         internal void UndoDraft() { _draft?.Undo(); Sync(); }
         internal void RedoDraft() { _draft?.Redo(); Sync(); }
         private void Undo_Click(object sender, RoutedEventArgs e) => UndoDraft();
         private void Redo_Click(object sender, RoutedEventArgs e) => RedoDraft();
-        private void Done_Click(object sender, RoutedEventArgs e) => DoneRequested?.Invoke();
         private async void MergeAll_Click(object sender, RoutedEventArgs e)
         {
-            var documents = _draft?.WindowDocuments.ToList() ?? [];
-            if (documents.Count == 0) return;
+            var documents = TickedDocuments().ToList();
+            if (documents.Count == 0)
+            {
+                XTStyle.Controls.XTGrowl.Info("No window is ticked. Use the windows button to choose which files to merge.", Window.GetWindow(this));
+                return;
+            }
             var orderWindow = new MergeOrderWindow(documents) { Owner = Window.GetWindow(this) };
             if (orderWindow.ShowDialog() != true) return;
             await ExportAsync(orderWindow.OrderedDocuments);
