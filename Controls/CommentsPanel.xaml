@@ -126,8 +126,8 @@
 
     <DockPanel>
         <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" Padding="12,10">
-            <xt:XTButton Style="{StaticResource UiGhostButton}" Icon="{StaticResource Ui.Icon.export}" Text="Export summary…" HorizontalAlignment="Stretch"
-                         ToolTip="Save all comments of this document as a spreadsheet (CSV)" Click="Export_Click"/>
+            <xt:XTButton Style="{StaticResource UiGhostButton}" Icon="{StaticResource Ui.Icon.export}" Text="Export list…" HorizontalAlignment="Stretch"
+                         ToolTip="Save the comments shown (status, type and author filters apply) as a spreadsheet (CSV): sheet number, page, author, date, status, text" Click="Export_Click"/>
         </Border>
         <StackPanel DockPanel.Dock="Top" Margin="12,0,12,10">
             <Border CornerRadius="7" Background="{DynamicResource Ui.Chip}" Padding="2">

@@ -86,6 +86,9 @@ namespace XTPdfMergeApp.Controls
             return _all.Where(c => (type.Length == 0 || c.Kind.ToString() == type) && (author.Length == 0 || c.Author == author));
         }
 
+        /// <summary>What the list shows now: type, author and status filters applied.</summary>
+        private List<CommentInfo> Shown() => Filtered().Where(c => StatusOpen.IsChecked == true ? !c.Resolved : StatusResolved.IsChecked != true || c.Resolved).ToList();
+
         private void Filter_Changed(object sender, RoutedEventArgs e) { if (IsLoaded) Rebuild(); }
         private void Filter_SelectionChanged(object sender, SelectionChangedEventArgs e) { if (IsLoaded && !_loadingAuthors) Rebuild(); }
 
@@ -95,7 +98,7 @@ namespace XTPdfMergeApp.Controls
             StatusAll.Content = $"All {scoped.Count}";
             StatusOpen.Content = $"Open {scoped.Count(c => !c.Resolved)}";
             StatusResolved.Content = $"Resolved {scoped.Count(c => c.Resolved)}";
-            var shown = scoped.Where(c => StatusOpen.IsChecked == true ? !c.Resolved : StatusResolved.IsChecked != true || c.Resolved).ToList();
+            var shown = Shown();
 
             bool multiFile = _paths.Count > 1;
             var rows = new List<object>();
@@ -217,23 +220,27 @@ namespace XTPdfMergeApp.Controls
             menu.PlacementTarget = anchor; menu.IsOpen = true;
         }
 
-        private void Export_Click(object sender, RoutedEventArgs e)
+        /// <summary>Exports the comments the list shows (the filters apply: only open ones, one author, one type...), with the sheet number and title of each page.</summary>
+        private async void Export_Click(object sender, RoutedEventArgs e)
         {
-            if (_all.Count == 0) return;
+            var shown = Shown();
+            if (shown.Count == 0) return;
+            var sheets = new Dictionary<string, IReadOnlyDictionary<int, XTSheetPageInfo>>(StringComparer.OrdinalIgnoreCase);
+            foreach (string path in shown.Select(c => c.Path).Distinct(StringComparer.OrdinalIgnoreCase))
+                sheets[path] = await Task.Run(() => XTSheetIndex.Read(path));
+            var rows = CommentExport.Build(shown, (path, page) => sheets.TryGetValue(path, out var map) && map.TryGetValue(page, out var info) ? info : null);
+            string first = shown[0].Path;
             using var dlg = new System.Windows.Forms.SaveFileDialog
             {
-                Title = "Export comment summary",
+                Title = "Export the comment list",
                 Filter = "CSV (*.csv)|*.csv",
                 DefaultExt = "csv",
-                FileName = "Comments.csv"
+                FileName = Path.GetFileNameWithoutExtension(first) + " - comments.csv",
+                InitialDirectory = Path.GetDirectoryName(first) is { } dir && Directory.Exists(dir) ? dir : ""
             };
             if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
-            string Q(string s) => "\"" + s.Replace("\"", "\"\"").Replace("\r", " ").Replace("\n", " ") + "\"";
-            var sb = new StringBuilder("File,Page,Type,Author,Date,Status,Text\r\n");
-            foreach (var c in _all)
-                sb.Append(string.Join(",", Q(Path.GetFileName(c.Path)), c.Page, c.Kind, Q(c.Author), c.Date?.ToString("yyyy-MM-dd") ?? "", c.Resolved ? "Resolved" : "Open", Q(c.Text))).Append("\r\n");
-            try { File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(true)); }
-            catch (Exception ex) { AppDialog.Show(Window.GetWindow(this), "Could not save the file:\n" + ex.Message, "Export summary", MessageBoxButton.OK, MessageBoxImage.Error); }
+            try { File.WriteAllText(dlg.FileName, CommentExport.ToCsv(rows), new UTF8Encoding(false)); }
+            catch (Exception ex) { AppDialog.Show(Window.GetWindow(this), "Could not save the file:\n" + ex.Message, "Export comments", MessageBoxButton.OK, MessageBoxImage.Error); }
         }
     }
 }

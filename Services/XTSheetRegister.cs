@@ -28,7 +28,7 @@ namespace XTPdfMergeApp.Services
             return sb.ToString();
         }
 
-        private static string Quote(string value)
+        internal static string Quote(string value)
         {
             value ??= "";
             // Excel coi ô bắt đầu bằng = + - @ là công thức: thêm dấu nháy đơn để giữ nguyên chữ (số hiệu "-01" vẫn hiện đúng).

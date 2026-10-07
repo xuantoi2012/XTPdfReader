@@ -794,3 +794,27 @@ internal static partial class Program
         ExperimentalMuPdfViewport.Shutdown();
     }
 }
+
+internal static partial class Program
+{
+    /// <summary>Comment list export: sheet number and title of the page, reply-to author, quoting, formula protection, order.</summary>
+    static void TestCommentExport()
+    {
+        var comments = new List<CommentInfo>
+        {
+            new(@"D:\P\b.pdf", 2, "r1", QuickAnnotationKind.Reply, "Lan", new DateTime(2026, 10, 7), "OK, fixed", true, "c2"),
+            new(@"D:\P\b.pdf", 2, "c2", QuickAnnotationKind.Comment, "Nam", new DateTime(2026, 10, 6), "Dimension \"3,5\" is wrong\r\nsee KT-02", false),
+            new(@"D:\P\a.pdf", 1, "c1", QuickAnnotationKind.Highlight, "Nam", null, "=HYPERLINK(\"x\")", false),
+        };
+        var rows = CommentExport.Build(comments, (path, page) => path.EndsWith("b.pdf") && page == 2 ? new XTSheetPageInfo { No = "KT-02", Title = "Mặt bằng" } : null);
+        Check(rows.Count == 3 && rows[0].File == "a.pdf" && rows[1].Text.StartsWith("Dimension") && rows[2].ReplyTo == "Nam",
+            "Rows are ordered by file, page, root comment before its replies, and a reply names the author it answers");
+        Check(rows[1].Sheet == "KT-02" && rows[1].SheetTitle == "Mặt bằng" && rows[0].Sheet == "", "The sheet number and title come from the page's sheet info (empty when the page has none)");
+        string csv = CommentExport.ToCsv(rows);
+        var lines = csv.TrimEnd().Split("\r\n");
+        Check(csv.StartsWith("\uFEFF") && lines.Length == 4 && lines[0].Contains("\"Sheet title\"") && lines[0].Contains("\"Reply to\""), "The CSV has a BOM and the header row");
+        Check(lines[1].Contains("\"'=HYPERLINK(\"\"x\"\")\""), "A comment that starts with = is protected from being read as a formula");
+        Check(lines[2].Contains("\"Dimension \"\"3,5\"\" is wrong see KT-02\"") && lines[2].Contains("\"KT-02\"") && lines[2].Contains("\"Open\""), "Quotes, commas and line breaks are kept in one cell; status is Open");
+        Check(lines[3].Contains("\"Resolved\"") && lines[3].Contains("\"Nam\""), "A resolved reply shows its status and who it answers");
+    }
+}
