@@ -891,9 +891,14 @@ namespace XTPdfMergeApp
             public QuickAnnotationSpec? Existing { get; init; }
             /// <summary>New text box started from a shape's "T" handle: the shape it is grouped with.</summary>
             public QuickAnnotationSpec? GroupShape { get; init; }
+            /// <summary>Box opened above a shape / line end: page V of its bottom edge. The box grows upward from it (its top edge moves up as lines are added)
+            /// instead of growing down over the shape.</summary>
+            public double? AnchorBottomV { get; init; }
         }
 
         private AnnotationEditorState? _annotationEditor;
+        /// <summary>Set just before <see cref="OpenAnnotationEditorAsync"/> (a field, not a parameter: tests call it by reflection) and consumed by it.</summary>
+        private double? _nextEditorAnchorBottomV;
         private const double CommentIconPoints = 18;
 
         private async Task OpenAnnotationEditorAsync(PageHit hit, QuickAnnotationKind kind, QuickAnnotationSpec? existing, QuickAnnotationSpec? groupShape = null, TextFormat? initialFormat = null)
@@ -928,8 +933,10 @@ namespace XTPdfMergeApp
                 V = existing?.V1 ?? hit.V,
                 Geometry = page.Geometry,
                 Existing = existing,
-                GroupShape = groupShape
+                GroupShape = groupShape,
+                AnchorBottomV = _nextEditorAnchorBottomV
             };
+            _nextEditorAnchorBottomV = null;
 
             var editor = ReaderAnnotationEditor;
             editor.Text = existing?.Text ?? "";
@@ -1009,6 +1016,9 @@ namespace XTPdfMergeApp
                 top = anchor.Y;
             }
 
+            // A box that hangs above a shape keeps its bottom edge in place; its top edge follows the text height (see ReaderAnnotationEditor_SizeChanged).
+            if (state.AnchorBottomV is { } bottomV && ReaderAnnotationEditor.ActualHeight > 0 && TryPageToLayer(state.Row, state.U, bottomV, out Point bottomPoint))
+                top = bottomPoint.Y - ReaderAnnotationEditor.ActualHeight;
             if (Math.Abs(Canvas.GetLeft(ReaderAnnotationEditor) - left) > 0.5 || double.IsNaN(Canvas.GetLeft(ReaderAnnotationEditor)))
                 Canvas.SetLeft(ReaderAnnotationEditor, left);
             if (Math.Abs(Canvas.GetTop(ReaderAnnotationEditor) - top) > 0.5 || double.IsNaN(Canvas.GetTop(ReaderAnnotationEditor)))
@@ -1045,6 +1055,11 @@ namespace XTPdfMergeApp
         private void ReaderAnnotationEditor_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
             => CommitAnnotationEditor();
 
+        private void ReaderAnnotationEditor_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (_annotationEditor is { AnchorBottomV: not null }) PositionAnnotationEditor();
+        }
+
         /// <summary>Đóng ô nhập. Rỗng khi tạo mới = bỏ; xoá hết chữ của cái đã có = xoá annotation đó.</summary>
         private void CommitAnnotationEditor(bool cancel = false)
         {
@@ -1072,6 +1087,8 @@ namespace XTPdfMergeApp
                 string groupId = state.GroupShape is { } shape ? (shape.Group.Length > 0 ? shape.Group : NewAnnotationName()) : "";
                 var added = PdfQuickAnnotationService.WithMeasuredSize(new QuickAnnotationSpec(NewAnnotationName(), state.Kind,
                     state.Row.PageNumber, state.U, state.V, state.U, state.V, text) { Format = format, Group = groupId }, state.Geometry);
+                // Opened above a shape: the measured box ends at the anchor (it grew upward while typing), so the saved box sits where it was typed.
+                if (state.AnchorBottomV is { } anchorV && added.V2 > added.V1) added = added with { V1 = anchorV - (added.V2 - added.V1), V2 = anchorV };
                 if (state.GroupShape is { } groupedShape)
                 {
                     // The text box and its shape become one group (one undo step): the shape is rewritten with the group id when it had none yet.

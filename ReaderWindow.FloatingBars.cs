@@ -53,7 +53,7 @@ namespace XTPdfMergeApp
             double hostW = ReaderContentHost.ActualWidth > 0 ? ReaderContentHost.ActualWidth : 4000, hostH = ReaderContentHost.ActualHeight > 0 ? ReaderContentHost.ActualHeight : 4000;
             double x = Math.Clamp(anchor.X, 6, Math.Max(6, hostW - bw - 6));
             // A closed shape has "T" handles 12-30 px outside its sides: keep the bar clear of them.
-            double clearance = _selAnn != null && IsClosedShape(_selAnn) && AnchorOverrideForTests == null ? 36 : 10;
+            double clearance = _selAnn != null && CanCarryText(_selAnn) && AnchorOverrideForTests == null ? 36 : 10;
             double y = anchor.Y - bh - clearance;
             if (y < 6) y = anchor.Bottom + clearance;
             if (y + bh > hostH - 6) y = Math.Max(6, Math.Min(hostH - bh - 6, anchor.Y + 8)); // no room either side: tuck inside the annotation's top edge

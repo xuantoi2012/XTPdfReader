@@ -669,3 +669,140 @@ internal static partial class Program
         finally { popup.Close(); owner.Close(); }
     }
 }
+
+internal static partial class Program
+{
+    /// <summary>Arrow: a T beyond each end (none on the top / bottom), the box opens past the end the arrow points to, and arrow + text are one group.</summary>
+    static void TestArrowTextGroup()
+    {
+        if (System.Windows.Application.Current == null) CreateReaderTestApplication();
+        string folder = System.IO.Path.Combine(Output, "arrow-group");
+        Directory.CreateDirectory(folder);
+        string path = System.IO.Path.Combine(folder, "page.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(path))) doc.AddNewPage(new PageSize(595, 842));
+
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var type = typeof(XTPdfMergeApp.ReaderWindow);
+        var reader = new XTPdfMergeApp.ReaderWindow { Width = 1300, Height = 900, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false };
+        var app = System.Windows.Application.Current;
+        var priorOwner = app.MainWindow;
+        app.MainWindow = reader;
+        Exception? failure = null;
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        reader.Show();
+        reader.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(async () =>
+        {
+            try
+            {
+                ((System.Windows.FrameworkElement)reader.FindName("StartPage")).Visibility = System.Windows.Visibility.Collapsed;
+                await reader.Session.OpenFilesInReaderAsync(new[] { path });
+                await Task.Delay(1500);
+                reader.UpdateLayout();
+                var row = (XTPdfMergeApp.Domain.PagePlacement)type.GetField("_readerPage", flags)!.GetValue(reader)!;
+                var lost = (System.Windows.Input.KeyboardFocusChangedEventHandler)Delegate.CreateDelegate(typeof(System.Windows.Input.KeyboardFocusChangedEventHandler), reader, type.GetMethod("ReaderAnnotationEditor_LostKeyboardFocus", flags)!);
+                ((System.Windows.Controls.TextBox)reader.FindName("ReaderAnnotationEditor")).LostKeyboardFocus -= lost;
+
+                // an arrow drawn from the left to the right (corner 0: tail top-left, head bottom-right)
+                var style = new ShapeStyle(ShapeStyle.Arrow, "#C0392B", 2, 0);
+                var shape = new QuickAnnotationSpec("xt-arrow", QuickAnnotationKind.Shape, 1, 0.2, 0.3, 0.5, 0.35, "") { Format = style.Encode() };
+                await ((XTPdfMergeApp.IReaderPageEditHost)reader.Session).ApplyAnnotationChangesAsync(path, new[] { new QuickAnnotationChange(null, shape) }, "Draw arrow");
+                await Task.Delay(800);
+                var page = await AnnotationStore.GetPageAsync(path, 1);
+                shape = page!.Annotations.Single(a => a.Kind == QuickAnnotationKind.Shape);
+                type.GetMethod("SelectAnnotation", flags)!.Invoke(reader, new object?[] { row, shape });
+                reader.UpdateLayout();
+                var vis = System.Windows.Visibility.Visible;
+                Check(((System.Windows.FrameworkElement)reader.FindName("ShapeTLeft")).Visibility == vis && ((System.Windows.FrameworkElement)reader.FindName("ShapeTRight")).Visibility == vis &&
+                      ((System.Windows.FrameworkElement)reader.FindName("ShapeTTop")).Visibility != vis && ((System.Windows.FrameworkElement)reader.FindName("ShapeTBottom")).Visibility != vis,
+                    "A selected arrow shows a T beyond each end and none on the top / bottom");
+                Check((string)((System.Windows.FrameworkElement)reader.FindName("ShapeTRight")).Tag == "Head" && (string)((System.Windows.FrameworkElement)reader.FindName("ShapeTLeft")).Tag == "Tail",
+                    "The two T handles are the tail and the head");
+
+                await (Task)type.GetMethod("BeginShapeTextAsync", flags)!.Invoke(reader, new object?[] { row, shape, "Head" })!;
+                await Task.Delay(300);
+                var editor = (System.Windows.Controls.TextBox)reader.FindName("ReaderAnnotationEditor");
+                Check(editor.Visibility == vis, "Clicking the head's T opens a text box");
+                editor.Text = "Anchor bolt";
+                type.GetMethod("CommitAnnotationEditor", flags)!.Invoke(reader, new object?[] { false });
+                await Task.Delay(1500);
+                page = await AnnotationStore.GetPageAsync(path, 1);
+                var text = page!.Annotations.Single(a => a.Kind == QuickAnnotationKind.Typewriter);
+                var grouped = page.Annotations.Single(a => a.Kind == QuickAnnotationKind.Shape);
+                Check(text.Group.Length > 0 && text.Group == grouped.Group, "The text box and the arrow share one group id");
+                // the arrow points down-right and is wider than tall: the box opens to the right of the head and around its height
+                Check(text.U1 >= shape.U2 - 0.02 && Math.Abs(text.V1 - shape.V2) < 0.05, $"The box sits past the head of the arrow (text {text.U1:0.000},{text.V1:0.000}; head {shape.U2:0.000},{shape.V2:0.000})");
+
+                type.GetMethod("SelectAnnotation", flags)!.Invoke(reader, new object?[] { row, grouped });
+                type.GetMethod("DeleteSelectedAnnotation", flags)!.Invoke(reader, null);
+                await Task.Delay(1500);
+                page = await AnnotationStore.GetPageAsync(path, 1);
+                Check(page!.Annotations.Count(a => a.Kind is QuickAnnotationKind.Shape or QuickAnnotationKind.Typewriter) == 0, "Deleting the arrow deletes its text box too");
+            }
+            catch (Exception ex) { failure = ex; }
+            finally { reader.Session.Documents.Clear(); reader.Close(); app.MainWindow = priorOwner; frame.Continue = false; }
+        }));
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+        if (failure != null) throw new Exception("Arrow group: " + failure.Message, failure);
+    }
+
+    static void TestTopTextGrowsUp()
+    {
+        if (System.Windows.Application.Current == null) CreateReaderTestApplication();
+        string folder = System.IO.Path.Combine(Output, "top-text");
+        Directory.CreateDirectory(folder);
+        string path = System.IO.Path.Combine(folder, "page.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(path))) doc.AddNewPage(new PageSize(595, 842));
+
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var type = typeof(XTPdfMergeApp.ReaderWindow);
+        var reader = new XTPdfMergeApp.ReaderWindow { Width = 1300, Height = 900, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false };
+        var app = System.Windows.Application.Current;
+        var priorOwner = app.MainWindow;
+        app.MainWindow = reader;
+        Exception? failure = null;
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        reader.Show();
+        reader.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(async () =>
+        {
+            try
+            {
+                ((System.Windows.FrameworkElement)reader.FindName("StartPage")).Visibility = System.Windows.Visibility.Collapsed;
+                await reader.Session.OpenFilesInReaderAsync(new[] { path });
+                await Task.Delay(1500);
+                reader.UpdateLayout();
+                var row = (XTPdfMergeApp.Domain.PagePlacement)type.GetField("_readerPage", flags)!.GetValue(reader)!;
+                var lost = (System.Windows.Input.KeyboardFocusChangedEventHandler)Delegate.CreateDelegate(typeof(System.Windows.Input.KeyboardFocusChangedEventHandler), reader, type.GetMethod("ReaderAnnotationEditor_LostKeyboardFocus", flags)!);
+                ((System.Windows.Controls.TextBox)reader.FindName("ReaderAnnotationEditor")).LostKeyboardFocus -= lost;
+
+                var style = new ShapeStyle(ShapeStyle.Rect, "#C0392B", 2, 0);
+                var shape = new QuickAnnotationSpec("xt-rect", QuickAnnotationKind.Shape, 1, 0.3, 0.4, 0.6, 0.5, "") { Format = style.Encode() };
+                await ((XTPdfMergeApp.IReaderPageEditHost)reader.Session).ApplyAnnotationChangesAsync(path, new[] { new QuickAnnotationChange(null, shape) }, "Draw rect");
+                await Task.Delay(800);
+                var page = await AnnotationStore.GetPageAsync(path, 1);
+                shape = page!.Annotations.Single(a => a.Kind == QuickAnnotationKind.Shape);
+                type.GetMethod("SelectAnnotation", flags)!.Invoke(reader, new object?[] { row, shape });
+                reader.UpdateLayout();
+                await (Task)type.GetMethod("BeginShapeTextAsync", flags)!.Invoke(reader, new object?[] { row, shape, "Top" })!;
+                await Task.Delay(300);
+                var editor = (System.Windows.Controls.TextBox)reader.FindName("ReaderAnnotationEditor");
+                Check(editor.Visibility == System.Windows.Visibility.Visible, "The Top T opens a text box");
+                double topOne = System.Windows.Controls.Canvas.GetTop(editor);
+                editor.Text = "Line one\nLine two\nLine three";
+                reader.UpdateLayout(); await Task.Delay(200); reader.UpdateLayout();
+                double topThree = System.Windows.Controls.Canvas.GetTop(editor);
+                Check(topThree < topOne - 10, $"Typing more lines moves the top edge of the box up (top {topOne:0} -> {topThree:0}) instead of growing over the shape");
+                type.GetMethod("CommitAnnotationEditor", flags)!.Invoke(reader, new object?[] { false });
+                await Task.Delay(1500);
+                page = await AnnotationStore.GetPageAsync(path, 1);
+                var text = page!.Annotations.Single(a => a.Kind == QuickAnnotationKind.Typewriter);
+                var grouped = page.Annotations.Single(a => a.Kind == QuickAnnotationKind.Shape);
+                Check(text.V2 <= grouped.V1 + 0.002 && text.V1 < grouped.V1 - 0.03, $"The saved box ends above the shape ({text.V1:0.000}..{text.V2:0.000} over {grouped.V1:0.000})");
+                Check(text.Group.Length > 0 && text.Group == grouped.Group, "It is still grouped with the shape");
+            }
+            catch (Exception ex) { failure = ex; }
+            finally { reader.Session.Documents.Clear(); reader.Close(); app.MainWindow = priorOwner; frame.Continue = false; }
+        }));
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+        if (failure != null) throw new Exception("Top text: " + failure.Message, failure);
+    }
+}
