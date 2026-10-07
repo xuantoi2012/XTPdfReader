@@ -83,7 +83,7 @@ namespace XTPdfMergeApp.Services
             => PdfPageEditService.EditInPlace(path, "Layers: registered missing layers", doc => Register(doc));
 
         /// <summary>Đăng ký layer mồ côi vào <paramref name="doc"/> (mở ở append mode). Trả về số layer đã thêm.</summary>
-        public static int Register(PdfDocument doc)
+        public static int Register(PdfDocument doc, bool addToOrder = true)
         {
             var orphans = Find(doc);
             if (orphans.Count == 0) return 0;
@@ -98,7 +98,7 @@ namespace XTPdfMergeApp.Services
 
             var config = ocProps.GetAsDictionary(PdfName.D);
             if (config == null) { config = new PdfDictionary(); ocProps.Put(PdfName.D, config); }
-            if (config.GetAsArray(PdfName.Order) is { } order)
+            if (addToOrder && config.GetAsArray(PdfName.Order) is { } order)
             {
                 var group = new PdfArray();
                 group.Add(new PdfString("Unregistered layers", iText.IO.Font.PdfEncodings.UNICODE_BIG));

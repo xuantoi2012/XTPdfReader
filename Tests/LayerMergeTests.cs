@@ -55,6 +55,21 @@ internal static partial class Program
         string single = System.IO.Path.Combine(folder, "single.pdf");
         Check(XTPdfMerger.TryMergePages(new[] { (a, 1) }, single, out var e4, options: baseOptions with { MergeLayers = false }), "Single-file separate: " + e4);
         Check(PdfLayerService.ReadLayers(single).Names.Count == 3, "Separate mode with one source keeps its 3 layers");
+
+        // a source whose pages use a layer its /OCProperties never listed: the merged file must list it
+        string orphanSrc = System.IO.Path.Combine(folder, "orphan-src.pdf");
+        MakeLayeredPdf(System.IO.Path.Combine(folder, "orphan-full.pdf"), "Hidden1");
+        using (var doc = new PdfDocument(new PdfReader(System.IO.Path.Combine(folder, "orphan-full.pdf")), new PdfWriter(orphanSrc)))
+            doc.GetCatalog().GetPdfObject().Remove(PdfName.OCProperties);
+        Check(PdfLayerOrphanService.Find(orphanSrc).Count == 1, "Merge fixture has one orphan layer");
+        foreach (bool mergeByName in new[] { true, false })
+        {
+            string orphanOut = System.IO.Path.Combine(folder, mergeByName ? "orphan-merged-name.pdf" : "orphan-merged-sep.pdf");
+            Check(XTPdfMerger.TryMergePages(new[] { (orphanSrc, 1), (a, 1) }, orphanOut, out var e5, options: baseOptions with { MergeLayers = mergeByName }), "Merge with an orphan source: " + e5);
+            var merged = PdfLayerService.ReadLayers(orphanOut);
+            Check(merged.Names.Values.Contains("Hidden1") && PdfLayerOrphanService.Find(orphanOut).Count == 0,
+                $"Merged file lists the source's orphan layer (mergeByName={mergeByName}), got " + string.Join(",", merged.Names.Values));
+        }
     }
 }
 

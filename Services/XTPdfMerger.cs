@@ -120,6 +120,8 @@ namespace XTPdfMergeApp.Services
                     }
                 }
 
+                // Layers a source page draws with but its /OCProperties never listed would otherwise stay un-switchable in the output.
+                PdfLayerOrphanService.Register(outDoc, addToOrder: policy == null);
                 if (policy != null)
                 {
                     if (replace.Count > 0)
@@ -277,6 +279,7 @@ namespace XTPdfMergeApp.Services
                         progress?.Report((done, pages.Count));
                     }
 
+                    if (!cancelled) PdfLayerOrphanService.Register(outDoc, addToOrder: policy == null);
                     if (!cancelled && policy != null)
                     {
                         if (replace.Count > 0)
