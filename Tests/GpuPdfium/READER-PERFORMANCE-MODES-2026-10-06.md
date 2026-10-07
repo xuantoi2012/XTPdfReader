@@ -1,6 +1,6 @@
 # Reader performance modes — 2026-10-06
 
-Historical first implementation. The current five tiers and Balance default are
+Historical first implementation. The current three tiers (Memory saving, Balance, Maximum) and Balance default are
 documented in [USER-FEEDBACK-2026-10-06.md](USER-FEEDBACK-2026-10-06.md).
 
 Implemented in Settings → Performance & memory → Reader performance.

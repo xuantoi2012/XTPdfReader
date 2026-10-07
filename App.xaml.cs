@@ -57,7 +57,9 @@ namespace XTPdfMergeApp
 
             string[] incomingPaths = GetIncomingPdfPaths(e.Args);
 
-            _singleInstanceMutex = new Mutex(initiallyOwned: true, SingleInstanceMutexName, out bool createdNew);
+            // XTPDF_SECOND_INSTANCE=1 (test captures only): run beside a normal instance without taking over its mutex or file pipe.
+            bool secondInstance = Environment.GetEnvironmentVariable("XTPDF_SECOND_INSTANCE") == "1";
+            _singleInstanceMutex = new Mutex(initiallyOwned: true, secondInstance ? SingleInstanceMutexName + "_test" + Environment.ProcessId : SingleInstanceMutexName, out bool createdNew);
             if (!createdNew)
             {
                 // Đã có 1 cửa sổ đang mở rồi — tiến trình NÀY chỉ chuyển tiếp
@@ -67,7 +69,7 @@ namespace XTPdfMergeApp
                 return;
             }
 
-            StartIncomingPdfPipeServer();
+            if (!secondInstance) StartIncomingPdfPipeServer();
 
             ThemeService.ApplySaved();
             // Đối soát registry "View PDF" của pdfFactory (nếu user đã bật) — âm thầm, không hỏi.

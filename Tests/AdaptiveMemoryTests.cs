@@ -24,15 +24,14 @@ internal static partial class Program
         const long mib = AdaptiveMemoryPolicy.MiB;
         var highProfile = ReaderPerformanceProfile.For(ReaderPerformanceMode.Balance);
         var maxProfile = ReaderPerformanceProfile.For(ReaderPerformanceMode.Maximum);
-        var performance = ReaderPerformanceProfile.For(ReaderPerformanceMode.Performance);
-        var ultra = ReaderPerformanceProfile.For(ReaderPerformanceMode.Ultra);
-        Check(highProfile.CacheLimit < performance.CacheLimit && performance.CacheLimit < ultra.CacheLimit && ultra.CacheLimit < maxProfile.CacheLimit,
-            "The two intermediate profiles increase image retention progressively");
-        Check(highProfile.SoftLimit < performance.SoftLimit && performance.SoftLimit < ultra.SoftLimit && ultra.SoftLimit < maxProfile.SoftLimit,
-            "The intermediate profiles progressively increase private-memory thresholds");
-        Check(new AdaptiveMemoryPolicy().Update(strongPlaceholder(), TimeSpan.Zero, performance).State == MemoryPressureState.Critical &&
-              new AdaptiveMemoryPolicy().Update(strongPlaceholder(), TimeSpan.Zero, ultra).State == MemoryPressureState.Critical,
-            "Both intermediate profiles still respond to critical Windows memory pressure");
+        var saving = ReaderPerformanceProfile.For(ReaderPerformanceMode.MemorySaving);
+        Check(saving.CacheLimit < highProfile.CacheLimit && highProfile.CacheLimit < maxProfile.CacheLimit &&
+              saving.SoftLimit < highProfile.SoftLimit && highProfile.SoftLimit < maxProfile.SoftLimit,
+            "The three profiles increase image retention and memory thresholds progressively");
+        Check(new AdaptiveMemoryPolicy().Update(strongPlaceholder(), TimeSpan.Zero, highProfile).State == MemoryPressureState.Critical,
+            "Balance still responds to critical Windows memory pressure");
+        Check(AppSettings.ParsePerformanceMode("Performance") == ReaderPerformanceMode.Balance && AppSettings.ParsePerformanceMode("Ultra") == ReaderPerformanceMode.Maximum,
+            "Old Performance / Ultra preferences migrate to Balance / Maximum");
         static SystemMemorySample strongPlaceholder() => new(32 * 1024 * AdaptiveMemoryPolicy.MiB, 100 * AdaptiveMemoryPolicy.MiB, 99,
             48 * 1024 * AdaptiveMemoryPolicy.MiB, 100 * AdaptiveMemoryPolicy.MiB, 100 * AdaptiveMemoryPolicy.MiB, 0);
         Check(ReaderPerformanceProfile.For((ReaderPerformanceMode)999).Mode == ReaderPerformanceMode.Balance, "Invalid profile falls back to Balance");

@@ -130,8 +130,6 @@ namespace XTPdfMergeApp.Controls
             PerformanceModeHint.Text = AppSettings.PerformanceMode switch
             {
                 ReaderPerformanceMode.Balance => "Keeps more recent pages and preloads up to 2 pages ahead. Uses more memory to speed up revisits.",
-                ReaderPerformanceMode.Performance => "Preloads 3 pages ahead with a 1.25 GB image cache for faster revisits.",
-                ReaderPerformanceMode.Ultra => "Preloads 3 pages ahead with a 1.5 GB image cache and longer background retention.",
                 ReaderPerformanceMode.Maximum => "Keeps the largest cache and preloads up to 4 pages ahead. Best for powerful PCs; may use several GB of memory.",
                 _ => "Reclaims distant pages promptly and preloads 1 page ahead. Recommended for keeping memory usage low."
             };

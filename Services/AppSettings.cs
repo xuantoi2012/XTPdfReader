@@ -80,7 +80,9 @@ namespace XTPdfMergeApp.Services
 
         internal static ReaderPerformanceMode ParsePerformanceMode(string saved)
         {
-            if (saved == "High") return ReaderPerformanceMode.Balance;
+            // Older builds had five profiles: High/Performance fold into Balance, Ultra into Maximum.
+            if (saved is "High" or "Performance") return ReaderPerformanceMode.Balance;
+            if (saved == "Ultra") return ReaderPerformanceMode.Maximum;
             return Enum.TryParse<ReaderPerformanceMode>(saved, out var mode) && Enum.IsDefined(mode) ? mode : ReaderPerformanceMode.Balance;
         }
 

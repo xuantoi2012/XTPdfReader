@@ -13,8 +13,8 @@ internal static partial class Program
         if (Application.Current == null) CreateReaderTestApplication();
         var page = new SettingsPage(); page.Reload();
         var box = (ComboBox)page.FindName("PerformanceModeBox");
-        Check(box.Items.Count == 5 && box.SelectedIndex == (int)AppSettings.PerformanceMode, "Settings restores the persisted performance selection");
-        Check(box.Items.Cast<ComboBoxItem>().Select(i => (string)i.Tag).SequenceEqual(new[] { "MemorySaving", "Balance", "Performance", "Ultra", "Maximum" }), "Settings offers all five runtime profiles");
+        Check(box.Items.Count == 3 && box.SelectedIndex == (int)AppSettings.PerformanceMode, "Settings restores the persisted performance selection");
+        Check(box.Items.Cast<ComboBoxItem>().Select(i => (string)i.Tag).SequenceEqual(new[] { "MemorySaving", "Balance", "Maximum" }), "Settings offers the three runtime profiles");
         Check(!string.IsNullOrWhiteSpace(((TextBlock)page.FindName("PerformanceModeHint")).Text), "Settings explains the performance/memory tradeoff");
         var host = new Window { Content = page, Width = 940, Height = 560, ShowActivated = false, ShowInTaskbar = false,
             Left = -32000, Top = -32000, WindowStyle = WindowStyle.None };

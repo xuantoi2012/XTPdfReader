@@ -416,7 +416,8 @@ public sealed class ContinuousPdfView : Grid
     /// </summary>
     public void ZoomAtWhenReady(double zoom, Point viewPoint)
     {
-        if (!ExactRaster || PresentTimeoutMilliseconds <= 0 || _pages.Count == 0 || PageRenderer == null || _renderingSuspended)
+        bool glide = ExactRaster ? PresentTimeoutMilliseconds > 0 : SmoothZoomGlide && ProgressiveZoomPresentation;
+        if (!glide || _pages.Count == 0 || PageRenderer == null || _renderingSuspended)
         {
             StopZoomGlide();
             ZoomAt(zoom, viewPoint);
@@ -438,6 +439,9 @@ public sealed class ContinuousPdfView : Grid
     /// 0 = không giới hạn (mỗi nấc đổi zoom ngay như trước). XTPDF_ZOOM_RATE đổi giá trị.</summary>
     internal static double ZoomRateLimit { get; set; } =
         double.TryParse(Environment.GetEnvironmentVariable("XTPDF_ZOOM_RATE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double rate) ? rate : 2.6;
+    /// <summary>Progressive (non-exact) zoom also glides at <see cref="ZoomRateLimit"/> instead of jumping a full wheel step at once:
+    /// the jump made the heavy CAD page stall for up to ~0.8 s in the capture test. XTPDF_ZOOM_GLIDE=0 restores the jump.</summary>
+    internal static bool SmoothZoomGlide { get; set; } = Environment.GetEnvironmentVariable("XTPDF_ZOOM_GLIDE") != "0";
     internal const double MaxPresentStep = 1.45;
     private const double ZoomLeadLimit = 6.0; // đích không đi trước zoom đang hiện quá ×6: thả tay thì dừng ngay, không trôi tiếp
     private double? _zoomTarget;

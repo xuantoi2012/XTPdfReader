@@ -200,8 +200,6 @@
                         <ComboBox x:Name="PerformanceModeBox" Width="260" Height="32" HorizontalAlignment="Left" Margin="0,10,0,0" SelectionChanged="PerformanceMode_Changed">
                             <ComboBoxItem Content="Memory saving" Tag="MemorySaving"/>
                             <ComboBoxItem Content="Balance (default)" Tag="Balance"/>
-                            <ComboBoxItem Content="Performance" Tag="Performance"/>
-                            <ComboBoxItem Content="Ultra performance" Tag="Ultra"/>
                             <ComboBoxItem Content="Maximum performance" Tag="Maximum"/>
                         </ComboBox>
                         <TextBlock x:Name="PerformanceModeHint" Style="{StaticResource RowHint}"/>
