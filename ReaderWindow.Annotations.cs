@@ -881,12 +881,14 @@ namespace XTPdfMergeApp
             /// <summary>Callout: bề ngang hộp (pt) — ô nhập xuống dòng đúng như chữ sẽ vẽ trong hộp.</summary>
             public double BoxWidthPoints { get; init; }
             public QuickAnnotationSpec? Existing { get; init; }
+            /// <summary>New text box started from a shape's "T" handle: the shape it is grouped with.</summary>
+            public QuickAnnotationSpec? GroupShape { get; init; }
         }
 
         private AnnotationEditorState? _annotationEditor;
         private const double CommentIconPoints = 20;
 
-        private async Task OpenAnnotationEditorAsync(PageHit hit, QuickAnnotationKind kind, QuickAnnotationSpec? existing)
+        private async Task OpenAnnotationEditorAsync(PageHit hit, QuickAnnotationKind kind, QuickAnnotationSpec? existing, QuickAnnotationSpec? groupShape = null, TextFormat? initialFormat = null)
         {
             ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;
             var page = await LoadPageAnnotationsAsync(hit.Row);
@@ -917,7 +919,8 @@ namespace XTPdfMergeApp
                 U = existing?.U1 ?? hit.U,
                 V = existing?.V1 ?? hit.V,
                 Geometry = page.Geometry,
-                Existing = existing
+                Existing = existing,
+                GroupShape = groupShape
             };
 
             var editor = ReaderAnnotationEditor;
@@ -938,7 +941,7 @@ namespace XTPdfMergeApp
             {
                 // Cùng font/kiểu/màu với chữ sẽ ghi vào PDF để khi Enter chữ không "nhảy".
                 if (existing != null) _textFormat = TextFormat.Decode(existing.Format);
-                else if (kind == QuickAnnotationKind.Typewriter) _textFormat = _textFormat with { Width = 0 }; // a new box grows with its text until the circle is dragged
+                else if (kind == QuickAnnotationKind.Typewriter) _textFormat = initialFormat ?? _textFormat with { Width = 0 }; // a new box grows with its text until the circle is dragged
                 LoadFormatBar();
                 ApplyEditorFormat();
                 editor.Background = new SolidColorBrush(Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF));
@@ -1058,8 +1061,18 @@ namespace XTPdfMergeApp
             if (state.Existing is not { } existing)
             {
                 if (text.Length == 0) return;
-                change = new QuickAnnotationChange(null, PdfQuickAnnotationService.WithMeasuredSize(new QuickAnnotationSpec(NewAnnotationName(), state.Kind,
-                    state.Row.PageNumber, state.U, state.V, state.U, state.V, text) { Format = format }, state.Geometry));
+                string groupId = state.GroupShape is { } shape ? (shape.Group.Length > 0 ? shape.Group : NewAnnotationName()) : "";
+                var added = PdfQuickAnnotationService.WithMeasuredSize(new QuickAnnotationSpec(NewAnnotationName(), state.Kind,
+                    state.Row.PageNumber, state.U, state.V, state.U, state.V, text) { Format = format, Group = groupId }, state.Geometry);
+                if (state.GroupShape is { } groupedShape)
+                {
+                    // The text box and its shape become one group (one undo step): the shape is rewritten with the group id when it had none yet.
+                    var changes = new List<QuickAnnotationChange> { new(null, added) };
+                    if (groupedShape.Group.Length == 0) changes.Add(new QuickAnnotationChange(groupedShape, Regenerated(groupedShape) with { Group = groupId }));
+                    CommitAnnotationChanges(state.Row, changes, "Add text to shape");
+                    return;
+                }
+                change = new QuickAnnotationChange(null, added);
                 description = "Add " + label;
             }
             else if (text == existing.Text && (state.Kind != QuickAnnotationKind.Typewriter ||
@@ -1086,6 +1099,15 @@ namespace XTPdfMergeApp
                 description = "Edit " + label;
             }
             CommitAnnotationChange(state.Row, change, description);
+        }
+
+        /// <summary>Several changes as ONE undo step (a group moves / deletes / is created together).</summary>
+        private void CommitAnnotationChanges(PageRow row, IReadOnlyList<QuickAnnotationChange> changes, string description)
+        {
+            if (EditHost == null || changes.Count == 0) return;
+            var list = changes.Select(c => c.Add is { ObjectNumber: 0 } add
+                ? c with { Add = add with { Author = add.Author.Length > 0 ? add.Author : Environment.UserName, Date = DateTime.Now } } : c).ToArray();
+            _ = EditHost.ApplyAnnotationChangesAsync(row.SourcePath, list, description);
         }
 
         /// <summary>Callback chung của cả 3 công cụ: đưa thay đổi cho host ghi vào file + Undo/Redo.</summary>

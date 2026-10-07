@@ -46,6 +46,9 @@ namespace XTPdfMergeApp.Services
         public bool Resolved { get; init; }
         /// <summary>Loại PDF gốc (/Subtype) — nhãn cho chú thích loại Other.</summary>
         public string Subtype { get; init; } = "";
+        /// <summary>Group id (/XTGroup): annotations sharing it move, delete and undo together in this app (a shape with its text boxes). PDF has no
+        /// native grouping, so other viewers simply see the members as separate annotations. "" = not grouped.</summary>
+        public string Group { get; init; } = "";
 
         public bool Contains(double u, double v) => u >= U1 && u <= U2 && v >= V1 && v <= V2;
 
@@ -180,7 +183,8 @@ namespace XTPdfMergeApp.Services
                     Author = obj.GetAsString(PdfName.T)?.ToUnicodeString() ?? "",
                     Date = ParsePdfDate(obj.GetAsString(PdfName.M)?.ToUnicodeString() ?? obj.GetAsString(PdfName.CreationDate)?.ToUnicodeString()),
                     Resolved = state is "Completed" or "Accepted" or "Cancelled" or "Rejected",
-                    Subtype = subtype.GetValue()
+                    Subtype = subtype.GetValue(),
+                    Group = obj.GetAsString(GroupKey)?.ToUnicodeString() ?? ""
                 });
             }
             return result;
@@ -1122,8 +1126,11 @@ namespace XTPdfMergeApp.Services
 
         // ── Dùng chung ──────────────────────────────────────────────────
 
+        private static readonly PdfName GroupKey = new("XTGroup");
+
         private static void StampCommon(PdfMarkupAnnotation annot, QuickAnnotationSpec spec)
         {
+            if (spec.Group.Length > 0) annot.GetPdfObject().Put(GroupKey, new PdfString(spec.Group));
             annot.SetName(new PdfString(spec.Name));
             annot.SetTitle(new PdfString(spec.Author.Length > 0 ? spec.Author : Environment.UserName, PdfEncodings.UNICODE_BIG));
             annot.SetDate((spec.Date is { } date ? new PdfDate(date) : new PdfDate()).GetPdfObject());

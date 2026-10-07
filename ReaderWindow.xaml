@@ -416,6 +416,22 @@
                             <Path Fill="White" Data="M1,1 h3 v3 h-3 z M6,1 h3 v3 h-3 z M1,5.5 h3 v3 h-3 z M6,5.5 h3 v3 h-3 z M1,10 h3 v3 h-3 z M6,10 h3 v3 h-3 z"/>
                         </Canvas></Viewbox>
                     </Border>
+                    <Border x:Name="ShapeTTop" Tag="Top" Visibility="Collapsed" Width="18" Height="18" CornerRadius="9" Background="#FF2F6FED" Cursor="Hand" Panel.ZIndex="6"
+                            ToolTip="Add text to this side" PreviewMouseLeftButtonDown="ShapeT_MouseDown">
+                        <TextBlock Text="T" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <Border x:Name="ShapeTRight" Tag="Right" Visibility="Collapsed" Width="18" Height="18" CornerRadius="9" Background="#FF2F6FED" Cursor="Hand" Panel.ZIndex="6"
+                            ToolTip="Add text to this side" PreviewMouseLeftButtonDown="ShapeT_MouseDown">
+                        <TextBlock Text="T" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <Border x:Name="ShapeTBottom" Tag="Bottom" Visibility="Collapsed" Width="18" Height="18" CornerRadius="9" Background="#FF2F6FED" Cursor="Hand" Panel.ZIndex="6"
+                            ToolTip="Add text to this side" PreviewMouseLeftButtonDown="ShapeT_MouseDown">
+                        <TextBlock Text="T" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <Border x:Name="ShapeTLeft" Tag="Left" Visibility="Collapsed" Width="18" Height="18" CornerRadius="9" Background="#FF2F6FED" Cursor="Hand" Panel.ZIndex="6"
+                            ToolTip="Add text to this side" PreviewMouseLeftButtonDown="ShapeT_MouseDown">
+                        <TextBlock Text="T" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
                     <Ellipse x:Name="TextWidthHandle" Tag="TextWidth" Visibility="Collapsed" Width="12" Height="12" Fill="White" Stroke="#FF2F6FED" StrokeThickness="2" Cursor="SizeWE" Panel.ZIndex="6"
                              ToolTip="Drag to change the width" PreviewMouseLeftButtonDown="TextWidthHandle_MouseDown"/>
                 </Canvas>

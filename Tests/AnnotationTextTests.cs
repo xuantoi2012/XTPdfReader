@@ -253,3 +253,91 @@ internal static partial class Program
         if (failure != null) throw new Exception("Select bar: " + failure.Message, failure);
     }
 }
+
+internal static partial class Program
+{
+    /// <summary>Rectangle with text: "T" handles on the sides, the typed text and the shape become one group that moves and deletes together.</summary>
+    static void TestShapeTextGroup()
+    {
+        if (System.Windows.Application.Current == null) CreateReaderTestApplication();
+        string folder = System.IO.Path.Combine(Output, "shape-group");
+        Directory.CreateDirectory(folder);
+        string path = System.IO.Path.Combine(folder, "page.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(path))) doc.AddNewPage(new PageSize(595, 842));
+
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var type = typeof(XTPdfMergeApp.ReaderWindow);
+        var reader = new XTPdfMergeApp.ReaderWindow { Width = 1300, Height = 900, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false };
+        var app = System.Windows.Application.Current;
+        var priorOwner = app.MainWindow;
+        app.MainWindow = reader;
+        Exception? failure = null;
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        reader.Show();
+        reader.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(async () =>
+        {
+            try
+            {
+                ((System.Windows.FrameworkElement)reader.FindName("StartPage")).Visibility = System.Windows.Visibility.Collapsed;
+                await reader.Session.OpenFilesInReaderAsync(new[] { path });
+                await Task.Delay(1500);
+                reader.UpdateLayout();
+                var row = (XTPdfMergeApp.Domain.PagePlacement)type.GetField("_readerPage", flags)!.GetValue(reader)!;
+                var lost = (System.Windows.Input.KeyboardFocusChangedEventHandler)Delegate.CreateDelegate(typeof(System.Windows.Input.KeyboardFocusChangedEventHandler), reader, type.GetMethod("ReaderAnnotationEditor_LostKeyboardFocus", flags)!);
+                ((System.Windows.Controls.TextBox)reader.FindName("ReaderAnnotationEditor")).LostKeyboardFocus -= lost;
+
+                // a rectangle written through the same path as drawing one
+                var style = new ShapeStyle(ShapeStyle.Rect, "#C0392B", 2, 0);
+                var shape = new QuickAnnotationSpec("xt-shape", QuickAnnotationKind.Shape, 1, 0.3, 0.3, 0.6, 0.4, "") { Format = style.Encode() };
+                await ((XTPdfMergeApp.IReaderPageEditHost)reader.Session).ApplyAnnotationChangesAsync(path, new[] { new QuickAnnotationChange(null, shape) }, "Draw rect");
+                await Task.Delay(800);
+                var page = await AnnotationStore.GetPageAsync(path, 1);
+                shape = page!.Annotations.Single(a => a.Kind == QuickAnnotationKind.Shape);
+                type.GetMethod("SelectAnnotation", flags)!.Invoke(reader, new object?[] { row, shape });
+                reader.UpdateLayout();
+                var top = (System.Windows.FrameworkElement)reader.FindName("ShapeTTop");
+                Check(top.Visibility == System.Windows.Visibility.Visible && ((System.Windows.FrameworkElement)reader.FindName("ShapeTLeft")).Visibility == System.Windows.Visibility.Visible,
+                    "A selected rectangle shows a T at the middle of its sides");
+
+                await (Task)type.GetMethod("BeginShapeTextAsync", flags)!.Invoke(reader, new object?[] { row, shape, "Right" })!;
+                await Task.Delay(300);
+                var editor = (System.Windows.Controls.TextBox)reader.FindName("ReaderAnnotationEditor");
+                Check(editor.Visibility == System.Windows.Visibility.Visible, "Clicking a T opens a text box");
+                editor.Text = "Beam B1";
+                type.GetMethod("CommitAnnotationEditor", flags)!.Invoke(reader, new object?[] { false });
+                await Task.Delay(1500);
+                page = await AnnotationStore.GetPageAsync(path, 1);
+                var text = page!.Annotations.Single(a => a.Kind == QuickAnnotationKind.Typewriter);
+                var grouped = page.Annotations.Single(a => a.Kind == QuickAnnotationKind.Shape);
+                Check(text.Group.Length > 0 && text.Group == grouped.Group, "The text box and the rectangle share one group id");
+                Check(text.U1 >= grouped.U2, "A box opened from the right side sits to the right of the shape");
+
+                // move the group
+                var hitType = type.GetNestedType("PageHit", flags)!;
+                var startHit = Activator.CreateInstance(hitType, row, 0.45, 0.3)!;
+                type.GetMethod("SelectAnnotation", flags)!.Invoke(reader, new object?[] { row, grouped });
+                type.GetMethod("BeginAnnotationMove", flags)!.Invoke(reader, new object?[] { startHit, grouped });
+                object[] toPoint = { row, 0.45, 0.5, null! };
+                ((Func<bool>)(() => (bool)type.GetMethod("TryPageToLayer", flags)!.Invoke(reader, toPoint)!))();
+                for (int i = 0; i < 20; i++) { type.GetMethod("UpdateAnnotationMove", flags)!.Invoke(reader, new object[] { toPoint[3] }); await Task.Delay(50); }
+                type.GetMethod("FinishAnnotationMove", flags)!.Invoke(reader, null);
+                await Task.Delay(1500);
+                page = await AnnotationStore.GetPageAsync(path, 1);
+                var movedText = page!.Annotations.Single(a => a.Kind == QuickAnnotationKind.Typewriter);
+                var movedShape = page.Annotations.Single(a => a.Kind == QuickAnnotationKind.Shape);
+                Check(movedShape.V1 > grouped.V1 + 0.05 && Math.Abs((movedText.V1 - text.V1) - (movedShape.V1 - grouped.V1)) < 0.003, "Moving the shape moves its text box by the same amount");
+
+                // delete the group
+                type.GetMethod("SelectAnnotation", flags)!.Invoke(reader, new object?[] { row, movedShape });
+                type.GetMethod("DeleteSelectedAnnotation", flags)!.Invoke(reader, null);
+                await Task.Delay(1500);
+                page = await AnnotationStore.GetPageAsync(path, 1);
+                Check(page!.Annotations.Count(a => a.Kind is QuickAnnotationKind.Shape or QuickAnnotationKind.Typewriter) == 0, "Deleting the shape deletes its text box too");
+            }
+            catch (Exception ex) { failure = ex; }
+            finally { reader.Session.Documents.Clear(); reader.Close(); app.MainWindow = priorOwner; frame.Continue = false; }
+        }));
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+        if (failure != null) throw new Exception("Shape group: " + failure.Message, failure);
+    }
+}

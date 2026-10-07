@@ -20,7 +20,7 @@ namespace XTPdfMergeApp
 
         private static double DisplayWidthOf(PageRow row) => GetCachedPageAnnotations(row) is { } page ? page.Geometry.DisplayWidth : 0;
 
-        private bool IsTextChrome(DependencyObject? source) => IsInside(source, TextGrip) || IsInside(source, TextWidthHandle);
+        private bool IsTextChrome(DependencyObject? source) => IsInside(source, TextGrip) || IsInside(source, TextWidthHandle) || IsShapeTextHandle(source);
 
         private static void SetCanvasIfChanged(UIElement element, double left, double top)
         {

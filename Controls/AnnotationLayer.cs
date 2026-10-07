@@ -22,7 +22,10 @@ namespace XTPdfMergeApp.Controls
         {
             public string? HiddenName;
             public string? MoveName;
+            /// <summary>Other members of the moved annotation's group, dragged along.</summary>
+            public HashSet<string> MoveExtra { get; } = new();
             public double MoveDU, MoveDV;
+            public bool IsMoving(string name) => name == MoveName || MoveExtra.Contains(name);
         }
 
         public static readonly EditState Edit = new();
@@ -48,7 +51,7 @@ namespace XTPdfMergeApp.Controls
             foreach (var spec in annotations.Annotations)
             {
                 if (!IsMultiplyHighlight(spec) || live && spec.Name == Edit.HiddenName) continue;
-                bool moving = live && spec.Name == Edit.MoveName;
+                bool moving = live && Edit.IsMoving(spec.Name);
                 DrawHighlight(dc, spec, page, moving ? Edit.MoveDU : 0, moving ? Edit.MoveDV : 0, bases);
             }
             foreach (var spec in annotations.Annotations)
@@ -57,7 +60,7 @@ namespace XTPdfMergeApp.Controls
                 if (spec.Kind == QuickAnnotationKind.Reply || spec.Subtype == "Widget") continue; // Widgets are rendered on the source page by PDFium.
                 if (IsMultiplyHighlight(spec) || live && spec.Name == Edit.HiddenName) continue;
                 double du = 0, dv = 0;
-                if (live && spec.Name == Edit.MoveName) { du = Edit.MoveDU; dv = Edit.MoveDV; }
+                if (live && Edit.IsMoving(spec.Name)) { du = Edit.MoveDU; dv = Edit.MoveDV; }
 
                 var image = AnnotationAppearance.Get(row.SourcePath, row.PageNumber, spec, geometry, ppp);
                 if (image == null) continue;

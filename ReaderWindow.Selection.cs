@@ -21,6 +21,14 @@ namespace XTPdfMergeApp
     {
         private QuickAnnotationSpec? _selAnn;
         private PageRow? _selRow;
+        /// <summary>The other annotations of the selected one's group (a shape with its text boxes): they move, delete and undo with it.</summary>
+        private IReadOnlyList<QuickAnnotationSpec> _selMates = Array.Empty<QuickAnnotationSpec>();
+
+        private static IReadOnlyList<QuickAnnotationSpec> GroupMatesOf(PageRow? row, QuickAnnotationSpec? spec)
+        {
+            if (row == null || spec == null || spec.Group.Length == 0 || GetCachedPageAnnotations(row) is not { } page) return Array.Empty<QuickAnnotationSpec>();
+            return page.Annotations.Where(a => a.Group == spec.Group && a.Name != spec.Name).ToList();
+        }
 
         private sealed class AnnotationMove
         {
@@ -54,6 +62,7 @@ namespace XTPdfMergeApp
         {
             _selRow = spec == null ? null : row;
             _selAnn = spec;
+            _selMates = GroupMatesOf(_selRow, spec);
             if (spec is { Kind: QuickAnnotationKind.Typewriter })
             {
                 _textFormat = TextFormat.Decode(spec.Format);
@@ -82,6 +91,7 @@ namespace XTPdfMergeApp
         {
             UpdateSelectionVisualCore();
             UpdateTextChrome();
+            UpdateShapeTextHandles();
             PositionFloatingBars();
         }
 
@@ -94,7 +104,9 @@ namespace XTPdfMergeApp
                 return;
             }
             double du = _annMove?.DeltaU ?? 0, dv = _annMove?.DeltaV ?? 0;
-            if (!TryPageToLayer(row, spec.U1 + du, spec.V1 + dv, out Point a) || !TryPageToLayer(row, spec.U2 + du, spec.V2 + dv, out Point b))
+            double gu1 = spec.U1, gv1 = spec.V1, gu2 = spec.U2, gv2 = spec.V2;
+            foreach (var mate in _selMates) { gu1 = Math.Min(gu1, mate.U1); gv1 = Math.Min(gv1, mate.V1); gu2 = Math.Max(gu2, mate.U2); gv2 = Math.Max(gv2, mate.V2); }
+            if (!TryPageToLayer(row, gu1 + du, gv1 + dv, out Point a) || !TryPageToLayer(row, gu2 + du, gv2 + dv, out Point b))
             {
                 AnnotationSelectionBox.Visibility = Visibility.Collapsed;
                 return;
@@ -116,6 +128,7 @@ namespace XTPdfMergeApp
             var fresh = page.Annotations.FirstOrDefault(a => a.Name == spec.Name);
             if (fresh == null) { SelectAnnotation(null, null); return; }
             if (!fresh.Equals(spec)) _selAnn = fresh;
+            _selMates = GroupMatesOf(row, fresh);
         }
 
         // ── Move by dragging ──────────────────────────────────────────
@@ -133,8 +146,10 @@ namespace XTPdfMergeApp
             if (_annMove is not { } move) return false;
             if (!TryGetPagePoint(move.Row, pointInHost, clamp: true, out var current)) return true;
             var s = move.Spec;
-            double du = Math.Clamp(current.U - move.StartU, -s.U1, 1 - s.U2);
-            double dv = Math.Clamp(current.V - move.StartV, -s.V1, 1 - s.V2);
+            double minU = s.U1, minV = s.V1, maxU = s.U2, maxV = s.V2;
+            foreach (var mate in _selMates) { minU = Math.Min(minU, mate.U1); minV = Math.Min(minV, mate.V1); maxU = Math.Max(maxU, mate.U2); maxV = Math.Max(maxV, mate.V2); }
+            double du = Math.Clamp(current.U - move.StartU, -minU, 1 - maxU);
+            double dv = Math.Clamp(current.V - move.StartV, -minV, 1 - maxV);
             if (!move.Moved && TryPageToLayer(move.Row, s.U1, s.V1, out var p0) && TryPageToLayer(move.Row, s.U1 + du, s.V1 + dv, out var p1) && (p1 - p0).Length > 4)
                 move.Moved = true;
             if (move.Moved)
@@ -143,6 +158,8 @@ namespace XTPdfMergeApp
                 move.DeltaV = dv;
                 // Chú thích đi theo chuột ngay (lớp chú thích vẽ nó lệch du, dv) — chưa đổi gì cho tới khi nhả chuột.
                 AnnotationLayer.Edit.MoveName = s.Name;
+                AnnotationLayer.Edit.MoveExtra.Clear();
+                foreach (var mate in _selMates) AnnotationLayer.Edit.MoveExtra.Add(mate.Name);
                 AnnotationLayer.Edit.MoveDU = du;
                 AnnotationLayer.Edit.MoveDV = dv;
                 ReaderContinuousView.Redraw();
@@ -159,6 +176,7 @@ namespace XTPdfMergeApp
             if (AnnotationLayer.Edit.MoveName != null)
             {
                 AnnotationLayer.Edit.MoveName = null;
+                AnnotationLayer.Edit.MoveExtra.Clear();
                 ReaderContinuousView.Redraw();
             }
             if (!move.Moved || (Math.Abs(move.DeltaU) < 1e-6 && Math.Abs(move.DeltaV) < 1e-6))
@@ -173,7 +191,9 @@ namespace XTPdfMergeApp
             var s = move.Spec;
             var moved = s.Translate(move.DeltaU, move.DeltaV);
             _selAnn = moved;
-            CommitAnnotationChange(move.Row, new QuickAnnotationChange(s, moved), "Move " + KindLabel(s.Kind));
+            var changes = new List<QuickAnnotationChange> { new(s, moved) };
+            foreach (var mate in _selMates) changes.Add(new QuickAnnotationChange(mate, mate.Translate(move.DeltaU, move.DeltaV)));
+            CommitAnnotationChanges(move.Row, changes, "Move " + (changes.Count > 1 ? "group" : KindLabel(s.Kind)));
             UpdateSelectionVisual();
             return true;
         }
@@ -199,8 +219,11 @@ namespace XTPdfMergeApp
         private void DeleteSelectedAnnotation()
         {
             if (_selAnn is not { } spec || _selRow is not { } row) return;
+            var mates = _selMates;
             SelectAnnotation(null, null);
-            CommitAnnotationChange(row, new QuickAnnotationChange(spec, null), "Delete " + KindLabel(spec.Kind));
+            var changes = new List<QuickAnnotationChange> { new(spec, null) };
+            foreach (var mate in mates) changes.Add(new QuickAnnotationChange(mate, null));
+            CommitAnnotationChanges(row, changes, "Delete " + (changes.Count > 1 ? "group" : KindLabel(spec.Kind)));
         }
 
         private void CopyAnnotationText(QuickAnnotationSpec spec)
