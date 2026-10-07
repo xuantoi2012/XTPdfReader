@@ -42,6 +42,8 @@ namespace XTPdfMergeApp.Controls
                 WarmBox.SelectedIndex = PdfThumbnailService.WarmFiles is >= 0 and <= 8 ? PdfThumbnailService.WarmFiles : AppSettings.WarmFiles;
                 PdfFactoryToggle.IsChecked = MergeAppSettingsStore.GetPdfFactoryViewEnabled();
                 PresenceToggle.IsChecked = AppSettings.ShowPresence;
+                PrintedDaysBox.Text = AppSettings.PrintedCleanupDays.ToString();
+                RefreshPrintedFolderHint();
                 RefreshPdfFactoryHint();
             }
             finally { _loading = false; }
@@ -80,6 +82,42 @@ namespace XTPdfMergeApp.Controls
         }
 
         // ── Display ───────────────────────────────────────────────────
+
+        private void PrintedDays_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (_loading) return;
+            if (!int.TryParse(PrintedDaysBox.Text.Trim(), out int days)) days = AppSettings.PrintedCleanupDays;
+            AppSettings.PrintedCleanupDays = days;
+            PrintedDaysBox.Text = AppSettings.PrintedCleanupDays.ToString();
+        }
+
+        private void PrintedDays_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter) { PrintedDays_LostFocus(sender, e); e.Handled = true; }
+        }
+
+        private void RefreshPrintedFolderHint()
+        {
+            bool custom = AppSettings.PrintedFolder.Length > 0;
+            PrintedFolderHint.Text = (custom ? "Custom: " : "Default: ") + PrintedFilesService.Folder +
+                ". The virtual-printer agent reads the folder when it starts, so a change reaches it after you sign out and in (or restart the agent).";
+        }
+
+        private void PrintedFolderBrowse_Click(object sender, RoutedEventArgs e)
+        {
+            using var dialog = new System.Windows.Forms.FolderBrowserDialog { Description = "Folder where printed PDFs are saved", SelectedPath = PrintedFilesService.Folder, UseDescriptionForTitle = true };
+            if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK || string.IsNullOrWhiteSpace(dialog.SelectedPath)) return;
+            AppSettings.PrintedFolder = string.Equals(dialog.SelectedPath, PrintedFilesService.DefaultFolder, StringComparison.OrdinalIgnoreCase) ? "" : dialog.SelectedPath;
+            PrintedFilesService.PublishFolder();
+            RefreshPrintedFolderHint();
+        }
+
+        private void PrintedFolderDefault_Click(object sender, RoutedEventArgs e)
+        {
+            AppSettings.PrintedFolder = "";
+            PrintedFilesService.PublishFolder();
+            RefreshPrintedFolderHint();
+        }
 
         private void Presence_Changed(object sender, RoutedEventArgs e)
         {

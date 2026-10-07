@@ -49,6 +49,20 @@ namespace XTPdfMergeApp.Services
             set => Set("ShowPresence", value ? 1 : 0);
         }
 
+        /// <summary>Clean up printed files (Print inbox > Clean up) only offers PDFs older than this many days; 0 = any age.</summary>
+        public static int PrintedCleanupDays
+        {
+            get => Math.Clamp(GetInt("PrintedCleanupDays", 30), 0, 3650);
+            set => Set("PrintedCleanupDays", Math.Clamp(value, 0, 3650));
+        }
+
+        /// <summary>Folder the print agent saves printed PDFs into; empty = the default under %LocalAppData%\XTPdfReader\Printed.</summary>
+        public static string PrintedFolder
+        {
+            get => GetString("PrintedFolder", "");
+            set => Set("PrintedFolder", value ?? "");
+        }
+
         public static DefaultZoom ZoomOnOpen
         {
             get => Enum.TryParse<DefaultZoom>(GetString("ZoomOnOpen", nameof(DefaultZoom.FitWidth)), out var z) ? z : DefaultZoom.FitWidth;

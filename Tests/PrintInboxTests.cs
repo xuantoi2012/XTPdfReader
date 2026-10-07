@@ -245,6 +245,16 @@ internal static partial class Program
             Check(PrintedFilesService.FindUnused(new[] { a, b }).Count == 0, "Nothing is offered when every printed PDF is in use");
             int removed = PrintedFilesService.Delete(unused);
             Check(removed == 1 && !File.Exists(b) && File.Exists(a) && File.Exists(a + ".sent"), "Clean-up removes the unused PDF and keeps used ones and the delivery receipts");
+
+            string oldFile = MakePlainPdf(System.IO.Path.Combine(folder, "inst", "old.pdf"), 1);
+            string newFile = MakePlainPdf(System.IO.Path.Combine(folder, "inst", "new.pdf"), 1);
+            File.SetLastWriteTimeUtc(oldFile, DateTime.UtcNow.AddDays(-45));
+            File.SetLastWriteTimeUtc(newFile, DateTime.UtcNow.AddDays(-2));
+            var aged = PrintedFilesService.FindUnused(new[] { a }, olderThanDays: 30);
+            Check(aged.Count == 1 && aged[0].Path == oldFile, "With an age limit only unused PDFs older than that many days are offered");
+            Check(PrintedFilesService.FindUnused(new[] { a }, olderThanDays: 0).Count == 2, "An age of 0 offers every unused PDF");
+            Check(PrintedFilesService.FindUnused(new[] { a, oldFile }, olderThanDays: 30).Count == 0, "An old PDF that is still in use is never offered");
+            Check(AppSettings.PrintedCleanupDays is >= 0 and <= 3650, "The retention setting stays inside 0..3650 days");
         }
         finally { PrintedFilesService.Folder = saved; }
     }

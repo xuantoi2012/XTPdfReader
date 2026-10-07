@@ -180,16 +180,18 @@ namespace XTPdfMergeApp.Controls
             if (_draft != null) inUse.AddRange(_draft.Documents.SelectMany(d => d.Pages).Select(p => p.SourcePath));
             if (ReaderWindow.Instance?.Session is { } session) inUse.AddRange(session.Documents.SelectMany(d => d.Pages).Select(p => p.SourcePath));
             inUse.AddRange(PrintInboxStore.Load().Select(en => en.Path)); // committed inbox pages that a draft moved out stay protected
-            var unused = PrintedFilesService.FindUnused(inUse);
+            int days = AppSettings.PrintedCleanupDays;
+            var unused = PrintedFilesService.FindUnused(inUse, days);
             var owner = Window.GetWindow(this);
             if (unused.Count == 0)
             {
-                XTStyle.Controls.XTGrowl.Info("Nothing to clean up: every printed PDF is still in the inbox or open.", owner);
+                XTStyle.Controls.XTGrowl.Info(days > 0 ? $"Nothing to clean up: no unused printed PDF is older than {days} days (Settings > Integration changes the age)."
+                    : "Nothing to clean up: every printed PDF is still in the inbox or open.", owner);
                 return;
             }
             long bytes = unused.Sum(f => f.Length);
             var answer = AppDialog.Show(owner,
-                $"{unused.Count} printed PDF(s), {PrintedFilesService.FormatSize(bytes)}, are no longer in the inbox or open anywhere.\n\nMove them to the Recycle Bin?\n\nFolder: {PrintedFilesService.Folder}",
+                $"{unused.Count} printed PDF(s), {PrintedFilesService.FormatSize(bytes)}, are no longer in the inbox or open anywhere{(days > 0 ? $" and are older than {days} days" : "")}.\n\nMove them to the Recycle Bin?\n\nFolder: {PrintedFilesService.Folder}",
                 "Clean up printed files", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
             if (answer != MessageBoxResult.Yes) return;
             int removed = PrintedFilesService.Delete(unused);

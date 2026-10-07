@@ -219,6 +219,31 @@
                                   Checked="PdfFactory_Changed" Unchecked="PdfFactory_Changed"/>
                     </Grid>
                 </Border>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Clean up printed files older than (days)" Foreground="{DynamicResource Ui.Text}" TextWrapping="Wrap"/>
+                            <TextBlock Text="Print inbox > Clean up only offers printed PDFs that are no longer in the inbox or open and are at least this old, and asks before moving them to the Recycle Bin. 0 = any age." Style="{StaticResource RowHint}"/>
+                        </StackPanel>
+                        <TextBox x:Name="PrintedDaysBox" Grid.Column="1" Width="64" Height="30" Margin="24,0,0,0" VerticalAlignment="Top" VerticalContentAlignment="Center"
+                                 HorizontalContentAlignment="Center" LostFocus="PrintedDays_LostFocus" PreviewKeyDown="PrintedDays_PreviewKeyDown"/>
+                    </Grid>
+                </Border>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Folder for printed files" Foreground="{DynamicResource Ui.Text}" TextWrapping="Wrap"/>
+                            <TextBlock x:Name="PrintedFolderHint" Style="{StaticResource RowHint}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="24,0,0,0" VerticalAlignment="Top">
+                            <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Browse…" Click="PrintedFolderBrowse_Click"/>
+                            <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Default" Margin="6,0,0,0" Click="PrintedFolderDefault_Click"
+                                         ToolTip="Back to the default folder under Local AppData"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
                 </StackPanel>
 
             </StackPanel>
