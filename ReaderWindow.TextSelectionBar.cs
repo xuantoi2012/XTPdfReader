@@ -18,17 +18,24 @@ namespace XTPdfMergeApp
     {
         private Rect? _textSelectionAnchor;
         private static readonly TimeSpan WordCacheLife = TimeSpan.FromSeconds(30);
-        private readonly Dictionary<(string Path, int Page), (DateTime At, Task<IReadOnlyList<(double U1, double V1, double U2, double V2)>?> Words)> _wordCache = new();
+        private readonly Dictionary<(string Path, int Page), (DateTime At, int Epoch, Task<IReadOnlyList<(double U1, double V1, double U2, double V2)>?> Words)> _wordCache = new();
 
         // ── Pointer over text ─────────────────────────────────────────
 
         private Task<IReadOnlyList<(double U1, double V1, double U2, double V2)>?> WordsOf(PageRow row)
         {
             var key = (row.SourcePath, row.PageNumber);
-            if (_wordCache.TryGetValue(key, out var cached) && DateTime.UtcNow - cached.At < WordCacheLife) return cached.Words;
+            int epoch = PdfThumbnailService.FileChangeEpoch; // a rotate / page edit / annotation save rewrites the file: boxes must be read again
+            // A failed read (null) is kept only 3 s: long enough not to ask the worker on every mouse move (an error restarts the worker),
+            // short enough not to hold an arrow for 30 s after a temporary failure.
+            if (_wordCache.TryGetValue(key, out var cached) && cached.Epoch == epoch)
+            {
+                bool failed = cached.Words.IsCompletedSuccessfully && cached.Words.Result == null;
+                if (DateTime.UtcNow - cached.At < (failed ? TimeSpan.FromSeconds(3) : WordCacheLife)) return cached.Words;
+            }
             if (_wordCache.Count > 60) _wordCache.Clear();
             var task = PdfThumbnailService.GetWordRectsAsync(row.SourcePath, row.PageNumber);
-            _wordCache[key] = (DateTime.UtcNow, task);
+            _wordCache[key] = (DateTime.UtcNow, epoch, task);
             return task;
         }
 
@@ -43,8 +50,8 @@ namespace XTPdfMergeApp
                 else if (task.IsCompletedSuccessfully)
                 {
                     var words = task.Result;
-                    if (words == null) cursor = Cursors.IBeam; // the engine cannot tell: keep the old "always I-beam"
-                    else
+                    // Unreadable page (null): an arrow, never "I-beam everywhere" - that was the PDFium-era fallback.
+                    if (words != null)
                     {
                         double tolerance = 0.002;
                         foreach (var w in words)

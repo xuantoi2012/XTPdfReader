@@ -446,13 +446,17 @@ namespace XTPdfMergeApp.Services
         /// file mở suốt đời lease, Windows không cho ghi đè trong lúc đó. Trong lúc bị chặn, mọi
         /// render/đếm trang của file này trả null như cache-miss; caller tự yêu cầu render lại sau.</summary>
         /// <param name="fileWillChange">false = chỉ đóng để mở lại (đổi layer): file không đổi, giữ nguyên bản file trong RAM.</param>
+        private static int _fileChangeEpoch;
+        /// <summary>Goes up every time a file is about to be rewritten (rotate, page edits, annotations): caches of page text boxes compare it.</summary>
+        internal static int FileChangeEpoch => Volatile.Read(ref _fileChangeEpoch);
+
         public static async Task<IDisposable> SuspendDocumentAsync(string pdfPath, TimeSpan timeout, bool fileWillChange = true)
         {
             string normalized = NormalizePath(pdfPath);
             _suspendedDocuments.AddOrUpdate(normalized, 1, (_, count) => count + 1);
             // File sắp bị ghi đè → bản trong RAM không còn đúng. Đổi layer thì file không đổi: trước đây vẫn bỏ bản trong
             // RAM, mỗi lần bật/tắt layer là đọc lại cả file qua mạng.
-            if (fileWillChange) PdfFileBuffer.Invalidate(normalized, PdfFileBuffer.InvalidateReason.Edited);
+            if (fileWillChange) { Interlocked.Increment(ref _fileChangeEpoch); PdfFileBuffer.Invalidate(normalized, PdfFileBuffer.InvalidateReason.Edited); }
             _layerTails.TryRemove(normalized, out _);
             var suspension = new DocumentSuspension(normalized);
             if (ExperimentalMuPdfViewport.BalancedMode)

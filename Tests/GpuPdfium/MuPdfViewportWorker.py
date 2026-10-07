@@ -278,6 +278,7 @@ for line in sys.stdin:
         if op == "words":
             # Word boxes of one page (normalised display coordinates): the reader uses them to switch the pointer to an I-beam over real text.
             page = document[request["page"]]
+            resolve_unembedded_fonts(document, page)  # same fonts as the render and the 'select' op, so the I-beam area matches the selectable text
             rects = []
             for word in page.get_text("words"):
                 rect = fitz.Rect(word[:4]) * page.rotation_matrix
