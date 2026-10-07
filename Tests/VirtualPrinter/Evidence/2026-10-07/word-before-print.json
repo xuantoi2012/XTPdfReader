@@ -1,0 +1,41 @@
+{
+  "Version": "16.0",
+  "Build": "16.0.20430",
+  "records": [
+    {
+      "request": "Pages=5-9; Copies=2",
+      "activePrinter": "Microsoft Print to PDF",
+      "document": "word-120-structural.docx",
+      "selectionStart": 0,
+      "selectionEnd": 0,
+      "parameters": [
+        {
+          "Name": "Doc",
+          "type": "Microsoft.Office.Interop.Word.Document"
+        },
+        {
+          "Name": "Cancel",
+          "type": "System.Boolean\u0026"
+        }
+      ]
+    },
+    {
+      "request": "Pages=10-11; Copies=1",
+      "activePrinter": "Microsoft Print to PDF",
+      "document": "word-120-structural.docx",
+      "selectionStart": 0,
+      "selectionEnd": 0,
+      "parameters": [
+        {
+          "Name": "Doc",
+          "type": "Microsoft.Office.Interop.Word.Document"
+        },
+        {
+          "Name": "Cancel",
+          "type": "System.Boolean\u0026"
+        }
+      ]
+    }
+  ],
+  "cancelledOutputExists": false
+}

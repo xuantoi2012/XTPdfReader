@@ -1,0 +1,86 @@
+[
+  {
+    "version": "2024",
+    "path": "C:\\Program Files\\Autodesk\\AutoCAD 2024\\accoremgd.dll",
+    "typeName": "BeginDocumentEventArgs",
+    "properties": [
+      "FileName",
+      "PlotToFile",
+      "Copies",
+      "DocumentName",
+      "PlotInfo"
+    ],
+    "events": [],
+    "constructors": [
+      [],
+      [
+        "plotInfo",
+        "documentName",
+        "copies",
+        "plotToFile",
+        "fileName"
+      ]
+    ]
+  },
+  {
+    "version": "2024",
+    "path": "C:\\Program Files\\Autodesk\\AutoCAD 2024\\accoremgd.dll",
+    "typeName": "PlotReactorManager",
+    "properties": [],
+    "events": [
+      "PageCancelled",
+      "PlotCancelled",
+      "EndPage",
+      "EndDocument",
+      "EndPlot",
+      "BeginPage",
+      "BeginDocument",
+      "BeginPlot"
+    ],
+    "constructors": [
+      []
+    ]
+  },
+  {
+    "version": "2027",
+    "path": "C:\\Program Files\\Autodesk\\AutoCAD 2027\\accoremgd.dll",
+    "typeName": "BeginDocumentEventArgs",
+    "properties": [
+      "FileName",
+      "PlotToFile",
+      "Copies",
+      "DocumentName",
+      "PlotInfo"
+    ],
+    "events": [],
+    "constructors": [
+      [],
+      [
+        "plotInfo",
+        "documentName",
+        "copies",
+        "plotToFile",
+        "fileName"
+      ]
+    ]
+  },
+  {
+    "version": "2027",
+    "path": "C:\\Program Files\\Autodesk\\AutoCAD 2027\\accoremgd.dll",
+    "typeName": "PlotReactorManager",
+    "properties": [],
+    "events": [
+      "PageCancelled",
+      "PlotCancelled",
+      "EndPage",
+      "EndDocument",
+      "EndPlot",
+      "BeginPage",
+      "BeginDocument",
+      "BeginPlot"
+    ],
+    "constructors": [
+      []
+    ]
+  }
+]

@@ -1,0 +1,37 @@
+{
+  "WindowsBuild": "26200",
+  "UBR": 9550,
+  "DisplayVersion": "25H2",
+  "RegistryProductName": "Windows 10 Pro",
+  "Is64BitOS": true,
+  "Versions": [
+    {
+      "Path": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+      "Version": "16.0.20430.20092"
+    },
+    {
+      "Path": "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE",
+      "Version": "16.0.20430.20092"
+    },
+    {
+      "Path": "C:\\Program Files\\Microsoft Office\\root\\Office16\\POWERPNT.EXE",
+      "Version": "16.0.20430.20092"
+    },
+    {
+      "Path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "Version": "154.0.8037.98"
+    },
+    {
+      "Path": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      "Version": "154.0.4258.53"
+    },
+    {
+      "Path": "C:\\Program Files\\Autodesk\\AutoCAD 2024\\acad.exe",
+      "Version": "R24.3.236.0.0"
+    },
+    {
+      "Path": "C:\\Program Files\\Autodesk\\AutoCAD 2027\\acad.exe",
+      "Version": "R26.0.118.0.0"
+    }
+  ]
+}

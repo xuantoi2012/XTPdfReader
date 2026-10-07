@@ -1,0 +1,6 @@
+{
+  "Message": "Access was denied to the specified resource.",
+  "ErrorId": "HRESULT 0x80070005,Add-Printer",
+  "ExceptionType": "Microsoft.Management.Infrastructure.CimException",
+  "Elevated": false
+}
