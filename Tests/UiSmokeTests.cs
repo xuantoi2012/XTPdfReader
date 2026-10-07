@@ -131,6 +131,8 @@ internal static partial class Program
                 var list = (FrameworkElement)reader.FindName("ReaderTabsOverflowButton");
                 var strip = (FrameworkElement)reader.FindName("ReaderDocumentTabsStrip");
                 Check(reader.Session.Documents.Count == 12, "The real reader opened 12 files");
+                await Task.Delay(2500);
+                Check(!ReferenceEquals(reader.Cursor, System.Windows.Input.Cursors.Wait), "The wait cursor of a file open ends once the first page has an image");
                 Check(list.Visibility == Visibility.Visible && tabs.Items.Count < 12, $"With 12 files in 1300 px the tab list button appears and tabs are limited ({tabs.Items.Count} shown)");
                 SavePng(strip, "ui-tabs-12-wide");
                 reader.Width = 2200; reader.UpdateLayout();

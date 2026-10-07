@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
+using XTPdfMergeApp;
 using XTPdfMergeApp.Controls;
 using XTPdfMergeApp.Domain;
 using XTPdfMergeApp.Services;
@@ -163,5 +164,82 @@ internal static partial class Program
         Check(session.WindowDocuments.Last() == first && session.WindowDocuments.First() != first, "Moving a window to another slot changes the merge order");
         session.Undo();
         Check(session.WindowDocuments.First() == first, "Undo restores the window order");
+    }
+}
+
+internal static partial class Program
+{
+    /// <summary>Ribbon labels on one line, "More tools" lists only what does not fit, wide search box opens the palette under it, About icon exists.</summary>
+    static void TestUiRibbonTitleAbout()
+    {
+        if (Application.Current == null) CreateReaderTestApplication();
+        var reader = new ReaderWindow { Width = 1400, Height = 700 };
+        var priorOwner = Application.Current.MainWindow;
+        Application.Current.MainWindow = reader;
+        try
+        {
+            reader.Show();
+            ((FrameworkElement)reader.FindName("StartPage")).Visibility = Visibility.Collapsed;
+            var bar = (FrameworkElement)reader.FindName("ReaderToolbarBar");
+            bar.Visibility = Visibility.Visible; // the toolbar is hidden until a file is open
+            reader.UpdateLayout(); Pump(TimeSpan.FromMilliseconds(500));
+            var more = (XTStyle.Controls.XTButton)reader.FindName("ReaderToolbarMore");
+            var buttons = VisualTreeHelpers.FindVisualChildren<XTStyle.Controls.XTButton>(bar).Where(b => b != more && b.ActualWidth > 0).ToList();
+            var labels = buttons.SelectMany(b => VisualTreeHelpers.FindVisualChildren<TextBlock>(b)).Where(t => !string.IsNullOrEmpty(t.Text)).ToList();
+            Check(labels.Count > 15 && labels.All(t => t.ActualHeight < 18), "Every ribbon label is one full line (no wrapping or clipping)");
+            Check(labels.Any(t => t.Text == "Highlight text") && labels.Any(t => t.Text == "Rotate left"), "Long ribbon labels such as Highlight text / Rotate left are shown in full");
+            Console.WriteLine($"bar {bar.ActualWidth}x{bar.ActualHeight} window {reader.ActualWidth} labels {labels.Count} first {labels.First().Text}");
+            SavePng(bar, "ui-ribbon-wide");
+            reader.BeginOpenWait();
+            Check(ReferenceEquals(reader.Cursor, System.Windows.Input.Cursors.Wait) && reader.ForceCursor, "BeginOpenWait shows the wait cursor over the whole reader window");
+            reader.EndOpenWait();
+            Check(!ReferenceEquals(reader.Cursor, System.Windows.Input.Cursors.Wait), "EndOpenWait restores the normal cursor");
+            Console.WriteLine($"ribbon at 1400: More tools {more.Visibility}");
+
+            reader.Width = 900; reader.UpdateLayout(); Pump(TimeSpan.FromMilliseconds(500));
+            Check(more.Visibility == Visibility.Visible && more.Text == "More tools", "In a narrow window the 'More tools' button (icon + text) appears");
+            more.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, more));
+            Pump(TimeSpan.FromMilliseconds(150));
+            int listed = more.ContextMenu?.Items.OfType<MenuItem>().Count() ?? 0;
+            Check(listed > 0 && listed < buttons.Count, $"More tools lists only the hidden buttons ({listed} of {buttons.Count})");
+            if (more.ContextMenu != null) more.ContextMenu.IsOpen = false;
+            SavePng(bar, "ui-ribbon-narrow");
+
+            var search = (XTStyle.Controls.XTButton)reader.FindName("TitleSearchButton");
+            var palette = (CommandPalette)reader.FindName("Palette");
+            Check(search.ActualWidth >= 200 && !string.IsNullOrEmpty(search.Text), "The title-bar search box is wide and labelled");
+            search.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, search));
+            Pump(TimeSpan.FromMilliseconds(250));
+            Check(palette.IsOpen, "Clicking the search box opens the command palette as a popup");
+            palette.Close();
+
+            Check(AboutWindow.VersionText().StartsWith("Version "), "About window reports a version: " + AboutWindow.VersionText());
+            var about = new AboutWindow { Owner = reader };
+            about.Show(); about.UpdateLayout(); Pump(TimeSpan.FromMilliseconds(200));
+            SavePng((FrameworkElement)about.Content, "ui-about");
+            about.Close();
+        }
+        finally { reader.Close(); Application.Current.MainWindow = priorOwner; }
+    }
+
+    static void TestPrintedFilesCleanup()
+    {
+        string folder = System.IO.Path.Combine(Output, "printed-files");
+        if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        Directory.CreateDirectory(System.IO.Path.Combine(folder, "inst"));
+        string saved = PrintedFilesService.Folder;
+        PrintedFilesService.Folder = folder;
+        try
+        {
+            string a = MakePlainPdf(System.IO.Path.Combine(folder, "inst", "a.pdf"), 1);
+            string b = MakePlainPdf(System.IO.Path.Combine(folder, "inst", "b.pdf"), 1);
+            File.WriteAllText(a + ".sent", "1");
+            var unused = PrintedFilesService.FindUnused(new[] { a });
+            Check(unused.Count == 1 && unused[0].Path == b, "Clean-up offers only printed PDFs that are not in use");
+            Check(PrintedFilesService.FindUnused(new[] { a, b }).Count == 0, "Nothing is offered when every printed PDF is in use");
+            int removed = PrintedFilesService.Delete(unused);
+            Check(removed == 1 && !File.Exists(b) && File.Exists(a) && File.Exists(a + ".sent"), "Clean-up removes the unused PDF and keeps used ones and the delivery receipts");
+        }
+        finally { PrintedFilesService.Folder = saved; }
     }
 }

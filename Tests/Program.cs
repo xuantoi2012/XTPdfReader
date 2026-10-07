@@ -104,7 +104,7 @@ internal static partial class Program
                 Console.WriteLine($"{child.Id} {XTPdfMergeApp.Services.WorkerJob.Assign(child)}");
                 Thread.Sleep(Timeout.Infinite);
             }
-            if (args.Contains("--ui-smoke")) { TestUiSmoke(); TestUiTabsAndMerge(); TestPrintInbox(); TestPrintInboxView(); TestMergeLayoutModes(); TestUiPrintSizes(); TestUiReadSheetInfo(); TestUiCompare(); Console.WriteLine($"UI smoke passed ({_checks})."); return 0; }
+            if (args.Contains("--ui-smoke")) { TestUiSmoke(); TestUiTabsAndMerge(); TestPrintInbox(); TestPrintInboxView(); TestMergeLayoutModes(); TestPrintedFilesCleanup(); TestUiRibbonTitleAbout(); TestUiPrintSizes(); TestUiReadSheetInfo(); TestUiCompare(); Console.WriteLine($"UI smoke passed ({_checks})."); return 0; }
             if (args.Contains("--layer-merge-only")) { TestLayerMerge(); TestLayerToggleRendersAsync().GetAwaiter().GetResult(); TestLayerEdit(); TestSheetInfoSurvivesMerge(); TestSheetMatch(); TestSequentialInPlaceEdits(); TestXtSetRebuild(); TestLayerRenameOnMerge(); TestSaveHistory(); TestPrintSizePlan(); TestSheetRegisterCsv(); TestTitleBlockReader(); TestPageMeasure(); TestPageDiff(); TestPageLabels(); TestSheetLinks(); TestPresence(); TestWorkerJob(); TestRegionReuseFormats(); TestRegionReuseWithMuPdfAsync().GetAwaiter().GetResult(); TestAnnotationConflictAsync().GetAwaiter().GetResult(); Console.WriteLine($"Layer merge checks passed ({_checks})."); return 0; }
             if (regionProfile >= 0)
             {

@@ -173,6 +173,29 @@ namespace XTPdfMergeApp.Controls
             return true;
         }
 
+        /// <summary>"Clean up": printed PDFs in the fixed Printed folder that no inbox page, merge window or open tab uses go to the Recycle Bin.</summary>
+        private void CleanUpPrinted_Click(object sender, RoutedEventArgs e)
+        {
+            var inUse = new List<string>();
+            if (_draft != null) inUse.AddRange(_draft.Documents.SelectMany(d => d.Pages).Select(p => p.SourcePath));
+            if (ReaderWindow.Instance?.Session is { } session) inUse.AddRange(session.Documents.SelectMany(d => d.Pages).Select(p => p.SourcePath));
+            inUse.AddRange(PrintInboxStore.Load().Select(en => en.Path)); // committed inbox pages that a draft moved out stay protected
+            var unused = PrintedFilesService.FindUnused(inUse);
+            var owner = Window.GetWindow(this);
+            if (unused.Count == 0)
+            {
+                XTStyle.Controls.XTGrowl.Info("Nothing to clean up: every printed PDF is still in the inbox or open.", owner);
+                return;
+            }
+            long bytes = unused.Sum(f => f.Length);
+            var answer = AppDialog.Show(owner,
+                $"{unused.Count} printed PDF(s), {PrintedFilesService.FormatSize(bytes)}, are no longer in the inbox or open anywhere.\n\nMove them to the Recycle Bin?\n\nFolder: {PrintedFilesService.Folder}",
+                "Clean up printed files", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+            if (answer != MessageBoxResult.Yes) return;
+            int removed = PrintedFilesService.Delete(unused);
+            XTStyle.Controls.XTGrowl.Success(removed == unused.Count ? $"Moved {removed} file(s) to the Recycle Bin" : $"Moved {removed} of {unused.Count} file(s); the rest are in use", owner);
+        }
+
         private void Inbox_Click(object sender, RoutedEventArgs e)
         {
             if (_draft?.Inbox is not { Pages.Count: > 0 } inbox)

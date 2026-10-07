@@ -672,30 +672,49 @@ namespace XTPdfMergeApp
         /// <summary>Mở file (hoặc chuyển sang file nếu đã mở) và hiện ngay trong cửa sổ đọc.</summary>
         internal async Task OpenFilesInReaderAsync(IEnumerable<string> paths)
         {
-            DocumentGroup? last = null;
-            bool lastIsNew = false;
-            foreach (string path in paths)
+            var list = paths.ToList();
+            var reader = ReaderWindow.Instance;
+            bool waits = reader != null && list.Any(p => !XTSetRebuild.IsSetFile(p) && !_groups.Any(g => string.Equals(g.SourcePath, SafeFullPath(p), StringComparison.OrdinalIgnoreCase)));
+            if (waits) reader!.BeginOpenWait(); // wait cursor until the first page has an image (ReaderWindow.OpenWait.cs)
+            bool shown = false;
+            try
             {
-                string full;
-                try { full = Path.GetFullPath(path); }
-                catch { continue; }
-                if (XTSetRebuild.IsSetFile(full))
+                DocumentGroup? last = null;
+                bool lastIsNew = false;
+                foreach (string path in list)
                 {
-                    // Bộ hồ sơ XT (.xtset): mở bản ghép sẵn hoặc rebuild từ các thành phần (hỏi người dùng).
-                    if (ReaderWindow.Instance is { } window) await window.OpenXtSetAsync(full);
-                    continue;
+                    string full = SafeFullPath(path);
+                    if (full.Length == 0) continue;
+                    if (XTSetRebuild.IsSetFile(full))
+                    {
+                        // Bộ hồ sơ XT (.xtset): mở bản ghép sẵn hoặc rebuild từ các thành phần (hỏi người dùng).
+                        if (ReaderWindow.Instance is { } window) await window.OpenXtSetAsync(full);
+                        continue;
+                    }
+                    var existing = _groups.FirstOrDefault(g => string.Equals(g.SourcePath, full, StringComparison.OrdinalIgnoreCase));
+                    if (existing != null) { last = existing; lastIsNew = false; }
+                    else if (await AddFileAsGroup(full) is { } added) { last = added; lastIsNew = true; }
                 }
-                var existing = _groups.FirstOrDefault(g => string.Equals(g.SourcePath, full, StringComparison.OrdinalIgnoreCase));
-                if (existing != null) { last = existing; lastIsNew = false; }
-                else if (await AddFileAsGroup(full) is { } added) { last = added; lastIsNew = true; }
+                if (last != null && last.Pages.Count > 0)
+                    if (ReaderWindow.Instance is { } shownReader)
+                    {
+                        // File mới mở: về trang/zoom đã nhớ lần trước. File đã mở sẵn: về trang đầu như trước.
+                        if (lastIsNew) await shownReader.ShowFirstPageAsync(last);
+                        else await shownReader.ShowPageAsync(last, last.Pages[0], preserveZoomMode: true);
+                        shown = true;
+                        if (waits) shownReader.MarkOpenShown();
+                    }
             }
-            if (last != null && last.Pages.Count > 0)
-                if (ReaderWindow.Instance is { } reader)
-                {
-                    // File mới mở: về trang/zoom đã nhớ lần trước. File đã mở sẵn: về trang đầu như trước.
-                    if (lastIsNew) await reader.ShowFirstPageAsync(last);
-                    else await reader.ShowPageAsync(last, last.Pages[0], preserveZoomMode: true);
-                }
+            finally
+            {
+                if (waits && !shown) reader!.EndOpenWait(); // nothing to show (error, cancelled password, empty file)
+            }
+        }
+
+        private static string SafeFullPath(string path)
+        {
+            try { return Path.GetFullPath(path); }
+            catch { return ""; }
         }
 
         void IReaderPageEditHost.CloseDocument(DocumentGroup group)

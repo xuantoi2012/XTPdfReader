@@ -2,7 +2,7 @@ using XTReader.Printing;
 using XTReader.Printing.Agent;
 
 string? Option(string name) => args.FirstOrDefault(a => a.StartsWith(name + "=", StringComparison.OrdinalIgnoreCase))?[(name.Length + 1)..];
-string root = Option("--root") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XTReader", "PrintJobs");
+string root = Option("--root") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XTPdfReader", "Printed"); // fixed app folder; the Reader's "Clean up printed files" works on the same path (Services/PrintedFilesService)
 var sink = new ReaderPipeSink(Option("--reader"));
 var agent = new SessionAgent(Option("--broker") ?? AgentWire.PipeName, root, sink);
 using var stop = new CancellationTokenSource();

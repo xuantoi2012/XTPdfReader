@@ -194,6 +194,7 @@ namespace XTPdfMergeApp
             Cmd("Undo", "Ctrl+Z", "undo", () => EditHost?.Undo());
             Cmd("Redo", "Ctrl+Y", "redo", () => EditHost?.Redo());
             Cmd("Keyboard shortcuts", "F1", "info", () => Controls.KeyboardShortcutsWindow.ShowFor(this));
+            Cmd("About PDF Reader Pro", "", "info", () => Controls.AboutWindow.ShowFor(this));
             Cmd("Settings", "", "settings", () => { ShowStart(false); ShowSettings(true); });
             Cmd(ThemeService.IsDark ? "Switch to the light theme" : "Switch to the dark theme", "", "eye", () =>
             {
@@ -220,7 +221,7 @@ namespace XTPdfMergeApp
                     if (EditHost != null) _ = EditHost.OpenPathsAsync(new[] { path });
                 }));
             }
-            Palette.Open(items);
+            Palette.Open(items, TitleSearchButton);
         }
     }
 }

@@ -53,12 +53,19 @@ public partial class ReaderWindow
         // Keep complete controls at both viewport edges; the menu exposes every clipped command.
         ReaderToolsScroll.Clip = new RectangleGeometry(new Rect(first, 0, Math.Max(0, last - first), ReaderToolsScroll.ActualHeight));
     }
+    /// <summary>"More tools": the popup lists only the buttons the window is too narrow to show (cut off at the right edge), grouped like the ribbon.</summary>
     private void ReaderToolbarMore_Click(object sender, RoutedEventArgs e)
     {
+        double width = ReaderToolsScroll.ViewportWidth;
+        bool Shown(XTButton b)
+        {
+            double left = b.TranslatePoint(new Point(), ReaderToolsScroll).X;
+            return left >= -.5 && left + b.ActualWidth <= width + .5;
+        }
         var menu = new ContextMenu { PlacementTarget = ReaderToolbarMore, Placement = PlacementMode.Bottom, MaxHeight = Math.Max(180, SystemParameters.WorkArea.Height - 120) };
         foreach (var group in ((Panel)ReaderToolsScroll.Content).Children.OfType<StackPanel>())
         {
-            var buttons = VisualTreeHelpers.FindVisualChildren<XTButton>(group).Where(b => b.Visibility == Visibility.Visible).ToList();
+            var buttons = VisualTreeHelpers.FindVisualChildren<XTButton>(group).Where(b => b.Visibility == Visibility.Visible && !Shown(b)).ToList();
             if (buttons.Count == 0) continue;
             if (menu.Items.Count > 0) menu.Items.Add(new Separator());
             foreach (var button in buttons)
@@ -70,6 +77,7 @@ public partial class ReaderWindow
                 menu.Items.Add(item);
             }
         }
+        if (menu.Items.Count == 0) return;
         ReaderToolbarMore.ContextMenu = menu;
         menu.IsOpen = true;
     }

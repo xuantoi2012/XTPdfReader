@@ -86,6 +86,36 @@
         </Style.Triggers>
     </Style>
 
+    <!-- ══ Ribbon: nút tự rộng theo chữ, nhãn luôn đủ trên 1 dòng, khoảng cách gọn (còn chỗ cho chức năng sau này) ══ -->
+    <ControlTemplate x:Key="UiRibbonButtonTemplate" TargetType="{x:Type xt:XTButton}">
+        <Border x:Name="Bd" CornerRadius="6" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Viewbox x:Name="ToolbarIcon" Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}" HorizontalAlignment="Center">
+                    <Canvas Width="24" Height="24">
+                        <Path x:Name="Tint" Fill="{DynamicResource Ui.Accent}" Opacity="0.3" Visibility="Collapsed"
+                              Data="{Binding IconData, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource UiIconTint}}"/>
+                        <Path Data="{TemplateBinding IconData}" Fill="{TemplateBinding IconBrush}"/>
+                    </Canvas>
+                </Viewbox>
+                <TextBlock Text="{TemplateBinding Text}" Foreground="{TemplateBinding Foreground}" FontSize="11" TextAlignment="Center"
+                           HorizontalAlignment="Center" TextWrapping="NoWrap" Margin="0,3,0,0"/>
+            </StackPanel>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="Tag" Value="Active"><Setter TargetName="Tint" Property="Visibility" Value="Visible"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.42"/></Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+    <Style x:Key="UiRibbonButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiToolbarButton}">
+        <Setter Property="Template" Value="{StaticResource UiRibbonButtonTemplate}"/>
+        <Setter Property="Width" Value="Auto"/>
+        <Setter Property="MinWidth" Value="36"/>
+        <Setter Property="Height" Value="54"/>
+        <Setter Property="Padding" Value="4,0"/>
+        <Setter Property="Margin" Value="0"/>
+        <Setter Property="IconSize" Value="24"/>
+    </Style>
+
     <!-- ══ Nút chính (Merge files): nền accent, icon + chữ ngang ══ -->
     <ControlTemplate x:Key="UiPrimaryButtonTemplate" TargetType="{x:Type xt:XTButton}">
         <Border x:Name="Bd" CornerRadius="6" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
@@ -694,7 +724,7 @@
 
     <Style x:Key="UiToolbarSeparator" TargetType="Border">
         <Setter Property="Width" Value="1"/>
-        <Setter Property="Margin" Value="8,6,8,16"/>
+        <Setter Property="Margin" Value="5,6,5,14"/>
         <Setter Property="Background" Value="{DynamicResource Ui.ToolbarBorder}"/>
     </Style>
 </ResourceDictionary>

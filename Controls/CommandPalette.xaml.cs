@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -20,18 +21,23 @@ namespace XTPdfMergeApp.Controls
 
         public CommandPalette() => InitializeComponent();
 
-        internal bool IsOpen => Visibility == Visibility.Visible;
+        internal bool IsOpen => Pop.IsOpen;
 
-        internal void Open(IReadOnlyList<PaletteItem> items)
+        /// <summary>Drop the palette down from <paramref name="anchor"/> (the title-bar search box), right edges aligned.</summary>
+        internal void Open(IReadOnlyList<PaletteItem> items, FrameworkElement anchor)
         {
             _all = items;
             Query.Text = "";
-            Visibility = Visibility.Visible;
+            Pop.PlacementTarget = anchor;
+            Pop.HorizontalOffset = anchor.ActualWidth - 640 - 24 + 12; // panel is 640 wide with 12 px side margins for the shadow
+            Pop.IsOpen = true;
             Refresh();
             Dispatcher.BeginInvoke(new Action(() => Query.Focus()), System.Windows.Threading.DispatcherPriority.Input);
         }
 
-        internal void Close() => Visibility = Visibility.Collapsed;
+        internal void Close() => Pop.IsOpen = false;
+
+        private void Pop_Closed(object? sender, EventArgs e) { }
 
         private void Refresh()
         {
@@ -90,8 +96,6 @@ namespace XTPdfMergeApp.Controls
                 RunSelected();
             }
         }
-
-        private void Backdrop_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) => Close();
 
         private void Panel_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) => e.Handled = true;
     }

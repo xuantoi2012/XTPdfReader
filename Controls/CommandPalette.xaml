@@ -3,8 +3,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:XTPdfMergeApp.Controls"
              FontFamily="Segoe UI" FontSize="13">
-    <Grid Background="#66000000" MouseLeftButtonDown="Backdrop_MouseLeftButtonDown">
-        <Border Width="620" VerticalAlignment="Top" Margin="0,110,0,0" CornerRadius="12" BorderThickness="1"
+    <!-- The palette is a drop-down popup under the title-bar search box (no full-window backdrop); the control itself takes no room. -->
+    <Popup x:Name="Pop" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade" Placement="Bottom" Closed="Pop_Closed">
+        <Border Width="640" Margin="12,2,12,24" CornerRadius="12" BorderThickness="1"
                 BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}" MouseLeftButtonDown="Panel_MouseLeftButtonDown">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="40" ShadowDepth="10" Opacity="0.35" Direction="270"/>
@@ -65,5 +66,5 @@
                 </ListBox>
             </DockPanel>
         </Border>
-    </Grid>
+    </Popup>
 </UserControl>

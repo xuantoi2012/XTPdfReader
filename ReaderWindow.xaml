@@ -45,10 +45,13 @@
     <xt:XTWindow.TitleBarRightContent>
         <!-- Title bar chỉ giữ lệnh toàn cục: kính lúp mở Command Palette (Ctrl+K), Find nội dung vẫn ở ribbon/Ctrl+F. -->
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,6,0">
-            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.search}" Width="30" Height="30" IconSize="18"
-                         ToolTip="Command palette (Ctrl+K)" Click="ReaderMore_Click"/>
+            <!-- Wide search box: a click (or Ctrl+K) drops the command palette down right under it. -->
+            <xt:XTButton x:Name="TitleSearchButton" Style="{StaticResource UiGhostButton}" Icon="{StaticResource Ui.Icon.search}" Width="260" Height="28"
+                         Text="Search commands and files…   Ctrl+K" Margin="0,0,8,0" ToolTip="Command palette (Ctrl+K)" Click="ReaderMore_Click"/>
             <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.settings}" Width="30" Height="30" IconSize="18"
                          ToolTip="Settings" Click="RibbonSettings_Click"/>
+            <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.info}" Width="30" Height="30" IconSize="18"
+                         ToolTip="About PDF Reader Pro" Click="RibbonAbout_Click"/>
         </StackPanel>
     </xt:XTWindow.TitleBarRightContent>
 
@@ -68,24 +71,24 @@
                  không có tab để bấm chuyển — theo yêu cầu dùng gộp lại 1 hàng thay vì nhiều tab ribbon. Nhóm Document đi ngay
                  sau các nhóm khác, để vùng trống bên phải tự co giãn. Xoay ở nhóm "Rotate view" là xoay KHUNG NHÌN; xoay THẬT nằm ở nhóm Organize.
                  Tag="Active" = công cụ đang bật. ══ -->
-            <Border x:Name="ReaderToolbarBar" Grid.Row="0" Height="94" Background="{DynamicResource Ui.Surface}"
+            <Border x:Name="ReaderToolbarBar" Grid.Row="0" Height="80" Background="{DynamicResource Ui.Surface}"
                     BorderBrush="{DynamicResource Ui.ToolbarBorder}" BorderThickness="0,0,0,1">
-                <DockPanel Margin="12,0">
-                    <xt:XTButton x:Name="ReaderToolbarMore" DockPanel.Dock="Right" Style="{StaticResource UiIconButton}"
-                                 Icon="{StaticResource Ui.Icon.more}" Width="36" Height="36" Margin="8,0,0,0"
-                                 VerticalAlignment="Center" Visibility="Collapsed" ToolTip="More tools" Click="ReaderToolbarMore_Click"/>
+                <DockPanel Margin="8,0">
+                    <xt:XTButton x:Name="ReaderToolbarMore" DockPanel.Dock="Right" Style="{StaticResource UiGhostButton}"
+                                 Icon="{StaticResource Ui.Icon.more}" Text="More tools" Height="30" Margin="8,0,0,0"
+                                 VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Tools that do not fit the window width" Click="ReaderToolbarMore_Click"/>
                     <ScrollViewer x:Name="ReaderToolsScroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Focusable="False">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <!-- Tools -->
                             <StackPanel VerticalAlignment="Bottom">
                                 <StackPanel Orientation="Horizontal">
-                                    <xt:XTButton x:Name="ReaderHandToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hand}" Text="Hand"
+                                    <xt:XTButton x:Name="ReaderHandToolButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.hand}" Text="Hand"
                                                  ToolTip="Drag to scroll the page (Esc returns to this tool)" Click="ReaderHandTool_Click" Tag="Active"/>
-                                    <xt:XTButton x:Name="ReaderSelectToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.select}" Text="Select"
+                                    <xt:XTButton x:Name="ReaderSelectToolButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.select}" Text="Select"
                                                  ToolTip="Drag across text to select it, Ctrl+C to copy" Click="ReaderSelectTool_Click"/>
-                                    <xt:XTButton x:Name="ReaderMeasureToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.ruler}" Text="Measure"
+                                    <xt:XTButton x:Name="ReaderMeasureToolButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.ruler}" Text="Measure"
                                                  ToolTip="Drag between two points: the real length at the sheet's scale (Esc clears)" Click="ReaderMeasureTool_Click"/>
-                                    <xt:XTButton x:Name="ReaderSnapShotToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.snapshot}" Text="SnapShot"
+                                    <xt:XTButton x:Name="ReaderSnapShotToolButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.snapshot}" Text="SnapShot"
                                                  ToolTip="Drag a rectangle: the picture goes to the clipboard" Click="ReaderSnapShotTool_Click"/>
                                 </StackPanel>
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Tools"/>
@@ -94,12 +97,12 @@
                             <!-- Page view -->
                             <StackPanel VerticalAlignment="Bottom">
                                 <StackPanel Orientation="Horizontal">
-                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.actual}" Text="Actual size"
+                                    <xt:XTButton Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.actual}" Text="Actual size"
                                                  ToolTip="Actual size (100%)" Click="ReaderActualSize_Click"/>
                                     <StackPanel VerticalAlignment="Center">
-                                        <xt:XTButton Style="{StaticResource UiMiniIconButton}" Width="70" Icon="{StaticResource Ui.Icon.fitp}" Text="Fit page"
+                                        <xt:XTButton Style="{StaticResource UiMiniIconButton}" Width="80" Icon="{StaticResource Ui.Icon.fitp}" Text="Fit page"
                                                      ToolTip="Fit page" Click="ReaderFitPage_Click"/>
-                                        <xt:XTButton Style="{StaticResource UiMiniIconButton}" Width="70" Icon="{StaticResource Ui.Icon.fitw}" Text="Fit width"
+                                        <xt:XTButton Style="{StaticResource UiMiniIconButton}" Width="80" Icon="{StaticResource Ui.Icon.fitw}" Text="Fit width"
                                                      ToolTip="Fit width" Click="ReaderFitWidth_Click"/>
                                     </StackPanel>
                                 </StackPanel>
@@ -109,9 +112,9 @@
                             <!-- Rotate view -->
                             <StackPanel VerticalAlignment="Bottom">
                                 <StackPanel Orientation="Horizontal">
-                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.rotl}" Text="Rotate&#x0a;left"
+                                    <xt:XTButton Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.rotl}" Text="Rotate left"
                                                  ToolTip="Rotate the view left (view only, the file is not changed)" Click="ReaderRotateLeft_Click"/>
-                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.rotr}" Text="Rotate right"
+                                    <xt:XTButton Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.rotr}" Text="Rotate right"
                                                  ToolTip="Rotate the view right (view only, the file is not changed)" Click="ReaderRotateRight_Click"/>
                                 </StackPanel>
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Rotate view"/>
@@ -120,27 +123,27 @@
                             <!-- Comment -->
                             <StackPanel VerticalAlignment="Bottom">
                                 <StackPanel Orientation="Horizontal">
-                                    <xt:XTButton x:Name="ReaderTypewriterToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.type}" Text="Typewriter"
+                                    <xt:XTButton x:Name="ReaderTypewriterToolButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.type}" Text="Typewriter"
                                                  ToolTip="Type text on the page: click where it goes, type, then Enter (Shift+Enter for a new line). Click existing text to edit." Click="ReaderTypewriterTool_Click"/>
-                                    <xt:XTButton x:Name="ReaderCommentToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.note}" Text="Note"
+                                    <xt:XTButton x:Name="ReaderCommentToolButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.note}" Text="Note"
                                                  ToolTip="Sticky note: click the page, type, then Enter. Hover the icon to read it, click to edit." Click="ReaderCommentTool_Click"/>
-                                    <xt:XTButton x:Name="ReaderCalloutToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.callout}" Text="Callout"
+                                    <xt:XTButton x:Name="ReaderCalloutToolButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.callout}" Text="Callout"
                                                  ToolTip="Callout: click the point to highlight, then enter the note text" Click="ReaderCalloutTool_Click"/>
-                                    <xt:XTButton x:Name="ReaderPencilToolButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.pencil}" Text="Pencil"
+                                    <xt:XTButton x:Name="ReaderPencilToolButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.pencil}" Text="Pencil"
                                                  ToolTip="Draw a freehand PDF Ink stroke. It remains editable/selectable and is saved with the PDF." Click="ReaderPencilTool_Click"/>
-                                    <xt:XTButton x:Name="ReaderHighlightTextButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl_text}" Text="Highlight text"
+                                    <xt:XTButton x:Name="ReaderHighlightTextButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.hl_text}" Text="Highlight text"
                                                  ToolTip="Drag across text to highlight it (needs selectable text)" Click="ReaderHighlightText_Click"/>
-                                    <xt:XTButton x:Name="ReaderHighlightAreaButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.hl_area}" Text="Highlight area"
+                                    <xt:XTButton x:Name="ReaderHighlightAreaButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.hl_area}" Text="Highlight area"
                                                  ToolTip="Drag a rectangle to highlight an area (also works on scanned pages and drawings)" Click="ReaderHighlightArea_Click"/>
                                     <!-- Markup tools stay in a compact 2×2 grid, avoiding a flyout during day-to-day reviewing. -->
                                     <Grid VerticalAlignment="Center">
                                         <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-                                        <Grid.ColumnDefinitions><ColumnDefinition Width="94"/><ColumnDefinition Width="78"/></Grid.ColumnDefinitions>
-                                        <xt:XTButton x:Name="ReaderUnderlineToolButton" Grid.Row="0" Grid.Column="0" Style="{StaticResource UiMiniIconButton}" Width="94" Icon="{StaticResource Ui.Icon.underline}" Text="Underline"
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="82"/><ColumnDefinition Width="62"/></Grid.ColumnDefinitions>
+                                        <xt:XTButton x:Name="ReaderUnderlineToolButton" Grid.Row="0" Grid.Column="0" Style="{StaticResource UiMiniIconButton}" Width="82" Icon="{StaticResource Ui.Icon.underline}" Text="Underline"
                                                      ToolTip="Underline: drag across text" Click="ReaderUnderlineTool_Click"/>
                                         <xt:XTButton x:Name="ReaderStrikethroughToolButton" Grid.Row="0" Grid.Column="1" Style="{StaticResource UiMiniIconButton}" Icon="{StaticResource Ui.Icon.strike}" Text="Strike"
                                                      ToolTip="Strikethrough: drag across text" Click="ReaderStrikethroughTool_Click"/>
-                                        <xt:XTButton x:Name="ReaderSquigglyToolButton" Grid.Row="1" Grid.Column="0" Style="{StaticResource UiMiniIconButton}" Width="94" Icon="{StaticResource Ui.Icon.squiggly}" Text="Squiggly"
+                                        <xt:XTButton x:Name="ReaderSquigglyToolButton" Grid.Row="1" Grid.Column="0" Style="{StaticResource UiMiniIconButton}" Width="82" Icon="{StaticResource Ui.Icon.squiggly}" Text="Squiggly"
                                                      ToolTip="Squiggly underline: drag across text" Click="ReaderSquigglyTool_Click"/>
                                         <xt:XTButton x:Name="ReaderEraserToolButton" Grid.Row="1" Grid.Column="1" Style="{StaticResource UiMiniIconButton}" Icon="{StaticResource Ui.Icon.eraser}" Text="Eraser"
                                                      ToolTip="Delete an annotation: click it. Undo restores it." Click="ReaderEraserTool_Click"/>
@@ -154,7 +157,7 @@
                             <StackPanel VerticalAlignment="Bottom">
                                 <Grid VerticalAlignment="Center">
                                     <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="76"/><ColumnDefinition Width="76"/><ColumnDefinition Width="76"/></Grid.ColumnDefinitions>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="62"/><ColumnDefinition Width="62"/><ColumnDefinition Width="62"/></Grid.ColumnDefinitions>
                                     <xt:XTButton x:Name="ReaderShapeRectButton" Grid.Row="0" Grid.Column="0" Style="{StaticResource UiMiniIconButton}"
                                                  Icon="{StaticResource Ui.Icon.shape_rect}" Text="Rect" ToolTip="Rectangle" Click="ReaderShapeRect_Click"/>
                                     <xt:XTButton x:Name="ReaderShapeCloudButton" Grid.Row="0" Grid.Column="1" Style="{StaticResource UiMiniIconButton}"
@@ -175,17 +178,17 @@
                                  file, không cần nút to riêng — gộp chung vào đây, đổi icon khác Icon.merge cho khỏi trùng ý xoay/luồng. -->
                             <StackPanel VerticalAlignment="Bottom">
                                 <StackPanel Orientation="Horizontal">
-                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.insert}" Text="Insert"
+                                    <xt:XTButton Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.insert}" Text="Insert"
                                                  ToolTip="Insert pages after the current one" Click="ReaderInsertMenu_Click"/>
-                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.trash}" Text="Delete"
+                                    <xt:XTButton Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.trash}" Text="Delete"
                                                  ToolTip="Delete the selected page(s)" Click="ReaderDeletePages_Click"/>
-                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.pagerotl}" Text="Turn left"
+                                    <xt:XTButton Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.pagerotl}" Text="Turn left"
                                                  ToolTip="Rotate the page(s) 90° left — saved to the file" Click="ReaderPageRotateLeft_Click"/>
-                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.pagerotr}" Text="Turn right"
+                                    <xt:XTButton Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.pagerotr}" Text="Turn right"
                                                  ToolTip="Rotate the page(s) 90° right — saved to the file" Click="ReaderPageRotateRight_Click"/>
-                                    <xt:XTButton Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.extract}" Text="Extract"
+                                    <xt:XTButton Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.extract}" Text="Extract"
                                                  ToolTip="Extract the selected page(s) to a new file" Click="ReaderExtractPages_Click"/>
-                                    <xt:XTButton x:Name="ReaderMergeButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.layers}" Text="Merge"
+                                    <xt:XTButton x:Name="ReaderMergeButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.layers}" Text="Merge"
                                                  ToolTip="Open the Merge window: move or copy pages between files, merge, split and save" Click="ReaderShowMergeWindow_Click"/>
                                 </StackPanel>
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Organize"/>
@@ -194,11 +197,11 @@
                             <!-- Document: đặt sát các nhóm ribbon, không ghim xa bên phải để vùng trống tự co giãn. -->
                             <StackPanel VerticalAlignment="Bottom">
                                 <StackPanel Orientation="Horizontal">
-                                    <xt:XTButton x:Name="ReaderFindButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.search}" Text="Find"
+                                    <xt:XTButton x:Name="ReaderFindButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.search}" Text="Find"
                                                  ToolTip="Find in document (Ctrl+F)" Click="ReaderFind_Click"/>
-                                    <xt:XTButton x:Name="ReaderPrintButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.print}" Text="Print"
+                                    <xt:XTButton x:Name="ReaderPrintButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.print}" Text="Print"
                                                  ToolTip="Print (Ctrl+P)" Click="ReaderPrint_Click"/>
-                                    <xt:XTButton x:Name="ReaderSecurityButton" Style="{StaticResource UiToolbarButton}" Icon="{StaticResource Ui.Icon.lock}" Text="Protect"
+                                    <xt:XTButton x:Name="ReaderSecurityButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.lock}" Text="Protect"
                                                  ToolTip="Show document encryption and permissions" Click="ReaderSecurity_Click"/>
                                 </StackPanel>
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Document"/>
@@ -540,7 +543,7 @@
             <!-- Bảng lệnh Ctrl+K: phủ toàn cửa sổ, nền mờ; bấm ra ngoài hoặc Esc để đóng. -->
             <!-- Màn hình Merge: mỗi file một cửa sổ con (Controls/MergeView). -->
 
-            <ctl:CommandPalette x:Name="Palette" Grid.RowSpan="4" Visibility="Collapsed"/>
+            <ctl:CommandPalette x:Name="Palette" Grid.RowSpan="4"/>
 
             <!-- Thanh trạng thái: đường dẫn · điều hướng trang (giữa) · zoom (phải) -->
             <Grid x:Name="ReaderStatusBar" Grid.Row="3" Background="{DynamicResource Ui.Panel}" Height="30"
