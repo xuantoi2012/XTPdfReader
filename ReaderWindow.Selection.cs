@@ -69,6 +69,12 @@ namespace XTPdfMergeApp
         /// <summary>Keeps the selection box on the annotation while scrolling / zooming, and follows it after an edit or undo.</summary>
         private void UpdateSelectionVisual()
         {
+            UpdateSelectionVisualCore();
+            PositionFloatingBars();
+        }
+
+        private void UpdateSelectionVisualCore()
+        {
             UpdateShapeGrips();
             if (_selAnn is not { } spec || _selRow is not { } row || _annotationEditor != null)
             {
@@ -412,6 +418,7 @@ namespace XTPdfMergeApp
             bool markup = _selAnn is { Kind: QuickAnnotationKind.Highlight or QuickAnnotationKind.Underline or QuickAnnotationKind.StrikeOut or QuickAnnotationKind.Squiggly };
             if (markup) LoadMarkupColorBar();
             MarkupColorBar.Visibility = markup ? Visibility.Visible : Visibility.Collapsed;
+            PositionFloatingBars();
         }
 
         // ── Colour of a selected Highlight/Underline/Strikethrough ("properties" of the selected markup) ──────

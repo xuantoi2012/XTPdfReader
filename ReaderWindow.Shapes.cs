@@ -30,6 +30,18 @@ namespace XTPdfMergeApp
             return Math.Max(0.05, (p1 - p0).Length);
         }
 
+        /// <summary>The page-size factor the PDF writer applies to line widths and arrow heads (A1/A0 sheets get thicker lines); the preview must use it too.</summary>
+        private double ShapePageScale(PageRow row)
+            => GetCachedPageAnnotations(row)?.Geometry is { } g && g.DisplayWidth > 0 ? ShapeStyle.PageScale(g.DisplayWidth) : 1;
+
+        /// <summary>The remembered colour/width of one shape tool (each tool keeps its own); falls back to the old shared setting.</summary>
+        private static ShapeStyle ToolShapeStyle(string type)
+        {
+            string saved = AppSettings.GetShapeStyleFor(type);
+            var style = ShapeStyle.Decode(saved.Length > 0 ? saved : AppSettings.ShapeStyleSetting);
+            return style with { Type = type, Corner = 0 };
+        }
+
         private static Color ParseWpfColor(string hex)
         {
             try { return (Color)ColorConverter.ConvertFromString(hex); }
@@ -37,10 +49,10 @@ namespace XTPdfMergeApp
         }
 
         /// <summary>Hiện hình xem trước giữa 2 điểm góc (toạ độ ReaderInteractionLayer) — dùng chung cho vẽ mới và resize.</summary>
-        private void ShowShapePreview(ShapeStyle style, Point a, Point b, double ppp)
+        private void ShowShapePreview(ShapeStyle style, Point a, Point b, double ppp, double pageScale = 1)
         {
             var brush = new SolidColorBrush(ParseWpfColor(style.Color));
-            double lw = Math.Max(1, style.Width * ppp);
+            double lw = Math.Max(1, style.Width * pageScale * ppp); // same effective width as the PDF appearance (Width x PageScale points)
             bool oval = style.Type == ShapeStyle.Oval;
             bool rectLike = !style.IsLine && !oval;
 
@@ -55,7 +67,7 @@ namespace XTPdfMergeApp
                 ReaderShapeRubber.StrokeThickness = lw;
                 ReaderShapeRubber.Fill = Brushes.Transparent;
                 // Cloud: góc bo lớn thay cho các nét lượn thật (xấp xỉ, hình thật vẫn vẽ đúng lúc ghi vào PDF).
-                double radius = style.Type == ShapeStyle.Cloud ? Math.Max(6, 10 * ppp * 0.7) : 0;
+                double radius = style.Type == ShapeStyle.Cloud ? Math.Max(6, 10 * pageScale * ppp * 0.7) : 0;
                 ReaderShapeRubber.RadiusX = ReaderShapeRubber.RadiusY = radius;
                 Canvas.SetLeft(ReaderShapeRubber, Math.Min(a.X, b.X));
                 Canvas.SetTop(ReaderShapeRubber, Math.Min(a.Y, b.Y));
@@ -78,18 +90,18 @@ namespace XTPdfMergeApp
                 ReaderShapeRubberLine.StrokeThickness = lw;
                 ReaderShapeRubberLine.X1 = a.X;
                 ReaderShapeRubberLine.Y1 = a.Y;
-                if (style.Type == ShapeStyle.Arrow) UpdateArrowHead(a, b, brush, lw);
+                if (style.Type == ShapeStyle.Arrow) UpdateArrowHead(a, b, brush, lw, 10 * pageScale * ppp);
                 else { ReaderShapeRubberLine.X2 = b.X; ReaderShapeRubberLine.Y2 = b.Y; }
             }
         }
 
         /// <summary>Đầu mũi tên (tam giác) + rút ngắn đường thẳng để không đè lên đầu mũi tên — cùng công thức lúc ghi vào PDF.</summary>
-        private void UpdateArrowHead(Point start, Point end, Brush brush, double lw)
+        private void UpdateArrowHead(Point start, Point end, Brush brush, double lw, double minHead)
         {
             double dx = end.X - start.X, dy = end.Y - start.Y, len = Math.Sqrt(dx * dx + dy * dy);
             if (len < 1) { ReaderShapeRubberLine.X2 = end.X; ReaderShapeRubberLine.Y2 = end.Y; return; }
             double ux = dx / len, uy = dy / len;
-            double head = Math.Min(Math.Max(10, 5 * lw), len * 0.6), half = head * 0.4;
+            double head = Math.Min(Math.Max(minHead, 5 * lw), len * 0.6), half = head * 0.4;
             double bx = end.X - ux * head, by = end.Y - uy * head;
             ReaderShapeArrowHead.Fill = brush;
             ReaderShapeArrowHead.Points = new PointCollection { end, new Point(bx - uy * half, by + ux * half), new Point(bx + uy * half, by - ux * half) };
@@ -107,7 +119,7 @@ namespace XTPdfMergeApp
             _shapeDrag = new ShapeDrag(hit.Row, hit.U, hit.V);
             ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;
             ReaderContentHost.CaptureMouse();
-            ShowShapePreview(_shapeStyle, start, start, ShapePixelsPerPoint(hit.Row));
+            ShowShapePreview(_shapeStyle, start, start, ShapePixelsPerPoint(hit.Row), ShapePageScale(hit.Row));
         }
 
         private bool UpdateShapeDrag(Point pointInHost)
@@ -115,7 +127,7 @@ namespace XTPdfMergeApp
             if (_shapeDrag is not { } drag) return false;
             if (!TryGetPagePoint(drag.Row, pointInHost, clamp: true, out var current)) return true;
             if (!TryPageToLayer(drag.Row, drag.StartU, drag.StartV, out Point a) || !TryPageToLayer(drag.Row, current.U, current.V, out Point b)) return true;
-            ShowShapePreview(_shapeStyle, a, b, ShapePixelsPerPoint(drag.Row));
+            ShowShapePreview(_shapeStyle, a, b, ShapePixelsPerPoint(drag.Row), ShapePageScale(drag.Row));
             return true;
         }
 
@@ -250,6 +262,9 @@ namespace XTPdfMergeApp
         private void ShapeBarChanged()
         {
             AppSettings.ShapeStyleSetting = _shapeStyle.Encode();
+            // Each shape tool remembers its own colour/width: store under the type of the selected shape, else of the active tool.
+            string type = _selAnn is { Kind: QuickAnnotationKind.Shape } picked ? ShapeStyle.Decode(picked.Format).Type : _shapeStyle.Type;
+            AppSettings.SetShapeStyleFor(type, (_shapeStyle with { Type = type, Corner = 0 }).Encode());
             if (_selAnn is not { Kind: QuickAnnotationKind.Shape } spec || _selRow is not { } row) return;
             var old = ShapeStyle.Decode(spec.Format);
             var style = old with { Color = _shapeStyle.Color, Width = _shapeStyle.Width };

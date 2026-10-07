@@ -133,7 +133,7 @@ namespace XTPdfMergeApp
             if (drag.Handle.Contains('S')) drag.V2 = Math.Max(current.V, drag.V1 + min);
 
             if (!TryPageToLayer(drag.Row, drag.U1, drag.V1, out Point a) || !TryPageToLayer(drag.Row, drag.U2, drag.V2, out Point b)) return true;
-            ShowShapePreview(drag.Style, a, b, ShapePixelsPerPoint(drag.Row));
+            ShowShapePreview(drag.Style, a, b, ShapePixelsPerPoint(drag.Row), ShapePageScale(drag.Row));
             PlaceGrips(a, b);
             return true;
         }
@@ -228,7 +228,7 @@ namespace XTPdfMergeApp
 
             if (!TryPageToLayer(drag.Row, draggedU, draggedV, out Point draggedPx) || !TryPageToLayer(drag.Row, fixedU, fixedV, out Point fixedPx)) return true;
             var (a, b) = drag.DraggingTail ? (draggedPx, fixedPx) : (fixedPx, draggedPx); // a = tail, b = head (arrow tip)
-            ShowShapePreview(drag.Style, a, b, ShapePixelsPerPoint(drag.Row));
+            ShowShapePreview(drag.Style, a, b, ShapePixelsPerPoint(drag.Row), ShapePageScale(drag.Row));
             Place(drag.DraggingTail ? GripLineA : GripLineB, draggedPx.X, draggedPx.Y);
             Place(drag.DraggingTail ? GripLineB : GripLineA, fixedPx.X, fixedPx.Y);
             return true;

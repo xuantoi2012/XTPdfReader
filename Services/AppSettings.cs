@@ -107,6 +107,10 @@ namespace XTPdfMergeApp.Services
             set => Set("HighlightMode", value);
         }
 
+        /// <summary>Last style of ONE shape tool (rect, cloud, oval, arrow, line), encoded <see cref="ShapeStyle"/>; "" = never set.</summary>
+        public static string GetShapeStyleFor(string type) => GetString("ShapeStyle." + type, "");
+        public static void SetShapeStyleFor(string type, string encoded) => Set("ShapeStyle." + type, encoded);
+
         /// <summary>Last used drawing-shape style (colour, width), see <see cref="ShapeStyle"/>.</summary>
         public static string ShapeStyleSetting
         {

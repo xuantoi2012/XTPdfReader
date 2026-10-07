@@ -249,3 +249,56 @@ internal static partial class Program
         finally { PrintedFilesService.Folder = saved; }
     }
 }
+
+internal static partial class Program
+{
+    /// <summary>Shape tools: preview width equals the width written to the PDF, each tool remembers its own style, property bars float beside the annotation.</summary>
+    static void TestShapePropertiesFloating()
+    {
+        if (Application.Current == null) CreateReaderTestApplication();
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var reader = new ReaderWindow { Width = 1300, Height = 800 };
+        var priorOwner = Application.Current.MainWindow;
+        Application.Current.MainWindow = reader;
+        try
+        {
+            reader.Show();
+            ((FrameworkElement)reader.FindName("StartPage")).Visibility = Visibility.Collapsed;
+            reader.UpdateLayout(); Pump(TimeSpan.FromMilliseconds(300));
+
+            // preview = final: lw_px = Width x PageScale x pixelsPerPoint
+            var style = new ShapeStyle(ShapeStyle.Rect, "#C0392B", 3, 0);
+            typeof(ReaderWindow).GetMethod("ShowShapePreview", flags)!.Invoke(reader, new object[] { style, new System.Windows.Point(10, 10), new System.Windows.Point(200, 120), 0.5, 2.83 });
+            double thickness = ((System.Windows.Shapes.Rectangle)reader.FindName("ReaderShapeRubber")).StrokeThickness;
+            Check(Math.Abs(thickness - 3 * 2.83 * 0.5) < 0.001, $"Shape preview thickness {thickness:0.###} matches the written width x page scale");
+            Check(Math.Abs(ShapeStyle.PageScale(2384) * 3 - 3 * 2384 / 842.0) < 0.001, "A1 sheets (2384 pt wide) write 2.83x thicker shapes, so the preview must scale too");
+
+            // per-tool memory
+            string saved = AppSettings.GetShapeStyleFor("Cloud"), savedLegacy = AppSettings.ShapeStyleSetting;
+            try
+            {
+                AppSettings.SetShapeStyleFor("Cloud", new ShapeStyle("Cloud", "#2563EB", 6, 0).Encode());
+                AppSettings.SetShapeStyleFor("Oval", new ShapeStyle("Oval", "#16A34A", 1, 0).Encode());
+                var cloud = (ShapeStyle)typeof(ReaderWindow).GetMethod("ToolShapeStyle", flags)!.Invoke(null, new object[] { ShapeStyle.Cloud })!;
+                var oval = (ShapeStyle)typeof(ReaderWindow).GetMethod("ToolShapeStyle", flags)!.Invoke(null, new object[] { ShapeStyle.Oval })!;
+                Check(cloud.Color == "#2563EB" && cloud.Width == 6 && oval.Color == "#16A34A" && oval.Width == 1, "Each shape tool keeps its own colour and width");
+            }
+            finally { AppSettings.SetShapeStyleFor("Cloud", saved); AppSettings.ShapeStyleSetting = savedLegacy; AppSettings.SetShapeStyleFor("Oval", ""); }
+
+            // floating bar sits above the selected annotation, follows it, and goes back home without a selection
+            var shapeBar = (Border)reader.FindName("ShapeBar");
+            shapeBar.Visibility = Visibility.Visible;
+            reader.AnchorOverrideForTests = new Rect(300, 320, 200, 100);
+            typeof(ReaderWindow).GetMethod("PositionFloatingBars", flags)!.Invoke(reader, null);
+            Check(Math.Abs(shapeBar.Margin.Left - 300) < 1 && shapeBar.Margin.Top < 320 && shapeBar.Margin.Top > 320 - 80, $"The shape bar floats just above the annotation ({shapeBar.Margin.Left:0},{shapeBar.Margin.Top:0})");
+            reader.AnchorOverrideForTests = new Rect(300, 10, 200, 100);
+            typeof(ReaderWindow).GetMethod("PositionFloatingBars", flags)!.Invoke(reader, null);
+            Check(shapeBar.Margin.Top >= 110, "Near the top edge the bar flips below the annotation");
+            reader.AnchorOverrideForTests = null;
+            typeof(ReaderWindow).GetMethod("PositionFloatingBars", flags)!.Invoke(reader, null);
+            Check(shapeBar.Margin.Left == 14 && shapeBar.Margin.Top == 14, "With nothing selected the bar sits at the top-left as the tool default");
+            shapeBar.Visibility = Visibility.Collapsed;
+        }
+        finally { reader.Close(); Application.Current.MainWindow = priorOwner; }
+    }
+}

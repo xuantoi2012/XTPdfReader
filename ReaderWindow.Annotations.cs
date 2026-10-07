@@ -71,7 +71,7 @@ namespace XTPdfMergeApp
         private void SelectShapeType(string type)
         {
             if (_readerTool == ReaderTool.Shape && _shapeStyle.Type == type) { SetReaderTool(ReaderTool.Hand); return; }
-            _shapeStyle = _shapeStyle with { Type = type };
+            _shapeStyle = ToolShapeStyle(type); // each shape tool keeps its own last colour and width
             SetReaderTool(ReaderTool.Shape);
         }
 
