@@ -580,3 +580,51 @@ internal static partial class Program
         Check(Directory.GetFiles(folder, ".shared.pdf.xtopen.*").Length == 0, "Closing the file removes its own marker");
     }
 }
+
+internal static partial class Program
+{
+    static void TestWorkerJob()
+    {
+        var info = new System.Diagnostics.ProcessStartInfo("ping.exe", "-n 30 127.0.0.1") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true };
+        using var child = System.Diagnostics.Process.Start(info)!;
+        try
+        {
+            Check(XTPdfMergeApp.Services.WorkerJob.Assign(child), "A worker process can be assigned to the kill-on-close job");
+            Check(XTPdfMergeApp.Services.WorkerJob.Contains(child), "The worker is reported as inside the job");
+        }
+        finally { try { child.Kill(); } catch { } }
+    }
+}
+
+internal static partial class Program
+{
+    /// <summary>Thử trên file thật: tắt từng layer (tối đa N) và xem layer nào làm ảnh trang đổi — để biết bật/tắt layer có tác dụng với file đó không.</summary>
+    static async Task LayerRealFileCheckAsync(string path, int page, int maxLayers)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var info = PdfLayerService.ReadLayers(path);
+        Console.WriteLine($"layers: {info.Names.Count}, default hidden: {info.DefaultHidden.Count}, usage-controlled: {info.UsageControlled?.Count ?? 0}, read in {sw.ElapsedMilliseconds} ms");
+        async Task<string> HashAsync()
+        {
+            var bmp = await PdfThumbnailService.RenderPageAsync(path, page - 1, 1400, layerToken: PdfLayerStateStore.GetToken(path));
+            var px = new byte[bmp!.PixelWidth * bmp.PixelHeight * 4];
+            var conv = new System.Windows.Media.Imaging.FormatConvertedBitmap(bmp, System.Windows.Media.PixelFormats.Bgra32, null, 0);
+            conv.CopyPixels(px, bmp.PixelWidth * 4, 0);
+            return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(px))[..16];
+        }
+        string baseline = await HashAsync();
+        int changed = 0, tried = 0;
+        foreach (var (id, name) in info.Names.Take(maxLayers))
+        {
+            PdfLayerStateStore.SetHidden(path, new HashSet<string> { id }, info.DefaultHidden);
+            await PdfThumbnailService.RetireDocumentAsync(path);
+            string hash = await HashAsync();
+            tried++;
+            bool differs = hash != baseline;
+            if (differs) changed++;
+            Console.WriteLine($"  hide \"{name}\" ({id}): {(differs ? "page changes" : "no change")}{(info.UsageControlled?.Contains(id) == true ? "  [usage-controlled]" : "")}");
+        }
+        PdfLayerStateStore.Forget(path);
+        Console.WriteLine($"{changed} of {tried} layers change page {page}; {sw.ElapsedMilliseconds} ms");
+    }
+}

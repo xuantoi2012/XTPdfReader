@@ -327,6 +327,7 @@ internal static class ExperimentalMuPdfViewport
         }
         var _worker = Process.Start(info) ?? throw new InvalidOperationException("Worker did not start");
         slot.Worker = _worker;
+        WorkerJob.Assign(_worker); // app crash / "End task" kills the worker too (no orphaned python.exe holding RAM)
         _worker.ErrorDataReceived += (_, e) => { if (e.Data != null) Debug.WriteLine("[MuPDF worker] " + e.Data); };
         _worker.BeginErrorReadLine();
         return _worker;
@@ -398,12 +399,16 @@ internal static class ExperimentalMuPdfViewport
         Interlocked.Decrement(ref slot.Pending);
     }
 
+    private static readonly TimeSpan GateWait = TimeSpan.FromSeconds(8);
+
     internal static async Task RetireAsync(string path)
     {
         string normalized = Path.GetFullPath(path).ToUpperInvariant();
         foreach (var slot in Workers)
         {
-            await slot.Gate.WaitAsync().ConfigureAwait(false);
+            // A slow render can hold the gate for up to 30 s; closing must not wait that long. After GateWait the busy worker is stopped
+            // (its render fails and is retried on a fresh worker), because the caller needs the file released.
+            if (!await slot.Gate.WaitAsync(GateWait).ConfigureAwait(false)) { Stop(slot); continue; }
             try
             {
                 if (slot.Worker is not { HasExited: false } worker) continue;
@@ -426,7 +431,8 @@ internal static class ExperimentalMuPdfViewport
         foreach (var key in PageAspects.Keys.Where(k => !active.Contains(k.Path))) PageAspects.TryRemove(key, out _);
         foreach (var slot in Workers)
         {
-            await slot.Gate.WaitAsync().ConfigureAwait(false);
+            // Housekeeping only: a busy worker is skipped (it is tidied on the next pass) instead of making the caller wait for its render.
+            if (!await slot.Gate.WaitAsync(TimeSpan.FromMilliseconds(250)).ConfigureAwait(false)) continue;
             try
             {
                 if (slot.Worker is not { HasExited: false } worker) continue;

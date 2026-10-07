@@ -78,11 +78,14 @@ internal static partial class Program
         Check(new ContinuousPdfView().PreferViewportRegions && ReaderTuningOptionsDefaultsMatch(),
             "Production and no-override profiling default to the measured viewport-first policy");
         // Renders 25% above the needed width (ZoomHeadroom) so the next zoom steps shrink a sharp image instead of enlarging a soft one.
+        // The cap depends on the engine policy: PDFium keeps 2304 px, the MuPDF throughput build (production since 2026-10-06) allows 4608 px.
+        bool throughput = XTPdfMergeApp.Services.ExperimentalMuPdfViewport.ThroughputMode;
+        int cap = throughput ? 4608 : 2304;
         Check(ContinuousPdfView.PreferredPageBitmapWidth(1200, true) == 1536 &&
-            ContinuousPdfView.PreferredPageBitmapWidth(2200, true) == 2304,
+            ContinuousPdfView.PreferredPageBitmapWidth(2200, true) == (throughput ? 2816 : 2304),
             "Viewport-first rendering preserves full screen resolution at normal zoom");
-        Check(ContinuousPdfView.PreferredPageBitmapWidth(6600, true) == 1024 &&
-            ContinuousPdfView.PreferredPageBitmapWidth(6600, false) == 2304,
+        Check(ContinuousPdfView.PreferredPageBitmapWidth(cap * 3, true) == 1024 &&
+            ContinuousPdfView.PreferredPageBitmapWidth(cap * 3, false) == cap,
             "Deep zoom avoids a redundant full-page upgrade while rendering the sharp viewport region");
         try { new ReaderTuningOptions(NativeCachePages: -1).Validate(); throw new Exception("Invalid tuning was accepted"); }
         catch (ArgumentOutOfRangeException) { Check(true, "Tuning profiles reject invalid native-page capacity"); }

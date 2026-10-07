@@ -154,10 +154,18 @@ internal static partial class Program
             "Surplus raster is capped by viewport pixel budget");
         Check(XTPdfMergeApp.Controls.ZoomRenderPrediction.Headroom(2, 1, 2.6, 200, 2_000_000) == 1.18,
             "Zoom-out keeps small bounded sharpness headroom");
-        Check(ExperimentalMuPdfViewport.CanRender(source, 0, ""), "Enabled only for designated page one");
-        Check(!ExperimentalMuPdfViewport.CanRender(source, 1, ""), "Other pages stay on PDFium");
-        Check(!ExperimentalMuPdfViewport.CanRender(source, 0, "changed"), "Layer overrides stay on PDFium");
-        Check(!ExperimentalMuPdfViewport.CanRender(source + ".other", 0, ""), "Other documents stay on PDFium");
+        Check(ExperimentalMuPdfViewport.CanRender(source, 0, ""), "Enabled for the designated page one");
+        // The MuPDF-only build (default since 2026-10-06) renders every page, document and layer state; the experimental env-var builds keep the old limits.
+        bool mupdfOnly = ExperimentalMuPdfViewport.CanRender(source + ".other", 5, "changed");
+        if (mupdfOnly)
+            Check(ExperimentalMuPdfViewport.CanRender(source, 1, "") && ExperimentalMuPdfViewport.CanRender(source, 0, "changed") && ExperimentalMuPdfViewport.CanRender(source + ".other", 0, ""),
+                "The MuPDF-only build renders other pages, layer overrides and other documents");
+        else
+        {
+            Check(!ExperimentalMuPdfViewport.CanRender(source, 1, ""), "Other pages stay on PDFium");
+            Check(!ExperimentalMuPdfViewport.CanRender(source, 0, "changed"), "Layer overrides stay on PDFium");
+            Check(!ExperimentalMuPdfViewport.CanRender(source + ".other", 0, ""), "Other documents stay on PDFium");
+        }
         var rect = new Int32Rect(2040, 1581, 1920, 1080);
         byte[]? baseline = null;
         try
@@ -189,7 +197,9 @@ internal static partial class Program
             try { await ExperimentalMuPdfViewport.RenderAsync(source + ".missing", 0, 6000, 4242, new[] { rect }, default); }
             catch (InvalidOperationException) { failed = true; }
             Check(failed && ExperimentalMuPdfViewport.WorkerPrivateMiB == 0, "Worker errors dispose the process for clean fallback");
-            Check(!ExperimentalMuPdfViewport.CanRender(source, 0, ""), "Failed experimental backend stays disabled for this process");
+            // Throughput mode (production) must not give up on MuPDF for every document because one file failed (ExperimentalMuPdfViewport: `if (!ThroughputMode) _failed = true`).
+            Check(ExperimentalMuPdfViewport.ThroughputMode ? ExperimentalMuPdfViewport.CanRender(source, 0, "") : !ExperimentalMuPdfViewport.CanRender(source, 0, ""),
+                ExperimentalMuPdfViewport.ThroughputMode ? "One failed document does not disable the backend for the others" : "Failed experimental backend stays disabled for this process");
             ExperimentalMuPdfViewport.Shutdown();
             var restarted = await ExperimentalMuPdfViewport.RenderAsync(source, 0, 6000, 4242, new[] { rect }, default);
             Check(RegionPixels(restarted[0]!).SequenceEqual(baseline!), "Worker restarts without changing pixels");
