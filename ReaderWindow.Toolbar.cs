@@ -54,6 +54,7 @@ public partial class ReaderWindow
         ReaderToolsScroll.Clip = new RectangleGeometry(new Rect(first, 0, Math.Max(0, last - first), ReaderToolsScroll.ActualHeight));
     }
     internal int LastMoreToolsCount { get; private set; }
+    internal System.Collections.Generic.IReadOnlyList<string> LastMoreToolsNames { get; private set; } = Array.Empty<string>();
 
     /// <summary>"More tools": a popup that lists only the buttons the window is too narrow to show (cut off at the right edge), grouped like the ribbon.
     /// Own popup (not a ContextMenu): the menu clipped its last entry.</summary>
@@ -106,6 +107,7 @@ public partial class ReaderWindow
         }
         if (list.Children.Count == 0) return;
         LastMoreToolsCount = list.Children.OfType<Border>().Count(b => b.Height == 30);
+        LastMoreToolsNames = list.Children.OfType<Border>().Where(b => b.Height == 30).Select(b => ((TextBlock)((StackPanel)b.Child).Children[^1]).Text).ToList();
         var frame = new Border { Padding = new Thickness(6), CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Margin = new Thickness(8, 2, 8, 12),
             Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 12, ShadowDepth = 2, Opacity = 0.18, Direction = 270 },
             Child = new ScrollViewer { MaxHeight = Math.Max(180, SystemParameters.WorkArea.Height - 160), VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = list } };

@@ -36,9 +36,9 @@ internal static partial class Program
                 more.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Check(toolScroll.Clip is RectangleGeometry clipping && clipping.Bounds.Right <= toolScroll.ViewportWidth,
                     "Narrow toolbar clips at complete control boundaries");
-                var menu = more.ContextMenu;
-                Check(menu != null && menu.Items.OfType<MenuItem>().Any(i => (string)i.Header == "Squiggly") && menu.Items.OfType<MenuItem>().Any(i => (string)i.Header == "Print"), "Toolbar overflow includes compact markup tools and document commands");
-                menu!.IsOpen = false;
+                // "More tools" is a popup of only the buttons that do not fit (it replaced the ContextMenu of every button).
+                var hiddenNames = reader.LastMoreToolsNames;
+                Check(hiddenNames.Contains("Squiggly") && hiddenNames.Contains("Print") && !hiddenNames.Contains("Hand"), "Toolbar overflow lists only the hidden tools, including compact markup tools and document commands");
                 var bitmap = new RenderTargetBitmap((int)Math.Ceiling(bar.ActualWidth * 2), (int)Math.Ceiling(bar.ActualHeight * 2), 192, 192, PixelFormats.Pbgra32);
                 bitmap.Render(bar);
                 using (var png = File.Create(Path.Combine(Output, "toolbar-narrow.png")))

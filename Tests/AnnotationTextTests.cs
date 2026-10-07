@@ -81,7 +81,7 @@ internal static partial class Program
                     typeof(XTPdfMergeApp.ReaderWindow).GetMethod("ReaderAnnotationEditor_LostKeyboardFocus", flags)!);
                 ((System.Windows.Controls.TextBox)reader.FindName("ReaderAnnotationEditor")).LostKeyboardFocus -= lost;
                 var open = typeof(XTPdfMergeApp.ReaderWindow).GetMethod("OpenAnnotationEditorAsync", flags)!;
-                await (Task)open.Invoke(reader, new object?[] { hit, QuickAnnotationKind.Typewriter, null })!;                 await Task.Delay(300);
+                await (Task)open.Invoke(reader, new object?[] { hit, QuickAnnotationKind.Typewriter, null, null, null })!;                 await Task.Delay(300);
                 reader.UpdateLayout(); 
                 T Find<T>(string name) where T : class => (T)reader.FindName(name);
                 var box = Find<System.Windows.Shapes.Rectangle>("TextChromeBox");
