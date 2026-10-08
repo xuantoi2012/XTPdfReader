@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using XTPdfMergeApp.Services;
+using XTPdfMergeApp.Services.TextEdit;
 using static XTPdfMergeApp.Services.VisualTreeHelpers;
 using PageRow = XTPdfMergeApp.Domain.PagePlacement;
 using DocumentGroup = XTPdfMergeApp.Domain.WorkspaceDocument;
@@ -76,6 +77,7 @@ namespace XTPdfMergeApp
             AnnotationWorkingCopy.Conflict += OnAnnotationConflict;
             ReaderSidePanel.SourceFileWritten += path => Session.RefreshDiskStamp(path);
             AnnotationStore.Changed += OnAnnotationsChanged;
+            TextEditPendingStore.PendingChanged += path => Dispatcher.InvokeAsync(() => OnAnnotationsChanged(path, 0));
             ShowEmptyReaderState();
         }
 

@@ -41,6 +41,7 @@ namespace XTPdfMergeApp.Controls
         public static void Draw(DrawingContext dc, PageRow row, Rect page, double dpi, IReadOnlyList<BaseImage> bases, bool live = true)
         {
             if (page.Width <= 0 || page.Height <= 0) return;
+            TextEditLayer.Draw(dc, row, page, dpi); // text edits that wait for Save, under the annotations
             var annotations = AnnotationStore.TryGetPage(row.SourcePath, row.PageNumber);
             if (annotations == null || annotations.Annotations.Count == 0) return;
             var geometry = annotations.Geometry;

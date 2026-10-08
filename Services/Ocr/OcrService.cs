@@ -34,8 +34,8 @@ namespace XTPdfMergeApp.Services.Ocr
         internal static string WorkerScript => Environment.GetEnvironmentVariable("XTPDF_OCR_WORKER") ?? Path.Combine(AppContext.BaseDirectory, "OcrWorker.py");
         internal static string TessdataFolder => Environment.GetEnvironmentVariable("XTPDF_TESSDATA") ?? Path.Combine(AppContext.BaseDirectory, "tessdata");
 
-        private static string? Python => ExperimentalMuPdfViewport.RuntimeSetting("XTPDF_MUPDF_PYTHON");
-        private static string? Packages => ExperimentalMuPdfViewport.RuntimeSetting("XTPDF_MUPDF_PACKAGES");
+        internal static string? Python => ExperimentalMuPdfViewport.RuntimeSetting("XTPDF_MUPDF_PYTHON");
+        internal static string? Packages => ExperimentalMuPdfViewport.RuntimeSetting("XTPDF_MUPDF_PACKAGES");
 
         /// <summary>The python, the script and the language data are all there.</summary>
         internal static bool IsAvailable(string language = "vie")

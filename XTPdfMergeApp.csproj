@@ -50,6 +50,7 @@
     <Content Include="Tests\GpuPdfium\MuPdfViewportWorker.py" Link="MuPdfWorker.py" CopyToOutputDirectory="PreserveNewest" />
     <!-- OCR of scanned pages: the worker script (run by the embedded Python) and the Vietnamese + Latin language data of tesseract (tessdata_fast, Apache-2.0). -->
     <Content Include="Services\Ocr\OcrWorker.py" Link="OcrWorker.py" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Services\TextEdit\TextEditWorker.py" Link="TextEditWorker.py" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Services/Ocr/tessdata/vie.traineddata" Link="tessdata/vie.traineddata" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <PropertyGroup Condition="'$(MuPdfOnly)' == 'true'">

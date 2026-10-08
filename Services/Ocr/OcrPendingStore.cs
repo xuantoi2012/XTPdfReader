@@ -75,6 +75,6 @@ namespace XTPdfMergeApp.Services.Ocr
 
         /// <summary>The file to read text from: itself, or a working copy that has the pending OCR text (so Find, Select and the sheet-info reader see it).</summary>
         public static async Task<string> TextPathAsync(string path)
-            => HasPending(path) ? await AnnotationWorkingCopy.GetAsync(path).ConfigureAwait(false) : path;
+            => HasPending(path) || TextEdit.TextEditPendingStore.HasPending(path) ? await AnnotationWorkingCopy.GetAsync(path).ConfigureAwait(false) : path;
     }
 }

@@ -254,7 +254,11 @@ namespace XTPdfMergeApp.Services
         /// <summary>The file on disk was replaced. <paramref name="keepPending"/> false (Save): the edits are now in the file.</summary>
         public static void FileRewritten(string path, bool keepPending)
         {
-            if (!keepPending) Ocr.OcrPendingStore.Clear(path); // the saved file has the OCR text
+            if (!keepPending)
+            {
+                Ocr.OcrPendingStore.Clear(path); // the saved file has the OCR text
+                TextEdit.TextEditPendingStore.Clear(path); // ...and the edited text
+            }
             string key = Normalize(path);
             if (!_files.TryGetValue(key, out var file)) return;
             file.Reader.Close();
@@ -277,6 +281,7 @@ namespace XTPdfMergeApp.Services
         public static void Forget(string path)
         {
             Ocr.OcrPendingStore.Clear(path);
+            TextEdit.TextEditPendingStore.Clear(path);
             string key = Normalize(path);
             if (!_files.Remove(key, out var file)) return;
             file.Reader.Close();

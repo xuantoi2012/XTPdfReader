@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using iText.Kernel.Pdf;
 using XTPdfMergeApp.Services.Ocr;
+using XTPdfMergeApp.Services.TextEdit;
 
 namespace XTPdfMergeApp.Services
 {
@@ -19,20 +20,26 @@ namespace XTPdfMergeApp.Services
         private static string Folder => Path.Combine(Path.GetTempPath(), "XTPdfReader", "working");
 
         /// <summary>Unsaved annotations or unsaved OCR text.</summary>
-        public static bool HasPendingEdits(string path) => AnnotationStore.HasPending(path) || OcrPendingStore.HasPending(path);
+        public static bool HasPendingEdits(string path) => AnnotationStore.HasPending(path) || OcrPendingStore.HasPending(path) || TextEditPendingStore.HasPending(path);
 
         public static async Task<string> GetAsync(string path)
         {
             if (!HasPendingEdits(path)) return path;
             string key = AnnotationStore.Normalize(path);
-            long version = AnnotationStore.Version(path) * 100003L + OcrPendingStore.Version(path);
+            long version = (AnnotationStore.Version(path) * 100003L + OcrPendingStore.Version(path)) * 100003L + TextEditPendingStore.Version(path);
             if (_copies.TryGetValue(key, out var existing) && existing.Version == version && File.Exists(existing.Copy)) return existing.Copy;
 
             var changes = AnnotationStore.Pending(path);
             var ocr = OcrPendingStore.AsResults(path);
+            var textEdits = TextEditPendingStore.All(path);
             Directory.CreateDirectory(Folder);
             string copy = Path.Combine(Folder, $"{Path.GetFileNameWithoutExtension(path)}-{Guid.NewGuid():N}.pdf");
             await Task.Run(() => Write(path, copy, changes, ocr));
+            if (textEdits.Count > 0) // the copy shows the edited text to Find, print and export: old characters out, then the new text in
+            {
+                await TextEditService.RemoveOldTextAsync(copy, textEdits).ConfigureAwait(false);
+                await Task.Run(() => PdfPageEditService.EditInPlace(copy, doc => TextEditWriter.ApplyTo(doc, textEdits))).ConfigureAwait(false);
+            }
             if (PdfThumbnailService.TryGetDocumentPassword(path) is { Length: > 0 } password)
                 await PdfThumbnailService.SetDocumentPasswordAsync(copy, password);
             if (_copies.TryGetValue(key, out var old)) TryDelete(old.Copy);
@@ -59,12 +66,19 @@ namespace XTPdfMergeApp.Services
         {
             var found = new List<string>();
             var ocr = OcrPendingStore.AsResults(path);
-            PdfPageEditService.EditInPlace(path, Describe(changes, ocr.Count), doc =>
+            var textEdits = TextEditPendingStore.All(path);
+            PdfPageEditService.EditInPlace(path, Describe(changes, ocr.Count, textEdits.Count), doc =>
             {
                 found.Clear(); // lần ghi có thể chạy lại trên bản mới của file (người khác lưu chen vào)
                 PdfQuickAnnotationService.ApplyChanges(doc, changes, found);
                 if (ocr.Count > 0) PdfOcrWriter.ApplyTo(doc, ocr);
-            }, ocr.Count > 0 ? PdfPermissionOperation.Modify : PdfPermissionOperation.Annotate);
+            }, ocr.Count > 0 || textEdits.Count > 0 ? PdfPermissionOperation.Modify : PdfPermissionOperation.Annotate);
+            // The edited text goes in as further incremental updates: the old characters are taken off the page, then the new text is written.
+            if (textEdits.Count > 0)
+            {
+                TextEditService.RemoveOldTextAsync(path, textEdits).GetAwaiter().GetResult();
+                PdfPageEditService.EditInPlace(path, doc => TextEditWriter.ApplyTo(doc, textEdits));
+            }
             conflicts = found.ToList();
             if (found.Count > 0) Conflict?.Invoke(path, found.ToList());
         }
@@ -73,7 +87,7 @@ namespace XTPdfMergeApp.Services
         public static event Action<string, IReadOnlyList<string>>? Conflict;
 
         /// <summary>Dòng lịch sử cho 1 lần lưu annotation: "Annotations: +thêm −xoá ~sửa".</summary>
-        private static string Describe(IReadOnlyList<QuickAnnotationChange> changes, int ocrPages = 0)
+        private static string Describe(IReadOnlyList<QuickAnnotationChange> changes, int ocrPages = 0, int textEdits = 0)
         {
             int added = changes.Count(c => c.Remove == null && c.Add != null);
             int removed = changes.Count(c => c.Add == null && c.Remove != null);
@@ -82,7 +96,11 @@ namespace XTPdfMergeApp.Services
             if (added > 0) parts.Add("+" + added);
             if (removed > 0) parts.Add("−" + removed);
             if (edited > 0) parts.Add("~" + edited);
-            if (ocrPages > 0) return (parts.Count > 0 ? "Annotations " + string.Join(" ", parts) + ", " : "") + $"OCR text on {ocrPages} page{(ocrPages == 1 ? "" : "s")}";
+            var extra = new List<string>();
+            if (parts.Count > 0) extra.Add("Annotations " + string.Join(" ", parts));
+            if (ocrPages > 0) extra.Add($"OCR text on {ocrPages} page{(ocrPages == 1 ? "" : "s")}");
+            if (textEdits > 0) extra.Add($"{textEdits} text edit{(textEdits == 1 ? "" : "s")}");
+            if (ocrPages > 0 || textEdits > 0) return string.Join(", ", extra);
             return "Annotations " + string.Join(" ", parts);
         }
 

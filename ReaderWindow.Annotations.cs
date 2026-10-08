@@ -26,7 +26,7 @@ namespace XTPdfMergeApp
     /// </summary>
     public partial class ReaderWindow
     {
-        private enum ReaderTool { Hand, Select, Typewriter, Comment, Callout, Pencil, Highlight, Underline, Strikethrough, Squiggly, Eraser, Stamp, Shape, Measure }
+        private enum ReaderTool { Hand, Select, Typewriter, Comment, Callout, Pencil, Highlight, Underline, Strikethrough, Squiggly, Eraser, Stamp, Shape, Measure, EditText }
 
         private ReaderTool _readerTool = ReaderTool.Hand;
 
@@ -80,7 +80,8 @@ namespace XTPdfMergeApp
         private void SetReaderTool(ReaderTool tool)
         {
             if (_readerPage is { } page && tool is not (ReaderTool.Hand or ReaderTool.Select) &&
-                !PdfPermissionDialog.Require(this, new[] { page.SourcePath }, PdfPermissionOperation.Annotate)) return;
+                !PdfPermissionDialog.Require(this, new[] { page.SourcePath }, tool == ReaderTool.EditText ? PdfPermissionOperation.Modify : PdfPermissionOperation.Annotate)) return;
+            CommitTextEdit();
             CommitAnnotationEditor();
             CancelHighlightDrag();
             CancelInkDrag();
@@ -109,6 +110,7 @@ namespace XTPdfMergeApp
             ReaderShapeArrowButton.Tag = tool == ReaderTool.Shape && _shapeStyle.Type == ShapeStyle.Arrow ? "Active" : null;
             ReaderShapeLineButton.Tag = tool == ReaderTool.Shape && _shapeStyle.Type == ShapeStyle.Line ? "Active" : null;
             ReaderMeasureToolButton.Tag = tool == ReaderTool.Measure ? "Active" : null;
+            ReaderEditTextToolButton.Tag = tool == ReaderTool.EditText ? "Active" : null;
             if (tool != ReaderTool.Select) ClearTextSelection();
 
             ApplyToolCursor();
@@ -131,6 +133,7 @@ namespace XTPdfMergeApp
                 ReaderTool.Stamp => Cursors.Cross,
                 ReaderTool.Shape => Cursors.Cross,
                 ReaderTool.Measure => Cursors.Cross,
+                ReaderTool.EditText => Cursors.IBeam,
                 _ => null
             };
             ReaderContentHost.ForceCursor = tool != ReaderTool.Hand;
@@ -214,6 +217,7 @@ namespace XTPdfMergeApp
         private void ReaderContentHost_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             _linkPress = null;
+            if (_textEditor != null && _textEditor.Box.IsMouseOver) return; // clicks inside the text being edited
             // Thanh Find / thanh định dạng nằm đè lên trang: bấm vào chúng không được coi là bấm lên trang.
             if (IsOverlayBar(e.OriginalSource as DependencyObject)) return;
             // Grip / width circle of a text box: their own handlers (Preview runs root-first, so leave the event alone here).
@@ -340,6 +344,11 @@ namespace XTPdfMergeApp
                 case ReaderTool.Measure:
                     e.Handled = true;
                     BeginMeasure(hit);
+                    break;
+
+                case ReaderTool.EditText:
+                    e.Handled = true;
+                    _ = BeginTextEditAsync(hit);
                     break;
             }
         }

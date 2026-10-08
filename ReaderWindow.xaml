@@ -209,6 +209,15 @@
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Organize"/>
                             </StackPanel>
                             <Border Style="{StaticResource UiToolbarSeparator}"/>
+                            <!-- Edit: sửa chữ thật của PDF có lớp chữ (Edit Text); Edit Object (chọn / copy / xoá nét vẽ, hình, ảnh) thêm sau. -->
+                            <StackPanel VerticalAlignment="Bottom">
+                                <StackPanel Orientation="Horizontal">
+                                    <xt:XTButton x:Name="ReaderEditTextToolButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.textbox}" Text="Edit Text"
+                                                 ToolTip="Edit the real text of the page: click a piece of text, type, then Enter. Only for pages with a text layer. Ctrl+S saves it into the file." Click="ReaderEditTextTool_Click"/>
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource UiGroupCaption}" Text="Edit"/>
+                            </StackPanel>
+                            <Border Style="{StaticResource UiToolbarSeparator}"/>
                             <!-- Document: đặt sát các nhóm ribbon, không ghim xa bên phải để vùng trống tự co giãn. -->
                             <StackPanel VerticalAlignment="Bottom">
                                 <StackPanel Orientation="Horizontal">
