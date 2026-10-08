@@ -493,6 +493,9 @@
                         </ToggleButton>
                         <Border Width="1" Height="18" Margin="6,0,8,0" Background="{DynamicResource Ui.Border}"/>
                         <StackPanel x:Name="FmtColors" Orientation="Horizontal" VerticalAlignment="Center"/>
+                        <Border Width="1" Height="18" Margin="8,0" Background="{DynamicResource Ui.Border}"/>
+                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.copy}" Width="28" Height="28" IconSize="16" ToolTip="Duplicate" Click="PropDuplicate_Click"/>
+                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.up2}" Width="28" Height="28" IconSize="16" ToolTip="Bring to front" Click="PropFront_Click"/>
                     </StackPanel>
                     <!-- Callout only: the arrow and the box (line colour/width, arrow head, box fill, border). -->
                     <StackPanel x:Name="CalloutRow" Orientation="Horizontal" Margin="0,6,0,0" Visibility="Collapsed">
@@ -547,6 +550,9 @@
                         <StackPanel x:Name="ShapeColors" Orientation="Horizontal" VerticalAlignment="Center"/>
                         <Border Width="1" Height="18" Margin="8,0" Background="{DynamicResource Ui.Border}"/>
                         <ComboBox x:Name="ShapeWidthBox" Width="80" Height="28" Focusable="False" SelectionChanged="ShapeWidth_Changed" ToolTip="Line width"/>
+                        <Border Width="1" Height="18" Margin="8,0" Background="{DynamicResource Ui.Border}"/>
+                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.copy}" Width="28" Height="28" IconSize="16" ToolTip="Duplicate" Click="PropDuplicate_Click"/>
+                        <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.up2}" Width="28" Height="28" IconSize="16" ToolTip="Bring to front" Click="PropFront_Click"/>
                     </StackPanel>
                 </Border>
 

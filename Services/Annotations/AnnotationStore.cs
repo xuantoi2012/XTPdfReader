@@ -192,7 +192,9 @@ namespace XTPdfMergeApp.Services
                     if (index >= 0) list.RemoveAt(index);
                 }
                 if (change.Add == null) continue;
-                if (index >= 0) list.Insert(index, change.Add);
+                // An annotation of the file that is only moved keeps its place in /Annots. One rewritten from its spec (restyled, retyped, brought
+                // to front) goes to the END, exactly where Save will put it, so the stacking on screen matches the saved file.
+                if (index >= 0 && change.Add.ObjectNumber > 0) list.Insert(index, change.Add);
                 else list.Add(change.Add);
             }
             return new PageAnnotations(state.Geometry, list);
