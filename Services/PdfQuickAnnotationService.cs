@@ -707,13 +707,20 @@ namespace XTPdfMergeApp.Services
                 annot.GetPdfObject().Put(PdfName.CA, new PdfNumber(style.Opacity / 100.0));
                 canvas.SetExtGState(new PdfExtGState().SetFillOpacity(style.Opacity / 100f).SetStrokeOpacity(style.Opacity / 100f));
             }
+            if (style.HasFill)
+            {
+                var fillColor = ParseColor(style.Fill);
+                canvas.SetFillColor(fillColor);
+                annot.GetPdfObject().Put(PdfName.IC, new PdfArray(fillColor.GetColorValue()));
+            }
             switch (style.Type)
             {
                 case ShapeStyle.Oval:
-                    canvas.Ellipse(lw / 2, lw / 2, width - lw / 2, height - lw / 2).Stroke();
+                    canvas.Ellipse(lw / 2, lw / 2, width - lw / 2, height - lw / 2);
+                    if (style.HasFill) canvas.FillStroke(); else canvas.Stroke();
                     break;
                 case ShapeStyle.Cloud:
-                    DrawCloud(canvas, width, height, lw, scale);
+                    DrawCloud(canvas, width, height, lw, scale, style.HasFill);
                     break;
                 case ShapeStyle.Line:
                     canvas.MoveTo(start.X, start.Y).LineTo(end.X, end.Y).Stroke();
@@ -729,7 +736,8 @@ namespace XTPdfMergeApp.Services
                     break;
                 }
                 default:
-                    canvas.Rectangle(lw / 2, lw / 2, width - lw, height - lw).Stroke();
+                    canvas.Rectangle(lw / 2, lw / 2, width - lw, height - lw);
+                    if (style.HasFill) canvas.FillStroke(); else canvas.Stroke();
                     break;
             }
             canvas.Release();
@@ -738,11 +746,11 @@ namespace XTPdfMergeApp.Services
         }
 
         /// <summary>Revision cloud: a row of outward semicircles along each edge of the (inset) rectangle.</summary>
-        private static void DrawCloud(PdfCanvas canvas, float width, float height, float lw, double scale)
+        private static void DrawCloud(PdfCanvas canvas, float width, float height, float lw, double scale, bool fill = false)
         {
             float r = (float)Math.Clamp(Math.Min(width, height) / 7, 3, 14 * scale);
             float x1 = r + lw / 2, y1 = r + lw / 2, x2 = width - r - lw / 2, y2 = height - r - lw / 2;
-            if (x2 - x1 < 4 || y2 - y1 < 4) { canvas.Rectangle(lw / 2, lw / 2, width - lw, height - lw).Stroke(); return; }
+            if (x2 - x1 < 4 || y2 - y1 < 4) { canvas.Rectangle(lw / 2, lw / 2, width - lw, height - lw); if (fill) canvas.FillStroke(); else canvas.Stroke(); return; }
 
             void Edge(float from, float to, Action<float, float> bump)
             {
@@ -751,10 +759,21 @@ namespace XTPdfMergeApp.Services
                 float step = length / n;
                 for (int i = 0; i < n; i++) bump(from + step * i + step / 2, step / 2);
             }
-            Edge(x1, x2, (c, rr) => canvas.Arc(c - rr, y2 - rr, c + rr, y2 + rr, 0, 180));       // top: bulge up
-            Edge(y1, y2, (c, rr) => canvas.Arc(x1 - rr, c - rr, x1 + rr, c + rr, 90, 180));      // left: bulge left (walking downwards)
-            Edge(x1, x2, (c, rr) => canvas.Arc(c - rr, y1 - rr, c + rr, y1 + rr, 180, 180));     // bottom: bulge down
-            Edge(y1, y2, (c, rr) => canvas.Arc(x2 - rr, c - rr, x2 + rr, c + rr, -90, 180));     // right: bulge right
+            void Bumps()
+            {
+                Edge(x1, x2, (c, rr) => canvas.Arc(c - rr, y2 - rr, c + rr, y2 + rr, 0, 180));       // top: bulge up
+                Edge(y1, y2, (c, rr) => canvas.Arc(x1 - rr, c - rr, x1 + rr, c + rr, 90, 180));      // left: bulge left (walking downwards)
+                Edge(x1, x2, (c, rr) => canvas.Arc(c - rr, y1 - rr, c + rr, y1 + rr, 180, 180));     // bottom: bulge down
+                Edge(y1, y2, (c, rr) => canvas.Arc(x2 - rr, c - rr, x2 + rr, c + rr, -90, 180));     // right: bulge right
+            }
+            if (fill)
+            {
+                // The bumps alone only fill their own half-discs: add the inner rectangle, paint, then draw the outline.
+                canvas.Rectangle(x1, y1, x2 - x1, y2 - y1);
+                Bumps();
+                canvas.Fill();
+            }
+            Bumps();
             canvas.Stroke();
         }
 

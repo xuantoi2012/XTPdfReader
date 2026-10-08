@@ -66,7 +66,7 @@ namespace XTPdfMergeApp
                 ReaderShapeRubber.Stroke = brush;
                 ReaderShapeRubber.StrokeThickness = lw;
                 ApplyDash(ReaderShapeRubber, style);
-                ReaderShapeRubber.Fill = Brushes.Transparent;
+                ReaderShapeRubber.Fill = FillBrush(style);
                 // Cloud: góc bo lớn thay cho các nét lượn thật (xấp xỉ, hình thật vẫn vẽ đúng lúc ghi vào PDF).
                 double radius = style.Type == ShapeStyle.Cloud ? Math.Max(6, 10 * pageScale * ppp * 0.7) : 0;
                 ReaderShapeRubber.RadiusX = ReaderShapeRubber.RadiusY = radius;
@@ -80,7 +80,7 @@ namespace XTPdfMergeApp
                 ReaderShapeOvalPreview.Stroke = brush;
                 ReaderShapeOvalPreview.StrokeThickness = lw;
                 ApplyDash(ReaderShapeOvalPreview, style);
-                ReaderShapeOvalPreview.Fill = Brushes.Transparent;
+                ReaderShapeOvalPreview.Fill = FillBrush(style);
                 Canvas.SetLeft(ReaderShapeOvalPreview, Math.Min(a.X, b.X));
                 Canvas.SetTop(ReaderShapeOvalPreview, Math.Min(a.Y, b.Y));
                 ReaderShapeOvalPreview.Width = Math.Abs(a.X - b.X);
@@ -97,6 +97,9 @@ namespace XTPdfMergeApp
                 else { ReaderShapeRubberLine.X2 = b.X; ReaderShapeRubberLine.Y2 = b.Y; }
             }
         }
+
+        private static Brush FillBrush(ShapeStyle style)
+            => style.HasFill ? new SolidColorBrush(ParseWpfColor(style.Fill)) { Opacity = style.Opacity / 100.0 } : Brushes.Transparent;
 
         /// <summary>The preview's dash (WPF counts dash lengths in line widths, like the PDF pattern built from the same factors).</summary>
         private static void ApplyDash(System.Windows.Shapes.Shape shape, ShapeStyle style)
@@ -223,10 +226,10 @@ namespace XTPdfMergeApp
                 {
                     double a = Math.Max(1, w / 2), b = Math.Max(1, h / 2);
                     double r = Math.Sqrt(Math.Pow((x - a) / a, 2) + Math.Pow((y - b) / b, 2));
-                    return Math.Abs(r - 1) * Math.Min(a, b) <= t;
+                    return style.HasFill ? (r - 1) * Math.Min(a, b) <= t : Math.Abs(r - 1) * Math.Min(a, b) <= t;
                 }
                 default:
-                    return !(x > t && y > t && x < w - t && y < h - t);
+                    return style.HasFill || !(x > t && y > t && x < w - t && y < h - t);
             }
         }
 
@@ -240,6 +243,18 @@ namespace XTPdfMergeApp
                 ShapeWidthBox.Items.Add(new ComboBoxItem { Content = width.ToString("0") + " pt", Tag = width, Focusable = false });
             for (int i = 0; i < ShapeStyle.DashNames.Length; i++)
                 ShapeDashBox.Items.Add(new ComboBoxItem { Content = ShapeStyle.DashNames[i], Tag = i, Focusable = false });
+            foreach (var (name, hex) in ShapeStyle.Fills)
+            {
+                var row = new StackPanel { Orientation = Orientation.Horizontal };
+                row.Children.Add(new System.Windows.Shapes.Ellipse
+                {
+                    Width = 12, Height = 12, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center,
+                    Fill = hex.Length > 0 ? new SolidColorBrush(ParseWpfColor(hex)) : Brushes.Transparent,
+                    Stroke = Brushes.Gray, StrokeThickness = 1
+                });
+                row.Children.Add(new TextBlock { Text = name, VerticalAlignment = VerticalAlignment.Center });
+                ShapeFillBox.Items.Add(new ComboBoxItem { Content = row, Tag = hex, Focusable = false });
+            }
             foreach (int opacity in ShapeStyle.Opacities)
                 ShapeOpacityBox.Items.Add(new ComboBoxItem { Content = opacity + "%", Tag = opacity, Focusable = false });
             foreach (string hex in TextFormat.Colors.Append("#FFFFFF").Where(c => c != "#FFFFFF"))
@@ -261,6 +276,8 @@ namespace XTPdfMergeApp
             try
             {
                 ShapeWidthBox.SelectedIndex = Math.Max(0, Array.FindIndex(ShapeStyle.Widths, w => Math.Abs(w - _shapeStyle.Width) < 0.01));
+                ShapeFillBox.Visibility = (_selAnn is { Kind: QuickAnnotationKind.Shape } picked ? ShapeStyle.Decode(picked.Format).IsLine : _shapeStyle.IsLine) ? Visibility.Collapsed : Visibility.Visible; // arrows and lines enclose nothing
+                ShapeFillBox.SelectedIndex = Math.Max(0, Array.FindIndex(ShapeStyle.Fills, f => string.Equals(f.Hex, _shapeStyle.Fill, StringComparison.OrdinalIgnoreCase)));
                 ShapeOpacityBox.SelectedIndex = Math.Max(0, Array.IndexOf(ShapeStyle.Opacities, _shapeStyle.Opacity));
                 ShapeDashBox.SelectedIndex = Math.Clamp(_shapeStyle.Dash, 0, ShapeStyle.DashNames.Length - 1);
                 foreach (RadioButton swatch in ShapeColors.Children)
@@ -283,6 +300,13 @@ namespace XTPdfMergeApp
             ShapeBarChanged();
         }
 
+        private void ShapeFill_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_shapeLoading || !_shapeBarBuilt || ShapeFillBox.SelectedItem is not ComboBoxItem { Tag: string fill }) return;
+            _shapeStyle = _shapeStyle with { Fill = fill };
+            ShapeBarChanged();
+        }
+
         private void ShapeOpacity_Changed(object sender, SelectionChangedEventArgs e)
         {
             if (_shapeLoading || !_shapeBarBuilt || ShapeOpacityBox.SelectedItem is not ComboBoxItem { Tag: int opacity }) return;
@@ -298,7 +322,7 @@ namespace XTPdfMergeApp
             AppSettings.SetShapeStyleFor(type, (_shapeStyle with { Type = type, Corner = 0 }).Encode());
             if (_selAnn is not { Kind: QuickAnnotationKind.Shape } spec || _selRow is not { } row) return;
             var old = ShapeStyle.Decode(spec.Format);
-            var style = old with { Color = _shapeStyle.Color, Width = _shapeStyle.Width, Dash = _shapeStyle.Dash, Opacity = _shapeStyle.Opacity };
+            var style = old with { Color = _shapeStyle.Color, Width = _shapeStyle.Width, Dash = _shapeStyle.Dash, Opacity = _shapeStyle.Opacity, Fill = old.IsLine ? "" : _shapeStyle.Fill };
             if (style == old) return;
             double u1 = spec.U1, v1 = spec.V1, u2 = spec.U2, v2 = spec.V2;
             if (style.IsLine && GetCachedPageAnnotations(row)?.Geometry is { } geometry)

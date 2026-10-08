@@ -209,4 +209,47 @@ internal static partial class Program
         var alphas = doc.GetPage(1).GetAnnotations().Select(a => a.GetPdfObject().GetAsNumber(PdfName.CA)?.DoubleValue() ?? 1.0).OrderBy(v => v).ToList();
         Check(alphas.SequenceEqual(new[] { 0.25, 0.5, 0.75 }) || alphas.Count(v => v < 1) == 3, "Three annotations carry /CA (got " + string.Join(", ", alphas) + ")");
     });
+
+    /// <summary>Fill colour of closed shapes: encoding, the bar, clicking inside a filled shape, /IC in the file.</summary>
+    static void TestShapeFill() => RunReaderFlow("shape-fill", async f =>
+    {
+        Check(ShapeStyle.Decode("Rect|#C0392B|2|0").Fill == "" && new ShapeStyle("Rect", "#C0392B", 2, 0).Encode() == "Rect|#C0392B|2|0", "Old shape text has no fill and encodes as before");
+        Check(ShapeStyle.Decode(new ShapeStyle("Oval", "#C0392B", 2, 0, ShapeStyle.Dashed, 50, "#FFF2A8").Encode()) is { Fill: "#FFF2A8", Opacity: 50, Dash: ShapeStyle.Dashed }, "Fill survives encode / decode with dash and opacity");
+        Check(ShapeStyle.Decode("Line|#C0392B|2|0|0|100|#FFF2A8").Fill == "", "A line never keeps a fill");
+
+        await f.AddAsync(RectSpec("xt-open", 0.1, 0.1, 0.4, 0.25));
+        await f.AddAsync(RectSpec("xt-yellow", 0.1, 0.3, 0.4, 0.45, new ShapeStyle(ShapeStyle.Rect, "#C0392B", 2, 0, 0, 100, "#FFF2A8")));
+        await f.AddAsync(RectSpec("xt-cloud", 0.5, 0.1, 0.9, 0.3, new ShapeStyle(ShapeStyle.Cloud, "#1F6FEB", 2, 0, 0, 60, "#BBDEFB")));
+        await f.AddAsync(RectSpec("xt-oval", 0.5, 0.35, 0.8, 0.5, new ShapeStyle(ShapeStyle.Oval, "#2E7D32", 2, 0, 0, 100, "#C8E6C9")));
+        await f.AddAsync(RectSpec("xt-arrow", 0.1, 0.55, 0.6, 0.7, new ShapeStyle(ShapeStyle.Arrow, "#C0392B", 3, 0)));
+        var page = await f.PageAsync();
+
+        var hitTest = typeof(XTPdfMergeApp.ReaderWindow).GetMethod("HitAnnotation", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        bool Hits(string name, double u, double v) => (bool)hitTest.Invoke(null, new[] { page.Annotations.Single(x => x.Name == name), page.Geometry, f.Hit(u, v), 4.0 })!;
+        Check(!Hits("xt-open", 0.25, 0.175) && Hits("xt-yellow", 0.25, 0.375), "The inside of a filled rectangle is clickable, the inside of an open one is not");
+        Check(Hits("xt-oval", 0.65, 0.425), "The inside of a filled oval is clickable");
+
+        f.Select(page.Annotations.Single(x => x.Name == "xt-open"));
+        var box = f.Find<System.Windows.Controls.ComboBox>("ShapeFillBox");
+        Check(box.IsVisible && box.SelectedIndex == 0, "The bar shows 'No fill' for an open rectangle");
+        box.SelectedIndex = Array.FindIndex(ShapeStyle.Fills, x => x.Hex == "#F8C9C4");
+        await Task.Delay(1500);
+        page = await f.PageAsync();
+        Check(ShapeStyle.Decode(page.Annotations.Single(x => x.Name == "xt-open").Format).Fill == "#F8C9C4", "Choosing Red in the bar fills the selected rectangle");
+
+        f.Select(page.Annotations.Single(x => x.Name == "xt-arrow"));
+        Check(!f.Find<System.Windows.Controls.ComboBox>("ShapeFillBox").IsVisible, "The fill box is hidden for an arrow");
+        f.Select(page.Annotations.Single(x => x.Name == "xt-cloud"));
+        Check(f.Find<System.Windows.Controls.ComboBox>("ShapeFillBox").SelectedIndex == Array.FindIndex(ShapeStyle.Fills, x => x.Hex == "#BBDEFB"), "Selecting the cloud shows its blue fill");
+
+        f.Window.UpdateLayout();
+        SavePng(f.Find<System.Windows.FrameworkElement>("ReaderContentHost"), "shape-fill");
+
+        string saved = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(f.Path)!, "saved.pdf");
+        using (var writing = new PdfDocument(new PdfReader(f.Path), new PdfWriter(saved)))
+            PdfQuickAnnotationService.ApplyChanges(writing, AnnotationStore.Pending(f.Path));
+        using var doc = new PdfDocument(new PdfReader(saved));
+        int interior = doc.GetPage(1).GetAnnotations().Count(a => a.GetPdfObject().GetAsArray(PdfName.IC) is { } ic && ic.Size() == 3);
+        Check(interior == 4, "Four annotations carry /IC (got " + interior + ")");
+    });
 }

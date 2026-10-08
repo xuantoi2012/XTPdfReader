@@ -5,23 +5,30 @@ using System.Linq;
 namespace XTPdfMergeApp.Services
 {
     /// <summary>Drawing comment shapes (Foxit-style): rectangle, cloud (review revision cloud), oval, arrow, line. Encoded into the annotation as /XTShape.</summary>
-    public sealed record ShapeStyle(string Type, string Color, double Width, int Corner, int Dash = 0, int Opacity = 100)
+    public sealed record ShapeStyle(string Type, string Color, double Width, int Corner, int Dash = 0, int Opacity = 100, string Fill = "")
     {
         public const string Rect = "Rect", Oval = "Oval", Cloud = "Cloud", Arrow = "Arrow", Line = "Line";
         public static readonly string[] Types = { Rect, Cloud, Oval, Arrow, Line };
         public static readonly double[] Widths = { 1, 2, 3, 4, 6 };
         public const int Solid = 0, Dashed = 1, Dotted = 2;
         public static readonly int[] Opacities = { 100, 75, 50, 25 };
+        /// <summary>Fill choices of the closed shapes (rectangle, cloud, oval); "" = no fill.</summary>
+        public static readonly (string Name, string Hex)[] Fills =
+        {
+            ("No fill", ""), ("White", "#FFFFFF"), ("Yellow", "#FFF2A8"), ("Red", "#F8C9C4"), ("Green", "#C8E6C9"), ("Blue", "#BBDEFB"), ("Purple", "#E1BEE7"), ("Grey", "#D9D9D9")
+        };
         public static readonly string[] DashNames = { "Solid", "Dashed", "Dotted" };
 
         public static ShapeStyle Default { get; } = new(Rect, "#C0392B", 2, 0);
 
         public bool IsLine => Type is Arrow or Line;
+        public bool HasFill => Fill.Length > 0 && !IsLine;
 
-        /// <summary>The fifth (dash) and sixth (opacity, %) fields are written only when not solid / not 100, so styles of old files and solid shapes keep their old text.</summary>
+        /// <summary>The fifth (dash), sixth (opacity, %) and seventh (fill colour) fields are written only when not solid / not 100 / not empty, so styles of old files and solid shapes keep their old text.</summary>
         public string Encode()
         {
             string text = string.Join("|", Type, Color, Width.ToString("0.##", CultureInfo.InvariantCulture), Corner.ToString(CultureInfo.InvariantCulture));
+            if (Fill.Length > 0) return text + "|" + Dash.ToString(CultureInfo.InvariantCulture) + "|" + Opacity.ToString(CultureInfo.InvariantCulture) + "|" + Fill;
             if (Opacity < 100) return text + "|" + Dash.ToString(CultureInfo.InvariantCulture) + "|" + Opacity.ToString(CultureInfo.InvariantCulture);
             return Dash == Solid ? text : text + "|" + Dash.ToString(CultureInfo.InvariantCulture);
         }
@@ -42,7 +49,8 @@ namespace XTPdfMergeApp.Services
             string type = Types.FirstOrDefault(t => t.Equals(parts[0], StringComparison.OrdinalIgnoreCase)) ?? Rect;
             int dash = parts.Length > 4 && int.TryParse(parts[4], out int d) ? Math.Clamp(d, Solid, Dotted) : Solid;
             int opacity = parts.Length > 5 && int.TryParse(parts[5], out int o) ? Math.Clamp(o, 5, 100) : 100;
-            return new ShapeStyle(type, parts[1].StartsWith('#') ? parts[1] : Default.Color, Math.Clamp(width, 0.5, 20), Math.Clamp(corner, 0, 3), dash, opacity);
+            string fill = parts.Length > 6 && parts[6].StartsWith('#') && type is Rect or Cloud or Oval ? parts[6] : "";
+            return new ShapeStyle(type, parts[1].StartsWith('#') ? parts[1] : Default.Color, Math.Clamp(width, 0.5, 20), Math.Clamp(corner, 0, 3), dash, opacity, fill);
         }
 
         /// <summary>Points added around a line's bounding box so that its ends and the arrow head are not clipped by the annotation rectangle.</summary>

@@ -82,7 +82,7 @@ namespace XTPdfMergeApp
             else if (spec is { Kind: QuickAnnotationKind.Shape })
             {
                 var style = ShapeStyle.Decode(spec.Format);
-                _shapeStyle = _shapeStyle with { Color = style.Color, Width = style.Width, Dash = style.Dash, Opacity = style.Opacity };
+                _shapeStyle = _shapeStyle with { Color = style.Color, Width = style.Width, Dash = style.Dash, Opacity = style.Opacity, Fill = style.Fill };
                 LoadShapeBar();
             }
             UpdateFormatBarVisibility();
