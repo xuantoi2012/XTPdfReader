@@ -98,6 +98,7 @@ def search_page(document, page, data, use_filter=True):
 
 documents = OrderedDict()
 signature_appearances = {}
+note_pages = set()
 lists = OrderedDict()
 rasters = OrderedDict()
 raster_bytes = 0
@@ -335,6 +336,16 @@ for line in sys.stdin:
                 for xref in signatures:
                     document.xref_set_key(xref, "Subtype", "/Stamp")
                 if signatures:
+                    page = document.reload_page(page)
+            if annotations and (stamp, request["page"]) not in note_pages:
+                # MuPDF places a sticky note (/Text) icon by its own rules, which are wrong on /Rotate 90/180/270 pages (the icon is shifted by
+                # one icon or more). The note has a real appearance stream written for the displayed page, so drawing it as a stamp puts it where
+                # the annotation rectangle says. Only this private render document changes, never the file.
+                note_pages.add((stamp, request["page"]))
+                notes = [a.xref for a in (page.annots() or []) if a.type[0] == fitz.PDF_ANNOT_TEXT and document.xref_get_key(a.xref, "AP/N")[0] == "xref"]
+                for xref in notes:
+                    document.xref_set_key(xref, "Subtype", "/Stamp")
+                if notes:
                     page = document.reload_page(page)
             signatures = signature_appearances[widget_key]
             if not annotations and (page.first_widget is not None or signatures):
