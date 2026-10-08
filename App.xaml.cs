@@ -5,7 +5,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using Velopack;
 using XTPdfMergeApp.Services;
 
 namespace XTPdfMergeApp
@@ -38,11 +37,6 @@ namespace XTPdfMergeApp
         {
             base.OnStartup(e);
 
-            // PHẢI đứng đầu tiên: Velopack tự bắt các cờ --veloapp-install/--veloapp-updated/--veloapp-uninstall
-            // mà trình cài/gỡ/cập nhật gọi app kèm theo (tạo/xoá shortcut...) rồi tự thoát luôn nếu gặp — chạy
-            // sau logic khác (single-instance mutex, mở cửa sổ...) sẽ làm các bước đó chạy nhầm lúc cài/gỡ.
-            VelopackApp.Build().Run();
-
             // Cửa sổ đọc (ReaderWindow) là cửa sổ chính: đóng nó = thoát app (nó tự đóng cửa sổ ghép phụ).
             ShutdownMode = ShutdownMode.OnMainWindowClose;
 
@@ -71,7 +65,35 @@ namespace XTPdfMergeApp
 
             if (!secondInstance) StartIncomingPdfPipeServer();
 
+            // The splash first, so there is something on screen at once (also when a PDF was double-clicked); the rest of the start-up
+            // follows as soon as the splash has been drawn.
+            ShutdownMode = ShutdownMode.OnExplicitShutdown; // the splash must not become the main window
+            _splash = new Controls.StartupSplash();
+            _splash.Show();
+            // The splash is topmost: it must not sit over a prompt (restore the last session, a PDF password...), so it goes as soon as
+            // any other window opens.
+            EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent, new RoutedEventHandler((sender, _) =>
+            {
+                if (_splash is not null && sender is Window w && w != _splash && w != _reader) DismissSplash();
+            }));
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() => ContinueStartup(incomingPaths)));
+        }
+
+        private Controls.StartupSplash? _splash;
+
+        private void DismissSplash()
+        {
+            var splash = _splash;
+            _splash = null;
+            splash?.FadeOutAndClose();
+        }
+
+        private void ContinueStartup(string[] incomingPaths)
+        {
+            _splash?.SetStatus("Đang tải giao diện…");
             ThemeService.ApplySaved();
+            if (!PassLicenseGate()) { Shutdown(); return; }
+            StartLicenseWatch();
             // Đối soát registry "View PDF" của pdfFactory (nếu user đã bật) — âm thầm, không hỏi.
             if (MergeAppSettingsStore.GetPdfFactoryViewEnabled()) PdfFactoryIntegrationService.ReconcileRegistry();
 
@@ -79,7 +101,9 @@ namespace XTPdfMergeApp
             PdfThumbnailService.StartMemoryPolicy();
             _reader = new ReaderWindow();
             MainWindow = _reader;
+            ShutdownMode = ShutdownMode.OnMainWindowClose;
             _reader.Show();
+            _splash?.SetStatus(incomingPaths.Length > 0 ? "Đang mở tài liệu…" : "Sắp xong…");
             if (DiagnosticsLog.Begin())
             {
                 var logTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background)
@@ -87,11 +111,69 @@ namespace XTPdfMergeApp
                 logTimer.Tick += (_, _) => DiagnosticsLog.Snapshot("snapshot", DiagnosticsReport.Build());
                 logTimer.Start();
             }
-            _ = _reader.StartSessionAsync(incomingPaths);
+            _ = FinishSplashAsync(_reader.StartSessionAsync(incomingPaths));
 
             // Chờ 1 chút cho app ổn định rồi mới âm thầm kiểm tra bản mới ở nền — không chặn khởi động, không
             // làm gì nếu chạy từ debug/không mạng/chưa có release (xem AppUpdateService).
             _ = Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(_ => AppUpdateService.CheckInBackgroundAsync());
+        }
+
+        /// <summary>Closes the splash when the session is up, the first opened file (if any) has its first page on screen and the window has been
+        /// laid out; never later than 20 s, so a stuck start cannot hide the app behind it.</summary>
+        private async Task FinishSplashAsync(Task session)
+        {
+            var splash = _splash;
+            try
+            {
+                await Task.WhenAny(session, Task.Delay(TimeSpan.FromSeconds(20))); // a failed session reports itself; WhenAny does not rethrow
+                if (_reader is { OpenWaitActive: true })
+                {
+                    var opened = new TaskCompletionSource();
+                    void Done() { opened.TrySetResult(); }
+                    _reader.OpenWaitEnded += Done;
+                    if (_reader.OpenWaitActive) await Task.WhenAny(opened.Task, Task.Delay(TimeSpan.FromSeconds(20)));
+                    _reader.OpenWaitEnded -= Done;
+                }
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            }
+            catch { /* close the splash anyway */ }
+            finally { if (_splash == splash) DismissSplash(); }
+        }
+
+        /// <summary>Trial / license check before the first window. A saved sign-in is renewed quietly first (a renewal bought since the last run
+        /// must not show a dialog); the dialog opens only when the app may not run. False = the user gave up, the app ends.</summary>
+        private bool PassLicenseGate()
+        {
+            var state = Licensing.LicenseManager.Reload();
+            if (!state.AllowsUse)
+                try { Task.Run(() => Licensing.LicenseManager.RefreshAsync()).Wait(TimeSpan.FromSeconds(8)); } catch { /* the dialog explains */ }
+            if (Licensing.LicenseManager.Current.AllowsUse) return true;
+            // The license window must not become the main window: closing it would end the app before the reader exists.
+            var mode = ShutdownMode;
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            _splash?.Hide(); // it is topmost and would sit over the sign-in window
+            bool ok = Controls.LicenseWindow.Gate();
+            ShutdownMode = mode;
+            MainWindow = null;
+            if (ok) _splash?.Show();
+            return ok;
+        }
+
+        /// <summary>While the app runs: renew the token about daily, and lock again if the trial or license ends during the session.</summary>
+        private void StartLicenseWatch()
+        {
+            if (!Licensing.LicenseConfig.IsConfigured) return;
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(30) };
+            timer.Tick += async (_, _) =>
+            {
+                if (Licensing.LicenseManager.ShouldRefresh) await Licensing.LicenseManager.RefreshAsync();
+                if (Licensing.LicenseManager.Reload().AllowsUse) return;
+                timer.Stop();
+                if (!Controls.LicenseWindow.Gate()) Shutdown();
+                else timer.Start();
+            };
+            timer.Start();
+            if (Licensing.LicenseManager.ShouldRefresh) _ = Licensing.LicenseManager.RefreshAsync();
         }
 
         private static void LogUnhandledException(string kind, Exception? ex)

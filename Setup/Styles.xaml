@@ -1,0 +1,44 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Shared by the installer window and its dialogs. -->
+    <LinearGradientBrush x:Key="Green" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Color="#78D775" Offset="0"/><GradientStop Color="#098F4C" Offset="1"/>
+    </LinearGradientBrush>
+
+    <Style x:Key="PillButton" TargetType="Button">
+        <Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Cursor" Value="Hand"/><Setter Property="FontSize" Value="13"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+            <!-- Hover = a soft white veil over the button (the colour stays); keyboard focus = a thin light ring, not a dark frame. -->
+            <Grid>
+                <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="7"/>
+                <Border x:Name="Veil" Background="White" CornerRadius="7" Opacity="0"/>
+                <Border x:Name="Ring" BorderBrush="#C8FFFFFF" BorderThickness="0" CornerRadius="7"/>
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
+            </Grid>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Veil" Property="Opacity" Value="0.22"/></Trigger>
+                <Trigger Property="IsPressed" Value="True"><Setter TargetName="Veil" Property="Opacity" Value="0.08"/><Setter TargetName="Surface" Property="Opacity" Value="0.9"/></Trigger>
+                <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Ring" Property="BorderThickness" Value="1.5"/></Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate></Setter.Value></Setter>
+    </Style>
+
+    <!-- The X in the title bar. -->
+    <Style x:Key="CloseGlyphButton" TargetType="Button">
+        <Setter Property="Width" Value="30"/><Setter Property="Height" Value="30"/><Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+            <Grid>
+                <Border x:Name="Veil" Background="White" CornerRadius="7" Opacity="0"/>
+                <Path x:Name="Glyph" Data="M0,0 L10,10 M10,0 L0,10" Stroke="#162B62" StrokeThickness="1.5" Width="10" Height="10"/>
+            </Grid>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Veil" Property="Opacity" Value="0.4"/></Trigger>
+                <Trigger Property="IsPressed" Value="True"><Setter TargetName="Veil" Property="Opacity" Value="0.15"/></Trigger>
+                <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Glyph" Property="Opacity" Value="0.3"/></Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate></Setter.Value></Setter>
+    </Style>
+</ResourceDictionary>

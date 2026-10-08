@@ -3,7 +3,7 @@
   <!-- The screen-capture engine shared by XT Capture (the always-running tray program) and the tests: the frozen / dimmed overlay, window and
        area picking, the cut-out maths. No PDF code here: XT Capture stays light. -->
   <PropertyGroup>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>

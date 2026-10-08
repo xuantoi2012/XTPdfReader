@@ -14,3 +14,8 @@ TestResults/
 # Ket qua build cua Packaging/Release/Build-Release.ps1 - sinh lai moi lan, khong commit.
 Packaging/Release/_publish/
 Packaging/Release/_release/
+Packaging/Release/_setup/
+Packaging/Release/_release_msi/
+Setup/bin/
+Setup/obj/
+Packaging/Release/_payload.zip

@@ -45,6 +45,7 @@ namespace XTPdfMergeApp.Controls
                 PrintedDaysBox.Text = AppSettings.PrintedCleanupDays.ToString();
                 RefreshPrintedFolderHint();
                 RefreshPdfFactoryHint();
+                RefreshDefaultPdf();
             }
             finally { _loading = false; }
             RefreshCacheInfo();
@@ -197,6 +198,30 @@ namespace XTPdfMergeApp.Controls
         }
 
         // ── Integration ───────────────────────────────────────────────
+
+        private void DefaultPdf_Click(object sender, RoutedEventArgs e)
+        {
+            if (!DefaultPdfAppService.OpenDefaultAppsSettings())
+                DefaultPdfHint.Text = "⚠ Could not open Windows Settings. Open Settings > Apps > Default apps and choose PDF Reader Pro for .pdf.";
+            else
+                DefaultPdfHint.Text = "Windows Settings is open: choose PDF Reader Pro for .pdf, then come back here.";
+            // Windows Settings is a separate window; the state is read again when this window is activated (below).
+            Application.Current.MainWindow.Activated -= RefreshDefaultPdfOnActivated;
+            Application.Current.MainWindow.Activated += RefreshDefaultPdfOnActivated;
+        }
+
+        private void RefreshDefaultPdfOnActivated(object? sender, EventArgs e) => RefreshDefaultPdf();
+
+        private void RefreshDefaultPdf()
+        {
+            bool isDefault = DefaultPdfAppService.IsDefault;
+            DefaultPdfHint.Text = isDefault
+                ? "On — double-clicking a PDF opens this app."
+                : "Off — PDF files open with " + DefaultPdfAppService.CurrentDefaultName() + ".";
+            DefaultPdfHint.Foreground = (Brush)FindResource("Ui.Muted");
+            DefaultPdfButton.IsEnabled = !isDefault;
+            DefaultPdfButton.Text = isDefault ? "Default app" : "Set as default…";
+        }
 
         private void PdfFactory_Changed(object sender, RoutedEventArgs e)
         {

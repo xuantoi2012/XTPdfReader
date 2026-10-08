@@ -47,12 +47,14 @@ namespace XTPdfMergeApp
             EditHost = Session;
             var groups = Session.Documents;
             InitializeComponent();
+            Icon = AppShellIcon.Image;
             _groups = groups;
             ReaderContentHost.LostMouseCapture += (_, _) => CancelHighlightDrag();
             // File đang xem bị đóng khỏi workspace (đóng hẳn, không phải chỉ xoá vài trang — trường hợp
             // đó qua NotifyPagesChanged) → chuyển sang file khác đang mở, hết file thì màn trống.
             _groups.CollectionChanged += (_, _) => OnGroupsChanged();
             InitializeShellParts();
+            HookUpdateButton();
             HookContinuousView();
             DiagnosticsReport.ViewerSection = GetViewerDiagnostics;
         }

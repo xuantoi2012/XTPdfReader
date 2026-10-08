@@ -201,6 +201,18 @@
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel>
+                            <TextBlock Text="Open PDF files with this app" Foreground="{DynamicResource Ui.Text}" TextWrapping="Wrap"/>
+                            <TextBlock x:Name="DefaultPdfHint" Style="{StaticResource RowHint}"/>
+                        </StackPanel>
+                        <xt:XTButton x:Name="DefaultPdfButton" Grid.Column="1" Style="{StaticResource UiGhostButton}" Text="Set as default…" Margin="24,0,0,0"
+                                     VerticalAlignment="Top" Click="DefaultPdf_Click"
+                                     ToolTip="Opens Windows Settings, where you choose PDF Reader Pro for .pdf files"/>
+                    </Grid>
+                </Border>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
                             <TextBlock Text="Show when someone else has the same file open" Foreground="{DynamicResource Ui.Text}" TextWrapping="Wrap"/>
                             <TextBlock Text="Writes a small hidden marker file next to each open PDF (removed when you close it), so other people using this app on the same folder, including a network share, are told." Style="{StaticResource RowHint}"/>
                         </StackPanel>

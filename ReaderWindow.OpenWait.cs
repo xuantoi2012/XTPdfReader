@@ -34,7 +34,14 @@ public partial class ReaderWindow
         _openWaitTimer?.Stop();
         ClearValue(CursorProperty);
         ClearValue(ForceCursorProperty);
+        OpenWaitEnded?.Invoke();
     }
+
+    /// <summary>A file open is waiting for its first page image (the start-up splash stays until it is there).</summary>
+    internal bool OpenWaitActive => _openWaitTimer?.IsEnabled == true;
+
+    /// <summary>The wait of <see cref="BeginOpenWait"/> is over: the first page is on screen, or the open gave up.</summary>
+    internal event Action? OpenWaitEnded;
 
     private void OpenWaitTick(object? sender, EventArgs e)
     {

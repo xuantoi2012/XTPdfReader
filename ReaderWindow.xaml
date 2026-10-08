@@ -9,7 +9,7 @@
         xmlns:local="clr-namespace:XTPdfMergeApp"
         xmlns:ctl="clr-namespace:XTPdfMergeApp.Controls"
         Title="PDF Reader Pro" Width="1280"
-        TitleIcon="{StaticResource App.Icon.Logo}" TitleIconBrush="{DynamicResource Ui.Accent}" Height="820"
+        TitleIcon="{StaticResource App.Icon.Logo}" Icon="{StaticResource App.Icon.Logo}" Height="820"
         MinWidth="760" MinHeight="520" TitleBarMode="Full"
         WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI" FontSize="13"
@@ -46,6 +46,9 @@
         <!-- Title bar chỉ giữ lệnh toàn cục: kính lúp mở Command Palette (Ctrl+K), Find nội dung vẫn ở ribbon/Ctrl+F. -->
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,6,0">
             <!-- Wide search box: a click (or Ctrl+K) drops the command palette down right under it. -->
+            <!-- Only visible when a newer release exists (AppUpdateService); the click opens the update offer. -->
+            <xt:XTButton x:Name="UpdateTitleButton" Style="{StaticResource UiPrimaryButton}" Icon="{StaticResource Ui.Icon.down}" Height="28" Margin="0,0,10,0"
+                         Padding="10,0" Visibility="Collapsed" Click="UpdateTitle_Click"/>
             <xt:XTButton x:Name="TitleSearchButton" Style="{StaticResource UiGhostButton}" Icon="{StaticResource Ui.Icon.search}" Width="260" Height="28"
                          Text="Search commands and files…   Ctrl+K" Margin="0,0,8,0" ToolTip="Command palette (Ctrl+K)" Click="ReaderMore_Click"/>
             <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.settings}" Width="30" Height="30" IconSize="18"
@@ -308,11 +311,7 @@
                                     <MenuItem Header="Close all tabs" Click="ReaderTabCloseAll_Click"/>
                                 </ContextMenu>
                             </Grid.ContextMenu>
-                            <Viewbox Width="15" Height="15" VerticalAlignment="Center">
-                                <Canvas Width="24" Height="24">
-                                    <Path Data="{StaticResource Ui.Icon.documentF}" Fill="{DynamicResource Ui.Brand}"/>
-                                </Canvas>
-                            </Viewbox>
+                            <Image Width="18" Height="18" VerticalAlignment="Center" Source="{StaticResource App.Icon.Logo}" RenderOptions.BitmapScalingMode="HighQuality"/>
                             <TextBlock Grid.Column="1" Text="{Binding FileName}" TextTrimming="CharacterEllipsis" Margin="8,0,0,0" VerticalAlignment="Center"/>
                             <Ellipse Grid.Column="2" Width="7" Height="7" Margin="8,0,0,0" VerticalAlignment="Center" Fill="{DynamicResource Ui.Warn}"
                                      ToolTip="Unsaved changes (Ctrl+S to save)"

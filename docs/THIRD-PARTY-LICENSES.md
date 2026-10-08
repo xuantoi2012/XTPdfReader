@@ -14,7 +14,6 @@ the points marked "decision".
 | **Python 3.12** (embedded runtime) | `MuPdfRuntime\` | PSF licence (permissive; keep `LICENSE.txt`) | runs the worker scripts |
 | **PDFium** (`bblanchon.PDFium.Win32`) | only in the PDFium comparison / test build, not in the shipped MuPDF-only build | BSD-3-Clause (Apache-2.0 parts) | comparison tests |
 | **Bouncy Castle** (via iText adapter) | with iText | MIT | encryption / signatures |
-| **Velopack** 0.* | Reader | MIT | installer and updates |
 | **VirtualizingWrapPanel** 2.5.2 | Reader | MIT | thumbnail wrap panel |
 | **XTStyle** | `..\XTStyle` | the owner's own | controls and themes |
 | Icons (`UiIcons.xaml`, Phosphor-style paths) | Reader | MIT (Phosphor Icons) if they are Phosphor's; confirm the source file | ribbon icons |

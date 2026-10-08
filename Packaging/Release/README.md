@@ -4,6 +4,28 @@ Dùng [Velopack](https://velopack.io) để đóng gói: `Setup.exe` tự cài (
 Start Menu, đăng ký Add/Remove Programs), và app tự kiểm tra/tải bản mới khi chạy
 (`Services/AppUpdateService.cs`).
 
+## Giao diện và icon
+
+- Logo chung: `Resources/AppIcon.png`, nhúng qua `Resources/AppBrand.xaml`. Dùng cho tiêu đề,
+  Start, About, tab tài liệu và danh sách gần đây. `PDF icon.ico` dùng cho EXE và Velopack;
+  `Packaging/Win11ContextMenu/PDF icon.png` dùng cho gói menu Windows.
+- `Build-Release.ps1` chạy `Build-Splash.ps1 -Version ...` để render `InstallerSplash.xaml`
+  thành `splash.png` và `splash.gif` 480 × 390, với phiên bản đúng của bản phát hành.
+  GIF có thanh gradient xanh lá chạy dạng chờ; không hiển thị phần trăm giả.
+  Velopack không cung cấp thanh tiến trình gradient tùy biến, nên tắt thanh mặc định
+  bằng `--splashProgressColor None` và dùng GIF động.
+- Nền dùng chung `Controls/AmbientBackdrop.xaml`: ánh sáng xanh–lavender–mint dịu,
+  phủ liên tục cả header/footer. Trong app, chuyển động bằng transform WPF và dừng
+  khi cửa sổ đóng; tự tắt nếu Windows tắt animation hoặc không có tăng tốc đồ họa.
+  Splash có 96 frame × 100 ms, lặp 9,6 giây với nền và thanh tiến trình chuyển động.
+- Icon bitmap dùng `RenderOptions.BitmapScalingMode="HighQuality"`. `Build-Icons.ps1`
+  xuất PNG với logo chiếm 96% khung và ICO 16/20/24/32/40/48/64/96/128/256 px.
+  Cửa sổ chính dùng ICO nhiều frame để Windows chọn theo DPI.
+- Khi tải và lên lịch cập nhật thành công, `UpdateReadyWindow` hiện modeless;
+  nút Đã hiểu, Escape và nút đóng chỉ đóng thông báo. Không ép thoát ứng dụng.
+- Xem lại giao diện mà không cài hay cập nhật: chạy `Preview-Branding.ps1`.
+  Script render XAML thực tế thành `docs/design/implemented/update-ready.png`.
+
 ## Việc làm 1 LẦN DUY NHẤT (thiết lập ban đầu)
 
 ### 1. Cài công cụ `vpk`

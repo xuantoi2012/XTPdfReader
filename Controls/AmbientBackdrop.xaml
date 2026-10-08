@@ -1,0 +1,33 @@
+<UserControl x:Class="XTPdfMergeApp.Controls.AmbientBackdrop"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             IsHitTestVisible="False" Focusable="False">
+    <Grid ClipToBounds="True">
+        <Grid.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#E9EDF9" Offset="0"/><GradientStop Color="#CADAF3" Offset="1"/>
+        </LinearGradientBrush></Grid.Background>
+        <Rectangle x:Name="LavenderLight" Margin="-24">
+            <Rectangle.Fill><RadialGradientBrush Center="0.08,0.12" GradientOrigin="0.08,0.12" RadiusX="0.83" RadiusY="0.8">
+                <GradientStop Color="#B2B8EA" Offset="0"/><GradientStop Color="#00B2B8EA" Offset="1"/>
+            </RadialGradientBrush></Rectangle.Fill>
+            <Rectangle.RenderTransform><TranslateTransform/></Rectangle.RenderTransform>
+        </Rectangle>
+        <Rectangle x:Name="BlueLight" Margin="-24">
+            <Rectangle.Fill><RadialGradientBrush Center="0.98,0.9" GradientOrigin="0.98,0.9" RadiusX="0.9" RadiusY="0.9">
+                <GradientStop Color="#B090B8EE" Offset="0"/><GradientStop Color="#0090B8EE" Offset="1"/>
+            </RadialGradientBrush></Rectangle.Fill>
+            <Rectangle.RenderTransform><TranslateTransform/></Rectangle.RenderTransform>
+        </Rectangle>
+        <Rectangle x:Name="MintLight" Margin="-24">
+            <Rectangle.Fill><RadialGradientBrush Center="0.03,0.85" GradientOrigin="0.03,0.85" RadiusX="0.6" RadiusY="0.65">
+                <GradientStop Color="#82B4E7DA" Offset="0"/><GradientStop Color="#00B4E7DA" Offset="1"/>
+            </RadialGradientBrush></Rectangle.Fill>
+            <Rectangle.RenderTransform><TranslateTransform/></Rectangle.RenderTransform>
+        </Rectangle>
+        <Rectangle>
+            <Rectangle.Fill><RadialGradientBrush Center="0.5,0.38" GradientOrigin="0.5,0.38" RadiusX="0.65" RadiusY="0.58">
+                <GradientStop Color="#7CFFFFFF" Offset="0"/><GradientStop Color="#00FFFFFF" Offset="1"/>
+            </RadialGradientBrush></Rectangle.Fill>
+        </Rectangle>
+    </Grid>
+</UserControl>

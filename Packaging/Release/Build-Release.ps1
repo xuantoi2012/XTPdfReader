@@ -1,87 +1,106 @@
 <#
 .SYNOPSIS
-  Dong goi PDF Reader Pro thanh 1 Setup.exe (Velopack) san sang phat hanh.
+  Dong goi PDF Reader Pro thanh 1 file PDFReaderPro-Setup.exe (cai vao Program Files, can quyen admin).
 
 .DESCRIPTION
-  Lam 3 buoc: dotnet publish (self-contained win-x64) -> vpk pack (sinh Setup.exe + cac file
-  release khac) -> in ra duong dan ket qua. Khong tu upload len dau ca - xem README.md canh day
-  de biet buoc cuoi (dua len GitHub Releases).
+  1) dotnet publish Reader + XT Capture (framework-dependent, win-x64) vao _publish
+  2) worker .py -> bytecode (Protect-Scripts.ps1)
+  3) nen _publish thanh zip, them __setup.json (phien ban)
+  4) dotnet publish Setup\PdfReaderSetup.csproj (installer, 1 file nho)
+  5) ghep: PDFReaderPro-Setup.exe = installer + zip + do dai zip (8 byte) + dau hieu (16 byte)  -> xem Setup\Payload.cs
+
+  Khong con Velopack. Cap nhat: app tim ban moi tren GitHub Releases cua repo PDFReaderPro-Releases (tag v<Version>, file dinh kem
+  PDFReaderPro-Setup.exe) - xem Services\AppUpdateService.cs.
 
 .PARAMETER Version
-  Phien ban phat hanh, kieu SemVer (vd "1.0.1"). Ghi vao ca .csproj (AssemblyVersion) lan goi cho
-  vpk (--packVersion) de 2 cho khop nhau.
+  Phien ban phat hanh, kieu "1.0.1" (3 so). Ghi vao AssemblyVersion cua Reader va __setup.json.
 
-.PARAMETER SignToolParams
-  Tuy chon. Tham so truyen thang cho signtool.exe (vd '/a /fd sha256 /t http://timestamp.digicert.com').
-  Bo qua = file KHONG duoc ky so (Windows SmartScreen se canh bao "Unknown publisher" voi nguoi
-  cai lan dau). Xem README.md phan "Ky so" de biet cach co chung chi.
+.PARAMETER AllowUnlicensed
+  Cho phep dong goi khi Licensing\LicenseConfig.cs chua co SupabaseUrl/AnonKey (ban noi bo, khong yeu cau license).
 
 .EXAMPLE
-  .\Build-Release.ps1 -Version 1.0.1
-  .\Build-Release.ps1 -Version 1.0.1 -SignToolParams '/a /fd sha256 /t http://timestamp.digicert.com'
+  .\Build-Release.ps1 -Version 1.0.1 -AllowUnlicensed
 #>
 param(
     [Parameter(Mandatory = $true)]
     [string]$Version,
 
-    [string]$SignToolParams = ""
+    [switch]$AllowUnlicensed
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)   # .../XTPdfReader
 $csproj = Join-Path $root "XTPdfMergeApp.csproj"
-$icon = Join-Path $root "PDF icon.ico"
 $publishDir = Join-Path $PSScriptRoot "_publish"
+$setupDir = Join-Path $PSScriptRoot "_setup"
 $releaseDir = Join-Path $PSScriptRoot "_release"
+$zipPath = Join-Path $PSScriptRoot "_payload.zip"
 
 Write-Host "== PDF Reader Pro - dong goi ban $Version ==" -ForegroundColor Cyan
+if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Version phai co dang 1.2.3." }
 
-# 1) Publish self-contained win-x64, dung Version truyen vao cho khop AssemblyVersion trong file .exe.
-if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force }
-Write-Host "`n[1/2] dotnet publish..." -ForegroundColor Yellow
-dotnet publish $csproj -c Release -r win-x64 --self-contained true `
-    -p:PublishSingleFile=false -p:DeployToBundle=false -p:Version=$Version `
-    -o $publishDir
-if ($LASTEXITCODE -ne 0) { throw "dotnet publish that bai." }
-
-# 1b) XT Capture (chup man hinh, chay o khay he thong) di chung bo cai: publish vao CUNG thu muc, cung runtime.
-$captureProj = Join-Path $root "XTCapture\XTCapture.csproj"
-Write-Host "`n[1b/2] dotnet publish XT Capture..." -ForegroundColor Yellow
-dotnet publish $captureProj -c Release -r win-x64 --self-contained true `
-    -p:PublishSingleFile=false -p:Version=$Version `
-    -o $publishDir
-if ($LASTEXITCODE -ne 0) { throw "dotnet publish XT Capture that bai." }
-if (-not (Test-Path (Join-Path $publishDir "XTCapture.exe"))) { throw "XTCapture.exe khong co trong ban publish." }
-
-# 2) vpk pack: sinh Setup.exe + portable zip + file manifest release (releases.win.json...).
-Write-Host "`n[2/2] vpk pack..." -ForegroundColor Yellow
-if (Test-Path $releaseDir) { Remove-Item $releaseDir -Recurse -Force }
-
-$vpkArgs = @(
-    "pack",
-    "--packId", "PDFReaderPro",
-    "--packVersion", $Version,
-    "--packDir", $publishDir,
-    "--mainExe", "XTPdfMergeApp.exe",
-    "--packTitle", "PDF Reader Pro",
-    "--packAuthors", "XT",
-    "--outputDir", $releaseDir,
-    "--icon", $icon,
-    "--splashImage", (Join-Path $PSScriptRoot "splash.png"),
-    "--splashProgressColor", "#F2994A",
-    "--runtime", "win-x64"
-)
-if ($SignToolParams) {
-    $vpkArgs += @("--signParams", $SignToolParams)
-} else {
-    Write-Host "  (Khong co -SignToolParams - ban cai se KHONG duoc ky so.)" -ForegroundColor DarkYellow
+# 0) Ban phat hanh phai bat license: neu chua dien URL/anon key cua Supabase thi app chay khong can license.
+$licenseConfig = Get-Content -Raw (Join-Path $root "Licensing\LicenseConfig.cs")
+if ($licenseConfig -match 'SupabaseUrl\s*=\s*""' -or $licenseConfig -match 'AnonKey\s*=\s*""') {
+    if (-not $AllowUnlicensed) { throw "Licensing/LicenseConfig.cs chua co SupabaseUrl/AnonKey - ban nay se chay khong can license. Xem Licensing/Server/README.md, hoac them -AllowUnlicensed cho ban noi bo." }
+    Write-Host "  (-AllowUnlicensed: ban noi bo, KHONG co license.)" -ForegroundColor DarkYellow
 }
 
-& vpk @vpkArgs
-if ($LASTEXITCODE -ne 0) { throw "vpk pack that bai." }
+# 1) Publish Reader + XT Capture vao CUNG thu muc. Khong kem .NET: may khach can .NET 10 Desktop Runtime.
+if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force }
+Write-Host "`n[1/5] dotnet publish Reader + XT Capture..." -ForegroundColor Yellow
+dotnet publish $csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=false -p:DeployToBundle=false -p:Version=$Version -o $publishDir
+if ($LASTEXITCODE -ne 0) { throw "dotnet publish that bai." }
+$captureProj = Join-Path $root "XTCapture\XTCapture.csproj"
+dotnet publish $captureProj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=false -p:Version=$Version -o $publishDir
+if ($LASTEXITCODE -ne 0) { throw "dotnet publish XT Capture that bai." }
+foreach ($required in "XTPdfMergeApp.exe", "XTCapture.exe") {
+    if (-not (Test-Path (Join-Path $publishDir $required))) { throw "$required khong co trong ban publish." }
+}
 
-$setupExe = Join-Path $releaseDir "PDFReaderPro-win-Setup.exe"
+# 2) Worker .py -> bytecode (cung ten file), de bo cai khong chua ma nguon Python doc duoc.
+Write-Host "`n[2/5] bytecode cho worker..." -ForegroundColor Yellow
+& (Join-Path $PSScriptRoot "Protect-Scripts.ps1") -PublishDir $publishDir
+
+# 3) Zip payload.
+Write-Host "`n[3/5] nen payload..." -ForegroundColor Yellow
+Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+[IO.Compression.ZipFile]::CreateFromDirectory($publishDir, $zipPath, [IO.Compression.CompressionLevel]::Optimal, $false)
+$zip = [IO.Compression.ZipFile]::Open($zipPath, [IO.Compression.ZipArchiveMode]::Update)
+try {
+    $entry = $zip.CreateEntry("__setup.json")
+    $writer = New-Object IO.StreamWriter($entry.Open())
+    $writer.Write("{`"version`":`"$Version`"}")
+    $writer.Dispose()
+} finally { $zip.Dispose() }
+
+# 4) Installer.
+Write-Host "`n[4/5] dotnet publish installer..." -ForegroundColor Yellow
+if (Test-Path $setupDir) { Remove-Item $setupDir -Recurse -Force }
+dotnet publish (Join-Path $root "Setup\PdfReaderSetup.csproj") -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:Version=$Version -o $setupDir
+if ($LASTEXITCODE -ne 0) { throw "dotnet publish installer that bai." }
+$stub = Join-Path $setupDir "PDFReaderPro-Setup.exe"
+if (-not (Test-Path $stub)) { throw "Khong thay PDFReaderPro-Setup.exe sau khi publish installer." }
+
+# 5) Ghep: [installer][zip][do dai zip int64][XTPDFRSETUPV1ZIP]
+Write-Host "`n[5/5] ghep installer + payload..." -ForegroundColor Yellow
+if (Test-Path $releaseDir) { Remove-Item $releaseDir -Recurse -Force }
+New-Item -ItemType Directory $releaseDir | Out-Null
+$setupExe = Join-Path $releaseDir "PDFReaderPro-Setup.exe"
+Copy-Item $stub $setupExe
+$zipBytes = [IO.File]::ReadAllBytes($zipPath)
+$out = [IO.File]::Open($setupExe, [IO.FileMode]::Append, [IO.FileAccess]::Write)
+try {
+    $out.Write($zipBytes, 0, $zipBytes.Length)
+    $length = [BitConverter]::GetBytes([int64]$zipBytes.Length)
+    $out.Write($length, 0, $length.Length)
+    $magic = [Text.Encoding]::ASCII.GetBytes("XTPDFRSETUPV1ZIP")
+    $out.Write($magic, 0, $magic.Length)
+} finally { $out.Dispose() }
+Remove-Item $zipPath -Force
+
+$sizeMb = [math]::Round((Get-Item $setupExe).Length / 1MB, 1)
 Write-Host "`n== Xong =="  -ForegroundColor Green
-Write-Host "Setup.exe : $setupExe"
-Write-Host "Thu muc release day du (can upload CA thu muc nay len GitHub Release, khong chi 1 file Setup.exe): $releaseDir"
-Write-Host "`nBuoc tiep theo: xem README.md canh file nay de dua len GitHub Releases." -ForegroundColor Cyan
+Write-Host "Setup.exe : $setupExe ($sizeMb MB)"
+Write-Host "Dua len GitHub: tao Release voi tag v$Version tren repo PDFReaderPro-Releases, dinh kem dung file PDFReaderPro-Setup.exe (app tim file theo ten nay)." -ForegroundColor Cyan

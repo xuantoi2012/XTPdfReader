@@ -38,11 +38,7 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <Border Width="40" Height="48" CornerRadius="4" Background="{DynamicResource Ui.AccentSoft}" Margin="0,0,14,0">
-                        <Viewbox Width="20" Height="20">
-                            <Canvas Width="24" Height="24">
-                                <Path Data="{StaticResource Ui.Icon.documentF}" Fill="{DynamicResource Ui.Brand}"/>
-                            </Canvas>
-                        </Viewbox>
+                        <Image Width="30" Height="30" Source="{StaticResource App.Icon.Logo}" RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Ui.Text}"/>
@@ -114,12 +110,7 @@
             <StackPanel>
                 <Grid x:Name="StartBrandHeader">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                    <Viewbox Width="32" Height="32" Margin="0,0,12,0" VerticalAlignment="Center">
-                        <Canvas Width="24" Height="24">
-                            <Rectangle Width="24" Height="24" RadiusX="6" RadiusY="6" Fill="White"/>
-                            <Path Data="{StaticResource App.Icon.Logo}" Fill="{DynamicResource Ui.Brand}"/>
-                        </Canvas>
-                    </Viewbox>
+                    <Image Width="32" Height="32" Margin="0,0,12,0" VerticalAlignment="Center" Source="{StaticResource App.Icon.Logo}" RenderOptions.BitmapScalingMode="HighQuality"/>
                     <TextBlock x:Name="TitleText" Grid.Column="1" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{DynamicResource Ui.Text}"/>
                 </Grid>
                 <WrapPanel Margin="0,18,0,0">

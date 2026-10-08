@@ -5,8 +5,7 @@
     <MuPdfRuntimeDir Condition="'$(MuPdfRuntimeDir)' == ''">$(MSBuildProjectDirectory)\bin\MuPdfRuntime</MuPdfRuntimeDir>
     <!-- windows10.0.19041.0 cho WPF desktop; thumbnail PDF render trực tiếp bằng PDFium native. -->
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <!-- PdfiumInstance gọi PDFium qua con trỏ hàm (nhiều bản sao thư viện, xem Services/PdfiumInstance.cs). -->
@@ -35,18 +34,21 @@
     <Compile Remove="Tests\**\*.cs" />
     <Compile Remove="VirtualPrinter\**\*.cs" />
     <!-- XT Capture (the screen-capture program) and its library are separate projects built and packed together with the Reader. -->
-    <Compile Remove="XTCapture\**;XTCapture.Core\**" />
-    <Page Remove="XTCapture\**;XTCapture.Core\**" />
-    <Resource Remove="XTCapture\**;XTCapture.Core\**" />
-    <None Remove="XTCapture\**;XTCapture.Core\**" />
-    <EmbeddedResource Remove="XTCapture\**;XTCapture.Core\**" />
+    <Compile Remove="XTCapture\**;XTCapture.Core\**;Setup\**" />
+    <!-- Setup\ = the installer project (Setup/PdfReaderSetup.csproj), packed around the published Reader by Build-Release.ps1. -->
+    <Page Remove="XTCapture\**;XTCapture.Core\**;Setup\**" />
+    <Page Remove="Packaging\Release\InstallerSplash.xaml" />
+    <Resource Remove="XTCapture\**;XTCapture.Core\**;Setup\**" />
+    <None Remove="XTCapture\**;XTCapture.Core\**;Setup\**" />
+    <EmbeddedResource Remove="XTCapture\**;XTCapture.Core\**;Setup\**" />
     <EmbeddedResource Remove="Tests\**\*" />
     <None Remove="Tests\**\*" />
     <InternalsVisibleTo Include="XTPdfMergeApp.PerformanceTests" />
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="PDF icon.ico" />
+    <Resource Include="Resources\AppIcon.png" />
+    <Resource Include="PDF icon.ico" />
     <Content Include="Tests\GpuPdfium\MuPdfViewportWorker.py" Link="MuPdfWorker.py" CopyToOutputDirectory="PreserveNewest" />
     <!-- OCR of scanned pages: the worker script (run by the embedded Python) and the Vietnamese + Latin language data of tesseract (tessdata_fast, Apache-2.0). -->
     <Content Include="Services\Ocr\OcrWorker.py" Link="OcrWorker.py" CopyToOutputDirectory="PreserveNewest" />
@@ -68,9 +70,6 @@
     <PackageReference Include="itext.bouncy-castle-adapter" Version="9.6.0" />
     <PackageReference Include="bblanchon.PDFium.Win32" Version="147.0.7690" Condition="'$(MuPdfOnly)' != 'true'" />
     <PackageReference Include="VirtualizingWrapPanel" Version="2.5.2" />
-    <!-- Installer + tu cap nhat (Velopack): Run() phai la dong dau tien trong OnStartup (App.xaml.cs),
-         truoc moi logic khac, de bat dung cac co lenh ma trinh cai/go cai/cap nhat goi khi chay app. -->
-    <PackageReference Include="Velopack" Version="0.*" />
   </ItemGroup>
 
   <ItemGroup>

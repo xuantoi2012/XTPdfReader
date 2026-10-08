@@ -44,6 +44,7 @@ internal static partial class Program
                 Console.WriteLine($"PASS ({_checks} MuPDF migration checks)");
                 return 0;
             }
+            if (args.Contains("--license-check")) { TestLicense(); Console.WriteLine($"PASS ({_checks} license checks)"); return 0; }
             if (args.Contains("--user-feedback-check"))
             { TestTabSharpRetention(); TestTabRegionRetention(); TestFeedbackSession(); Console.WriteLine($"PASS ({_checks} user feedback checks)"); return 0; }
             int realFeedback = Array.IndexOf(args, "--feedback-real-pdf-check");

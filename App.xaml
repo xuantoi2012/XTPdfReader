@@ -8,6 +8,7 @@
                 <ResourceDictionary Source="pack://application:,,,/XTStyle;component/Themes/Light.xaml"/>
                 <ResourceDictionary Source="Resources/UiTokens.Light.xaml"/>
                 <ResourceDictionary Source="Resources/UiIcons.xaml"/>
+                <ResourceDictionary Source="Resources/AppBrand.xaml"/>
                 <ResourceDictionary Source="Resources/UiStyles.xaml"/>
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
