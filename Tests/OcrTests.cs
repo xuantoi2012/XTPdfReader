@@ -195,7 +195,9 @@ internal static partial class Program
         RunOnDispatcher(window.StartAsync);
         Check(window.OutputPath == null && window.StatusText.Contains("1-3, 7") && window.StartButton.IsEnabled, "A bad page list is explained and nothing starts");
 
+        Check(window.KeepPendingButton.IsChecked == true && window.CopyButton.IsChecked != true, "The default is to keep the text in the file until it is saved");
         window.RangeBox.Text = "2-3";
+        window.CopyButton.IsChecked = true;
         SavePng(window, "ocr-window");
         RunOnDispatcher(window.StartAsync);
         Check(window.OutputPath is { } output && File.Exists(output) && output.EndsWith("scan (OCR).pdf"), "Pages 2-3 end in a searchable copy beside the original (" + window.StatusText.Replace(Environment.NewLine, " ") + ")");
@@ -208,6 +210,7 @@ internal static partial class Program
 
         var textOnly = new XTPdfMergeApp.Controls.OcrWindow(scan, 5, 5) { Left = -32000, Top = -32000, ShowActivated = false, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual };
         textOnly.Show();
+        textOnly.CopyButton.IsChecked = true;
         textOnly.RangeBox.Text = "5";
         textOnly.RangeButton.IsChecked = true;
         RunOnDispatcher(textOnly.StartAsync);

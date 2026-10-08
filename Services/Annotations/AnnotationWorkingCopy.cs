@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using iText.Kernel.Pdf;
+using XTPdfMergeApp.Services.Ocr;
 
 namespace XTPdfMergeApp.Services
 {
@@ -14,20 +15,24 @@ namespace XTPdfMergeApp.Services
     /// </summary>
     internal static class AnnotationWorkingCopy
     {
-        private static readonly Dictionary<string, (int Version, string Copy)> _copies = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, (long Version, string Copy)> _copies = new(StringComparer.OrdinalIgnoreCase);
         private static string Folder => Path.Combine(Path.GetTempPath(), "XTPdfReader", "working");
+
+        /// <summary>Unsaved annotations or unsaved OCR text.</summary>
+        public static bool HasPendingEdits(string path) => AnnotationStore.HasPending(path) || OcrPendingStore.HasPending(path);
 
         public static async Task<string> GetAsync(string path)
         {
-            if (!AnnotationStore.HasPending(path)) return path;
+            if (!HasPendingEdits(path)) return path;
             string key = AnnotationStore.Normalize(path);
-            int version = AnnotationStore.Version(path);
+            long version = AnnotationStore.Version(path) * 100003L + OcrPendingStore.Version(path);
             if (_copies.TryGetValue(key, out var existing) && existing.Version == version && File.Exists(existing.Copy)) return existing.Copy;
 
             var changes = AnnotationStore.Pending(path);
+            var ocr = OcrPendingStore.AsResults(path);
             Directory.CreateDirectory(Folder);
             string copy = Path.Combine(Folder, $"{Path.GetFileNameWithoutExtension(path)}-{Guid.NewGuid():N}.pdf");
-            await Task.Run(() => Write(path, copy, changes));
+            await Task.Run(() => Write(path, copy, changes, ocr));
             if (PdfThumbnailService.TryGetDocumentPassword(path) is { Length: > 0 } password)
                 await PdfThumbnailService.SetDocumentPasswordAsync(copy, password);
             if (_copies.TryGetValue(key, out var old)) TryDelete(old.Copy);
@@ -53,11 +58,13 @@ namespace XTPdfMergeApp.Services
         public static void WriteInPlace(string path, IReadOnlyList<QuickAnnotationChange> changes, out IReadOnlyList<string> conflicts)
         {
             var found = new List<string>();
-            PdfPageEditService.EditInPlace(path, Describe(changes), doc =>
+            var ocr = OcrPendingStore.AsResults(path);
+            PdfPageEditService.EditInPlace(path, Describe(changes, ocr.Count), doc =>
             {
                 found.Clear(); // lần ghi có thể chạy lại trên bản mới của file (người khác lưu chen vào)
                 PdfQuickAnnotationService.ApplyChanges(doc, changes, found);
-            }, PdfPermissionOperation.Annotate);
+                if (ocr.Count > 0) PdfOcrWriter.ApplyTo(doc, ocr);
+            }, ocr.Count > 0 ? PdfPermissionOperation.Modify : PdfPermissionOperation.Annotate);
             conflicts = found.ToList();
             if (found.Count > 0) Conflict?.Invoke(path, found.ToList());
         }
@@ -66,7 +73,7 @@ namespace XTPdfMergeApp.Services
         public static event Action<string, IReadOnlyList<string>>? Conflict;
 
         /// <summary>Dòng lịch sử cho 1 lần lưu annotation: "Annotations: +thêm −xoá ~sửa".</summary>
-        private static string Describe(IReadOnlyList<QuickAnnotationChange> changes)
+        private static string Describe(IReadOnlyList<QuickAnnotationChange> changes, int ocrPages = 0)
         {
             int added = changes.Count(c => c.Remove == null && c.Add != null);
             int removed = changes.Count(c => c.Add == null && c.Remove != null);
@@ -75,15 +82,17 @@ namespace XTPdfMergeApp.Services
             if (added > 0) parts.Add("+" + added);
             if (removed > 0) parts.Add("−" + removed);
             if (edited > 0) parts.Add("~" + edited);
+            if (ocrPages > 0) return (parts.Count > 0 ? "Annotations " + string.Join(" ", parts) + ", " : "") + $"OCR text on {ocrPages} page{(ocrPages == 1 ? "" : "s")}";
             return "Annotations " + string.Join(" ", parts);
         }
 
-        private static void Write(string path, string copy, IReadOnlyList<QuickAnnotationChange> changes)
+        private static void Write(string path, string copy, IReadOnlyList<QuickAnnotationChange> changes, IReadOnlyList<OcrPageResult> ocr)
         {
             using var reader = PdfSecurityService.AuthorizedReaderFor(path, PdfPermissionOperation.Annotate);
             using var writer = new PdfWriter(copy);
             using var doc = new PdfDocument(reader, writer, new StampingProperties().UseAppendMode());
             PdfQuickAnnotationService.ApplyChanges(doc, changes);
+            if (ocr.Count > 0) PdfOcrWriter.ApplyTo(doc, ocr);
         }
 
         public static void Forget(string path)

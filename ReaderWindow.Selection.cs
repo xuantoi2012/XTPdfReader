@@ -351,6 +351,9 @@ namespace XTPdfMergeApp
             Add("Previous Page", "PgUp", () => ReaderPreviousPage_Click(this, new RoutedEventArgs()));
             Add("Next Page", "PgDn", () => ReaderNextPage_Click(this, new RoutedEventArgs()));
             menu.Items.Add(new Separator());
+            Add("OCR this page…", "", () => { if (_readerPage != null) OcrPages(new[] { _readerPage }); });
+            Add("Read sheet info of this page…", "", () => { if (_readerPage != null) ReadSheetInfoForPages(new[] { _readerPage }); });
+            menu.Items.Add(new Separator());
             Add("Print…", "Ctrl+P", () => ReaderPrint_Click(this, new RoutedEventArgs()));
             menu.IsOpen = true;
         }

@@ -164,6 +164,9 @@ internal sealed class ReadSheetInfoWindow : XTWindow
     internal ComboBox SourceBox => _sourceBox;
     internal double Zoom => _zoom;
     internal bool IsBusy => _busy;
+
+    /// <summary>Read the pages as soon as the window is open, when their paper size already has areas (the per-page command).</summary>
+    public bool AutoReadOnOpen { get; init; }
     internal string StatusText => _status.Text;
     internal TextBox NumberBox => _numberBox;
     internal TextBox TitleBox => _titleBox;
@@ -472,6 +475,7 @@ internal sealed class ReadSheetInfoWindow : XTWindow
             _pageList.ScrollIntoView(start);
         }
         UpdateButtons();
+        if (AutoReadOnOpen && _rows.Count > 0 && _rows.Select(r => r.SizeKey).Distinct().All(key => key.Length > 0 && LayoutFor(key).HasAny)) await ReadAsync(_pages);
     }
 
     // ── The page and its areas ──────────────────────────────────────

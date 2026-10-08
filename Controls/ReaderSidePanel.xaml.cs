@@ -47,6 +47,7 @@ namespace XTPdfMergeApp.Controls
             SheetsView.PageActivated += row => PageActivated?.Invoke(row);
             SheetsView.SplitRequested += parts => SheetSplitRequested?.Invoke(parts);
             SheetsView.ReadInfoRequested += () => SheetReadInfoRequested?.Invoke();
+            SheetsView.PageActionRequested += (command, rows) => SheetPageActionRequested?.Invoke(command, rows);
             SheetsView.PageLabelsRequested += () => SheetPageLabelsRequested?.Invoke();
             SheetsView.LinkNumbersRequested += () => SheetLinkNumbersRequested?.Invoke();
             SheetsView.CountChanged += count => { _sheetCount = count; if (_tab == Tab.Sheets) UpdateCount(); };
@@ -70,6 +71,8 @@ namespace XTPdfMergeApp.Controls
 
         /// <summary>Tab Sheets → "Read info…".</summary>
         internal event Action? SheetReadInfoRequested;
+        /// <summary>OCR / Read sheet info of the sheets chosen in the Sheets tab.</summary>
+        internal event Action<PageCommand, IReadOnlyList<PageRow>>? SheetPageActionRequested;
         /// <summary>Tab Sheets → "Page labels".</summary>
         internal event Action? SheetPageLabelsRequested;
         /// <summary>Tab Sheets → "Link numbers".</summary>
@@ -128,6 +131,8 @@ namespace XTPdfMergeApp.Controls
             MiPasteAfter.IsEnabled = clip;
             MiPasteBefore.IsEnabled = clip;
             MiDelete.Header = n == 1 ? "Delete page" : $"Delete {n} pages";
+            MiOcr.Header = n == 1 ? "OCR this page…" : $"OCR {n} pages…";
+            MiReadSheet.Header = n == 1 ? "Read sheet info of this page…" : $"Read sheet info of {n} pages…";
         }
 
         /// <summary>Chuột phải lên trang chưa chọn thì chọn riêng trang đó (như Explorer); đã chọn thì giữ nguyên vùng chọn.</summary>

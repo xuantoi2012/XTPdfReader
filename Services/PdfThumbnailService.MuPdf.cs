@@ -49,7 +49,7 @@ public static partial class PdfThumbnailService
     {
         try
         {
-            var reply = await ExperimentalMuPdfViewport.CommandAsync(path, "words", pageNumber - 1).ConfigureAwait(false);
+            var reply = await ExperimentalMuPdfViewport.CommandAsync(await Ocr.OcrPendingStore.TextPathAsync(path).ConfigureAwait(false), "words", pageNumber - 1).ConfigureAwait(false);
             return MuPdfRects(reply);
         }
         catch { return null; }
@@ -60,7 +60,7 @@ public static partial class PdfThumbnailService
     {
         try
         {
-            var reply = await ExperimentalMuPdfViewport.CommandAsync(path, "select", pageNumber - 1, new { ax, ay, bx, by }).ConfigureAwait(false);
+            var reply = await ExperimentalMuPdfViewport.CommandAsync(await Ocr.OcrPendingStore.TextPathAsync(path).ConfigureAwait(false), "select", pageNumber - 1, new { ax, ay, bx, by }).ConfigureAwait(false);
             return (MuPdfRects(reply), reply.GetProperty("text").GetString() ?? "");
         }
         catch { return null; }
@@ -72,14 +72,15 @@ public static partial class PdfThumbnailService
         if (string.IsNullOrEmpty(query)) return null;
         try
         {
-            var opened = await MuPdfOpenAsync(path).ConfigureAwait(false);
+            string source = await Ocr.OcrPendingStore.TextPathAsync(path).ConfigureAwait(false); // the file, or its working copy when OCR text is waiting for Save
+            var opened = await MuPdfOpenAsync(source).ConfigureAwait(false);
             if (opened.Failure != PdfOpenFailure.None) return null;
             int withoutText = 0;
             // Pages are searched in groups: one round trip per group, and the worker reads per-character boxes only on pages that can match.
             const int PagesPerRequest = 8;
             for (int first = 0; first < opened.PageCount; first += PagesPerRequest)
             {
-                var reply = await ExperimentalMuPdfViewport.CommandAsync(path, "searchrange", first,
+                var reply = await ExperimentalMuPdfViewport.CommandAsync(source, "searchrange", first,
                     new { query, matchCase, wholeWord, count = PagesPerRequest }, token).ConfigureAwait(false);
                 foreach (var pageReply in reply.GetProperty("pages").EnumerateArray())
                 {

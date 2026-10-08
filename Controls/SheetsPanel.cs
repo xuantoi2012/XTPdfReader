@@ -125,6 +125,8 @@ public sealed class SheetsPanel : UserControl
     internal event Action<IReadOnlyList<(string Label, IReadOnlyList<PageRow> Pages)>>? SplitRequested;
     /// <summary>Mở "Read sheet info" (đọc số hiệu / tên từ chữ trong khung tên).</summary>
     internal event Action? ReadInfoRequested;
+    /// <summary>A page command (OCR, Read sheet info) for the chosen sheets, from the right-click menu.</summary>
+    internal event Action<PageCommand, IReadOnlyList<PageRow>>? PageActionRequested;
     /// <summary>Ghi số hiệu bản vẽ làm nhãn trang của file.</summary>
     internal event Action? PageLabelsRequested;
     /// <summary>Gắn liên kết bấm được cho số hiệu bản vẽ trong chữ của các trang khác.</summary>
@@ -158,9 +160,22 @@ public sealed class SheetsPanel : UserControl
         open.Click += (_, _) => OpenDwg();
         var copy = new MenuItem { Header = "Copy sheet number" };
         copy.Click += (_, _) => { if (_list.SelectedItem is SheetRow s && s.Info.No.Length > 0) try { Clipboard.SetText(s.Info.No); } catch { } };
+        var ocr = new MenuItem { Header = "OCR this sheet…" };
+        ocr.Click += (_, _) => { if (_list.SelectedItems.OfType<SheetRow>().Select(r => r.Row).ToList() is { Count: > 0 } rows) PageActionRequested?.Invoke(PageCommand.Ocr, rows); };
+        var read = new MenuItem { Header = "Read sheet info of this sheet…" };
+        read.Click += (_, _) => { if (_list.SelectedItems.OfType<SheetRow>().Select(r => r.Row).ToList() is { Count: > 0 } rows) PageActionRequested?.Invoke(PageCommand.ReadSheetInfo, rows); };
         menu.Items.Add(open);
         menu.Items.Add(copy);
-        menu.Opened += (_, _) => open.IsEnabled = (_list.SelectedItem as SheetRow)?.HasDwg == true;
+        menu.Items.Add(new Separator());
+        menu.Items.Add(ocr);
+        menu.Items.Add(read);
+        menu.Opened += (_, _) =>
+        {
+            open.IsEnabled = (_list.SelectedItem as SheetRow)?.HasDwg == true;
+            int n = _list.SelectedItems.Count;
+            ocr.Header = n > 1 ? $"OCR {n} sheets…" : "OCR this sheet…";
+            read.Header = n > 1 ? $"Read sheet info of {n} sheets…" : "Read sheet info of this sheet…";
+        };
         return menu;
     }
 

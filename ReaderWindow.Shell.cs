@@ -69,6 +69,7 @@ namespace XTPdfMergeApp
             ReaderSidePanel.RegisterOrphanLayersRequested += OnRegisterOrphanLayers;
             ReaderSidePanel.SheetSplitRequested += OnSplitSheets;
             ReaderSidePanel.SheetReadInfoRequested += OnReadSheetInfo;
+            ReaderSidePanel.SheetPageActionRequested += (command, rows) => { if (command == PageCommand.Ocr) OcrPages(rows); else ReadSheetInfoForPages(rows); };
             ReaderSidePanel.SheetPageLabelsRequested += OnSheetPageLabels;
             ReaderSidePanel.SheetLinkNumbersRequested += OnLinkSheetNumbers;
             PdfPageEditService.ConflictRetried += OnSaveConflictRetried;
@@ -611,6 +612,8 @@ namespace XTPdfMergeApp
                 case PageCommand.RotateRight: await RotateEditTargetsAsync(90); return;
                 case PageCommand.Extract: await EditHost.ExtractPagesAsync(group, pages); return;
                 case PageCommand.Delete: EditHost.DeletePages(group, pages); return;
+                case PageCommand.Ocr: OcrPages(pages); return;
+                case PageCommand.ReadSheetInfo: ReadSheetInfoForPages(pages); return;
             }
             if (result.Count > 0 && ReferenceEquals(_readerGroup, group)) ReaderSidePanel.SelectPages(result);
         }

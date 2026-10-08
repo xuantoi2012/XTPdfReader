@@ -30,13 +30,14 @@ namespace XTPdfMergeApp
         {
             _dispatcher = dispatcher;
             AnnotationStore.PendingChanged += _ => UpdateAnnotationDirty();
+            Services.Ocr.OcrPendingStore.PendingChanged += changed => { if (_dispatcher.CheckAccess()) UpdateAnnotationDirty(); else _dispatcher.InvokeAsync(UpdateAnnotationDirty); };
         }
 
         /// <summary>Tab chấm cam khi file nào mà window dùng trang còn chú thích chưa lưu.</summary>
         private void UpdateAnnotationDirty()
         {
             var pending = new HashSet<string>(_groups.SelectMany(g => g.Pages).Select(p => p.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase)
-                .Where(AnnotationStore.HasPending), StringComparer.OrdinalIgnoreCase);
+                .Where(AnnotationWorkingCopy.HasPendingEdits), StringComparer.OrdinalIgnoreCase);
             foreach (var group in _groups) group.SetAnnotationsDirty(pending.Count > 0 && group.Pages.Any(p => pending.Contains(p.SourcePath)));
         }
 
@@ -518,6 +519,16 @@ namespace XTPdfMergeApp
             return Task.CompletedTask;
         }
 
+        /// <summary>OCR text of scanned pages kept IN MEMORY (found by Find / Select at once), with Undo / Redo; written into the file as an invisible text layer on Save.</summary>
+        Task IReaderPageEditHost.ApplyOcrAsync(string path, IReadOnlyDictionary<int, IReadOnlyList<Services.Ocr.OcrWord>?> pages, string description)
+        {
+            if (pages.Count == 0) return Task.CompletedTask;
+            if (!Controls.PdfPermissionDialog.Require(OwnerWindow, new[] { path }, PdfPermissionOperation.Modify)) return Task.CompletedTask;
+            _workspace.Execute(new Workspace.OcrEditCommand(description, path, pages));
+            NotifyStatusChanged();
+            return Task.CompletedTask;
+        }
+
         // ── Layer (OCG): bật/tắt theo Cách 2 trong báo cáo điều tra ─────────
 
         /// <summary>Đổi tập layer đang tắt của 1 file: lưu trạng thái (PdfLayerStateStore) → đóng lease PDFium
@@ -987,7 +998,7 @@ namespace XTPdfMergeApp
             if (IsTempWindow(group)) saveAs = true;
             if (!saveAs && !group.IsDirty) return true;
             if (!saveAs && !await Controls.PdfPermissionDialog.RequireAsync(OwnerWindow, new[] { target },
-                    group.OnlyAnnotationsDirty ? PdfPermissionOperation.Annotate : PdfPermissionOperation.Modify)) return false;
+                    group.OnlyAnnotationsDirty && !Services.Ocr.OcrPendingStore.HasPending(target) ? PdfPermissionOperation.Annotate : PdfPermissionOperation.Modify)) return false;
             if (!saveAs && !group.OnlyAnnotationsDirty && (await PdfSecurityService.ReadAsync(target)).IsEncrypted)
             {
                 if (AppDialog.Show(OwnerWindow, "Page structure changes require rewriting this PDF. Save as an unprotected copy instead?\n\nThe original encrypted file keeps its password and permissions.",
@@ -1024,7 +1035,7 @@ namespace XTPdfMergeApp
         private async Task<bool> SaveAnnotationsInPlaceAsync(string target)
         {
             var changes = AnnotationStore.Pending(target);
-            if (changes.Count == 0) return true;
+            if (changes.Count == 0 && !Services.Ocr.OcrPendingStore.HasPending(target)) return true;
             await _sourceEditGate.WaitAsync();
             Mouse.OverrideCursor = Cursors.Wait;
             try
@@ -1301,6 +1312,8 @@ namespace XTPdfMergeApp
         IReadOnlyList<DocumentGroup> GetDirtyGroups();
         void Undo();
         void Redo();
+        /// <summary>OCR text kept in memory until Save (undoable): page number (1 based) to words, null removes a page's text.</summary>
+        Task ApplyOcrAsync(string path, IReadOnlyDictionary<int, IReadOnlyList<Services.Ocr.OcrWord>?> pages, string description);
         /// <summary>Ghi các thay đổi annotation vào file nguồn và đưa vào Undo/Redo.</summary>
         Task ApplyAnnotationChangesAsync(string path, IReadOnlyList<QuickAnnotationChange> changes, string description);
     }

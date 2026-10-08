@@ -450,6 +450,9 @@ namespace XTPdfMergeApp.Services
         /// <summary>Goes up every time a file is about to be rewritten (rotate, page edits, annotations): caches of page text boxes compare it.</summary>
         internal static int FileChangeEpoch => Volatile.Read(ref _fileChangeEpoch);
 
+        /// <summary>The text of an open file changed without the file being written (OCR kept in memory): word boxes and search results are read again.</summary>
+        internal static void NotifyTextChanged() => Interlocked.Increment(ref _fileChangeEpoch);
+
         public static async Task<IDisposable> SuspendDocumentAsync(string pdfPath, TimeSpan timeout, bool fileWillChange = true)
         {
             string normalized = NormalizePath(pdfPath);

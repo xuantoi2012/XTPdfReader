@@ -25,13 +25,14 @@ internal static partial class Program
     }
 
     /// <summary>Runs <paramref name="body"/> in a real (offscreen) reader window with a blank A4 page open, like the other flow tests.</summary>
-    static void RunReaderFlow(string folderName, Func<ReaderFlow, Task> body)
+    static void RunReaderFlow(string folderName, Func<ReaderFlow, Task> body, string? copyFrom = null)
     {
         if (System.Windows.Application.Current == null) CreateReaderTestApplication();
         string folder = System.IO.Path.Combine(Output, folderName);
         Directory.CreateDirectory(folder);
         string path = System.IO.Path.Combine(folder, "page.pdf");
-        using (var doc = new PdfDocument(new PdfWriter(path))) doc.AddNewPage(new PageSize(595, 842));
+        if (copyFrom != null) File.Copy(copyFrom, path, overwrite: true);
+        else using (var doc = new PdfDocument(new PdfWriter(path))) doc.AddNewPage(new PageSize(595, 842));
         var reader = new XTPdfMergeApp.ReaderWindow { Width = 1300, Height = 900, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false };
         var app = System.Windows.Application.Current;
         var priorOwner = app.MainWindow;

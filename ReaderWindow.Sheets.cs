@@ -71,7 +71,7 @@ public partial class ReaderWindow
     }
 
     /// <summary>Tab Sheets → "Read info…": đọc số hiệu / tên / tỷ lệ từ chữ trong khung tên rồi ghi vào /XTSheet của file đang xem.</summary>
-    private async void OnReadSheetInfo()
+    private void OnReadSheetInfo()
     {
         if (_readerGroup == null || _readerGroup.Pages.Count == 0) return;
         var sources = _readerGroup.Pages.Select(p => p.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -84,7 +84,14 @@ public partial class ReaderWindow
         var pages = _readerGroup.Pages.Select(p => p.PageNumber).Distinct().OrderBy(n => n).ToList();
         int sample = _readerPage != null && string.Equals(_readerPage.SourcePath, path, StringComparison.OrdinalIgnoreCase) ? _readerPage.PageNumber : pages[0];
 
-        var dialog = new ReadSheetInfoWindow(path, pages, sample) { Owner = this };
+        OnReadSheetInfo(path, pages, sample, autoRead: false);
+    }
+
+    /// <summary>The window for these pages of one file; <paramref name="autoRead"/> reads them at once with the areas saved for their paper size.</summary>
+    private async void OnReadSheetInfo(string path, IReadOnlyList<int> pages, int sample, bool autoRead)
+    {
+        var sources = new List<string> { path };
+        var dialog = new ReadSheetInfoWindow(path, pages, sample) { Owner = this, AutoReadOnOpen = autoRead };
         if (dialog.ShowDialog() != true || dialog.Result.Count == 0) return;
         try
         {

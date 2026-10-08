@@ -160,6 +160,8 @@
                             <MenuItem x:Name="MiSelectSameSize" Header="Select pages of this size" Click="SelectSameSize_Click"/>
                             <MenuItem Header="Rotate left" Tag="RotateLeft" Click="PageMenu_Click"><MenuItem.Icon><Viewbox Width="16" Height="16"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.undo}" Fill="{DynamicResource Ui.Text}"/></Canvas></Viewbox></MenuItem.Icon></MenuItem>
                             <MenuItem Header="Rotate right" Tag="RotateRight" Click="PageMenu_Click"><MenuItem.Icon><Viewbox Width="16" Height="16"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.redo}" Fill="{DynamicResource Ui.Text}"/></Canvas></Viewbox></MenuItem.Icon></MenuItem>
+                            <MenuItem x:Name="MiOcr" Header="OCR…" Tag="Ocr" Click="PageMenu_Click" ToolTip="Read the text of scanned pages (kept until Ctrl+S)"/>
+                            <MenuItem x:Name="MiReadSheet" Header="Read sheet info…" Tag="ReadSheetInfo" Click="PageMenu_Click" ToolTip="Read sheet number, title and scale of these pages"/>
                             <MenuItem Header="Extract…" Tag="Extract" Click="PageMenu_Click"><MenuItem.Icon><Viewbox Width="16" Height="16"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.extract}" Fill="{DynamicResource Ui.Text}"/></Canvas></Viewbox></MenuItem.Icon></MenuItem>
                             <Separator/>
                             <MenuItem x:Name="MiDelete" Header="Delete" InputGestureText="Del" Tag="Delete" Click="PageMenu_Click"><MenuItem.Icon><Viewbox Width="16" Height="16"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.trash}" Fill="{DynamicResource Ui.Danger}"/></Canvas></Viewbox></MenuItem.Icon></MenuItem>

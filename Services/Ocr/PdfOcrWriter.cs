@@ -32,10 +32,16 @@ namespace XTPdfMergeApp.Services.Ocr
         /// <summary>Copies <paramref name="inputPath"/> to <paramref name="outputPath"/> with the words added. Returns how many words were written.</summary>
         public static int Write(string inputPath, string outputPath, IEnumerable<OcrPageResult> pages)
         {
-            int written = 0;
             using var reader = new PdfReader(inputPath);
             using var writer = new PdfWriter(outputPath);
             using var document = new PdfDocument(reader, writer);
+            return ApplyTo(document, pages);
+        }
+
+        /// <summary>Adds the words to the pages of an open document (a copy being written, or the file itself in an incremental update). Returns how many words were written.</summary>
+        public static int ApplyTo(PdfDocument document, IEnumerable<OcrPageResult> pages)
+        {
+            int written = 0;
             string? fontFile = FindFontFile();
             var font = fontFile != null
                 ? PdfFontFactory.CreateFont(fontFile, PdfEncodings.IDENTITY_H, PdfFontFactory.EmbeddingStrategy.FORCE_EMBEDDED)

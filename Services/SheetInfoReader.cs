@@ -32,7 +32,8 @@ namespace XTPdfMergeApp.Services
             IProgress<(int Done, int Total)>? progress, CancellationToken token)
         {
             // 1. the text layer (and the paper size of every page, to pick its areas)
-            var rows = await Task.Run(() => ReadTextLayer(path, pages, layoutFor, source != SheetReadSource.Ocr), token).ConfigureAwait(false);
+            string textPath = await OcrPendingStore.TextPathAsync(path).ConfigureAwait(false); // OCR text that waits for Save counts as text
+            var rows = await Task.Run(() => ReadTextLayer(textPath, pages, layoutFor, source != SheetReadSource.Ocr), token).ConfigureAwait(false);
 
             // 2. OCR of the areas that have no text (or all of them)
             var requests = new List<OcrRegionRequest>();
