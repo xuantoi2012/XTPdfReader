@@ -105,9 +105,16 @@ namespace XTPdfMergeApp.Services
     /// <summary>Lưu các bộ vùng khung tên theo khổ giấy (%LocalAppData%\XTPdfReader\titleblock-regions.json) để lần sau khỏi khoanh lại.</summary>
     internal static class TitleBlockStore
     {
-        private static readonly string FilePath = System.IO.Path.Combine(
+        private static string _filePath = System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XTPdfReader", "titleblock-regions.json");
         private static Dictionary<string, TitleBlockLayout>? _layouts;
+
+        /// <summary>Where the areas are kept (tests point it elsewhere so a real user's areas are never touched).</summary>
+        internal static string FilePath
+        {
+            get => _filePath;
+            set { _filePath = value; _layouts = null; }
+        }
 
         public static TitleBlockLayout? Get(string sizeKey) => Load().TryGetValue(sizeKey, out var layout) ? layout : null;
 

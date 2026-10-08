@@ -20,8 +20,8 @@ def has_text(page, min_chars):
     return len("".join(page.get_text("text").split())) >= min_chars
 
 
-def words_of(raw, dpi):
-    """Words of a one-page OCR PDF as (text, x0, y0, x1, y1) in pixels of the picture that was read.
+def lines_of(raw, dpi):
+    """Lines of an OCR page as lists of words (text, x0, y0, x1, y1) in pixels of the picture that was read.
     MuPDF lays the characters of a word side by side and puts the whole gap in front of the next word's first character, but only
     sometimes writes a space there (with Vietnamese letters it often does not), so a gap is also a word boundary."""
     k = dpi / 72.0
@@ -29,12 +29,12 @@ def words_of(raw, dpi):
     for block in raw["blocks"]:
         for line in block.get("lines", []):
             chars = [c for span in line["spans"] for c in span["chars"]]
-            text, box, previous = "", None, None
+            words, text, box, previous = [], "", None, None
             for c in chars:
                 x0, y0, x1, y1 = c["bbox"]
                 if c["c"] == " " or (previous is not None and x0 - previous > 0.3):
                     if text:
-                        result.append((text, *[v * k for v in box]))
+                        words.append((text, *[v * k for v in box]))
                         text, box = "", None
                     if c["c"] == " ":
                         previous = x1
@@ -43,8 +43,14 @@ def words_of(raw, dpi):
                 box = (x0, y0, x1, y1) if box is None else (min(box[0], x0), min(box[1], y0), max(box[2], x1), max(box[3], y1))
                 previous = x1
             if text:
-                result.append((text, *[v * k for v in box]))
+                words.append((text, *[v * k for v in box]))
+            if words:
+                result.append(words)
     return result
+
+
+def words_of(raw, dpi):
+    return [word for line in lines_of(raw, dpi) for word in line]
 
 
 def ocr_page(page, language, tessdata, dpi, tile, overlap):
@@ -89,8 +95,59 @@ def ocr_page(page, language, tessdata, dpi, tile, overlap):
     return words, width, height
 
 
+def read_region(page, fractions, language, tessdata, dpi):
+    """Text of one rectangle of a page (fractions of the displayed page): the area is drawn large enough for tesseract (text 40+ px tall),
+    given a white margin (it reads edge-to-edge text badly) and read as one block. Lines are joined with a space."""
+    rect = page.rect
+    x0, y0, x1, y1 = fractions
+    clip = fitz.Rect(x0 * rect.width, y0 * rect.height, x1 * rect.width, y1 * rect.height) & rect
+    if clip.is_empty or clip.width < 2 or clip.height < 2:
+        return ""
+    scale = dpi / 72.0
+    if clip.height * scale < 70:
+        scale = min(6.0, 70.0 / clip.height)          # a one-line stamp of 6 pt text: draw it larger
+    if clip.width * scale > 3400:
+        scale = 3400.0 / clip.width
+    pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), clip=clip, colorspace=fitz.csGRAY, alpha=False)
+    if pix.is_unicolor:
+        return ""
+    used = scale * 72.0
+    margin = max(24, int(pix.height * 0.25))
+    scratch = fitz.open()
+    sheet = scratch.new_page(width=(pix.width + 2 * margin) * 72.0 / used, height=(pix.height + 2 * margin) * 72.0 / used)
+    m = margin * 72.0 / used
+    sheet.insert_image(fitz.Rect(m, m, m + pix.width * 72.0 / used, m + pix.height * 72.0 / used), pixmap=pix)
+    text_page = sheet.get_textpage_ocr(language=language, dpi=int(round(used)), full=True, tessdata=tessdata)
+    raw = sheet.get_text("rawdict", textpage=text_page)
+    scratch.close()
+    lines = lines_of(raw, used)
+    lines.sort(key=lambda line: (round(line[0][2] / max(1.0, pix.height * 0.4)), line[0][1]))
+    text = " ".join(" ".join(w[0] for w in line) for line in lines)
+    return " ".join(text.split()).strip("|_~` ")
+
+
+def read_regions(job):
+    document = fitz.open(job["path"])
+    by_page = {}
+    for request in job["requests"]:
+        by_page.setdefault(request["page"], []).append(request)
+    emit(type="start", pageCount=document.page_count, pages=len(by_page))
+    for index in sorted(by_page):
+        started = time.time()
+        try:
+            page = document[index]
+            texts = {r["key"]: read_region(page, r["rect"], job.get("language", "vie"), job["tessdata"], int(job.get("dpi", 300))) for r in by_page[index]}
+            emit(type="regions", page=index, texts=texts, ms=int((time.time() - started) * 1000))
+        except Exception as error:
+            emit(type="error", page=index, message=str(error))
+    emit(type="done")
+
+
 def main():
     job = json.load(open(sys.argv[1], encoding="utf-8"))
+    if job.get("mode") == "regions":
+        read_regions(job)
+        return
     document = fitz.open(job["path"])
     pages = job.get("pages") or list(range(document.page_count))
     dpi = int(job.get("dpi", 300))
