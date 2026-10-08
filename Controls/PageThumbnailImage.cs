@@ -38,7 +38,7 @@ namespace XTPdfMergeApp.Controls
             if (DataContext is not PageRow row || Source is not BitmapSource bitmap || RenderSize.Width <= 0 || RenderSize.Height <= 0) return;
             if (BlankPageService.IsBlankFile(row.SourcePath)) return;
             var frame = new Rect(RenderSize);
-            int rotation = ((row.Rotation % 360) + 360) % 360;
+            int rotation = (((row.Rotation + PageRotationPendingStore.Delta(row.SourcePath, row.PageNumber)) % 360) + 360) % 360; // turns that wait for Save count
             var bases = new[] { new AnnotationLayer.BaseImage(bitmap, new Rect(0, 0, 1, 1)) };
             if (rotation != 0)
             {

@@ -175,8 +175,8 @@ namespace XTPdfMergeApp
             var objects = selection.Objects.ToList();
             ClearObjectSelection();
             string what = objects.Count == 1 ? $"1 {objects[0].Kind}" : $"{objects.Count} objects";
-            bool ok = await EditHost.DeleteObjectsAsync(selection.Row.SourcePath, objects, $"Removed {what} (saved to file)");
-            if (ok) XTGrowl.Success($"Removed {what}. Undo (Ctrl+Z) brings {(objects.Count == 1 ? "it" : "them")} back.", this);
+            await EditHost.ApplyObjectDeleteAsync(selection.Row.SourcePath, objects, $"Removed {what}");
+            XTGrowl.Success($"Removed {what} from the page. Ctrl+S removes {(objects.Count == 1 ? "it" : "them")} from the file; Undo (Ctrl+Z) brings {(objects.Count == 1 ? "it" : "them")} back.", this);
         }
 
         internal async Task CopySelectedObjectsAsync()

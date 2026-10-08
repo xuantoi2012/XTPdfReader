@@ -77,7 +77,11 @@ namespace XTPdfMergeApp
             AnnotationWorkingCopy.Conflict += OnAnnotationConflict;
             ReaderSidePanel.SourceFileWritten += path => Session.RefreshDiskStamp(path);
             AnnotationStore.Changed += OnAnnotationsChanged;
+            TaskProgress.Changed += OnTaskProgress;
+            ReaderContinuousView.PageTurn = row => PageRotationPendingStore.Delta(row.SourcePath, row.PageNumber);
+            PageRotationPendingStore.PendingChanged += path => Dispatcher.InvokeAsync(() => { ReaderContinuousView.RefreshTurns(); OnAnnotationsChanged(path, 0); });
             TextEditPendingStore.PendingChanged += path => Dispatcher.InvokeAsync(() => OnAnnotationsChanged(path, 0));
+            ObjectDeletePendingStore.PendingChanged += path => Dispatcher.InvokeAsync(() => OnAnnotationsChanged(path, 0));
             ShowEmptyReaderState();
         }
 
@@ -348,6 +352,19 @@ namespace XTPdfMergeApp
         }
 
         /// <summary>Bấm chuột phải lên tab thì chọn tab đó trước, để menu ("Open in default app"…) tác động đúng file.</summary>
+        /// <summary>A long job reports here (from any thread): the status bar says what it does and how far.</summary>
+        private void OnTaskProgress(string? text, double fraction)
+        {
+            Dispatcher.InvokeAsync(() =>
+            {
+                bool show = text != null;
+                ReaderTaskText.Text = text ?? "";
+                ReaderTaskText.Visibility = ReaderTaskBar.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+                ReaderTaskBar.IsIndeterminate = show && fraction < 0;
+                if (show && fraction >= 0) ReaderTaskBar.Value = fraction;
+            });
+        }
+
         private void ReaderTab_PreviewMouseRightButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             if ((sender as FrameworkElement)?.DataContext is DocumentGroup group && !ReferenceEquals(ReaderDocumentTabs.SelectedItem, group))

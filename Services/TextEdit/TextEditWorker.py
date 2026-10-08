@@ -8,6 +8,7 @@
 # One JSON object per output line.
 import json
 import math
+import os
 import sys
 
 import pymupdf as fitz
@@ -47,14 +48,23 @@ def runs_of(page):
     return result
 
 
-def background(page, rect):
-    """Colour of the page just left of the run, so the preview can cover the old text with it (white when it cannot be read)."""
+def page_picture(page, dpi=30):
+    """One small picture of the whole page, to read the colour of the paper beside the text from (None when it cannot be drawn)."""
     try:
-        probe = fitz.Rect(max(0, rect.x0 - 3), rect.y0, max(1, rect.x0 - 1), rect.y1) & page.rect
-        if probe.is_empty:
-            return 0xFFFFFF
-        pix = page.get_pixmap(clip=probe, dpi=36, alpha=False)
-        r, g, b = pix.pixel(0, 0)[:3]
+        return page.get_pixmap(dpi=dpi, alpha=False)
+    except Exception:
+        return None
+
+
+def background(picture, page, rect):
+    """Colour of the page just left of the run, so the preview can cover the old text with it (white when it cannot be read)."""
+    if picture is None:
+        return 0xFFFFFF
+    try:
+        k = picture.width / max(1.0, page.rect.width)
+        x = int(max(0, min(picture.width - 1, (rect.x0 - 2) * k)))
+        y = int(max(0, min(picture.height - 1, (rect.y0 + rect.y1) / 2 * k)))
+        r, g, b = picture.pixel(x, y)[:3]
         return (r << 16) | (g << 8) | b
     except Exception:
         return 0xFFFFFF
@@ -66,8 +76,9 @@ def job_runs(job):
         doc.authenticate(job.get("password") or "")
     page = doc[job["page"] - 1]
     runs = runs_of(page)
+    picture = page_picture(page) if runs else None
     for run in runs:
-        run["bg"] = background(page, fitz.Rect(run["bbox"]))
+        run["bg"] = background(picture, page, fitz.Rect(run["bbox"]))
     emit(type="runs", page=job["page"], width=page.rect.width, height=page.rect.height, rotation=page.rotation, runs=runs)
 
 
@@ -108,33 +119,86 @@ def job_area(job):
         w, h = page.rect.width, page.rect.height
         everything = runs_of(page)
         inside = []
+        picture = None
         for run in everything:
             cx, cy = (run["bbox"][0] + run["bbox"][2]) / 2, (run["bbox"][1] + run["bbox"][3]) / 2
             if u1 * w <= cx <= u2 * w and v1 * h <= cy <= v2 * h:
-                run["bg"] = background(page, fitz.Rect(run["bbox"]))
+                if picture is None:
+                    picture = page_picture(page)
+                run["bg"] = background(picture, page, fitz.Rect(run["bbox"]))
                 inside.append(run)
         emit(type="area", page=number, width=w, height=h, rotation=page.rotation, hasText=len(everything) > 0, runs=inside)
 
 
 # -- drawn objects ----------------------------------------------------------
+# A page of a drawing holds tens of thousands of paths. Everything here works on page.get_cdrawings() (plain tuples, 2-3 times faster than get_drawings)
+# and looks at the box of a path FIRST; only the few paths that pass get their kind, their points or their preview built. An object is named by its position
+# in that list (the "index"), which is the same for the same file.
 
-def objects_of(page):
-    """Lines, shapes (any other vector path) and images of a page, with the box of each (points of the displayed page, origin top left)."""
-    result = []
-    for index, d in enumerate(page.get_drawings()):
-        items = d["items"]
-        if not items:
+def to_display(page, bbox):
+    """Box of the page as stored (unrotated) -> box of the page as displayed (the /Rotate of the page applied), origin top left."""
+    r = (fitz.Rect(bbox) * page.rotation_matrix).normalize()
+    return [r.x0, r.y0, r.x1, r.y1]
+
+
+def display_point(m, x, y):
+    """(x, y) of the page as stored -> of the page as displayed, with the matrix m = (a, b, c, d, e, f) of page.rotation_matrix."""
+    return [round(m[0] * x + m[2] * y + m[4], 2), round(m[1] * x + m[3] * y + m[5], 2)]
+
+
+def quad_corners(q):
+    return [q[0], q[1], q[3], q[2], q[0]] if len(q) == 4 else list(q)
+
+
+def polylines_of(page, d, limit=600):
+    m = tuple(page.rotation_matrix)
+    """The strokes of a path as polylines of the DISPLAYED page (curves flattened), for the preview that hides a deleted object. At most <limit> points."""
+    lines, count = [], 0
+    for item in d["items"]:
+        kind = item[0]
+        if kind == "l":
+            pts = [item[1], item[2]]
+        elif kind == "c":
+            pts = list(bezier_points(item[1], item[2], item[3], item[4], 8))
+        elif kind == "re":
+            r = item[1]
+            pts = [(r[0], r[1]), (r[2], r[1]), (r[2], r[3]), (r[0], r[3]), (r[0], r[1])]
+        elif kind == "qu":
+            pts = quad_corners(item[1])
+        else:
             continue
-        is_line = d.get("fill") is None and all(i[0] == "l" for i in items)
-        r = d["rect"]
-        result.append({"kind": "line" if is_line else "shape", "index": index, "bbox": [r.x0, r.y0, r.x1, r.y1], "width": d.get("width") or 0,
-                       "filled": d.get("fill") is not None, "items": items,
-                       "segments": [[i[1].x, i[1].y, i[2].x, i[2].y] for i in items if i[0] == "l"] if is_line else []})
+        lines.append([display_point(m, p[0], p[1]) for p in pts])
+        count += len(pts)
+        if count >= limit:
+            break
+    return lines
+
+
+def kind_of(d):
+    items = d["items"]
+    return "line" if d.get("fill") is None and all(i[0] == "l" for i in items) else "shape"
+
+
+def object_json(page, index, d):
+    return {"kind": kind_of(d), "index": index, "bbox": to_display(page, d["rect"]), "width": d.get("width") or 0, "paths": polylines_of(page, d)}
+
+
+def image_objects(page):
+    result = []
+    if not page.get_images(full=True):
+        return result
     for k, info in enumerate(page.get_image_info(xrefs=True)):
         r = fitz.Rect(info["bbox"])
         if not r.is_empty:
-            result.append({"kind": "image", "index": k, "bbox": [r.x0, r.y0, r.x1, r.y1], "width": 0, "filled": True, "segments": [], "xref": info.get("xref", 0)})
+            result.append({"kind": "image", "index": k, "bbox": to_display(page, r), "width": 0, "paths": [], "xref": info.get("xref", 0), "_rect": r})
     return result
+
+
+def bezier_points(p1, p2, p3, p4, steps=16):
+    for k in range(steps + 1):
+        t = k / steps
+        a, b, c, d = (1 - t) ** 3, 3 * (1 - t) ** 2 * t, 3 * (1 - t) * t * t, t ** 3
+        yield (a * p1[0] + b * p2[0] + c * p3[0] + d * p4[0], a * p1[1] + b * p2[1] + c * p3[1] + d * p4[1])
 
 
 def distance_to_segment(px, py, ax, ay, bx, by):
@@ -144,47 +208,22 @@ def distance_to_segment(px, py, ax, ay, bx, by):
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
-def bezier_points(p1, p2, p3, p4, steps=16):
-    for k in range(steps + 1):
-        t = k / steps
-        a, b, c, d = (1 - t) ** 3, 3 * (1 - t) ** 2 * t, 3 * (1 - t) * t * t, t ** 3
-        yield (a * p1.x + b * p2.x + c * p3.x + d * p4.x, a * p1.y + b * p2.y + c * p3.y + d * p4.y)
-
-
 def near_path(items, x, y, reach):
     """True when the point is within <reach> of any piece of the path (lines, curves, rectangles, quads)."""
     for item in items:
         kind = item[0]
         if kind == "l":
-            if distance_to_segment(x, y, item[1].x, item[1].y, item[2].x, item[2].y) <= reach:
+            if distance_to_segment(x, y, item[1][0], item[1][1], item[2][0], item[2][1]) <= reach:
                 return True
         elif kind == "c":
             pts = list(bezier_points(item[1], item[2], item[3], item[4]))
             if any(distance_to_segment(x, y, *pts[k], *pts[k + 1]) <= reach for k in range(len(pts) - 1)):
                 return True
-        elif kind == "re":
-            r = item[1]
-            corners = [(r.x0, r.y0), (r.x1, r.y0), (r.x1, r.y1), (r.x0, r.y1), (r.x0, r.y0)]
-            if any(distance_to_segment(x, y, *corners[k], *corners[k + 1]) <= reach for k in range(4)):
-                return True
-        elif kind == "qu":
-            q = item[1]
-            corners = [(q.ul.x, q.ul.y), (q.ur.x, q.ur.y), (q.lr.x, q.lr.y), (q.ll.x, q.ll.y), (q.ul.x, q.ul.y)]
-            if any(distance_to_segment(x, y, *corners[k], *corners[k + 1]) <= reach for k in range(4)):
+        elif kind in ("re", "qu"):
+            corners = [(item[1][0], item[1][1]), (item[1][2], item[1][1]), (item[1][2], item[1][3]), (item[1][0], item[1][3]), (item[1][0], item[1][1])] if kind == "re" else quad_corners(item[1])
+            if any(distance_to_segment(x, y, *corners[k], *corners[k + 1]) <= reach for k in range(len(corners) - 1)):
                 return True
     return False
-
-
-def to_display(page, bbox):
-    """Box of the page as stored (unrotated) -> box of the page as displayed (the /Rotate of the page applied), origin top left."""
-    r = (fitz.Rect(bbox) * page.rotation_matrix).normalize()
-    return [r.x0, r.y0, r.x1, r.y1]
-
-
-def strip(obj, page):
-    result = {k: obj[k] for k in ("kind", "index", "xref") if k in obj}
-    result["bbox"] = to_display(page, obj["bbox"])
-    return result
 
 
 def job_pick(job):
@@ -193,25 +232,30 @@ def job_pick(job):
     point = fitz.Point(job["x"], job["y"]) * page.derotation_matrix
     x, y, tol = point.x, point.y, job.get("tol", 2.5)
     hits = []
-    for obj in objects_of(page):
-        x0, y0, x1, y1 = obj["bbox"]
-        reach = tol + obj["width"] / 2
-        if obj["kind"] == "line":
-            if not any(distance_to_segment(x, y, *seg) <= reach for seg in obj["segments"]):
+    for index, d in enumerate(page.get_cdrawings()):
+        x0, y0, x1, y1 = d["rect"]
+        reach = tol + (d.get("width") or 0) / 2
+        if x < x0 - reach or x > x1 + reach or y < y0 - reach or y > y1 + reach:
+            continue
+        kind = kind_of(d)
+        if kind == "line":
+            if not any(distance_to_segment(x, y, i[1][0], i[1][1], i[2][0], i[2][1]) <= reach for i in d["items"]):
                 continue
-        elif obj["kind"] == "shape":
-            if not (x0 - reach <= x <= x1 + reach and y0 - reach <= y <= y1 + reach):
-                continue
-            # a filled shape is hit anywhere inside, an outline (frame, handwriting) only on its stroke
-            if not obj["filled"] and not near_path(obj["items"], x, y, reach):
-                continue
-        else:
-            if not (x0 <= x <= x1 and y0 <= y <= y1):
-                continue
-        hits.append(obj)
+        elif d.get("fill") is None and not near_path(d["items"], x, y, reach):
+            continue  # an outline (a frame, handwriting) is hit on its stroke only; a filled shape anywhere inside
+        hits.append((index, d, kind))
+    for img in image_objects(page):
+        if img["_rect"].contains(fitz.Point(x, y)):
+            hits.append((img, None, "image"))
     # smallest first: a line over a picture, a small shape inside a big one
-    hits.sort(key=lambda o: (o["kind"] == "image", (o["bbox"][2] - o["bbox"][0]) * (o["bbox"][3] - o["bbox"][1])))
-    emit(type="pick", page=job["page"], width=page.rect.width, height=page.rect.height, rotation=page.rotation, objects=[strip(o, page) for o in hits[:8]])
+    def area(h):
+        r = h[0]["_rect"] if h[2] == "image" else fitz.Rect(h[1]["rect"])
+        return (h[2] == "image", r.width * r.height)
+    hits.sort(key=area)
+    objects = [h[0] if h[2] == "image" else object_json(page, h[0], h[1]) for h in hits[:8]]
+    for o in objects:
+        o.pop("_rect", None)
+    emit(type="pick", page=job["page"], width=page.rect.width, height=page.rect.height, rotation=page.rotation, objects=objects)
 
 
 def job_pick_area(job):
@@ -219,43 +263,98 @@ def job_pick_area(job):
     page = doc[job["page"] - 1]
     x0, y0, x1, y1 = job["rect"]
     box = (fitz.Rect(x0, y0, x1, y1) * page.derotation_matrix).normalize()
-    inside = [o for o in objects_of(page) if box.contains(fitz.Rect(o["bbox"]))]
-    emit(type="pick", page=job["page"], width=page.rect.width, height=page.rect.height, rotation=page.rotation, objects=[strip(o, page) for o in inside[:5000]])
+    bx0, by0, bx1, by1 = box.x0, box.y0, box.x1, box.y1
+    found = []
+    for index, d in enumerate(page.get_cdrawings()):
+        r = d["rect"]
+        if r[0] >= bx0 and r[1] >= by0 and r[2] <= bx1 and r[3] <= by1:
+            found.append(object_json(page, index, d))
+            if len(found) >= 5000:
+                break
+    for img in image_objects(page):
+        if box.contains(img["_rect"]):
+            img.pop("_rect", None)
+            found.append(img)
+    emit(type="pick", page=job["page"], width=page.rect.width, height=page.rect.height, rotation=page.rotation, objects=found)
+
+
+_doc_cache = {}
+
+
+def _open_cached(path):
+    doc = _doc_cache.get(path)
+    if doc is None:
+        doc = _doc_cache[path] = fitz.open(path)
+    return doc
+
+
+def area_objects_of_page(args):
+    """The objects of ONE page in the rectangle (fractions of the page): the centre inside it (a stroke the area cuts a little still counts), or also every one that only touches it.
+    A function of its own so that a pool of processes can take pages one by one."""
+    path, number, rect, touch = args
+    doc = _open_cached(path)
+    u1, v1, u2, v2 = rect
+    page = doc[number - 1]
+    w, h = page.rect.width, page.rect.height
+    box = (fitz.Rect(u1 * w, v1 * h, u2 * w, v2 * h) * page.derotation_matrix).normalize()  # the area is drawn on the displayed page
+    bx0, by0, bx1, by1 = box.x0, box.y0, box.x1, box.y1
+    barea = box.width * box.height
+    found = []
+    for index, d in enumerate(page.get_cdrawings()):
+        x0, y0, x1, y1 = d["rect"]
+        # most paths are nowhere near the area: decided from the numbers alone
+        if x1 < bx0 - 0.01 or x0 > bx1 + 0.01 or y1 < by0 - 0.01 or y0 > by1 + 0.01:
+            continue
+        inside = x0 >= bx0 and y0 >= by0 and x1 <= bx1 and y1 <= by1
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        centre = bx0 <= cx <= bx1 and by0 <= cy <= by1
+        if not inside and not centre and not touch:
+            continue
+        if (x1 - x0) * (y1 - y0) > 3 * barea and not inside:
+            continue  # a frame or a long rule around / across the area is not what was drawn around
+        found.append(object_json(page, index, d))
+        if len(found) >= 5000:
+            break
+    for img in image_objects(page):
+        r = img["_rect"]
+        if r.width * r.height > 0.5 * w * h and not (r.x0 >= bx0 and r.y0 >= by0 and r.x1 <= bx1 and r.y1 <= by1):
+            continue  # a scan of the whole page is not "the signature"
+        centre = fitz.Point((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2)
+        if box.contains(r) or box.contains(centre) or (touch and box.intersects(r + (-0.01, -0.01, 0.01, 0.01))):
+            img.pop("_rect", None)
+            found.append(img)
+    return {"page": number, "width": w, "height": h, "rotation": page.rotation, "objects": found[:5000]}
 
 
 def job_area_objects(job):
-    """The drawn objects of a rectangle (fractions of the page) on each asked page: those whose centre lies inside it (a stroke the area cuts a little still counts), or also every one that only touches it."""
-    doc = fitz.open(job["path"])
-    u1, v1, u2, v2 = job["rect"]
-    touch = job.get("touch", False)
-    for number in job["pages"]:
-        page = doc[number - 1]
-        w, h = page.rect.width, page.rect.height
-        box = (fitz.Rect(u1 * w, v1 * h, u2 * w, v2 * h) * page.derotation_matrix).normalize()  # the area is drawn on the displayed page
-        found = []
-        for obj in objects_of(page):
-            r = fitz.Rect(obj["bbox"])
-            if obj["kind"] == "image" and r.width * r.height > 0.5 * w * h and not box.contains(r):
-                continue  # a scan of the whole page is not "the signature"
-            if r.width * r.height > 3 * box.width * box.height and not box.contains(r):
-                continue  # a frame or a long rule around / across the area is not what was drawn around
-            centre = fitz.Point((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2)
-            if box.contains(r) or box.contains(centre) or (touch and box.intersects(r + (-0.01, -0.01, 0.01, 0.01))):
-                found.append(strip(obj, page))
-        emit(type="areaObjects", page=number, width=w, height=h, rotation=page.rotation, objects=found[:5000])
+    """The drawn objects of a rectangle on each asked page. Many pages are shared among several processes (a page of a drawing takes 0.1-0.5 s), each page reported as it is done."""
+    pages = job["pages"]
+    tasks = [(job["path"], number, job["rect"], job.get("touch", False)) for number in pages]
+    workers = min(len(tasks) // 6, (os.cpu_count() or 2) - 1, 6)
+    if workers >= 2:
+        try:
+            import multiprocessing
+            with multiprocessing.get_context("spawn").Pool(workers) as pool:
+                for result in pool.imap(area_objects_of_page, tasks, chunksize=2):
+                    emit(type="areaObjects", **result)
+            return
+        except Exception:
+            pass  # no processes here: one after the other
+    for task in tasks:
+        emit(type="areaObjects", **area_objects_of_page(task))
 
 
 def redraw(page, d):
     shape = page.new_shape()
     for item in d["items"]:
         if item[0] == "l":
-            shape.draw_line(item[1], item[2])
+            shape.draw_line(fitz.Point(item[1]), fitz.Point(item[2]))
         elif item[0] == "c":
-            shape.draw_bezier(item[1], item[2], item[3], item[4])
+            shape.draw_bezier(fitz.Point(item[1]), fitz.Point(item[2]), fitz.Point(item[3]), fitz.Point(item[4]))
         elif item[0] == "re":
-            shape.draw_rect(item[1])
+            shape.draw_rect(fitz.Rect(item[1]))
         elif item[0] == "qu":
-            shape.draw_quad(item[1])
+            shape.draw_quad(fitz.Quad(item[1]))
     shape.finish(fill=d.get("fill"), color=d.get("color"), width=d.get("width") or 1, dashes=d.get("dashes"), even_odd=d.get("even_odd", False),
                  closePath=d.get("closePath", False), lineCap=(d.get("lineCap") or [0])[0], lineJoin=d.get("lineJoin", 0),
                  fill_opacity=d.get("fill_opacity") or 1, stroke_opacity=d.get("stroke_opacity") or 1)
@@ -273,33 +372,43 @@ def job_delete(job):
     for target in job["objects"]:
         by_page.setdefault(target["page"], []).append(target)
     removed = 0
-    for number, targets in sorted(by_page.items()):
+    total = len(by_page)
+    for done, (number, targets) in enumerate(sorted(by_page.items())):
         page = doc[number - 1]
-        drawings = page.get_drawings()
-        wanted = {t["index"] for t in targets if t["kind"] != "image"}
+        drawings = page.get_cdrawings()
+        wanted = {t["index"] for t in targets if t["kind"] != "image" and t["index"] < len(drawings)}
         infos = page.get_image_info(xrefs=True)
         images = [fitz.Rect(infos[t["index"]]["bbox"]) for t in targets if t["kind"] == "image" and t["index"] < len(infos)]
-        spared = []
+        boxes = []
         for index in wanted:
-            if index >= len(drawings):
-                continue
             d = drawings[index]
+            x0, y0, x1, y1 = d["rect"]
             # MuPDF decides "covered" with the stroked bounds of the path (curve hull + miter joins: up to width x 10), not with the box of the points
             reach = max(0.8, (d.get("width") or 0) * 10 + 1)
-            box = fitz.Rect(d["rect"]) + (-reach, -reach, reach, reach)
-            page.add_redact_annot(box, fill=False)
-            for k, other in enumerate(drawings):
-                if k not in wanted and k not in spared and box.contains(fitz.Rect(other["rect"])):
-                    spared.append(k)
+            box = (x0 - reach, y0 - reach, x1 + reach, y1 + reach)
+            boxes.append(box)
+            page.add_redact_annot(fitz.Rect(box), fill=False)
             removed += 1
         for image in images:
             page.add_redact_annot(image, fill=False)
             removed += 1
+        # paths that are not deleted but lie inside a deleted path's box would go with it: they are found from the numbers (only the area the boxes cover is looked at)
+        spared = []
+        if boxes:
+            ux0, uy0 = min(b[0] for b in boxes), min(b[1] for b in boxes)
+            ux1, uy1 = max(b[2] for b in boxes), max(b[3] for b in boxes)
+            for k, other in enumerate(drawings):
+                r = other["rect"]
+                if k in wanted or r[0] < ux0 or r[1] < uy0 or r[2] > ux1 or r[3] > uy1:
+                    continue
+                if any(r[0] >= b[0] and r[1] >= b[1] and r[2] <= b[2] and r[3] <= b[3] for b in boxes):
+                    spared.append(k)
         page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_REMOVE if images else fitz.PDF_REDACT_IMAGE_NONE,
                               graphics=fitz.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED if wanted else fitz.PDF_REDACT_LINE_ART_NONE,
                               text=fitz.PDF_REDACT_TEXT_NONE)
         for k in spared:
             redraw(page, drawings[k])
+        emit(type="progress", done=done + 1, total=total, page=number)
     doc.saveIncr()
     emit(type="done", removed=removed)
 

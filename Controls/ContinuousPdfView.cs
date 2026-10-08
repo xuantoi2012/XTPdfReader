@@ -207,6 +207,12 @@ public sealed class ContinuousPdfView : Grid
     private bool _twoPage;
     private int _single;
     private int _rotation;
+
+    /// <summary>How far a page is turned on top of the view rotation (turns that wait for Save): degrees clockwise. Set by the reader.</summary>
+    internal Func<PageRow, int>? PageTurn { get; set; }
+
+    /// <summary>The rotation a page is shown with: the view rotation plus its own turn.</summary>
+    private int RotationOf(PageRow row) => (_rotation + (PageTurn?.Invoke(row) ?? 0)) % 360;
     private INotifyCollectionChanged? _observed;
     private int _currentPage = -1;
 
@@ -387,10 +393,19 @@ public sealed class ContinuousPdfView : Grid
     {
         if (index < 0 || index >= _pages.Count) return (0, 0);
         var row = _pages[index];
-        return _rotation % 180 == 0 ? (row.LayoutWidth, row.LayoutHeight) : (row.LayoutHeight, row.LayoutWidth);
+        return RotationOf(row) % 180 == 0 ? (row.LayoutWidth, row.LayoutHeight) : (row.LayoutHeight, row.LayoutWidth);
     }
 
     public double ViewportHeight => _vp.ViewportHeight;
+
+    /// <summary>Some pages were turned (or turned back): their sizes swap, the pages are laid out again and the one on top stays.</summary>
+    public void RefreshTurns()
+    {
+        int page = _currentPage;
+        _vp.SetPages(BaseSizes(), _vp.Zoom);
+        if (page >= 0 && page < _pages.Count) _vp.ScrollToPage(SlotOf(page));
+        OnViewChanged(ChangeKind.Navigate);
+    }
 
     /// <summary>Khổ giấy của một số trang vừa biết/đổi — dựng lại bố cục, trang ở đỉnh khung nhìn đứng yên.</summary>
     public void RefreshPageSizes()
@@ -653,7 +668,7 @@ public sealed class ContinuousPdfView : Grid
             return false;
         }
         row = _pages[_slots[slot]];
-        (u, v) = Unrotate(du, dv);
+        (u, v) = Unrotate(du, dv, RotationOf(row));
         return true;
     }
 
@@ -672,7 +687,7 @@ public sealed class ContinuousPdfView : Grid
     {
         point = default;
         if (!TryGetPageRect(row, out Rect rect)) return false;
-        var (du, dv) = Rotate(u, v);
+        var (du, dv) = Rotate(u, v, RotationOf(row));
         point = new Point(rect.X + du * rect.Width, rect.Y + dv * rect.Height);
         return true;
     }
@@ -682,12 +697,12 @@ public sealed class ContinuousPdfView : Grid
     {
         u = v = 0;
         if (!TryGetPageRect(row, out Rect rect) || rect.Width <= 0 || rect.Height <= 0) return false;
-        (u, v) = Unrotate((viewPoint.X - rect.X) / rect.Width, (viewPoint.Y - rect.Y) / rect.Height);
+        (u, v) = Unrotate((viewPoint.X - rect.X) / rect.Width, (viewPoint.Y - rect.Y) / rect.Height, RotationOf(row));
         return true;
     }
 
     /// <summary>Hướng trang → hướng đang hiện (xoay khung nhìn theo chiều kim đồng hồ).</summary>
-    private (double U, double V) Rotate(double u, double v) => _rotation switch
+    private (double U, double V) Rotate(double u, double v, int rotation) => rotation switch
     {
         90 => (1 - v, u),
         180 => (1 - u, 1 - v),
@@ -695,7 +710,7 @@ public sealed class ContinuousPdfView : Grid
         _ => (u, v)
     };
 
-    private (double U, double V) Unrotate(double du, double dv) => _rotation switch
+    private (double U, double V) Unrotate(double du, double dv, int rotation) => rotation switch
     {
         90 => (dv, 1 - du),
         180 => (1 - du, 1 - dv),
@@ -1102,13 +1117,14 @@ public sealed class ContinuousPdfView : Grid
 
             // Xoay khung nhìn: vẽ trang theo hướng của nó trong khung "content" rồi xoay quanh tâm khung đang hiện.
             var content = shown;
-            bool rotated = _rotation != 0;
+            int pageRotation = RotationOf(row);
+            bool rotated = pageRotation != 0;
             if (rotated)
             {
-                if (_rotation % 180 != 0)
+                if (pageRotation % 180 != 0)
                     content = new Rect(shown.X + (shown.Width - shown.Height) / 2, shown.Y + (shown.Height - shown.Width) / 2, shown.Height, shown.Width);
                 dc.PushClip(new RectangleGeometry(shown));
-                dc.PushTransform(new RotateTransform(_rotation, shown.X + shown.Width / 2, shown.Y + shown.Height / 2));
+                dc.PushTransform(new RotateTransform(pageRotation, shown.X + shown.Width / 2, shown.Y + shown.Height / 2));
             }
 
             _states.TryGetValue(row, out var state);
@@ -1156,7 +1172,7 @@ public sealed class ContinuousPdfView : Grid
             }
             if (DiagnosticsLog.Enabled && row.LayoutWidth * vp.Zoom * dpi > RegionStartPx(dpi) && vp.VisibleFraction(s, out double vx0, out double vy0, out double vx1, out double vy1))
             {
-                var (ua, va) = Unrotate(vx0, vy0); var (ub, vb) = Unrotate(vx1, vy1);
+                var (ua, va) = Unrotate(vx0, vy0, pageRotation); var (ub, vb) = Unrotate(vx1, vy1, pageRotation);
                 double gx0 = Math.Min(ua, ub), gx1 = Math.Max(ua, ub), gy0 = Math.Min(va, vb), gy1 = Math.Max(va, vb);
                 bool full = regionList != null && regionList.Any(r => r.Bitmap != null && r.Key.X <= gx0 * r.Key.FullWidth + 1 && r.Key.Y <= gy0 * r.Key.FullHeight + 1 &&
                     r.Key.X + r.Key.Width >= gx1 * r.Key.FullWidth - 1 && r.Key.Y + r.Key.Height >= gy1 * r.Key.FullHeight - 1);
@@ -1332,8 +1348,8 @@ public sealed class ContinuousPdfView : Grid
     {
         // Bộ vẽ tuỳ chỉnh (kiểm thử) không có khái niệm ưu tiên nền: không vẽ trước.
         if (RegionRenderer != null || !probe.VisibleFraction(slot, out double dx0, out double dy0, out double dx1, out double dy1)) return;
-        var (ua, va) = Unrotate(dx0, dy0);
-        var (ub, vb) = Unrotate(dx1, dy1);
+        var (ua, va) = Unrotate(dx0, dy0, RotationOf(row));
+        var (ub, vb) = Unrotate(dx1, dy1, RotationOf(row));
         double fx0 = Math.Min(ua, ub), fx1 = Math.Max(ua, ub), fy0 = Math.Min(va, vb), fy1 = Math.Max(va, vb);
         int fullWidth = (int)Math.Min(MaxRegionFullWidth, Math.Round(neededPx));
         int fullHeight = Math.Max(1, (int)Math.Round(fullWidth * (row.LayoutHeight / Math.Max(1, row.LayoutWidth))));
@@ -1725,8 +1741,8 @@ public sealed class ContinuousPdfView : Grid
     {
         if (!vp.VisibleFraction(slot, out double dx0, out double dy0, out double dx1, out double dy1)) return true;
         // Phần đang hiện → phân số trên trang theo hướng của trang (vùng vẽ PDFium không xoay).
-        var (ua, va) = Unrotate(dx0, dy0);
-        var (ub, vb) = Unrotate(dx1, dy1);
+        var (ua, va) = Unrotate(dx0, dy0, RotationOf(row));
+        var (ub, vb) = Unrotate(dx1, dy1, RotationOf(row));
         double fx0 = Math.Min(ua, ub), fx1 = Math.Max(ua, ub), fy0 = Math.Min(va, vb), fy1 = Math.Max(va, vb);
         int fullWidth = ExactRaster
             ? (int)Math.Min(MaxRegionFullWidth, Math.Round(neededPx))
@@ -1766,8 +1782,8 @@ public sealed class ContinuousPdfView : Grid
         double ax0 = fx0, ay0 = fy0, ax1 = fx1, ay1 = fy1;
         if (panning)
         {
-            var (pu0, pv0) = Unrotate(0.5, 0.5);
-            var (pu1, pv1) = Unrotate(0.5 + 0.1 * _panSignX, 0.5 + 0.1 * _panSignY);
+            var (pu0, pv0) = Unrotate(0.5, 0.5, RotationOf(row));
+            var (pu1, pv1) = Unrotate(0.5 + 0.1 * _panSignX, 0.5 + 0.1 * _panSignY, RotationOf(row));
             panU = Math.Sign(Math.Round(pu1 - pu0, 6)); panV = Math.Sign(Math.Round(pv1 - pv0, 6));
             double ex = (fx1 - fx0) * 0.25, ey = (fy1 - fy0) * 0.25;
             if (panU > 0) ax1 = Math.Min(1, fx1 + ex); else if (panU < 0) ax0 = Math.Max(0, fx0 - ex);

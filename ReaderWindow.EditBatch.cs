@@ -39,8 +39,8 @@ namespace XTPdfMergeApp
         private async Task DeleteObjectsFromWindowAsync(string path, BatchFindWindow window)
         {
             if (EditHost == null) return;
-            bool ok = await EditHost.DeleteObjectsAsync(path, window.ObjectsToDelete, window.Description);
-            if (ok) XTGrowl.Success(window.Description + ". Undo (Ctrl+Z) brings them all back.", this);
+            await EditHost.ApplyObjectDeleteAsync(path, window.ObjectsToDelete, window.Description);
+            XTGrowl.Success(window.Description + ". They are painted out now; Ctrl+S removes them from the file, Undo brings them back.", this);
         }
 
         internal void OpenStampPages()

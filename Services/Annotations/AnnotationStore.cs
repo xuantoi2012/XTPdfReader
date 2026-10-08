@@ -258,6 +258,8 @@ namespace XTPdfMergeApp.Services
             {
                 Ocr.OcrPendingStore.Clear(path); // the saved file has the OCR text
                 TextEdit.TextEditPendingStore.Clear(path); // ...and the edited text
+                TextEdit.ObjectDeletePendingStore.Clear(path); // ...and the objects are gone
+                PageRotationPendingStore.Clear(path); // ...and the pages are turned
             }
             string key = Normalize(path);
             if (!_files.TryGetValue(key, out var file)) return;
@@ -282,6 +284,8 @@ namespace XTPdfMergeApp.Services
         {
             Ocr.OcrPendingStore.Clear(path);
             TextEdit.TextEditPendingStore.Clear(path);
+            TextEdit.ObjectDeletePendingStore.Clear(path);
+            PageRotationPendingStore.Clear(path);
             string key = Normalize(path);
             if (!_files.Remove(key, out var file)) return;
             file.Reader.Close();

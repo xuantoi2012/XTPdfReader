@@ -174,23 +174,27 @@ internal static partial class Program
             var area = await ObjectEditService.PickAreaAsync(path, 1, 90, 90, 410, 310);
             Check(area.Count == 3 && area.Count(o => o.Kind == "line") == 2 && area.Any(o => o.Kind == "shape"), $"An area takes the two lines and the frame ({area.Count} objects)");
 
-            Check(await host.DeleteObjectsAsync(path, new[] { onFrame[0], onImage[0] }, "Removed 2 objects"), "Removing the frame and the picture works");
-            await Task.Delay(400);
+            var group = f.Window.Session.Documents[0];
+            await host.ApplyObjectDeleteAsync(path, new[] { onFrame[0], onImage[0] }, "Removed 2 objects");
+            await Task.Delay(300);
+            Check(ObjectDeletePendingStore.Count(path) == 2 && group.IsDirty, "Removing the frame and the picture only marks them: the tab shows the unsaved mark");
+            Check(Hash() == before, "The file on disk is not touched");
+            host.Undo();
+            await Task.Delay(300);
+            Check(!ObjectDeletePendingStore.HasPending(path) && !group.IsDirty, "Undo takes the mark away");
+            host.Redo();
+            await Task.Delay(300);
+            Check(ObjectDeletePendingStore.Count(path) == 2, "Redo marks them again");
+
+            Check(await host.SaveGroupAsync(group, saveAs: false), "Save removes them from the file");
+            await Task.Delay(600);
+            Check(!ObjectDeletePendingStore.HasPending(path) && !group.IsDirty, "…and clears the mark");
+            Check(Hash() != before, "The file changed");
             var left = await ObjectEditService.PickAreaAsync(path, 1, 0, 0, 595, 842);
             Check(left.Count == 2 && left.All(o => o.Kind == "line"), $"Only the two lines are left ({left.Count}); what the frame framed stays");
             var runs = await TextEditService.GetRunsAsync(path, 1);
             Check(runs!.Runs.Count == 1 && runs.Runs[0].Text == "inside text", "The text inside is untouched");
-            string after = Hash();
-            Check(after != before, "The file changed");
-
-            host.Undo();
-            await Task.Delay(800);
-            Check(Hash() == before, "Undo gives the file back byte for byte");
-            var back = await ObjectEditService.PickAreaAsync(path, 1, 0, 0, 595, 842);
-            Check(back.Count == 4, $"…with all four objects ({back.Count})");
-            host.Redo();
-            await Task.Delay(800);
-            Check(Hash() == after, "Redo makes the same file again");
+            Check(XTHistory.Read(path).Any(h => h.Action.Contains("2 objects removed")), "The file's history has a line for the removal");
         }, copyFrom: source);
     }
 
@@ -212,6 +216,11 @@ internal static partial class Program
             SavePng(f.Window, "editobject-selected");
             await (Task)f.Call("DeleteSelectedObjectsAsync")!;
             await Task.Delay(500);
+            Check(ObjectDeletePendingStore.Count(f.Path) == 1, "Delete marks the line (painted out, removed from the file on Save)");
+            f.Window.UpdateLayout();
+            SavePng(f.Window, "editobject-pending");
+            Check(await ((XTPdfMergeApp.IReaderPageEditHost)f.Window.Session).SaveGroupAsync(f.Window.Session.Documents[0], saveAs: false), "Save writes it");
+            await Task.Delay(600);
             var left = await ObjectEditService.PickAreaAsync(f.Path, 1, 0, 0, 595, 842);
             Check(left.Count == 3 && f.Field("_objectSelection") == null, $"Delete removes it ({left.Count} objects left) and clears the selection");
         }, copyFrom: source);
@@ -531,15 +540,20 @@ internal static partial class Program
             Check(window.ObjectsToDelete.Count == 4, $"Four objects go ({window.ObjectsToDelete.Count})");
             window.Close();
 
-            Check(await host.DeleteObjectsAsync(path, window.ObjectsToDelete, window.Description), "They are removed in one go");
-            await Task.Delay(500);
+            await host.ApplyObjectDeleteAsync(path, window.ObjectsToDelete, window.Description);
+            await Task.Delay(300);
+            Check(ObjectDeletePendingStore.Count(path) == 4 && Hash() == before, "They are marked in one go; the file is not touched until Save");
+            host.Undo();
+            await Task.Delay(300);
+            Check(!ObjectDeletePendingStore.HasPending(path), "One Undo brings all four back");
+            host.Redo();
+            await Task.Delay(300);
+            Check(await host.SaveGroupAsync(f.Window.Session.Documents[0], saveAs: false), "Save removes them");
+            await Task.Delay(600);
             var left = await ObjectEditService.FindInAreaAsync(path, new[] { 1, 2, 3, 4, 5 }, 0, 0, 1, 1, false);
             Check(left.Count == 0, $"No drawn object is left on any page ({left.Count}: {string.Join(", ", left.Select(o => o.PageNumber + o.Kind + o.Index + "[" + (int)o.X0 + "," + (int)o.Y0 + "," + (int)o.X1 + "," + (int)o.Y1 + "]"))})");
             var runs = await TextEditService.GetRunsAsync(path, 2);
             Check(runs!.Runs.Any(r => r.Text.Contains("TỔNG")), "The text of the pages is untouched");
-            host.Undo();
-            await Task.Delay(800);
-            Check(Hash() == before, "One Undo gives the file back byte for byte");
         }, copyFrom: source);
     }
 
@@ -575,13 +589,59 @@ internal static partial class Program
             var line = all.First(o => o.Kind == "line");
             var area = await ObjectEditService.FindInAreaAsync(path, new[] { 1 }, (line.X0 - 5) / 842, (line.Y0 - 5) / 595, (line.X1 + 5) / 842, (line.Y1 + 5) / 595, false);
             Check(area.Count == 1 && area[0].Kind == "line", "An area drawn around it on the displayed page finds only that line");
-            Check(await host.DeleteObjectsAsync(path, area, "Removed 1 line"), "It is removed");
-            await Task.Delay(400);
+            await host.ApplyObjectDeleteAsync(path, area, "Removed 1 line");
+            await Task.Delay(300);
+            Check(ObjectDeletePendingStore.Count(path) == 1 && Hash() == before, "It is marked; the file is not touched");
+            Check(await host.SaveGroupAsync(f.Window.Session.Documents[0], saveAs: false), "Save removes it");
+            await Task.Delay(600);
             var left = await ObjectEditService.FindInAreaAsync(path, new[] { 1 }, 0, 0, 1, 1, false);
             Check(left.Count == 1 && left[0].Kind == "shape", "The other object is left");
+        }, copyFrom: source);
+    }
+
+    /// <summary>"Turn left / right" is an unsaved change: the page is shown turned (view and thumbnails), Undo turns it back, a working copy has the turn, Save writes the /Rotate.</summary>
+    static void TestPageTurnWaitsForSave()
+    {
+        string folder = System.IO.Path.Combine(Output, "turn-source");
+        if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        Directory.CreateDirectory(folder);
+        string source = System.IO.Path.Combine(folder, "two.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(source))) { doc.AddNewPage(PageSize.A4); doc.AddNewPage(PageSize.A4); }
+        RunReaderFlow("turn", async f =>
+        {
+            string path = f.Path;
+            var host = (XTPdfMergeApp.IReaderPageEditHost)f.Window.Session;
+            var group = f.Window.Session.Documents[0];
+            var view = f.Find<XTPdfMergeApp.Controls.ContinuousPdfView>("ReaderContinuousView");
+            string Hash() => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path)));
+            string before = Hash();
+            var (w0, h0) = view.DisplayBaseSize(0);
+            Check(h0 > w0, "Page 1 is upright to start with");
+
+            await host.RotatePagesAsync(new[] { group.Pages[0] }, 90);
+            await Task.Delay(500);
+            var (w1, h1) = view.DisplayBaseSize(0);
+            Check(PageRotationPendingStore.Delta(path, 1) == 90 && group.IsDirty, "Turning the page is an unsaved change (the tab shows the mark)");
+            Check(w1 > h1 && view.DisplayBaseSize(1).Height > view.DisplayBaseSize(1).Width, "Page 1 is shown turned, page 2 is not");
+            Check(Hash() == before, "The file on disk is not touched");
+            Check(await view.Dispatcher.InvokeAsync(() => view.TryPageToView(group.Pages[0], 0, 0, out var pt) && pt.X > 0) , "Points on the turned page still map to the view");
+            var copy = await AnnotationWorkingCopy.GetAsync(path);
+            using (var doc = new PdfDocument(new PdfReader(copy))) Check(doc.GetPage(1).GetRotation() == 90 && doc.GetPage(2).GetRotation() == 0, "A working copy (print, export, merge) has the turn");
+
             host.Undo();
-            await Task.Delay(800);
-            Check(Hash() == before, "Undo gives the file back byte for byte");
+            await Task.Delay(300);
+            Check(PageRotationPendingStore.Delta(path, 1) == 0 && !group.IsDirty && view.DisplayBaseSize(0).Height > view.DisplayBaseSize(0).Width, "Undo turns it back");
+            host.Redo();
+            await Task.Delay(300);
+            await host.RotatePagesAsync(new[] { group.Pages[0] }, 90);
+            await Task.Delay(300);
+            Check(PageRotationPendingStore.Delta(path, 1) == 180, "Turning again adds up (180)");
+
+            Check(await host.SaveGroupAsync(group, saveAs: false), "Save writes the turn");
+            await Task.Delay(600);
+            using (var doc = new PdfDocument(new PdfReader(path))) Check(doc.GetPage(1).GetRotation() == 180 && doc.GetPage(2).GetRotation() == 0, "The file has /Rotate 180 on page 1 only");
+            Check(!PageRotationPendingStore.HasPending(path) && !group.IsDirty, "…and nothing is pending any more");
+            Check(XTHistory.Read(path).Any(h => h.Action.Contains("1 page turned")), "The file's history has a line for it");
         }, copyFrom: source);
     }
 }

@@ -198,9 +198,9 @@
                                     <xt:XTButton Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.trash}" Text="Delete"
                                                  ToolTip="Delete the selected page(s)" Click="ReaderDeletePages_Click"/>
                                     <xt:XTButton Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.pagerotl}" Text="Turn left"
-                                                 ToolTip="Rotate the page(s) 90° left — saved to the file" Click="ReaderPageRotateLeft_Click"/>
+                                                 ToolTip="Rotate the page(s) 90° left — kept in the file when you save (Ctrl+S)" Click="ReaderPageRotateLeft_Click"/>
                                     <xt:XTButton Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.pagerotr}" Text="Turn right"
-                                                 ToolTip="Rotate the page(s) 90° right — saved to the file" Click="ReaderPageRotateRight_Click"/>
+                                                 ToolTip="Rotate the page(s) 90° right — kept in the file when you save (Ctrl+S)" Click="ReaderPageRotateRight_Click"/>
                                     <xt:XTButton Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.extract}" Text="Extract"
                                                  ToolTip="Extract the selected page(s) to a new file" Click="ReaderExtractPages_Click"/>
                                     <xt:XTButton x:Name="ReaderMergeButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.layers}" Text="Merge"
@@ -684,6 +684,10 @@
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0">
                     <TextBlock x:Name="ReaderPresenceText" Visibility="Collapsed" MaxWidth="220" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,12,0" Foreground="{DynamicResource Ui.Muted}"/>
+                    <!-- A long job of the app (a find over many pages, a save that removes objects): what it does and how far it is. -->
+                    <TextBlock x:Name="ReaderTaskText" Visibility="Collapsed" MaxWidth="360" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"
+                               Foreground="{DynamicResource Ui.Text}"/>
+                    <ProgressBar x:Name="ReaderTaskBar" Visibility="Collapsed" Width="110" Height="6" Minimum="0" Maximum="1" VerticalAlignment="Center" Margin="0,0,14,0"/>
                     <!-- Tiến độ nạp file vào bộ đệm (đọc nền) — hết khi nạp xong. Không chặn thao tác. -->
                     <TextBlock x:Name="ReaderLoadProgressText" Visibility="Collapsed" VerticalAlignment="Center" Margin="0,0,12,0"
                                Foreground="{DynamicResource Ui.Muted}"
