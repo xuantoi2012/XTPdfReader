@@ -225,6 +225,7 @@ internal static partial class Program
         Check(note.Text.Contains("A3 × 6") && note.Text.Contains("A1 × 3") && note.Text.Contains("Letter × 1"), "The Print window summarises the page sizes of the file: " + note.Text);
         const double mm = 72 / 25.4;
         var groups = PrintSizePlan.Build(new[] { (594 * mm, 841 * mm), (594 * mm, 841 * mm), (297 * mm, 420 * mm), (216 * mm, 279 * mm) }, new[] { new PaperOption("A3", 297, 420), new PaperOption("A4", 210, 297) });
+        UseTestPrintProfiles("ui-print");
         var routing = Offscreen(new PrintRoutingWindow(groups, new System.Drawing.Printing.PrinterSettings().PrinterName));
         SavePng(routing, "ui-print-routing");
         Check(groups.Count == 3 && groups.Any(g => g.Fit == SizeFit.TooBig), "Print by size lists every paper size group");

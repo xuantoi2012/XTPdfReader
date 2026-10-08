@@ -21,6 +21,7 @@ namespace XTPdfMergeApp.Controls
         private int _previewVersion;
         private bool _ready;
         private byte[]? _devMode;
+        private bool _syncing; // the boxes are being set from the driver: do not write that back into it
         private readonly Dictionary<string, (double W, double H)> _sizes = new();
         private List<(double Width, double Height)> _pagePoints = new();   // khổ mọi trang của file (point), theo thứ tự trang
         private List<PaperOption> _papers = new();                          // khổ giấy máy in đang chọn
@@ -82,6 +83,7 @@ namespace XTPdfMergeApp.Controls
             _devMode = null; // driver settings belong to one printer
             if (PrinterBox.SelectedItem is not string name) return;
             var settings = new PrinterSettings { PrinterName = name };
+            ShowDriverState(name, settings);
             PrinterStatus.Text = settings.IsValid ? (settings.IsDefaultPrinter ? "Default printer" : "") : "Printer not available";
             if (!settings.IsValid) return;
             ComboBoxItem? selected = null;
@@ -93,10 +95,54 @@ namespace XTPdfMergeApp.Controls
                 PaperBox.Items.Add(item);
                 if (paper.PaperName == defaultPaper) selected = item;
             }
+            _syncing = true;
             PaperBox.SelectedItem = selected ?? (PaperBox.Items.Count > 0 ? PaperBox.Items[0] : null);
+            _syncing = false;
             _papers = settings.PaperSizes.Cast<PaperSize>()
                 .Select(p => new PaperOption(p.PaperName, p.Width / 100.0 * 25.4, p.Height / 100.0 * 25.4)).ToList();
             RefreshSizes();
+        }
+
+        // ── Collate, copies and paper follow the driver ───────────────
+
+        /// <summary>The boxes show what the printer itself says: its default collate and copies, and Collate is off when the driver cannot collate.</summary>
+        private void ShowDriverState(string printer, PrinterSettings settings)
+        {
+            _syncing = true;
+            try
+            {
+                bool canCollate = PrinterDriver.SupportsCollate(printer);
+                CollateBox.IsEnabled = canCollate;
+                CollateBox.IsChecked = canCollate && settings.Collate;
+                CollateBox.ToolTip = canCollate ? "Same as the Collate setting of the printer's Properties" : "This printer's driver cannot collate copies";
+                CopiesBox.Text = Math.Max(1, (int)settings.Copies).ToString();
+            }
+            finally { _syncing = false; }
+        }
+
+        /// <summary>The driver settings with this dialog's collate, copies and paper written into them (what Properties opens with and what is printed).</summary>
+        private byte[]? CurrentDevMode()
+        {
+            if (PrinterBox.SelectedItem is not string printer) return _devMode;
+            int copies = int.TryParse(CopiesBox.Text, out int c) ? Math.Clamp(c, 1, 99) : 1;
+            _devMode = PrinterDriver.WithSettings(printer, _devMode, CollateBox.IsEnabled ? CollateBox.IsChecked == true : null, copies, SelectedPaper);
+            return _devMode;
+        }
+
+        /// <summary>What the driver says now, shown in this dialog's boxes (after its Properties dialog).</summary>
+        private void ShowFromDevMode(string printer, byte[] devMode)
+        {
+            var (paper, copies, collate) = PrinterDriver.Read(printer, devMode);
+            _syncing = true;
+            try
+            {
+                if (paper != null)
+                    foreach (ComboBoxItem item in PaperBox.Items)
+                        if ((item.Tag as PaperSize)?.PaperName == paper.PaperName) { PaperBox.SelectedItem = item; break; }
+                CopiesBox.Text = Math.Max(1, (int)copies).ToString();
+                if (CollateBox.IsEnabled) CollateBox.IsChecked = collate;
+            }
+            finally { _syncing = false; }
         }
 
         // ── Khổ giấy của các trang so với máy in ──────────────────────
@@ -124,6 +170,7 @@ namespace XTPdfMergeApp.Controls
             _groups = PrintSizePlan.Build(_pagePoints, _papers);
             SizesNote.Text = string.Join("  ·  ", _groups.Select(g => PrintSizePlan.Label(g)));
             SizesButton.IsEnabled = true;
+            PrintBySizeButton.IsEnabled = true;
             var warn = Mismatches();
             SizesWarning.Visibility = warn.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             SizesWarning.Text = warn.Count == 0 ? "" : "⚠ " + string.Join("\n⚠ ", warn.Select(g =>
@@ -156,8 +203,11 @@ namespace XTPdfMergeApp.Controls
             foreach (var job in dialog.Jobs)
             {
                 SummaryText.Text = $"Printing {PrintSizePlan.Label(job.Group)} on {job.Printer}…";
+                // this size's own driver settings (tray, quality…) with this dialog's collate and copies and the paper chosen for it written in
+                bool collate = CollateBox.IsChecked == true && PrinterDriver.SupportsCollate(job.Printer);
+                var devMode = PrinterDriver.WithSettings(job.Printer, job.DevMode, collate, copies, job.Paper) ?? job.DevMode;
                 var request = new PrintRequest(job.Group.PageIndexes.Select(i => _pages[i]).ToList(), job.Printer, job.Paper, copies, Scale, Percent, Color, Quality, Orientation,
-                    AutoCenterBox.IsChecked == true, CollateBox.IsChecked == true, null);
+                    AutoCenterBox.IsChecked == true, collate, devMode);
                 try { if (await PdfPrintService.PrintAsync(request, new Progress<int>(_ => { }))) done++; else failed++; }
                 catch { failed++; }
             }
@@ -172,9 +222,15 @@ namespace XTPdfMergeApp.Controls
             DialogResult = true;
         }
 
+        private async void PrintBySize_Click(object sender, RoutedEventArgs e) => await PrintByRoutingAsync();
+
         private void Sizes_Click(object sender, RoutedEventArgs e)
         {
             var menu = new ContextMenu { PlacementTarget = SizesButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+            var route = new MenuItem { Header = "Print the set by paper size (printer per size, profiles)…", FontWeight = FontWeights.SemiBold };
+            route.Click += async (_, _) => await PrintByRoutingAsync();
+            menu.Items.Add(route);
+            menu.Items.Add(new Separator());
             foreach (var group in _groups)
             {
                 var item = new MenuItem
@@ -191,9 +247,6 @@ namespace XTPdfMergeApp.Controls
                 menu.Items.Add(item);
             }
             menu.Items.Add(new Separator());
-            var route = new MenuItem { Header = "Print each size on its own printer / paper…" };
-            route.Click += async (_, _) => await PrintByRoutingAsync();
-            menu.Items.Add(route);
             var copy = new MenuItem { Header = "Copy size report" };
             copy.Click += (_, _) => { try { Clipboard.SetText(PrintSizePlan.Report(_groups, PrinterBox.SelectedItem as string ?? "")); } catch { } };
             menu.Items.Add(copy);
@@ -203,17 +256,11 @@ namespace XTPdfMergeApp.Controls
         private void Properties_Click(object sender, RoutedEventArgs e)
         {
             if (PrinterBox.SelectedItem is not string name) return;
-            var devMode = PrinterDriver.ShowDialog(new System.Windows.Interop.WindowInteropHelper(this).Handle, name, _devMode);
+            // the driver's dialog opens with what this dialog shows (collate, copies, paper), and what it returns is shown here
+            var devMode = PrinterDriver.ShowDialog(new System.Windows.Interop.WindowInteropHelper(this).Handle, name, CurrentDevMode());
             if (devMode == null) return;
             _devMode = devMode;
-            try
-            {
-                var (paper, copies) = PrinterDriver.Read(name, devMode);
-                if (paper != null)
-                    foreach (ComboBoxItem item in PaperBox.Items)
-                        if ((item.Tag as PaperSize)?.PaperName == paper.PaperName) { PaperBox.SelectedItem = item; break; }
-                if (copies > 1) CopiesBox.Text = copies.ToString();
-            }
+            try { ShowFromDevMode(name, devMode); }
             catch { /* the driver settings are still applied when printing */ }
         }
 
@@ -352,7 +399,7 @@ namespace XTPdfMergeApp.Controls
                     "\n\nPrint anyway?", "Print", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
             int copies = int.TryParse(CopiesBox.Text, out int c) ? Math.Clamp(c, 1, 99) : 1;
             var request = new PrintRequest(indices.Select(i => _pages[i]).ToList(), printer, paper, copies, Scale, Percent, Color, Quality, Orientation,
-                AutoCenterBox.IsChecked == true, CollateBox.IsChecked == true, _devMode);
+                AutoCenterBox.IsChecked == true, CollateBox.IsChecked == true, CurrentDevMode());
 
             PrintButton.IsEnabled = false;
             bool ok;

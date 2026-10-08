@@ -32,6 +32,9 @@ namespace XTPdfMergeApp.Services
         private static extern bool ClosePrinter(IntPtr handle);
         [System.Runtime.InteropServices.DllImport("winspool.drv", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
         private static extern int DocumentProperties(IntPtr hwnd, IntPtr printer, string device, IntPtr output, IntPtr input, int mode);
+        [System.Runtime.InteropServices.DllImport("winspool.drv", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+        private static extern int DeviceCapabilities(string device, string? port, short capability, IntPtr output, IntPtr devMode);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern UIntPtr GlobalSize(IntPtr handle);
         [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern IntPtr GlobalAlloc(uint flags, UIntPtr bytes);
         [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern IntPtr GlobalLock(IntPtr handle);
         [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern bool GlobalUnlock(IntPtr handle);
@@ -83,13 +86,72 @@ namespace XTPdfMergeApp.Services
             finally { GlobalFree(handle); }
         }
 
-        /// <summary>Paper size and copies chosen in the driver dialog (so our own controls can follow it).</summary>
-        public static (PaperSize? Paper, short Copies) Read(string printerName, byte[] devMode)
+        /// <summary>Paper size, copies and collate chosen in the driver dialog (so our own controls can follow it).</summary>
+        public static (PaperSize? Paper, short Copies, bool Collate) Read(string printerName, byte[] devMode)
         {
             var document = new PrintDocument();
             document.PrinterSettings.PrinterName = printerName;
             Apply(document, devMode);
-            return (document.DefaultPageSettings.PaperSize, document.PrinterSettings.Copies);
+            return (document.DefaultPageSettings.PaperSize, document.PrinterSettings.Copies, document.PrinterSettings.Collate);
+        }
+
+        private const short DC_COLLATE = 22;
+
+        /// <summary>The driver can collate copies itself (otherwise the box is off and unchecked, as in the driver's own dialog).</summary>
+        public static bool SupportsCollate(string printerName)
+        {
+            try { return DeviceCapabilities(printerName, null, DC_COLLATE, IntPtr.Zero, IntPtr.Zero) == 1; }
+            catch { return true; }
+        }
+
+        /// <summary>The printer's own default DEVMODE (no dialog).</summary>
+        public static byte[]? GetDefault(string printerName)
+        {
+            if (!OpenPrinter(printerName, out var printer, IntPtr.Zero)) return null;
+            IntPtr output = IntPtr.Zero;
+            try
+            {
+                int size = DocumentProperties(IntPtr.Zero, printer, printerName, IntPtr.Zero, IntPtr.Zero, 0);
+                if (size <= 0) return null;
+                output = System.Runtime.InteropServices.Marshal.AllocHGlobal(size);
+                if (DocumentProperties(IntPtr.Zero, printer, printerName, output, IntPtr.Zero, DM_OUT_BUFFER) != IDOK) return null;
+                var result = new byte[size];
+                System.Runtime.InteropServices.Marshal.Copy(output, result, 0, size);
+                return result;
+            }
+            finally
+            {
+                if (output != IntPtr.Zero) System.Runtime.InteropServices.Marshal.FreeHGlobal(output);
+                ClosePrinter(printer);
+            }
+        }
+
+        /// <summary>
+        /// The DEVMODE with our own settings put into it: collate, copies and paper. The driver's DEVMODE is the one truth: the print dialog writes its boxes into it before the driver's
+        /// Properties dialog opens and before printing, and reads it back after Properties, so the two places never show different things (the fault of some print dialogs).
+        /// </summary>
+        public static byte[]? WithSettings(string printerName, byte[]? devMode, bool? collate, int? copies, PaperSize? paper)
+        {
+            var document = new PrintDocument();
+            document.PrinterSettings.PrinterName = printerName;
+            if (!document.PrinterSettings.IsValid) return devMode;
+            var baseMode = devMode ?? GetDefault(printerName);
+            if (baseMode != null) Apply(document, baseMode);
+            if (collate is { } c) document.PrinterSettings.Collate = c;
+            if (copies is { } n) document.PrinterSettings.Copies = (short)Math.Clamp(n, 1, 9999);
+            if (paper != null) document.DefaultPageSettings.PaperSize = paper;
+            IntPtr handle = document.PrinterSettings.GetHdevmode(document.DefaultPageSettings);
+            if (handle == IntPtr.Zero) return devMode;
+            try
+            {
+                int size = (int)GlobalSize(handle);
+                IntPtr locked = GlobalLock(handle);
+                var result = new byte[size];
+                System.Runtime.InteropServices.Marshal.Copy(locked, result, 0, size);
+                GlobalUnlock(handle);
+                return result;
+            }
+            finally { GlobalFree(handle); }
         }
     }
 
@@ -133,7 +195,7 @@ namespace XTPdfMergeApp.Services
             if (!document.PrinterSettings.IsValid) return false;
             if (request.DevMode != null) PrinterDriver.Apply(document, request.DevMode);
             document.PrinterSettings.Copies = (short)Math.Clamp(request.Copies, 1, 99);
-            document.PrinterSettings.Collate = request.Collate;
+            if (PrinterDriver.SupportsCollate(request.Printer)) document.PrinterSettings.Collate = request.Collate;
             document.DefaultPageSettings.PaperSize = request.Paper;
             document.DefaultPageSettings.Margins = new Margins(0, 0, 0, 0);
             document.DocumentName = "PDF Reader Pro";

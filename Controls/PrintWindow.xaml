@@ -148,6 +148,8 @@
                         <TextBlock x:Name="SizesWarning" TextWrapping="Wrap" Margin="0,6,0,0" FontSize="12" Foreground="{DynamicResource Ui.Warn}" Visibility="Collapsed"/>
                         <xt:XTButton x:Name="SizesButton" Style="{StaticResource UiGhostButton}" Text="Pages by size…" HorizontalAlignment="Left" Margin="0,8,0,0"
                                      IsEnabled="False" ToolTip="Select the pages of one paper size, or copy the size report" Click="Sizes_Click"/>
+                        <xt:XTButton x:Name="PrintBySizeButton" Style="{StaticResource UiPrimaryButton}" Text="Print by paper size…" HorizontalAlignment="Left" Margin="0,8,0,0"
+                                     IsEnabled="False" ToolTip="Print the whole set: each paper size on its own printer and paper, from a saved profile (A1 on the plotter, A3 on the Canon…)" Click="PrintBySize_Click"/>
                     </StackPanel>
                 </Border>
             </StackPanel>

@@ -40,9 +40,11 @@ namespace XTPdfMergeApp.Services
             for (int i = 0; i < pagePoints.Count; i++)
             {
                 double a = Math.Min(pagePoints[i].Width, pagePoints[i].Height) * 25.4 / 72, b = Math.Max(pagePoints[i].Width, pagePoints[i].Height) * 25.4 / 72;
-                var (name, dims) = PdfExportService.SizeName(pagePoints[i].Width, pagePoints[i].Height);
-                int at = groups.FindIndex(g => g.Name == name && Math.Abs(g.W - a) <= ToleranceMm && Math.Abs(g.H - b) <= ToleranceMm);
+                var (name, dims, extended) = Classify(a, b);
+                // an elongated sheet (A3 extended) is one group whatever its length; the group keeps the longest so the paper chosen for it holds them all
+                int at = groups.FindIndex(g => g.Name == name && (extended || Math.Abs(g.W - a) <= ToleranceMm && Math.Abs(g.H - b) <= ToleranceMm));
                 if (at < 0) { groups.Add((name, dims, a, b, new List<int>())); at = groups.Count - 1; }
+                else if (extended && b > groups[at].H) groups[at] = (name, $"{a:0} × {b:0} mm", Math.Max(groups[at].W, a), b, groups[at].Pages);
                 groups[at].Pages.Add(i);
             }
 
@@ -52,6 +54,27 @@ namespace XTPdfMergeApp.Services
                 return new PageSizeGroup(g.Name, g.Dims, g.W, g.H, g.Pages, paper, fit, shrink);
             }).ToList();
         }
+
+        private static readonly (string Name, double Short, double Long)[] ASeries =
+            { ("A0", 841, 1189), ("A1", 594, 841), ("A2", 420, 594), ("A3", 297, 420), ("A4", 210, 297), ("A5", 148, 210) };
+
+        /// <summary>
+        /// The kind of sheet: a standard size ("A3", "Letter"), an ELONGATED A size ("A3 extended": the short side of an A size, the long side longer, as drawings are made long to fit a profile) or a special one
+        /// ("297×630"). Elongated sheets of different lengths are one kind: they print on the same plotter, on a custom length of paper.
+        /// </summary>
+        public static (string Name, string Dims, bool Extended) Classify(double shortMm, double longMm)
+        {
+            double a = Math.Min(shortMm, longMm), b = Math.Max(shortMm, longMm);
+            var (name, dims) = PdfExportService.SizeName(a * 72 / 25.4, b * 72 / 25.4);
+            if (!name.Contains('×')) return (name, dims, false);
+            foreach (var (baseName, s, l) in ASeries)
+                if (Math.Abs(a - s) <= 5 && b > l + 5 && b <= l * 8)
+                    return (baseName + " extended", $"{a:0} × {b:0} mm", true);
+            return (name, dims, false);
+        }
+
+        /// <summary>The sheet is not one of the standard sizes: it needs a decision (a custom paper, or forcing it onto a standard one).</summary>
+        public static bool IsSpecial(string className) => className.Contains('×') || className.EndsWith("extended", StringComparison.Ordinal);
 
         /// <summary>Khổ giấy máy in tốt nhất cho trang <paramref name="shortMm"/> × <paramref name="longMm"/> (cạnh ngắn, cạnh dài).</summary>
         public static (PaperOption? Paper, SizeFit Fit, double ShrinkTo) Match(double shortMm, double longMm, IReadOnlyList<PaperOption> papers)
