@@ -539,6 +539,43 @@ namespace XTPdfMergeApp
             return Task.CompletedTask;
         }
 
+        /// <summary>Many text runs replaced IN MEMORY at once (batch find and replace); one Undo takes them all back.</summary>
+        Task IReaderPageEditHost.ApplyTextEditsAsync(string path, IReadOnlyList<(int Page, Services.TextEdit.TextRun Place, Services.TextEdit.TextEdit? Edit)> items, string description)
+        {
+            if (items.Count == 0) return Task.CompletedTask;
+            if (!Controls.PdfPermissionDialog.Require(OwnerWindow, new[] { path }, PdfPermissionOperation.Modify)) return Task.CompletedTask;
+            _workspace.Execute(new Workspace.TextEditBatchCommand(description, path, items));
+            NotifyStatusChanged();
+            return Task.CompletedTask;
+        }
+
+        /// <summary>Lines, shapes and images removed from the file for real (an incremental update at its end; Undo takes the update off again).</summary>
+        async Task<bool> IReaderPageEditHost.DeleteObjectsAsync(string path, IReadOnlyList<Services.TextEdit.PdfObjectRef> objects, string description)
+        {
+            if (objects.Count == 0) return false;
+            if ((await PdfSecurityService.ReadAsync(path)).IsEncrypted)
+            {
+                AppDialog.Show(OwnerWindow, "This file is protected by a password, so objects cannot be removed from it.", "Edit Object", MessageBoxButton.OK, MessageBoxImage.Information);
+                return false;
+            }
+            var targets = new[] { (Path: path, Pages: (IReadOnlyCollection<int>)objects.Select(o => o.PageNumber).Distinct().ToList()) };
+            long oldLength = 0;
+            byte[] tail = Array.Empty<byte>();
+            bool ok = await EditSourceFilesAsync(targets, (p, _) =>
+            {
+                oldLength = new FileInfo(p).Length;
+                Services.TextEdit.ObjectEditService.DeleteAsync(p, objects).GetAwaiter().GetResult();
+                tail = Services.TextEdit.ObjectEditService.ReadTail(p, oldLength);
+            }, geometryChanged: false, appendOnly: true);
+            AnnotationWorkingCopy.Forget(path);
+            if (!ok) return false;
+            _workspace.History.Record(new Workspace.SourceTailEditCommand(description, path,
+                undo: async () => { bool r = await EditSourceFilesAsync(targets, (p, _) => Services.TextEdit.ObjectEditService.Truncate(p, oldLength), geometryChanged: false, appendOnly: true); AnnotationWorkingCopy.Forget(path); return r; },
+                redo: async () => { bool r = await EditSourceFilesAsync(targets, (p, _) => Services.TextEdit.ObjectEditService.Append(p, tail), geometryChanged: false, appendOnly: true); AnnotationWorkingCopy.Forget(path); return r; }));
+            NotifyStatusChanged();
+            return true;
+        }
+
         // ── Layer (OCG): bật/tắt theo Cách 2 trong báo cáo điều tra ─────────
 
         /// <summary>Đổi tập layer đang tắt của 1 file: lưu trạng thái (PdfLayerStateStore) → đóng lease PDFium
@@ -1325,6 +1362,8 @@ namespace XTPdfMergeApp
         /// <summary>OCR text kept in memory until Save (undoable): page number (1 based) to words, null removes a page's text.</summary>
         Task ApplyOcrAsync(string path, IReadOnlyDictionary<int, IReadOnlyList<Services.Ocr.OcrWord>?> pages, string description);
         Task ApplyTextEditAsync(string path, int pageNumber, Services.TextEdit.TextRun place, Services.TextEdit.TextEdit? edit, string description);
+        Task ApplyTextEditsAsync(string path, IReadOnlyList<(int Page, Services.TextEdit.TextRun Place, Services.TextEdit.TextEdit? Edit)> items, string description);
+        Task<bool> DeleteObjectsAsync(string path, IReadOnlyList<Services.TextEdit.PdfObjectRef> objects, string description);
         /// <summary>Ghi các thay đổi annotation vào file nguồn và đưa vào Undo/Redo.</summary>
         Task ApplyAnnotationChangesAsync(string path, IReadOnlyList<QuickAnnotationChange> changes, string description);
     }

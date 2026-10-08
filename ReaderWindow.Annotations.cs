@@ -26,7 +26,7 @@ namespace XTPdfMergeApp
     /// </summary>
     public partial class ReaderWindow
     {
-        private enum ReaderTool { Hand, Select, Typewriter, Comment, Callout, Pencil, Highlight, Underline, Strikethrough, Squiggly, Eraser, Stamp, Shape, Measure, EditText }
+        private enum ReaderTool { Hand, Select, Typewriter, Comment, Callout, Pencil, Highlight, Underline, Strikethrough, Squiggly, Eraser, Stamp, Shape, Measure, EditText, EditObject }
 
         private ReaderTool _readerTool = ReaderTool.Hand;
 
@@ -80,7 +80,7 @@ namespace XTPdfMergeApp
         private void SetReaderTool(ReaderTool tool)
         {
             if (_readerPage is { } page && tool is not (ReaderTool.Hand or ReaderTool.Select) &&
-                !PdfPermissionDialog.Require(this, new[] { page.SourcePath }, tool == ReaderTool.EditText ? PdfPermissionOperation.Modify : PdfPermissionOperation.Annotate)) return;
+                !PdfPermissionDialog.Require(this, new[] { page.SourcePath }, tool is ReaderTool.EditText or ReaderTool.EditObject ? PdfPermissionOperation.Modify : PdfPermissionOperation.Annotate)) return;
             CommitTextEdit();
             CommitAnnotationEditor();
             CancelHighlightDrag();
@@ -111,6 +111,8 @@ namespace XTPdfMergeApp
             ReaderShapeLineButton.Tag = tool == ReaderTool.Shape && _shapeStyle.Type == ShapeStyle.Line ? "Active" : null;
             ReaderMeasureToolButton.Tag = tool == ReaderTool.Measure ? "Active" : null;
             ReaderEditTextToolButton.Tag = tool == ReaderTool.EditText ? "Active" : null;
+            ReaderEditObjectButton.Tag = tool == ReaderTool.EditObject ? "Active" : null;
+            if (tool != ReaderTool.EditObject) ClearObjectSelection();
             if (tool != ReaderTool.Select) ClearTextSelection();
 
             ApplyToolCursor();
@@ -134,6 +136,7 @@ namespace XTPdfMergeApp
                 ReaderTool.Shape => Cursors.Cross,
                 ReaderTool.Measure => Cursors.Cross,
                 ReaderTool.EditText => Cursors.IBeam,
+                ReaderTool.EditObject => Cursors.Cross,
                 _ => null
             };
             ReaderContentHost.ForceCursor = tool != ReaderTool.Hand;
@@ -350,6 +353,11 @@ namespace XTPdfMergeApp
                     e.Handled = true;
                     _ = BeginTextEditAsync(hit);
                     break;
+
+                case ReaderTool.EditObject:
+                    e.Handled = true;
+                    if (_objectAreaMode) BeginObjectAreaDrag(hit); else _ = BeginObjectPickAsync(hit);
+                    break;
             }
         }
 
@@ -357,7 +365,7 @@ namespace XTPdfMergeApp
         {
             Point point = e.GetPosition(ReaderContentHost);
             UpdateChromeCursor(e.OriginalSource);
-            if (UpdateMeasure(point) || UpdateTextChromeDrag(point) || UpdateAnnotationMove(point) || UpdateShapeDrag(point) || UpdateShapeResize(point) || UpdateLineResize(point))
+            if (UpdateObjectDrag(point) || UpdateMeasure(point) || UpdateTextChromeDrag(point) || UpdateAnnotationMove(point) || UpdateShapeDrag(point) || UpdateShapeResize(point) || UpdateLineResize(point))
             {
                 e.Handled = true;
                 return;
@@ -389,7 +397,7 @@ namespace XTPdfMergeApp
 
         private void ReaderContentHost_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (FinishMeasure(e.GetPosition(ReaderContentHost)) || FinishTextChromeDrag() || FinishAnnotationMove() || FinishShapeDrag(e.GetPosition(ReaderContentHost)) || FinishShapeResize() || FinishLineResize())
+            if (FinishObjectDrag(e.GetPosition(ReaderContentHost)) || FinishMeasure(e.GetPosition(ReaderContentHost)) || FinishTextChromeDrag() || FinishAnnotationMove() || FinishShapeDrag(e.GetPosition(ReaderContentHost)) || FinishShapeResize() || FinishLineResize())
             {
                 e.Handled = true;
                 return;

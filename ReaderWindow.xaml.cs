@@ -161,6 +161,13 @@ namespace XTPdfMergeApp
                 return;
             }
 
+            if (_readerTool == ReaderTool.EditObject && _objectSelection != null)
+            {
+                if (e.Key == Key.Delete) { _ = DeleteSelectedObjectsAsync(); e.Handled = true; return; }
+                if (e.Key == Key.C && (Keyboard.Modifiers & ModifierKeys.Control) != 0) { _ = CopySelectedObjectsAsync(); e.Handled = true; return; }
+                if (e.Key == Key.Escape) { ClearObjectSelection(); e.Handled = true; return; }
+            }
+
             if (_selAnn != null && e.Key == Key.Delete)
             {
                 DeleteSelectedAnnotation();

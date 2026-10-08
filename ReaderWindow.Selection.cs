@@ -271,6 +271,12 @@ namespace XTPdfMergeApp
                 textMenu.IsOpen = true;
                 return;
             }
+            if (_readerTool == ReaderTool.EditObject && _objectSelection != null)
+            {
+                e.Handled = true;
+                ShowObjectContextMenu();
+                return;
+            }
             if (!TryHitPage(e.GetPosition(ReaderContentHost), out var hit)) return;
             var picked = PickAnnotation(GetCachedPageAnnotations(hit.Row), hit);
             if (picked == null)

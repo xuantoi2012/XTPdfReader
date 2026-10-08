@@ -56,6 +56,37 @@ namespace XTPdfMergeApp.Services.TextEdit
             return result;
         }
 
+        /// <summary>The runs inside a rectangle (fractions of the page) on each of the pages, one worker call for all of them. A page without any text layer has <c>HasText</c> false.</summary>
+        public static async Task<IReadOnlyList<(PageTextRuns Page, bool HasText)>> GetAreaRunsAsync(string path, IReadOnlyList<int> pages, double u1, double v1, double u2, double v2, Action<int>? progress = null)
+        {
+            var answers = new List<(PageTextRuns, bool)>();
+            string? error = null;
+            await RunAsync(new { mode = "area", path = Path.GetFullPath(path), pages, rect = new[] { u1, v1, u2, v2 }, password = PdfThumbnailService.TryGetDocumentPassword(path) }, root =>
+            {
+                switch (root.GetProperty("type").GetString())
+                {
+                    case "area":
+                        var runs = new List<TextRun>();
+                        foreach (var r in root.GetProperty("runs").EnumerateArray())
+                        {
+                            var box = r.GetProperty("bbox");
+                            var origin = r.GetProperty("origin");
+                            runs.Add(new TextRun(r.GetProperty("text").GetString() ?? "", box[0].GetDouble(), box[1].GetDouble(), box[2].GetDouble(), box[3].GetDouble(),
+                                origin[0].GetDouble(), origin[1].GetDouble(), r.GetProperty("size").GetDouble(), r.GetProperty("color").GetInt32(),
+                                r.GetProperty("font").GetString() ?? "", r.GetProperty("flags").GetInt32(), r.GetProperty("bg").GetInt32()));
+                        }
+                        int number = root.GetProperty("page").GetInt32();
+                        answers.Add((new PageTextRuns(number, root.GetProperty("width").GetDouble(), root.GetProperty("height").GetDouble(), root.GetProperty("rotation").GetInt32(),
+                            runs.Where(x => x.Text.Trim().Length > 0).ToList()), root.GetProperty("hasText").GetBoolean()));
+                        progress?.Invoke(number);
+                        break;
+                    case "error": error = root.GetProperty("message").GetString(); break;
+                }
+            }).ConfigureAwait(false);
+            if (answers.Count == 0 && error != null) throw new InvalidOperationException(error);
+            return answers;
+        }
+
         /// <summary>Removes the old characters of the edits from <paramref name="targetPath"/> itself (incremental update). The caller then writes the new text with <see cref="TextEditWriter"/>.</summary>
         public static async Task RemoveOldTextAsync(string targetPath, IReadOnlyList<TextEdit> edits)
         {
@@ -82,7 +113,7 @@ namespace XTPdfMergeApp.Services.TextEdit
             if (!done) throw new InvalidOperationException(error ?? "The text could not be written.");
         }
 
-        private static async Task RunAsync(object job, Action<JsonElement> onMessage)
+        internal static async Task RunAsync(object job, Action<JsonElement> onMessage)
         {
             if (!IsAvailable) throw new InvalidOperationException("Text editing is not installed with this copy of the program (TextEditWorker.py or the embedded Python is missing).");
             string jobFile = Path.Combine(Path.GetTempPath(), "xtpdf-textedit-" + Guid.NewGuid().ToString("N") + ".json");
