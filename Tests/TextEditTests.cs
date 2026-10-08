@@ -330,4 +330,81 @@ internal static partial class Program
             window.Close();
         }, copyFrom: source);
     }
+
+    /// <summary>Five pages that carry a signature in the same place: a hand-drawn curve (pages 1, 2), a pasted picture (page 3), the picture a little off (page 4), nothing (page 5).</summary>
+    static string BuildSignaturePdf(string folder)
+    {
+        if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        Directory.CreateDirectory(folder);
+        string path = System.IO.Path.Combine(folder, "signed.pdf");
+        var pixels = new byte[60 * 24 * 3];
+        for (int i = 0; i < pixels.Length; i += 3) { pixels[i] = 20; pixels[i + 1] = 20; pixels[i + 2] = 90; }
+        var bitmap = new System.Windows.Media.Imaging.WriteableBitmap(60, 24, 96, 96, System.Windows.Media.PixelFormats.Rgb24, null);
+        bitmap.WritePixels(new System.Windows.Int32Rect(0, 0, 60, 24), pixels, 180, 0);
+        using var png = new MemoryStream();
+        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap)); encoder.Save(png);
+        var picture = iText.IO.Image.ImageDataFactory.Create(png.ToArray());
+        using (var doc = new PdfDocument(new PdfWriter(path)))
+        {
+            var font = iText.Kernel.Font.PdfFontFactory.CreateFont(@"C:\Windows\Fonts\arial.ttf", iText.IO.Font.PdfEncodings.IDENTITY_H, iText.Kernel.Font.PdfFontFactory.EmbeddingStrategy.PREFER_EMBEDDED);
+            for (int i = 1; i <= 5; i++)
+            {
+                var page = doc.AddNewPage(PageSize.A4);
+                var canvas = new PdfCanvas(page);
+                canvas.BeginText().SetFontAndSize(font, 12).MoveText(300, 760).ShowText("P.TỔNG GIÁM ĐỐC").EndText();     // text above the signature, outside the area
+                if (i <= 2) canvas.SetStrokeColor(ColorConstants.BLACK).SetLineWidth(2).MoveTo(300, 700).CurveTo(320, 640, 350, 620, 380, 700).CurveTo(400, 650, 420, 640, 450, 690).Stroke();
+                else if (i == 3) canvas.AddImageFittedIntoRectangle(picture, new Rectangle(310, 650, 120, 48), false);
+                else if (i == 4) canvas.AddImageFittedIntoRectangle(picture, new Rectangle(400, 646, 120, 48), false);     // sticks out of the area
+            }
+        }
+        return path;
+    }
+
+    /// <summary>The owner's signature case: the app must take a signature as an OBJECT (a drawn curve or a picture), not as text: pick it, find it in an area on all pages, delete in one go, Undo.</summary>
+    static void TestFindSignatureObjects()
+    {
+        if (!TextEditService.IsAvailable) { Console.WriteLine("Signature objects: no embedded Python; skipped"); return; }
+        string source = BuildSignaturePdf(System.IO.Path.Combine(Output, "signature-source"));
+        RunReaderFlow("signature", async f =>
+        {
+            string path = f.Path;
+            var host = (XTPdfMergeApp.IReaderPageEditHost)f.Window.Session;
+            string Hash() => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path)));
+            string before = Hash();
+
+            var onStroke = await ObjectEditService.PickAsync(path, 1, 300, 142);
+            Check(onStroke.Count == 1 && onStroke[0].Kind == "shape", $"A hand-drawn curve is one shape; a click on its stroke picks it ({string.Join(",", onStroke.Select(o => o.Kind))})");
+            Check((await ObjectEditService.PickAsync(path, 1, 300, 185)).Count == 0, "A click inside its box but off the stroke picks nothing");
+            var onPicture = await ObjectEditService.PickAsync(path, 3, 360, 170);
+            Check(onPicture.Count == 1 && onPicture[0].IsImage, "A pasted signature is an image");
+
+            var window = new XTPdfMergeApp.Controls.BatchFindWindow(path, 1, 5) { Left = -32000, Top = -32000, ShowActivated = false, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual };
+            window.Show();
+            await Task.Delay(1200);
+            window.ObjectsModeButton.IsChecked = true;
+            window.Picker.DrawForTest((0.45, 0.12, 0.82, 0.30));
+            await window.FindAsync();
+            Check(window.Hits.Select(h => h.Page).SequenceEqual(new[] { 1, 2, 3 }), $"Completely inside the area: pages 1, 2 and 3 ({string.Join(",", window.Hits.Select(h => h.Page))}); the text above is not an object");
+            Check(window.Hits[0].Text.Contains("shape") && window.Hits[2].Text.Contains("image"), $"…each said as what it is (\"{window.Hits.FirstOrDefault()?.Text}\", \"{window.Hits.LastOrDefault()?.Text}\")");
+            Check(window.Picker.MarkCount >= 1, "What was found is marked on the page drawn on");
+            window.TouchBox.IsChecked = true;
+            await window.FindAsync();
+            Check(window.Hits.Select(h => h.Page).SequenceEqual(new[] { 1, 2, 3, 4 }), "With \"also objects that touch the area\" the slightly shifted page 4 is found too");
+            SavePng(window, "signature-window");
+            window.ApplyForTest(delete: true);
+            await Task.Delay(300);
+            Check(window.ObjectsToDelete.Count == 4, $"Four objects go ({window.ObjectsToDelete.Count})");
+            window.Close();
+
+            Check(await host.DeleteObjectsAsync(path, window.ObjectsToDelete, window.Description), "They are removed in one go");
+            await Task.Delay(500);
+            var left = await ObjectEditService.FindInAreaAsync(path, new[] { 1, 2, 3, 4, 5 }, 0, 0, 1, 1, false);
+            Check(left.Count == 0, $"No drawn object is left on any page ({left.Count}: {string.Join(", ", left.Select(o => o.PageNumber + o.Kind + o.Index + "[" + (int)o.X0 + "," + (int)o.Y0 + "," + (int)o.X1 + "," + (int)o.Y1 + "]"))})");
+            var runs = await TextEditService.GetRunsAsync(path, 2);
+            Check(runs!.Runs.Any(r => r.Text.Contains("TỔNG")), "The text of the pages is untouched");
+            host.Undo();
+            await Task.Delay(800);
+            Check(Hash() == before, "One Undo gives the file back byte for byte");
+        }, copyFrom: source);
+    }
 }

@@ -128,7 +128,7 @@ def objects_of(page):
         is_line = d.get("fill") is None and all(i[0] == "l" for i in items)
         r = d["rect"]
         result.append({"kind": "line" if is_line else "shape", "index": index, "bbox": [r.x0, r.y0, r.x1, r.y1], "width": d.get("width") or 0,
-                       "filled": d.get("fill") is not None,
+                       "filled": d.get("fill") is not None, "items": items,
                        "segments": [[i[1].x, i[1].y, i[2].x, i[2].y] for i in items if i[0] == "l"] if is_line else []})
     for k, info in enumerate(page.get_image_info(xrefs=True)):
         r = fitz.Rect(info["bbox"])
@@ -142,6 +142,37 @@ def distance_to_segment(px, py, ax, ay, bx, by):
     length2 = dx * dx + dy * dy
     t = 0 if length2 == 0 else max(0, min(1, ((px - ax) * dx + (py - ay) * dy) / length2))
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+def bezier_points(p1, p2, p3, p4, steps=16):
+    for k in range(steps + 1):
+        t = k / steps
+        a, b, c, d = (1 - t) ** 3, 3 * (1 - t) ** 2 * t, 3 * (1 - t) * t * t, t ** 3
+        yield (a * p1.x + b * p2.x + c * p3.x + d * p4.x, a * p1.y + b * p2.y + c * p3.y + d * p4.y)
+
+
+def near_path(items, x, y, reach):
+    """True when the point is within <reach> of any piece of the path (lines, curves, rectangles, quads)."""
+    for item in items:
+        kind = item[0]
+        if kind == "l":
+            if distance_to_segment(x, y, item[1].x, item[1].y, item[2].x, item[2].y) <= reach:
+                return True
+        elif kind == "c":
+            pts = list(bezier_points(item[1], item[2], item[3], item[4]))
+            if any(distance_to_segment(x, y, *pts[k], *pts[k + 1]) <= reach for k in range(len(pts) - 1)):
+                return True
+        elif kind == "re":
+            r = item[1]
+            corners = [(r.x0, r.y0), (r.x1, r.y0), (r.x1, r.y1), (r.x0, r.y1), (r.x0, r.y0)]
+            if any(distance_to_segment(x, y, *corners[k], *corners[k + 1]) <= reach for k in range(4)):
+                return True
+        elif kind == "qu":
+            q = item[1]
+            corners = [(q.ul.x, q.ul.y), (q.ur.x, q.ur.y), (q.lr.x, q.lr.y), (q.ll.x, q.ll.y), (q.ul.x, q.ul.y)]
+            if any(distance_to_segment(x, y, *corners[k], *corners[k + 1]) <= reach for k in range(4)):
+                return True
+    return False
 
 
 def strip(obj):
@@ -162,9 +193,8 @@ def job_pick(job):
         elif obj["kind"] == "shape":
             if not (x0 - reach <= x <= x1 + reach and y0 - reach <= y <= y1 + reach):
                 continue
-            # a big outline (a frame, a border) is hit on its edge, not in the middle
-            inside = x0 + reach < x < x1 - reach and y0 + reach < y < y1 - reach
-            if inside and (x1 - x0) > 40 and (y1 - y0) > 40 and not obj["filled"]:
+            # a filled shape is hit anywhere inside, an outline (frame, handwriting) only on its stroke
+            if not obj["filled"] and not near_path(obj["items"], x, y, reach):
                 continue
         else:
             if not (x0 <= x <= x1 and y0 <= y <= y1):
@@ -182,6 +212,25 @@ def job_pick_area(job):
     box = fitz.Rect(x0, y0, x1, y1)
     inside = [o for o in objects_of(page) if box.contains(fitz.Rect(o["bbox"]))]
     emit(type="pick", page=job["page"], width=page.rect.width, height=page.rect.height, rotation=page.rotation, objects=[strip(o) for o in inside[:5000]])
+
+
+def job_area_objects(job):
+    """The drawn objects inside a rectangle (fractions of the page) on each asked page: completely inside, or also those that only touch it."""
+    doc = fitz.open(job["path"])
+    u1, v1, u2, v2 = job["rect"]
+    touch = job.get("touch", False)
+    for number in job["pages"]:
+        page = doc[number - 1]
+        w, h = page.rect.width, page.rect.height
+        box = fitz.Rect(u1 * w, v1 * h, u2 * w, v2 * h)
+        found = []
+        for obj in objects_of(page):
+            r = fitz.Rect(obj["bbox"])
+            if obj["kind"] == "image" and r.width * r.height > 0.5 * w * h and not box.contains(r):
+                continue  # a scan of the whole page is not "the signature"
+            if box.contains(r) or (touch and box.intersects(r + (-0.01, -0.01, 0.01, 0.01))):
+                found.append(strip(obj))
+        emit(type="areaObjects", page=number, width=w, height=h, rotation=page.rotation, objects=found[:5000])
 
 
 def redraw(page, d):
@@ -222,7 +271,8 @@ def job_delete(job):
             if index >= len(drawings):
                 continue
             d = drawings[index]
-            reach = max(0.5, (d.get("width") or 0) / 2 + 0.3)
+            # MuPDF decides "covered" with the stroked bounds of the path (curve hull + miter joins: up to width x 10), not with the box of the points
+            reach = max(0.8, (d.get("width") or 0) * 10 + 1)
             box = fitz.Rect(d["rect"]) + (-reach, -reach, reach, reach)
             page.add_redact_annot(box, fill=False)
             for k, other in enumerate(drawings):
@@ -245,7 +295,7 @@ def main():
     with open(sys.argv[1], encoding="utf-8") as handle:
         job = json.load(handle)
     try:
-        {"runs": job_runs, "apply": job_apply, "area": job_area, "pick": job_pick, "pickArea": job_pick_area, "delete": job_delete}[job["mode"]](job)
+        {"runs": job_runs, "apply": job_apply, "area": job_area, "pick": job_pick, "pickArea": job_pick_area, "areaObjects": job_area_objects, "delete": job_delete}[job["mode"]](job)
     except Exception as ex:  # report, the caller shows it
         import traceback
         sys.stderr.write(traceback.format_exc())

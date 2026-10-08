@@ -26,6 +26,7 @@ internal sealed class PageAreaPicker : Grid
         Fill = new SolidColorBrush(Color.FromArgb(0x26, 0xC0, 0x39, 0x2B)), Visibility = Visibility.Collapsed, IsHitTestVisible = false
     };
     private readonly Image _placed = new() { Stretch = Stretch.Uniform, Visibility = Visibility.Collapsed, IsHitTestVisible = false, Opacity = 0.9 };
+    private readonly System.Collections.Generic.List<Rectangle> _marks = new();
     private double _zoom = 1, _aspect = 1.414;
     private Point? _dragStart;
     private (double U1, double V1, double U2, double V2)? _area;
@@ -80,6 +81,22 @@ internal sealed class PageAreaPicker : Grid
         Layout();
     }
 
+    /// <summary>Green boxes over what was found on the page on show (fractions of the page).</summary>
+    public void ShowMarks(System.Collections.Generic.IEnumerable<(double U1, double V1, double U2, double V2)> boxes)
+    {
+        foreach (var m in _marks) _overlay.Children.Remove(m);
+        _marks.Clear();
+        foreach (var b in boxes)
+        {
+            var mark = new Rectangle { Stroke = new SolidColorBrush(Color.FromRgb(0x0F, 0x8B, 0x6D)), StrokeThickness = 1.5, Fill = new SolidColorBrush(Color.FromArgb(0x30, 0x0F, 0x8B, 0x6D)), IsHitTestVisible = false, Tag = b };
+            _marks.Add(mark);
+            _overlay.Children.Add(mark);
+        }
+        Layout();
+    }
+
+    public int MarkCount => _marks.Count;
+
     private void SetZoom(double zoom)
     {
         _zoom = Math.Clamp(zoom, 0.5, 8);
@@ -95,6 +112,14 @@ internal sealed class PageAreaPicker : Grid
         _surface.Height = width * _aspect;
         _overlay.Width = _surface.Width;
         _overlay.Height = _surface.Height;
+        foreach (var mark in _marks)
+        {
+            var (u1, v1, u2, v2) = ((double, double, double, double))mark.Tag;
+            Canvas.SetLeft(mark, u1 * width);
+            Canvas.SetTop(mark, v1 * _surface.Height);
+            mark.Width = Math.Max(3, (u2 - u1) * width);
+            mark.Height = Math.Max(3, (v2 - v1) * _surface.Height);
+        }
         if (_area is not { } a) { _box.Visibility = Visibility.Collapsed; _placed.Visibility = Visibility.Collapsed; return; }
         Canvas.SetLeft(_box, a.U1 * width);
         Canvas.SetTop(_box, a.V1 * _surface.Height);

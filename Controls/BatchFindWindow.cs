@@ -19,6 +19,8 @@ internal sealed class BatchHit : INotifyPropertyChanged
     public int Page { get; init; }
     public PageTextRuns Source { get; init; } = null!;
     public TextRun Run { get; init; } = null!;
+    /// <summary>The drawn objects of this page (objects mode).</summary>
+    public IReadOnlyList<PdfObjectRef> Objects { get; init; } = Array.Empty<PdfObjectRef>();
     /// <summary>The text as the user sees it now (a pending edit counts).</summary>
     public string Text { get; init; } = "";
     public bool IsChecked { get => _checked; set { _checked = value; Raise(nameof(IsChecked)); } }
@@ -39,6 +41,9 @@ internal sealed class BatchFindWindow : XTWindow
     private readonly PageAreaPicker _picker = new() { MinHeight = 300 };
     private readonly TextBox _find = new() { Height = 26, VerticalContentAlignment = VerticalAlignment.Center, ToolTip = "Leave empty to take every piece of text in the area" };
     private readonly TextBox _replace = new() { Height = 26, VerticalContentAlignment = VerticalAlignment.Center };
+    private readonly RadioButton _textMode = new() { Content = "Text", GroupName = "BatchWhat", IsChecked = true, Margin = new Thickness(0, 0, 14, 0) };
+    private readonly RadioButton _objectsMode = new() { Content = "Drawn object (signature, stamp, line, image)", GroupName = "BatchWhat", ToolTip = "Finds pictures and strokes that lie in the area, whatever they are" };
+    private readonly CheckBox _touch = new() { Content = "Also objects that only touch the area", Margin = new Thickness(0, 6, 0, 0), Visibility = Visibility.Collapsed };
     private readonly CheckBox _matchCase = new() { Content = "Match case", Margin = new Thickness(0, 6, 0, 0) };
     private readonly RadioButton _thisPage, _allPages, _range;
     private readonly TextBox _rangeBox = new() { Width = 130, Height = 26, Margin = new Thickness(8, 0, 0, 0), VerticalContentAlignment = VerticalAlignment.Center, ToolTip = "For example 1-3, 7" };
@@ -51,12 +56,18 @@ internal sealed class BatchFindWindow : XTWindow
     private readonly Button _close = new() { Content = "Close", Width = 90, Height = 28, IsCancel = true, Margin = new Thickness(8, 0, 0, 0) };
     private readonly ObservableCollection<BatchHit> _hits = new();
     private bool _busy;
+    private TextBlock _findLabel = null!, _replaceLabel = null!;
 
     /// <summary>What the user chose to do (set when the window closes with OK): the edits to put into the file's pending changes.</summary>
     public IReadOnlyList<(int Page, TextRun Place, TextEdit? Edit)> Edits { get; private set; } = Array.Empty<(int, TextRun, TextEdit?)>();
     public string Description { get; private set; } = "";
+    /// <summary>Set instead of <see cref="Edits"/> in the objects mode: what to delete from the file (every page of the checked hits).</summary>
+    public IReadOnlyList<PdfObjectRef> ObjectsToDelete { get; private set; } = Array.Empty<PdfObjectRef>();
+    internal bool ObjectsMode => _objectsMode.IsChecked == true;
 
     internal PageAreaPicker Picker => _picker;
+    internal RadioButton ObjectsModeButton => _objectsMode;
+    internal CheckBox TouchBox => _touch;
     internal TextBox FindBox => _find;
     internal TextBox ReplaceBox => _replace;
     internal RadioButton AllPagesButton => _allPages;
@@ -87,11 +98,16 @@ internal sealed class BatchFindWindow : XTWindow
         var side = new StackPanel { Margin = new Thickness(0, 0, 14, 0) };
         side.Children.Add(new TextBlock { Text = System.IO.Path.GetFileName(path), FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, Foreground = R("Ui.Text") });
         side.Children.Add(new TextBlock { Text = "1. Draw the area on the page (drag). Ctrl + wheel zooms.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0), Foreground = R("Ui.Text") });
-        side.Children.Add(Label("2. Text to find"));
+        side.Children.Add(Label("2. What to find in the area"));
+        side.Children.Add(new StackPanel { Children = { _textMode, _objectsMode } });
+        _findLabel = Label("Text to find");
+        _replaceLabel = Label("Replace with");
+        side.Children.Add(_findLabel);
         side.Children.Add(_find);
-        side.Children.Add(Label("Replace with"));
+        side.Children.Add(_replaceLabel);
         side.Children.Add(_replace);
         side.Children.Add(_matchCase);
+        side.Children.Add(_touch);
         side.Children.Add(Label("3. Pages"));
         _thisPage = new RadioButton { Content = $"This page ({_samplePage})", GroupName = "BatchPages", Margin = new Thickness(0, 2, 0, 2) };
         _allPages = new RadioButton { Content = $"All {_pageCount} pages", GroupName = "BatchPages", IsChecked = true, Margin = new Thickness(0, 2, 0, 2) };
@@ -145,10 +161,26 @@ internal sealed class BatchFindWindow : XTWindow
         _findButton.Click += async (_, _) => await FindAsync();
         _replaceButton.Click += (_, _) => Apply(delete: false);
         _deleteButton.Click += (_, _) => Apply(delete: true);
+        _textMode.Checked += (_, _) => SwitchMode();
+        _objectsMode.Checked += (_, _) => SwitchMode();
         _replace.TextChanged += (_, _) => RefreshAfter();
         _find.TextChanged += (_, _) => RefreshAfter();
         Loaded += async (_, _) => await GoToSampleAsync(_samplePage);
         _status.Text = "Draw the area, then press Find.";
+    }
+
+    private void SwitchMode()
+    {
+        bool objects = ObjectsMode;
+        var textOnly = objects ? Visibility.Collapsed : Visibility.Visible;
+        _find.Visibility = _replace.Visibility = _findLabel.Visibility = _replaceLabel.Visibility = _matchCase.Visibility = textOnly;
+        _touch.Visibility = objects ? Visibility.Visible : Visibility.Collapsed;
+        _replaceButton.Visibility = textOnly;
+        _deleteButton.Content = objects ? "Delete checked objects" : "Delete checked text";
+        _hits.Clear();
+        _picker.ShowMarks(Array.Empty<(double, double, double, double)>());
+        _replaceButton.IsEnabled = _deleteButton.IsEnabled = false;
+        _status.Text = objects ? "Draw the area around the signature or stamp, then press Find." : "Draw the area, then press Find.";
     }
 
     private static TextBlock Label(string text) => new() { Text = text, Margin = new Thickness(0, 12, 0, 4), FontWeight = FontWeights.SemiBold };
@@ -199,6 +231,7 @@ internal sealed class BatchFindWindow : XTWindow
         _busy = true;
         _findButton.IsEnabled = false;
         _hits.Clear();
+        if (ObjectsMode) { await FindObjectsAsync(area, pages); return; }
         _status.Text = "Reading the text of " + pages.Count + " page" + (pages.Count == 1 ? "" : "s") + "…";
         try
         {
@@ -227,8 +260,43 @@ internal sealed class BatchFindWindow : XTWindow
         finally { _busy = false; _findButton.IsEnabled = true; }
     }
 
+    private async Task FindObjectsAsync((double U1, double V1, double U2, double V2) area, List<int> pages)
+    {
+        _status.Text = "Looking for drawn objects on " + pages.Count + " page" + (pages.Count == 1 ? "" : "s") + "…";
+        try
+        {
+            var rotated = new List<int>();
+            var found = await ObjectEditService.FindInAreaAsync(_path, pages, area.U1, area.V1, area.U2, area.V2, _touch.IsChecked == true, rotated);
+            foreach (var group in found.GroupBy(o => o.PageNumber).OrderBy(g => g.Key))
+            {
+                var kinds = group.GroupBy(o => o.Kind).Select(k => $"{k.Count()} {k.Key}{(k.Count() == 1 ? "" : "s")}");
+                _hits.Add(new BatchHit { Page = group.Key, Objects = group.ToList(), Text = string.Join(", ", kinds), After = "deleted from the file" });
+            }
+            int empty = pages.Count - rotated.Count - _hits.Count;
+            var notes = new List<string>();
+            if (empty > 0) notes.Add($"{empty} page{(empty == 1 ? " has" : "s have")} nothing in the area");
+            if (rotated.Count > 0) notes.Add($"{rotated.Count} rotated page{(rotated.Count == 1 ? " was" : "s were")} skipped");
+            _status.Text = $"Found on {_hits.Count} page(s), {found.Count} object(s)." + (notes.Count > 0 ? " " + string.Join("; ", notes) + "." : "");
+            _replaceButton.IsEnabled = false;
+            _deleteButton.IsEnabled = _hits.Count > 0;
+            // show what was found on the page drawn on
+            _picker.ShowMarks(found.Where(o => o.PageNumber == _samplePage).Select(o => (o.X0 / o.PageWidth, o.Y0 / o.PageHeight, o.X1 / o.PageWidth, o.Y1 / o.PageHeight)));
+        }
+        catch (Exception ex) { _status.Text = "Could not read the pages: " + ex.Message; }
+        finally { _busy = false; _findButton.IsEnabled = true; }
+    }
+
     private void Apply(bool delete)
     {
+        if (ObjectsMode)
+        {
+            var objects = _hits.Where(h => h.IsChecked).SelectMany(h => h.Objects).ToList();
+            if (objects.Count == 0) { _status.Text = "Check at least one page."; return; }
+            ObjectsToDelete = objects;
+            Description = $"Removed {objects.Count} object{(objects.Count == 1 ? "" : "s")} on {objects.Select(o => o.PageNumber).Distinct().Count()} page(s) (saved to file)";
+            try { DialogResult = true; } catch (InvalidOperationException) { Close(); }
+            return;
+        }
         bool matchCase = _matchCase.IsChecked == true;
         var items = new List<(int, TextRun, TextEdit?)>();
         foreach (var hit in _hits.Where(h => h.IsChecked))

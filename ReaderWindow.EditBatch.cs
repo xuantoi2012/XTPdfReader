@@ -25,9 +25,22 @@ namespace XTPdfMergeApp
             int count = PageCountOf(path);
             if (count < 1) { AppDialog.Show(this, "The file could not be read.", "Find and replace in an area", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
             var window = new BatchFindWindow(path, _readerPage.PageNumber, count) { Owner = this };
-            if (window.ShowDialog() != true || window.Edits.Count == 0) return;
+            if (window.ShowDialog() != true) return;
+            if (window.ObjectsToDelete.Count > 0)
+            {
+                _ = DeleteObjectsFromWindowAsync(path, window);
+                return;
+            }
+            if (window.Edits.Count == 0) return;
             _ = EditHost.ApplyTextEditsAsync(path, window.Edits, window.Description);
             XTGrowl.Success(window.Description + ". Ctrl+S saves it into the file; Undo takes it back.", this);
+        }
+
+        private async Task DeleteObjectsFromWindowAsync(string path, BatchFindWindow window)
+        {
+            if (EditHost == null) return;
+            bool ok = await EditHost.DeleteObjectsAsync(path, window.ObjectsToDelete, window.Description);
+            if (ok) XTGrowl.Success(window.Description + ". Undo (Ctrl+Z) brings them all back.", this);
         }
 
         internal void OpenStampPages()

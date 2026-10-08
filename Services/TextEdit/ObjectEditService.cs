@@ -27,6 +27,35 @@ namespace XTPdfMergeApp.Services.TextEdit
         public static async Task<IReadOnlyList<PdfObjectRef>> PickAreaAsync(string path, int pageNumber, double x0, double y0, double x1, double y1)
             => await QueryAsync(new { mode = "pickArea", path = Path.GetFullPath(path), page = pageNumber, rect = new[] { x0, y0, x1, y1 } }, pageNumber);
 
+        /// <summary>The objects inside a rectangle (fractions of the page) on each of the pages, in one worker call. Pages that are rotated are returned in <paramref name="rotated"/> and skipped.</summary>
+        public static async Task<IReadOnlyList<PdfObjectRef>> FindInAreaAsync(string path, IReadOnlyList<int> pages, double u1, double v1, double u2, double v2, bool touch, List<int>? rotated = null)
+        {
+            var result = new List<PdfObjectRef>();
+            string? error = null;
+            bool answered = false;
+            await TextEditService.RunAsync(new { mode = "areaObjects", path = Path.GetFullPath(path), pages, rect = new[] { u1, v1, u2, v2 }, touch }, root =>
+            {
+                switch (root.GetProperty("type").GetString())
+                {
+                    case "areaObjects":
+                        answered = true;
+                        int number = root.GetProperty("page").GetInt32();
+                        double w = root.GetProperty("width").GetDouble(), h = root.GetProperty("height").GetDouble();
+                        if (root.GetProperty("rotation").GetInt32() != 0) { rotated?.Add(number); break; }
+                        foreach (var o in root.GetProperty("objects").EnumerateArray())
+                        {
+                            var box = o.GetProperty("bbox");
+                            result.Add(new PdfObjectRef(number, o.GetProperty("kind").GetString() ?? "shape", o.GetProperty("index").GetInt32(),
+                                box[0].GetDouble(), box[1].GetDouble(), box[2].GetDouble(), box[3].GetDouble(), w, h));
+                        }
+                        break;
+                    case "error": error = root.GetProperty("message").GetString(); break;
+                }
+            }).ConfigureAwait(false);
+            if (!answered) throw new InvalidOperationException(error ?? "The pages could not be read.");
+            return result;
+        }
+
         private static async Task<IReadOnlyList<PdfObjectRef>> QueryAsync(object job, int pageNumber)
         {
             var result = new List<PdfObjectRef>();
