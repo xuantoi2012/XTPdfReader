@@ -354,7 +354,7 @@ internal static partial class Program
                 canvas.BeginText().SetFontAndSize(font, 12).MoveText(300, 760).ShowText("P.TỔNG GIÁM ĐỐC").EndText();     // text above the signature, outside the area
                 if (i <= 2) canvas.SetStrokeColor(ColorConstants.BLACK).SetLineWidth(2).MoveTo(300, 700).CurveTo(320, 640, 350, 620, 380, 700).CurveTo(400, 650, 420, 640, 450, 690).Stroke();
                 else if (i == 3) canvas.AddImageFittedIntoRectangle(picture, new Rectangle(310, 650, 120, 48), false);
-                else if (i == 4) canvas.AddImageFittedIntoRectangle(picture, new Rectangle(400, 646, 120, 48), false);     // sticks out of the area
+                else if (i == 4) canvas.AddImageFittedIntoRectangle(picture, new Rectangle(440, 646, 120, 48), false);     // mostly outside the area
             }
         }
         return path;
@@ -384,12 +384,12 @@ internal static partial class Program
             window.ObjectsModeButton.IsChecked = true;
             window.Picker.DrawForTest((0.45, 0.12, 0.82, 0.30));
             await window.FindAsync();
-            Check(window.Hits.Select(h => h.Page).SequenceEqual(new[] { 1, 2, 3 }), $"Completely inside the area: pages 1, 2 and 3 ({string.Join(",", window.Hits.Select(h => h.Page))}); the text above is not an object");
+            Check(window.Hits.Select(h => h.Page).SequenceEqual(new[] { 1, 2, 3 }), $"Mostly inside the area: pages 1, 2 and 3 ({string.Join(",", window.Hits.Select(h => h.Page))}); the text above is not an object");
             Check(window.Hits[0].Text.Contains("shape") && window.Hits[2].Text.Contains("image"), $"…each said as what it is (\"{window.Hits.FirstOrDefault()?.Text}\", \"{window.Hits.LastOrDefault()?.Text}\")");
             Check(window.Picker.MarkCount >= 1, "What was found is marked on the page drawn on");
             window.TouchBox.IsChecked = true;
             await window.FindAsync();
-            Check(window.Hits.Select(h => h.Page).SequenceEqual(new[] { 1, 2, 3, 4 }), "With \"also objects that touch the area\" the slightly shifted page 4 is found too");
+            Check(window.Hits.Select(h => h.Page).SequenceEqual(new[] { 1, 2, 3, 4 }), "With \"also everything that touches the area\" the picture that is mostly outside (page 4) is found too");
             SavePng(window, "signature-window");
             window.ApplyForTest(delete: true);
             await Task.Delay(300);
@@ -405,6 +405,48 @@ internal static partial class Program
             host.Undo();
             await Task.Delay(800);
             Check(Hash() == before, "One Undo gives the file back byte for byte");
+        }, copyFrom: source);
+    }
+
+    /// <summary>A page that is stored upright but has /Rotate 270 (a landscape CAD sheet): objects are found, picked and removed in the orientation the user sees.</summary>
+    static void TestEditObjectOnRotatedPage()
+    {
+        if (!TextEditService.IsAvailable) { Console.WriteLine("Rotated page objects: no embedded Python; skipped"); return; }
+        string folder = System.IO.Path.Combine(Output, "rotatedobjects-source");
+        if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        Directory.CreateDirectory(folder);
+        string source = System.IO.Path.Combine(folder, "rotated.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(source)))
+        {
+            var page = doc.AddNewPage(PageSize.A4);
+            page.SetRotation(270);
+            var canvas = new PdfCanvas(page);
+            canvas.SetStrokeColor(ColorConstants.BLACK).SetLineWidth(1).MoveTo(100, 100).LineTo(300, 100).Stroke();   // stored near the bottom left, displayed somewhere else
+            canvas.SetStrokeColor(ColorConstants.RED).SetLineWidth(1).Rectangle(400, 500, 80, 40).Stroke();
+        }
+        RunReaderFlow("rotatedobjects", async f =>
+        {
+            string path = f.Path;
+            var host = (XTPdfMergeApp.IReaderPageEditHost)f.Window.Session;
+            string Hash() => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path)));
+            string before = Hash();
+            var all = await ObjectEditService.FindInAreaAsync(path, new[] { 1 }, 0, 0, 1, 1, false);
+            Check(all.Count == 2 && all.All(o => Math.Abs(o.PageWidth - 842) < 1 && Math.Abs(o.PageHeight - 595) < 1), $"Two objects, on a page 842 x 595 as it is displayed ({all.Count})");
+            foreach (var o in all)
+            {
+                var again = await ObjectEditService.PickAsync(path, 1, o.Kind == "shape" ? o.X0 : (o.X0 + o.X1) / 2, (o.Y0 + o.Y1) / 2, 4); // an outline is hit on its stroke
+                Check(again.Any(a => a.Kind == o.Kind && a.Index == o.Index), $"A click on the {o.Kind} as it is displayed picks it");
+            }
+            var line = all.First(o => o.Kind == "line");
+            var area = await ObjectEditService.FindInAreaAsync(path, new[] { 1 }, (line.X0 - 5) / 842, (line.Y0 - 5) / 595, (line.X1 + 5) / 842, (line.Y1 + 5) / 595, false);
+            Check(area.Count == 1 && area[0].Kind == "line", "An area drawn around it on the displayed page finds only that line");
+            Check(await host.DeleteObjectsAsync(path, area, "Removed 1 line"), "It is removed");
+            await Task.Delay(400);
+            var left = await ObjectEditService.FindInAreaAsync(path, new[] { 1 }, 0, 0, 1, 1, false);
+            Check(left.Count == 1 && left[0].Kind == "shape", "The other object is left");
+            host.Undo();
+            await Task.Delay(800);
+            Check(Hash() == before, "Undo gives the file back byte for byte");
         }, copyFrom: source);
     }
 }

@@ -41,7 +41,6 @@ namespace XTPdfMergeApp.Services.TextEdit
                         answered = true;
                         int number = root.GetProperty("page").GetInt32();
                         double w = root.GetProperty("width").GetDouble(), h = root.GetProperty("height").GetDouble();
-                        if (root.GetProperty("rotation").GetInt32() != 0) { rotated?.Add(number); break; }
                         foreach (var o in root.GetProperty("objects").EnumerateArray())
                         {
                             var box = o.GetProperty("bbox");
@@ -68,7 +67,6 @@ namespace XTPdfMergeApp.Services.TextEdit
                     case "pick":
                         answered = true;
                         double w = root.GetProperty("width").GetDouble(), h = root.GetProperty("height").GetDouble();
-                        if (root.GetProperty("rotation").GetInt32() != 0) { error = "rotated"; break; }
                         foreach (var o in root.GetProperty("objects").EnumerateArray())
                         {
                             var box = o.GetProperty("bbox");
@@ -79,7 +77,6 @@ namespace XTPdfMergeApp.Services.TextEdit
                     case "error": error = root.GetProperty("message").GetString(); break;
                 }
             }).ConfigureAwait(false);
-            if (error == "rotated") throw new NotSupportedException("Object editing works on upright pages for now. Rotate the page back (Turn left / right), edit, then rotate again.");
             if (!answered) throw new InvalidOperationException(error ?? "The page could not be read.");
             return result;
         }

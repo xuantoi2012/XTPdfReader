@@ -175,14 +175,23 @@ def near_path(items, x, y, reach):
     return False
 
 
-def strip(obj):
-    return {k: obj[k] for k in ("kind", "index", "bbox", "xref") if k in obj}
+def to_display(page, bbox):
+    """Box of the page as stored (unrotated) -> box of the page as displayed (the /Rotate of the page applied), origin top left."""
+    r = (fitz.Rect(bbox) * page.rotation_matrix).normalize()
+    return [r.x0, r.y0, r.x1, r.y1]
+
+
+def strip(obj, page):
+    result = {k: obj[k] for k in ("kind", "index", "xref") if k in obj}
+    result["bbox"] = to_display(page, obj["bbox"])
+    return result
 
 
 def job_pick(job):
     doc = fitz.open(job["path"])
     page = doc[job["page"] - 1]
-    x, y, tol = job["x"], job["y"], job.get("tol", 2.5)
+    point = fitz.Point(job["x"], job["y"]) * page.derotation_matrix
+    x, y, tol = point.x, point.y, job.get("tol", 2.5)
     hits = []
     for obj in objects_of(page):
         x0, y0, x1, y1 = obj["bbox"]
@@ -202,34 +211,37 @@ def job_pick(job):
         hits.append(obj)
     # smallest first: a line over a picture, a small shape inside a big one
     hits.sort(key=lambda o: (o["kind"] == "image", (o["bbox"][2] - o["bbox"][0]) * (o["bbox"][3] - o["bbox"][1])))
-    emit(type="pick", page=job["page"], width=page.rect.width, height=page.rect.height, rotation=page.rotation, objects=[strip(o) for o in hits[:8]])
+    emit(type="pick", page=job["page"], width=page.rect.width, height=page.rect.height, rotation=page.rotation, objects=[strip(o, page) for o in hits[:8]])
 
 
 def job_pick_area(job):
     doc = fitz.open(job["path"])
     page = doc[job["page"] - 1]
     x0, y0, x1, y1 = job["rect"]
-    box = fitz.Rect(x0, y0, x1, y1)
+    box = (fitz.Rect(x0, y0, x1, y1) * page.derotation_matrix).normalize()
     inside = [o for o in objects_of(page) if box.contains(fitz.Rect(o["bbox"]))]
-    emit(type="pick", page=job["page"], width=page.rect.width, height=page.rect.height, rotation=page.rotation, objects=[strip(o) for o in inside[:5000]])
+    emit(type="pick", page=job["page"], width=page.rect.width, height=page.rect.height, rotation=page.rotation, objects=[strip(o, page) for o in inside[:5000]])
 
 
 def job_area_objects(job):
-    """The drawn objects inside a rectangle (fractions of the page) on each asked page: completely inside, or also those that only touch it."""
+    """The drawn objects of a rectangle (fractions of the page) on each asked page: those whose centre lies inside it (a stroke the area cuts a little still counts), or also every one that only touches it."""
     doc = fitz.open(job["path"])
     u1, v1, u2, v2 = job["rect"]
     touch = job.get("touch", False)
     for number in job["pages"]:
         page = doc[number - 1]
         w, h = page.rect.width, page.rect.height
-        box = fitz.Rect(u1 * w, v1 * h, u2 * w, v2 * h)
+        box = (fitz.Rect(u1 * w, v1 * h, u2 * w, v2 * h) * page.derotation_matrix).normalize()  # the area is drawn on the displayed page
         found = []
         for obj in objects_of(page):
             r = fitz.Rect(obj["bbox"])
             if obj["kind"] == "image" and r.width * r.height > 0.5 * w * h and not box.contains(r):
                 continue  # a scan of the whole page is not "the signature"
-            if box.contains(r) or (touch and box.intersects(r + (-0.01, -0.01, 0.01, 0.01))):
-                found.append(strip(obj))
+            if r.width * r.height > 3 * box.width * box.height and not box.contains(r):
+                continue  # a frame or a long rule around / across the area is not what was drawn around
+            centre = fitz.Point((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2)
+            if box.contains(r) or box.contains(centre) or (touch and box.intersects(r + (-0.01, -0.01, 0.01, 0.01))):
+                found.append(strip(obj, page))
         emit(type="areaObjects", page=number, width=w, height=h, rotation=page.rotation, objects=found[:5000])
 
 
@@ -265,7 +277,8 @@ def job_delete(job):
         page = doc[number - 1]
         drawings = page.get_drawings()
         wanted = {t["index"] for t in targets if t["kind"] != "image"}
-        images = [t for t in targets if t["kind"] == "image"]
+        infos = page.get_image_info(xrefs=True)
+        images = [fitz.Rect(infos[t["index"]]["bbox"]) for t in targets if t["kind"] == "image" and t["index"] < len(infos)]
         spared = []
         for index in wanted:
             if index >= len(drawings):
@@ -280,7 +293,7 @@ def job_delete(job):
                     spared.append(k)
             removed += 1
         for image in images:
-            page.add_redact_annot(fitz.Rect(image["bbox"]), fill=False)
+            page.add_redact_annot(image, fill=False)
             removed += 1
         page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_REMOVE if images else fitz.PDF_REDACT_IMAGE_NONE,
                               graphics=fitz.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED if wanted else fitz.PDF_REDACT_LINE_ART_NONE,

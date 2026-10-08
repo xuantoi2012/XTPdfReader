@@ -43,7 +43,7 @@ internal sealed class BatchFindWindow : XTWindow
     private readonly TextBox _replace = new() { Height = 26, VerticalContentAlignment = VerticalAlignment.Center };
     private readonly RadioButton _textMode = new() { Content = "Text", GroupName = "BatchWhat", IsChecked = true, Margin = new Thickness(0, 0, 14, 0) };
     private readonly RadioButton _objectsMode = new() { Content = "Drawn object (signature, stamp, line, image)", GroupName = "BatchWhat", ToolTip = "Finds pictures and strokes that lie in the area, whatever they are" };
-    private readonly CheckBox _touch = new() { Content = "Also objects that only touch the area", Margin = new Thickness(0, 6, 0, 0), Visibility = Visibility.Collapsed };
+    private readonly CheckBox _touch = new() { Content = "Also everything that touches the area (rules, frames)", Margin = new Thickness(0, 6, 0, 0), Visibility = Visibility.Collapsed };
     private readonly CheckBox _matchCase = new() { Content = "Match case", Margin = new Thickness(0, 6, 0, 0) };
     private readonly RadioButton _thisPage, _allPages, _range;
     private readonly TextBox _rangeBox = new() { Width = 130, Height = 26, Margin = new Thickness(8, 0, 0, 0), VerticalContentAlignment = VerticalAlignment.Center, ToolTip = "For example 1-3, 7" };
@@ -180,7 +180,7 @@ internal sealed class BatchFindWindow : XTWindow
         _hits.Clear();
         _picker.ShowMarks(Array.Empty<(double, double, double, double)>());
         _replaceButton.IsEnabled = _deleteButton.IsEnabled = false;
-        _status.Text = objects ? "Draw the area around the signature or stamp, then press Find." : "Draw the area, then press Find.";
+        _status.Text = objects ? "Draw the area around the signature or stamp (what is mostly inside counts), then press Find." : "Draw the area, then press Find.";
     }
 
     private static TextBlock Label(string text) => new() { Text = text, Margin = new Thickness(0, 12, 0, 4), FontWeight = FontWeights.SemiBold };
