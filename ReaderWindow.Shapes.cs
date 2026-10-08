@@ -65,6 +65,7 @@ namespace XTPdfMergeApp
             {
                 ReaderShapeRubber.Stroke = brush;
                 ReaderShapeRubber.StrokeThickness = lw;
+                ApplyDash(ReaderShapeRubber, style);
                 ReaderShapeRubber.Fill = Brushes.Transparent;
                 // Cloud: góc bo lớn thay cho các nét lượn thật (xấp xỉ, hình thật vẫn vẽ đúng lúc ghi vào PDF).
                 double radius = style.Type == ShapeStyle.Cloud ? Math.Max(6, 10 * pageScale * ppp * 0.7) : 0;
@@ -78,6 +79,7 @@ namespace XTPdfMergeApp
             {
                 ReaderShapeOvalPreview.Stroke = brush;
                 ReaderShapeOvalPreview.StrokeThickness = lw;
+                ApplyDash(ReaderShapeOvalPreview, style);
                 ReaderShapeOvalPreview.Fill = Brushes.Transparent;
                 Canvas.SetLeft(ReaderShapeOvalPreview, Math.Min(a.X, b.X));
                 Canvas.SetTop(ReaderShapeOvalPreview, Math.Min(a.Y, b.Y));
@@ -88,11 +90,20 @@ namespace XTPdfMergeApp
             {
                 ReaderShapeRubberLine.Stroke = brush;
                 ReaderShapeRubberLine.StrokeThickness = lw;
+                ApplyDash(ReaderShapeRubberLine, style);
                 ReaderShapeRubberLine.X1 = a.X;
                 ReaderShapeRubberLine.Y1 = a.Y;
                 if (style.Type == ShapeStyle.Arrow) UpdateArrowHead(a, b, brush, lw, 10 * pageScale * ppp);
                 else { ReaderShapeRubberLine.X2 = b.X; ReaderShapeRubberLine.Y2 = b.Y; }
             }
+        }
+
+        /// <summary>The preview's dash (WPF counts dash lengths in line widths, like the PDF pattern built from the same factors).</summary>
+        private static void ApplyDash(System.Windows.Shapes.Shape shape, ShapeStyle style)
+        {
+            var pattern = style.DashPattern(1);
+            shape.StrokeDashArray = pattern.Length == 0 ? null : new DoubleCollection(pattern.Select(v => (double)v));
+            shape.StrokeDashCap = style.Dash == ShapeStyle.Dotted ? PenLineCap.Round : PenLineCap.Flat;
         }
 
         /// <summary>Đầu mũi tên (tam giác) + rút ngắn đường thẳng để không đè lên đầu mũi tên — cùng công thức lúc ghi vào PDF.</summary>
@@ -227,6 +238,8 @@ namespace XTPdfMergeApp
             _shapeBarBuilt = true;
             foreach (double width in ShapeStyle.Widths)
                 ShapeWidthBox.Items.Add(new ComboBoxItem { Content = width.ToString("0") + " pt", Tag = width, Focusable = false });
+            for (int i = 0; i < ShapeStyle.DashNames.Length; i++)
+                ShapeDashBox.Items.Add(new ComboBoxItem { Content = ShapeStyle.DashNames[i], Tag = i, Focusable = false });
             foreach (string hex in TextFormat.Colors.Append("#FFFFFF").Where(c => c != "#FFFFFF"))
             {
                 var swatch = new RadioButton
@@ -246,6 +259,7 @@ namespace XTPdfMergeApp
             try
             {
                 ShapeWidthBox.SelectedIndex = Math.Max(0, Array.FindIndex(ShapeStyle.Widths, w => Math.Abs(w - _shapeStyle.Width) < 0.01));
+                ShapeDashBox.SelectedIndex = Math.Clamp(_shapeStyle.Dash, 0, ShapeStyle.DashNames.Length - 1);
                 foreach (RadioButton swatch in ShapeColors.Children)
                     swatch.IsChecked = string.Equals((string)swatch.Tag, _shapeStyle.Color, StringComparison.OrdinalIgnoreCase);
             }
@@ -259,6 +273,13 @@ namespace XTPdfMergeApp
             ShapeBarChanged();
         }
 
+        private void ShapeDash_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_shapeLoading || !_shapeBarBuilt || ShapeDashBox.SelectedItem is not ComboBoxItem { Tag: int dash }) return;
+            _shapeStyle = _shapeStyle with { Dash = dash };
+            ShapeBarChanged();
+        }
+
         private void ShapeBarChanged()
         {
             AppSettings.ShapeStyleSetting = _shapeStyle.Encode();
@@ -267,7 +288,7 @@ namespace XTPdfMergeApp
             AppSettings.SetShapeStyleFor(type, (_shapeStyle with { Type = type, Corner = 0 }).Encode());
             if (_selAnn is not { Kind: QuickAnnotationKind.Shape } spec || _selRow is not { } row) return;
             var old = ShapeStyle.Decode(spec.Format);
-            var style = old with { Color = _shapeStyle.Color, Width = _shapeStyle.Width };
+            var style = old with { Color = _shapeStyle.Color, Width = _shapeStyle.Width, Dash = _shapeStyle.Dash };
             if (style == old) return;
             double u1 = spec.U1, v1 = spec.V1, u2 = spec.U2, v2 = spec.V2;
             if (style.IsLine && GetCachedPageAnnotations(row)?.Geometry is { } geometry)

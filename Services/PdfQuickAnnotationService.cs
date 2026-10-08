@@ -679,7 +679,14 @@ namespace XTPdfMergeApp.Services
             else if (style.Type == ShapeStyle.Oval) annot = new PdfCircleAnnotation(rect);
             else annot = new PdfSquareAnnotation(rect);
             annot.SetColor(color);
-            annot.GetPdfObject().Put(PdfName.BS, new PdfDictionary(new Dictionary<PdfName, PdfObject> { [PdfName.W] = new PdfNumber(lw) }));
+            var border = new PdfDictionary(new Dictionary<PdfName, PdfObject> { [PdfName.W] = new PdfNumber(lw) });
+            float[] dash = style.DashPattern(lw);
+            if (dash.Length > 0)
+            {
+                border.Put(PdfName.S, PdfName.D);
+                border.Put(PdfName.D, new PdfArray(dash));
+            }
+            annot.GetPdfObject().Put(PdfName.BS, border);
             annot.GetPdfObject().Put(ShapeKey, new PdfString(spec.Format, PdfEncodings.UNICODE_BIG));
             if (style.Type == ShapeStyle.Cloud)
                 annot.GetPdfObject().Put(new PdfName("BE"), new PdfDictionary(new Dictionary<PdfName, PdfObject> { [PdfName.S] = new PdfName("C"), [new PdfName("I")] = new PdfNumber(2) }));
@@ -688,7 +695,8 @@ namespace XTPdfMergeApp.Services
             var form = new PdfFormXObject(new Rectangle(0, 0, width, height));
             SetRotationMatrix(form, geometry.Rotation);
             var canvas = new PdfCanvas(form, doc);
-            canvas.SetStrokeColor(color).SetFillColor(color).SetLineWidth(lw).SetLineCapStyle(PdfCanvasConstants.LineCapStyle.ROUND).SetLineJoinStyle(PdfCanvasConstants.LineJoinStyle.ROUND);
+            canvas.SetStrokeColor(color).SetFillColor(color).SetLineWidth(lw).SetLineCapStyle(dash.Length > 0 && style.Dash == ShapeStyle.Dashed ? PdfCanvasConstants.LineCapStyle.BUTT : PdfCanvasConstants.LineCapStyle.ROUND).SetLineJoinStyle(PdfCanvasConstants.LineJoinStyle.ROUND);
+            if (dash.Length > 0) canvas.SetLineDash(dash, 0);
             switch (style.Type)
             {
                 case ShapeStyle.Oval:

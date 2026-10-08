@@ -124,4 +124,46 @@ internal static partial class Program
         var order = page.Annotations.Where(x => x.Kind is QuickAnnotationKind.Shape or QuickAnnotationKind.Typewriter).Select(x => x.Group == grouped.Group).ToList();
         Check(order.Count == 4 && order[2] && order[3], "Bring to front moves the whole group (shape and text) to the top");
     });
+
+    /// <summary>Dash style: old shape text stays solid, the bar changes the selected shape, and the file carries /BS /S /D plus a dashed appearance stream.</summary>
+    static void TestShapeDashStyle() => RunReaderFlow("shape-dash", async f =>
+    {
+        Check(ShapeStyle.Decode("Rect|#C0392B|2|0").Dash == ShapeStyle.Solid && new ShapeStyle("Rect", "#C0392B", 2, 0).Encode() == "Rect|#C0392B|2|0", "Old shape text decodes as solid and a solid shape encodes as before");
+        Check(ShapeStyle.Decode(new ShapeStyle("Oval", "#C0392B", 3, 0, ShapeStyle.Dotted).Encode()).Dash == ShapeStyle.Dotted, "A dotted shape survives encode / decode");
+
+        await f.AddAsync(RectSpec("xt-solid", 0.1, 0.1, 0.4, 0.2, new ShapeStyle(ShapeStyle.Rect, "#C0392B", 3, 0)));
+        await f.AddAsync(RectSpec("xt-dashed", 0.1, 0.3, 0.4, 0.4, new ShapeStyle(ShapeStyle.Rect, "#1F6FEB", 3, 0, ShapeStyle.Dashed)));
+        await f.AddAsync(RectSpec("xt-dotted", 0.1, 0.5, 0.4, 0.6, new ShapeStyle(ShapeStyle.Oval, "#2E7D32", 3, 0, ShapeStyle.Dotted)));
+        await f.AddAsync(RectSpec("xt-line", 0.5, 0.1, 0.9, 0.3, new ShapeStyle(ShapeStyle.Arrow, "#C0392B", 3, 0, ShapeStyle.Dashed)));
+
+        var page = await f.PageAsync();
+        var solid = page.Annotations.Single(x => x.Name == "xt-solid");
+        f.Select(solid);
+        var box = f.Find<System.Windows.Controls.ComboBox>("ShapeDashBox");
+        Check(box.SelectedIndex == 0, "The bar shows Solid for a solid shape");
+        box.SelectedIndex = ShapeStyle.Dashed;
+        await Task.Delay(1500);
+        page = await f.PageAsync();
+        var changed = page.Annotations.Single(x => x.Name == solid.Name);
+        Check(ShapeStyle.Decode(changed.Format).Dash == ShapeStyle.Dashed, "Choosing Dashed in the bar changes the selected rectangle");
+
+        f.Select(page.Annotations.Single(x => x.Name == "xt-dotted"));
+        Check(f.Find<System.Windows.Controls.ComboBox>("ShapeDashBox").SelectedIndex == ShapeStyle.Dotted, "Selecting a dotted oval shows Dotted in the bar");
+
+        f.Window.UpdateLayout();
+        SavePng(f.Find<System.Windows.FrameworkElement>("ReaderContentHost"), "shape-dash");
+
+        // The edits are still pending (Save writes them); write them into a copy the way Save does.
+        string saved = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(f.Path)!, "saved.pdf");
+        using (var writing = new PdfDocument(new PdfReader(f.Path), new PdfWriter(saved)))
+            PdfQuickAnnotationService.ApplyChanges(writing, AnnotationStore.Pending(f.Path));
+        using var doc = new PdfDocument(new PdfReader(saved));
+        int dashed = 0;
+        foreach (var annot in doc.GetPage(1).GetAnnotations())
+        {
+            var bs = annot.GetPdfObject().GetAsDictionary(PdfName.BS);
+            if (bs?.GetAsName(PdfName.S) == PdfName.D && bs.GetAsArray(PdfName.D) is { } pattern && pattern.Size() == 2) dashed++;
+        }
+        Check(dashed == 4, "Four annotations carry /BS /S /D with a 2-number pattern (got " + dashed + ")");
+    });
 }
