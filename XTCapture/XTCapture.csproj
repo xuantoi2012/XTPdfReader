@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- XT Capture: the screen-capture program. It lives in the tray, takes the shortcut, shows a small capture button in the corner of the screen and
+       keeps every capture in its Store. It is built and installed together with the PDF Reader, but runs on its own (no PDF code is loaded until
+       "Export to PDF" is used). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>XTCapture</AssemblyName>
+    <RootNamespace>XTCapture</RootNamespace>
+    <StartupObject>XTCapture.App</StartupObject>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>XT Capture.ico</ApplicationIcon>
+    <Product>XT Capture</Product>
+    <Version>1.0.0</Version>
+    <SelfContained>false</SelfContained>
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\XTCapture.Core\XTCapture.Core.csproj" />
+    <ProjectReference Include="..\..\XTStyle\XTStyle.csproj" />
+    <PackageReference Include="itext" Version="9.6.0" />
+    <PackageReference Include="itext.bouncy-castle-adapter" Version="9.6.0" />
+    <InternalsVisibleTo Include="XTPdfMergeApp.PerformanceTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The colour tokens are shared with the Reader so both programs look alike. -->
+    <Page Include="..\Resources\UiTokens.Light.xaml" Link="Resources\UiTokens.Light.xaml" />
+    <Page Include="..\Resources\UiTokens.Dark.xaml" Link="Resources\UiTokens.Dark.xaml" />
+    <Resource Include="XT Capture.ico" />
+  </ItemGroup>
+
+</Project>

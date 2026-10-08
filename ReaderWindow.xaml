@@ -94,8 +94,6 @@
                                                  ToolTip="Drag across text to select it, Ctrl+C to copy" Click="ReaderSelectTool_Click"/>
                                     <xt:XTButton x:Name="ReaderMeasureToolButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.ruler}" Text="Measure"
                                                  ToolTip="Drag between two points: the real length at the sheet's scale (Esc clears)" Click="ReaderMeasureTool_Click"/>
-                                    <xt:XTButton x:Name="ReaderSnapShotToolButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.snapshot}" Text="SnapShot"
-                                                 ToolTip="Drag a rectangle: the picture goes to the clipboard" Click="ReaderSnapShotTool_Click"/>
                                 </StackPanel>
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Tools"/>
                             </StackPanel>
@@ -104,9 +102,9 @@
                             <StackPanel VerticalAlignment="Bottom">
                                 <StackPanel Orientation="Horizontal">
                                     <xt:XTButton x:Name="ReaderCaptureButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.capture}" Text="Capture"
-                                                 ToolTip="Capture the screen: pick a window, a rectangle, a circle or a polygon. Enter copies it, Edit opens it to add text and comments." Click="ReaderCapture_Click"/>
-                                    <xt:XTButton x:Name="ReaderCapturesButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.captures}" Text="Captures"
-                                                 ToolTip="Every capture is kept here: open one again to change its text and comments" Click="ReaderCaptures_Click"/>
+                                                 ToolTip="Capture the screen with XT Capture: pick a window, a rectangle, a circle or a polygon. XT Capture also runs from the tray, with its own shortcut." Click="ReaderCapture_Click"/>
+                                    <xt:XTButton x:Name="ReaderCapturesButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.captures}" Text="Store"
+                                                 ToolTip="The Store of XT Capture: every capture is kept there" Click="ReaderCaptures_Click"/>
                                 </StackPanel>
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Capture"/>
                             </StackPanel>
@@ -410,8 +408,6 @@
                                Fill="#66FFE600" Stroke="#FFC9A800" StrokeThickness="1"/>
                     <Rectangle x:Name="TextSelectDragRubber" Visibility="Collapsed" IsHitTestVisible="False"
                                Fill="#332563EB" IsEnabled="False"/>
-                    <Rectangle x:Name="ReaderSnapshotRubber" Visibility="Collapsed" IsHitTestVisible="False"
-                               Fill="#2263EBFF" Stroke="{DynamicResource Ui.Accent}" StrokeThickness="1.5" StrokeDashArray="4 3"/>
                     <Border x:Name="ReaderCommentHoverPopup" Visibility="Collapsed" IsHitTestVisible="False"
                             MaxWidth="280" Padding="8,6" CornerRadius="3"
                             Background="#FFFFF6C4" BorderBrush="#FFC9A800" BorderThickness="1">

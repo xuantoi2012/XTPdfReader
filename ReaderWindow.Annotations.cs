@@ -26,7 +26,7 @@ namespace XTPdfMergeApp
     /// </summary>
     public partial class ReaderWindow
     {
-        private enum ReaderTool { Hand, Select, Typewriter, Comment, Callout, Pencil, Highlight, Underline, Strikethrough, Squiggly, Eraser, Stamp, Shape, SnapShot, Measure }
+        private enum ReaderTool { Hand, Select, Typewriter, Comment, Callout, Pencil, Highlight, Underline, Strikethrough, Squiggly, Eraser, Stamp, Shape, Measure }
 
         private ReaderTool _readerTool = ReaderTool.Hand;
 
@@ -47,7 +47,6 @@ namespace XTPdfMergeApp
         private void ReaderStrikethroughTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Strikethrough);
         private void ReaderSquigglyTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Squiggly);
         private void ReaderEraserTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Eraser);
-        private void ReaderSnapShotTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.SnapShot);
         private void ReaderMeasureTool_Click(object sender, RoutedEventArgs e) => ToggleReaderTool(ReaderTool.Measure);
 
         /// <summary>Highlight "Text"/"Area" are 2 separate buttons now (Foxit shows both, not 1 button + a mode toggle bar).</summary>
@@ -81,8 +80,7 @@ namespace XTPdfMergeApp
         private void SetReaderTool(ReaderTool tool)
         {
             if (_readerPage is { } page && tool is not (ReaderTool.Hand or ReaderTool.Select) &&
-                !PdfPermissionDialog.Require(this, new[] { page.SourcePath },
-                    tool == ReaderTool.SnapShot ? PdfPermissionOperation.Copy : PdfPermissionOperation.Annotate)) return;
+                !PdfPermissionDialog.Require(this, new[] { page.SourcePath }, PdfPermissionOperation.Annotate)) return;
             CommitAnnotationEditor();
             CancelHighlightDrag();
             CancelInkDrag();
@@ -110,7 +108,6 @@ namespace XTPdfMergeApp
             ReaderShapeOvalButton.Tag = tool == ReaderTool.Shape && _shapeStyle.Type == ShapeStyle.Oval ? "Active" : null;
             ReaderShapeArrowButton.Tag = tool == ReaderTool.Shape && _shapeStyle.Type == ShapeStyle.Arrow ? "Active" : null;
             ReaderShapeLineButton.Tag = tool == ReaderTool.Shape && _shapeStyle.Type == ShapeStyle.Line ? "Active" : null;
-            ReaderSnapShotToolButton.Tag = tool == ReaderTool.SnapShot ? "Active" : null;
             ReaderMeasureToolButton.Tag = tool == ReaderTool.Measure ? "Active" : null;
             if (tool != ReaderTool.Select) ClearTextSelection();
 
@@ -133,7 +130,6 @@ namespace XTPdfMergeApp
                 ReaderTool.Eraser => Cursors.No,
                 ReaderTool.Stamp => Cursors.Cross,
                 ReaderTool.Shape => Cursors.Cross,
-                ReaderTool.SnapShot => Cursors.Cross,
                 ReaderTool.Measure => Cursors.Cross,
                 _ => null
             };
@@ -341,11 +337,6 @@ namespace XTPdfMergeApp
                     BeginTextSelectionDrag(hit);
                     break;
 
-                case ReaderTool.SnapShot:
-                    e.Handled = true;
-                    BeginSnapshotDrag(hit);
-                    break;
-
                 case ReaderTool.Measure:
                     e.Handled = true;
                     BeginMeasure(hit);
@@ -379,12 +370,6 @@ namespace XTPdfMergeApp
                 e.Handled = true;
                 return;
             }
-            if (_snapshotDrag is { } snapDrag)
-            {
-                UpdateSnapshotDrag(snapDrag, point);
-                e.Handled = true;
-                return;
-            }
 
             if (_linkPress is { } press && (point - press.Start).Length > 4)
                 _linkPress = null;
@@ -415,12 +400,6 @@ namespace XTPdfMergeApp
             {
                 e.Handled = true;
                 _ = FinishTextSelectionDragAsync(selDrag, e.GetPosition(ReaderContentHost));
-                return;
-            }
-            if (_snapshotDrag is { } snapDrag)
-            {
-                e.Handled = true;
-                FinishSnapshotDrag(snapDrag, e.GetPosition(ReaderContentHost));
                 return;
             }
             if (_linkPress is not { } press) return;

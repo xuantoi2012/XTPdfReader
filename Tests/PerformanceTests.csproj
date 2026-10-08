@@ -17,6 +17,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XTPdfMergeApp.csproj" />
+    <ProjectReference Include="..\XTCapture.Core\XTCapture.Core.csproj" />
+    <ProjectReference Include="..\XTCapture\XTCapture.csproj" />
     <Compile Include="obj\BaselinePdfThumbnailService.cs" Condition="Exists('obj\BaselinePdfThumbnailService.cs')" />
   </ItemGroup>
   <PropertyGroup Condition="Exists('obj\BaselinePdfThumbnailService.cs')">

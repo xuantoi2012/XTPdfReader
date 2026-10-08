@@ -34,6 +34,12 @@
   <ItemGroup>
     <Compile Remove="Tests\**\*.cs" />
     <Compile Remove="VirtualPrinter\**\*.cs" />
+    <!-- XT Capture (the screen-capture program) and its library are separate projects built and packed together with the Reader. -->
+    <Compile Remove="XTCapture\**;XTCapture.Core\**" />
+    <Page Remove="XTCapture\**;XTCapture.Core\**" />
+    <Resource Remove="XTCapture\**;XTCapture.Core\**" />
+    <None Remove="XTCapture\**;XTCapture.Core\**" />
+    <EmbeddedResource Remove="XTCapture\**;XTCapture.Core\**" />
     <EmbeddedResource Remove="Tests\**\*" />
     <None Remove="Tests\**\*" />
     <InternalsVisibleTo Include="XTPdfMergeApp.PerformanceTests" />

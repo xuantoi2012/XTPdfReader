@@ -44,6 +44,15 @@ dotnet publish $csproj -c Release -r win-x64 --self-contained true `
     -o $publishDir
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish that bai." }
 
+# 1b) XT Capture (chup man hinh, chay o khay he thong) di chung bo cai: publish vao CUNG thu muc, cung runtime.
+$captureProj = Join-Path $root "XTCapture\XTCapture.csproj"
+Write-Host "`n[1b/2] dotnet publish XT Capture..." -ForegroundColor Yellow
+dotnet publish $captureProj -c Release -r win-x64 --self-contained true `
+    -p:PublishSingleFile=false -p:Version=$Version `
+    -o $publishDir
+if ($LASTEXITCODE -ne 0) { throw "dotnet publish XT Capture that bai." }
+if (-not (Test-Path (Join-Path $publishDir "XTCapture.exe"))) { throw "XTCapture.exe khong co trong ban publish." }
+
 # 2) vpk pack: sinh Setup.exe + portable zip + file manifest release (releases.win.json...).
 Write-Host "`n[2/2] vpk pack..." -ForegroundColor Yellow
 if (Test-Path $releaseDir) { Remove-Item $releaseDir -Recurse -Force }

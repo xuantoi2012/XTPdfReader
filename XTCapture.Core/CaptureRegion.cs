@@ -5,7 +5,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
-namespace XTPdfMergeApp.Services.Capture
+namespace XTCapture
 {
     internal enum CaptureShapeKind { Rectangle, Ellipse, Polygon }
 

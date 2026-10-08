@@ -1,4 +1,6 @@
 <Solution>
   <Project Path="../XTStyle/XTStyle.csproj" />
   <Project Path="XTPdfMergeApp.csproj" />
+  <Project Path="XTCapture.Core/XTCapture.Core.csproj" />
+  <Project Path="XTCapture/XTCapture.csproj" />
 </Solution>

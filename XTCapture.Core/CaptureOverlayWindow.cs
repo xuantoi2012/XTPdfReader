@@ -8,18 +8,17 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
-using XTPdfMergeApp.Services;
-using XTPdfMergeApp.Services.Capture;
 
-namespace XTPdfMergeApp.Controls
+namespace XTCapture
 {
     internal enum CapturePick { Window, Rectangle, Ellipse, Polygon }
-    internal enum CaptureAction { Copy, Edit }
+    internal enum CaptureAction { Copy, Store }
     internal sealed record CaptureOutcome(CaptureAction Action, BitmapSource Image);
 
     /// <summary>
     /// The screen frozen and dimmed (like Zalo's capture): hover a window to see its dashed frame and click to take it, or pick a rectangle
-    /// (drag, or click two corners), an ellipse or a polygon. Enter copies, "Edit" opens the picture in the Reader. Esc / right-click leaves.
+    /// (drag, or click two corners), a circle or a polygon. A picked area keeps handles: drag one to resize, drag inside to move. Enter copies,
+    /// "Store" keeps it without copying. Esc / right-click leaves. A white crosshair follows the mouse.
     /// All drawing is in snapshot pixels: the canvas is scaled by 1 / <c>scale</c> so one canvas unit is one screen pixel.
     /// </summary>
     internal sealed class CaptureOverlayWindow : Window
@@ -30,6 +29,7 @@ namespace XTPdfMergeApp.Controls
         private readonly double _scale;
         private readonly List<CaptureWindow> _windows;
         private readonly Func<CaptureWindow, BitmapSource?> _grabWindow;
+        private readonly Size _limit;
 
         private readonly Canvas _canvas;
         private readonly Canvas _chrome = new();
@@ -37,6 +37,9 @@ namespace XTPdfMergeApp.Controls
         private readonly Path _outlineHalo = new() { Stroke = Brushes.White, StrokeThickness = 3, IsHitTestVisible = false };
         private readonly Path _outline = new() { Stroke = new SolidColorBrush(Color.FromRgb(0x25, 0x63, 0xEB)), StrokeThickness = 2, StrokeDashArray = new DoubleCollection { 4, 3 }, IsHitTestVisible = false };
         private readonly Polyline _polyline = new() { Stroke = new SolidColorBrush(Color.FromRgb(0x25, 0x63, 0xEB)), StrokeThickness = 2, IsHitTestVisible = false };
+        private readonly Line[] _crossHalo = { new() { IsHitTestVisible = false }, new() { IsHitTestVisible = false } };
+        private readonly Line[] _cross = { new() { IsHitTestVisible = false }, new() { IsHitTestVisible = false } };
+        private readonly List<Rectangle> _handleBoxes = new();
         private readonly Border _sizeTag = new() { CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 2, 6, 2), Background = new SolidColorBrush(Color.FromArgb(0xE6, 0x1F, 0x29, 0x37)), IsHitTestVisible = false, Visibility = Visibility.Collapsed };
         private readonly TextBlock _sizeText = new() { Foreground = Brushes.White, FontSize = 12 };
         private readonly Border _modeBar = new();
@@ -52,7 +55,13 @@ namespace XTPdfMergeApp.Controls
         private CaptureRegion? _region;
         private CaptureWindow? _pickedWindow;
         private int _cycle;
-        private bool _transparentOutside = AppSettings.CaptureTransparentOutside;
+        private bool _transparentOutside = CaptureSettings.TransparentOutside;
+
+        // dragging a handle (or the inside) of a picked area
+        private bool _editing;
+        private CaptureHandleHit _editHit;
+        private Point _editStart;
+        private CaptureRegion? _editRegion;
 
         public CaptureOutcome? Outcome { get; private set; }
 
@@ -61,6 +70,9 @@ namespace XTPdfMergeApp.Controls
         internal CaptureWindow? HoveredWindow { get; private set; }
         internal CapturePick Mode => _mode;
         internal bool ActionBarVisible => _actionBar.Visibility == Visibility.Visible;
+        internal bool CrosshairVisible => _cross[0].Visibility == Visibility.Visible;
+        internal int HandleCount => _handleBoxes.Count(h => h.Visibility == Visibility.Visible);
+        internal Cursor? CurrentCursor => _canvas.Cursor;
 
         public CaptureOverlayWindow(ScreenSnapshot snapshot, double scale, bool atScreen = true, Func<CaptureWindow, BitmapSource?>? grabWindow = null)
         {
@@ -71,13 +83,13 @@ namespace XTPdfMergeApp.Controls
             _windows = snapshot.Windows.Select(w => w with { Bounds = new Int32Rect(w.Bounds.X - (int)snapshot.Origin.X, w.Bounds.Y - (int)snapshot.Origin.Y, w.Bounds.Width, w.Bounds.Height) }).ToList();
 
             int pixelWidth = snapshot.Image.PixelWidth, pixelHeight = snapshot.Image.PixelHeight;
+            _limit = new Size(pixelWidth, pixelHeight);
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
             Topmost = atScreen;
             AllowsTransparency = false;
             Background = Brushes.Black;
-            Cursor = Cursors.Cross;
             WindowStartupLocation = WindowStartupLocation.Manual;
             Left = atScreen ? snapshot.Origin.X / _scale : -32000;
             Top = atScreen ? snapshot.Origin.Y / _scale : -32000;
@@ -86,13 +98,16 @@ namespace XTPdfMergeApp.Controls
             ShowActivated = true;
             Focusable = true;
 
-            _canvas = new Canvas { Width = pixelWidth, Height = pixelHeight, LayoutTransform = new ScaleTransform(1 / _scale, 1 / _scale), Background = Brushes.Transparent, SnapsToDevicePixels = true };
+            _canvas = new Canvas { Width = pixelWidth, Height = pixelHeight, LayoutTransform = new ScaleTransform(1 / _scale, 1 / _scale), Background = Brushes.Transparent, SnapsToDevicePixels = true, Cursor = Cursors.None };
             RenderOptions.SetBitmapScalingMode(_canvas, BitmapScalingMode.NearestNeighbor);
             _canvas.Children.Add(new Image { Source = snapshot.Image, Width = pixelWidth, Height = pixelHeight, Stretch = Stretch.Fill, IsHitTestVisible = false });
             _canvas.Children.Add(_dim);
             _canvas.Children.Add(_outlineHalo);
             _canvas.Children.Add(_outline);
             _canvas.Children.Add(_polyline);
+            // crosshair: a white line over a dark one, so it shows on a light window as well as on the dimmed screen
+            foreach (var line in _crossHalo) { line.Stroke = new SolidColorBrush(Color.FromArgb(0x99, 0, 0, 0)); line.StrokeThickness = 3; line.Visibility = Visibility.Collapsed; _canvas.Children.Add(line); }
+            foreach (var line in _cross) { line.Stroke = Brushes.White; line.StrokeThickness = 1; line.Visibility = Visibility.Collapsed; _canvas.Children.Add(line); }
             var grid = new Grid { Background = Brushes.Black };
             grid.Children.Add(_canvas);
             _chrome.IsHitTestVisible = true;
@@ -107,8 +122,9 @@ namespace XTPdfMergeApp.Controls
             UpdateDim();
 
             _canvas.MouseMove += (_, e) => OnPointerMove(e.GetPosition(_canvas));
-            _canvas.MouseLeftButtonDown += (_, e) => { OnPointerDown(e.GetPosition(_canvas), e.ClickCount); e.Handled = true; };
-            _canvas.MouseLeftButtonUp += (_, e) => { OnPointerUp(e.GetPosition(_canvas)); e.Handled = true; };
+            _canvas.MouseLeave += (_, _) => ShowCrosshair(false);
+            _canvas.MouseLeftButtonDown += (_, e) => { OnPointerDown(e.GetPosition(_canvas), e.ClickCount); if (_editing) _canvas.CaptureMouse(); e.Handled = true; };
+            _canvas.MouseLeftButtonUp += (_, e) => { OnPointerUp(e.GetPosition(_canvas)); if (_canvas.IsMouseCaptured) _canvas.ReleaseMouseCapture(); e.Handled = true; };
             _canvas.MouseRightButtonDown += (_, e) => { OnCancel(); e.Handled = true; };
             _canvas.MouseWheel += (_, e) => { if (_mode == CapturePick.Window && _phase != Phase.Selected) CycleWindow(e.Delta < 0 ? 1 : -1); e.Handled = true; };
             PreviewKeyDown += (_, e) => { if (OnKey(e.Key)) e.Handled = true; };
@@ -129,12 +145,16 @@ namespace XTPdfMergeApp.Controls
 
         private static Brush Themed(string key, Brush fallback) => Application.Current?.TryFindResource(key) as Brush ?? fallback;
 
-        private Border MakeButton(string text, string tip, Action click, bool accent = false)
+        private Border MakeButton(string icon, string text, string tip, Action click, bool accent = false)
         {
-            var label = new TextBlock { Text = text, FontSize = 13, VerticalAlignment = VerticalAlignment.Center, Foreground = accent ? Brushes.White : Themed("Ui.Text", Brushes.Black) };
+            Brush foreground = accent ? Brushes.White : Themed("Ui.Text", new SolidColorBrush(Color.FromRgb(0x1F, 0x29, 0x37)));
+            var content = new StackPanel { Orientation = Orientation.Horizontal };
+            content.Children.Add(CaptureIcons.Create(icon, foreground));
+            if (text.Length > 0)
+                content.Children.Add(new TextBlock { Text = text, FontSize = 13, Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Foreground = foreground });
             var border = new Border
             {
-                Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(2), CornerRadius = new CornerRadius(5), Cursor = Cursors.Hand, ToolTip = tip, Child = label,
+                Padding = new Thickness(text.Length > 0 ? 10 : 8, 6, text.Length > 0 ? 10 : 8, 6), Margin = new Thickness(2), CornerRadius = new CornerRadius(5), Cursor = Cursors.Hand, ToolTip = tip, Child = content,
                 Background = accent ? new SolidColorBrush(Color.FromRgb(0x25, 0x63, 0xEB)) : Brushes.Transparent
             };
             border.MouseEnter += (_, _) => { if (!accent && border.Tag as string != "on") border.Background = Themed("Ui.Hover", new SolidColorBrush(Color.FromRgb(0xE5, 0xE7, 0xEB))); };
@@ -147,23 +167,26 @@ namespace XTPdfMergeApp.Controls
         private Border BarFrame(StackPanel content) => new()
         {
             Background = Themed("Ui.Surface", Brushes.White), BorderBrush = Themed("Ui.Border", Brushes.LightGray), BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8), Padding = new Thickness(4), Child = content,
+            CornerRadius = new CornerRadius(8), Padding = new Thickness(4), Child = content, Cursor = Cursors.Arrow,
             Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 12, ShadowDepth = 2, Opacity = 0.3, Direction = 270 }
         };
 
         private void BuildModeBar()
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal };
-            foreach (var (mode, name, key) in new[] { (CapturePick.Window, "Window", "W"), (CapturePick.Rectangle, "Rectangle", "R"), (CapturePick.Ellipse, "Circle", "E"), (CapturePick.Polygon, "Polygon", "P") })
+            foreach (var (mode, icon, name, key) in new[]
+            {
+                (CapturePick.Window, CaptureIcons.Window, "Window", "W"), (CapturePick.Rectangle, CaptureIcons.Rectangle, "Rectangle", "R"),
+                (CapturePick.Ellipse, CaptureIcons.Circle, "Circle", "E"), (CapturePick.Polygon, CaptureIcons.Polygon, "Polygon", "P")
+            })
             {
                 var captured = mode;
-                var button = MakeButton(name, name + " (" + key + ")", () => SetMode(captured));
+                var button = MakeButton(icon, name, name + " (" + key + ")", () => SetMode(captured));
                 _modeButtons[mode] = button;
                 row.Children.Add(button);
             }
-            row.Children.Add(MakeButton("✕", "Cancel (Esc)", Cancel));
-            var frame = BarFrame(row);
-            _modeBar.Child = frame;
+            row.Children.Add(MakeButton(CaptureIcons.Close, "", "Cancel (Esc)", Cancel));
+            _modeBar.Child = BarFrame(row);
             var primary = ScreenGrabber.PrimaryScreen;
             _modeBar.Loaded += (_, _) => PlaceModeBar(primary);
             _modeBar.SizeChanged += (_, _) => PlaceModeBar(primary);
@@ -182,17 +205,20 @@ namespace XTPdfMergeApp.Controls
         private void BuildActionBar()
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal };
-            row.Children.Add(MakeButton("Copy  ↵", "Copy the picture (Enter)", () => Finish(CaptureAction.Copy), accent: true));
-            row.Children.Add(MakeButton("Edit", "Save to the Captures and open it to add text and comments", () => Finish(CaptureAction.Edit)));
-            _outsideButton = MakeButton("", "Outside the shape: white or transparent", () =>
+            row.Children.Add(MakeButton(CaptureIcons.Copy, "Copy  ↵", "Copy the picture (Enter)", () => Finish(CaptureAction.Copy), accent: true));
+            row.Children.Add(MakeButton(CaptureIcons.Store, "Store", "Keep it in the Store without copying", () => Finish(CaptureAction.Store)));
+            _outsideButton = MakeButton(CaptureIcons.Circle, "", "Outside the shape: white or transparent", () =>
             {
                 _transparentOutside = !_transparentOutside;
-                AppSettings.CaptureTransparentOutside = _transparentOutside;
+                CaptureSettings.TransparentOutside = _transparentOutside;
                 RefreshOutsideLabel();
             });
-            _outsideText = (TextBlock)_outsideButton.Child;
+            var outsideContent = (StackPanel)_outsideButton.Child;
+            _outsideText = new TextBlock { FontSize = 13, Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Foreground = Themed("Ui.Text", Brushes.Black) };
+            outsideContent.Children.Add(_outsideText);
+            _outsideButton.Padding = new Thickness(10, 6, 10, 6);
             row.Children.Add(_outsideButton);
-            row.Children.Add(MakeButton("✕", "Cancel (Esc)", Cancel));
+            row.Children.Add(MakeButton(CaptureIcons.Close, "", "Cancel (Esc)", Cancel));
             _actionBar.Child = BarFrame(row);
             _chrome.Children.Add(_actionBar);
             RefreshOutsideLabel();
@@ -210,11 +236,57 @@ namespace XTPdfMergeApp.Controls
                 bool on = mode == _mode;
                 button.Tag = on ? "on" : null;
                 button.Background = on ? Themed("Ui.Hover", new SolidColorBrush(Color.FromRgb(0xDB, 0xEA, 0xFE))) : Brushes.Transparent;
-                if (button.Child is TextBlock text) text.FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal;
+                if (button.Child is StackPanel { Children.Count: > 1 } panel && panel.Children[1] is TextBlock text) text.FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal;
             }
         }
 
-        // ── Input (public for the tests: they drive the overlay without a real mouse) ──
+        // ── Crosshair and handles ───────────────────────────────────────
+
+        private void ShowCrosshair(bool show)
+        {
+            var visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var line in _crossHalo.Concat(_cross)) line.Visibility = visibility;
+            if (!show) return;
+            foreach (var set in new[] { _crossHalo, _cross })
+            {
+                set[0].X1 = 0; set[0].X2 = _limit.Width; set[0].Y1 = set[0].Y2 = _cursor.Y + 0.5;
+                set[1].Y1 = 0; set[1].Y2 = _limit.Height; set[1].X1 = set[1].X2 = _cursor.X + 0.5;
+            }
+        }
+
+        private void RefreshHandles()
+        {
+            var positions = _phase == Phase.Selected && _region != null ? CaptureHandles.Positions(_region) : Array.Empty<(CaptureHandleHit Hit, Point At)>();
+            double size = 9 * _scale;
+            while (_handleBoxes.Count < positions.Count)
+            {
+                var box = new Rectangle { Fill = Brushes.White, Stroke = new SolidColorBrush(Color.FromRgb(0x25, 0x63, 0xEB)), StrokeThickness = 1.5, IsHitTestVisible = false };
+                _canvas.Children.Add(box);
+                _handleBoxes.Add(box);
+            }
+            for (int i = 0; i < _handleBoxes.Count; i++)
+            {
+                var box = _handleBoxes[i];
+                if (i >= positions.Count) { box.Visibility = Visibility.Collapsed; continue; }
+                box.Visibility = Visibility.Visible;
+                box.Width = box.Height = size;
+                Canvas.SetLeft(box, positions[i].At.X - size / 2);
+                Canvas.SetTop(box, positions[i].At.Y - size / 2);
+            }
+        }
+
+        private static Cursor CursorFor(CaptureHandleHit hit) => hit.Kind switch
+        {
+            CaptureHandle.TopLeft or CaptureHandle.BottomRight => Cursors.SizeNWSE,
+            CaptureHandle.TopRight or CaptureHandle.BottomLeft => Cursors.SizeNESW,
+            CaptureHandle.Top or CaptureHandle.Bottom => Cursors.SizeNS,
+            CaptureHandle.Left or CaptureHandle.Right => Cursors.SizeWE,
+            CaptureHandle.Vertex => Cursors.Cross,
+            CaptureHandle.Move => Cursors.SizeAll,
+            _ => Cursors.None
+        };
+
+        // ── Input (internal for the tests: they drive the overlay without a real mouse) ──
 
         internal void SetMode(CapturePick mode)
         {
@@ -228,13 +300,17 @@ namespace XTPdfMergeApp.Controls
             _phase = Phase.Idle;
             _region = null;
             _pickedWindow = null;
+            _editing = false;
             _vertices.Clear();
             _polyline.Points.Clear();
             _actionBar.Visibility = Visibility.Collapsed;
             _sizeTag.Visibility = Visibility.Collapsed;
             HoveredWindow = null;
             _outline.Data = _outlineHalo.Data = null;
+            _canvas.Cursor = Cursors.None;
+            RefreshHandles();
             UpdateDim();
+            ShowCrosshair(true);
             if (_mode == CapturePick.Window) UpdateHover(_cursor);
         }
 
@@ -273,6 +349,23 @@ namespace XTPdfMergeApp.Controls
         internal void OnPointerMove(Point p)
         {
             _cursor = p;
+            if (_editing && _editRegion != null)
+            {
+                var edited = _editHit.Kind == CaptureHandle.Move
+                    ? CaptureHandles.Move(_editRegion, p.X - _editStart.X, p.Y - _editStart.Y, _limit)
+                    : CaptureHandles.Resize(_editRegion, _editHit, p, _limit);
+                ApplyEdit(edited);
+                return;
+            }
+            if (_phase == Phase.Selected && _region != null)
+            {
+                // over a handle / the inside the pointer shows what a drag does; elsewhere the crosshair says "a click starts a new area"
+                var hit = CaptureHandles.HitTest(_region, p, 7 * _scale);
+                _canvas.Cursor = CursorFor(hit);
+                ShowCrosshair(hit.Kind == CaptureHandle.None);
+                return;
+            }
+            ShowCrosshair(true);
             switch (_phase)
             {
                 case Phase.Idle when _mode == CapturePick.Window:
@@ -291,7 +384,19 @@ namespace XTPdfMergeApp.Controls
         internal void OnPointerDown(Point p, int clickCount = 1)
         {
             _cursor = p;
-            if (_phase == Phase.Selected) { Reset(); }
+            if (_phase == Phase.Selected && _region != null)
+            {
+                var hit = CaptureHandles.HitTest(_region, p, 7 * _scale);
+                if (hit.Kind != CaptureHandle.None)
+                {
+                    _editing = true;
+                    _editHit = hit;
+                    _editStart = p;
+                    _editRegion = _region;
+                    return;
+                }
+                Reset(); // a click outside the area starts a new one
+            }
             switch (_mode)
             {
                 case CapturePick.Window:
@@ -312,7 +417,7 @@ namespace XTPdfMergeApp.Controls
                     else { _start = p; _phase = Phase.Dragging; }
                     break;
                 case CapturePick.Polygon:
-                    if (_phase == Phase.Polygon && _vertices.Count >= 3 && (clickCount >= 2 || Distance(p, _vertices[0]) <= 10)) { ClosePolygon(); break; }
+                    if (_phase == Phase.Polygon && _vertices.Count >= 3 && (clickCount >= 2 || Distance(p, _vertices[0]) <= 10 * _scale)) { ClosePolygon(); break; }
                     _vertices.Add(p);
                     _phase = Phase.Polygon;
                     UpdatePolygonVisual();
@@ -323,6 +428,7 @@ namespace XTPdfMergeApp.Controls
         internal void OnPointerUp(Point p)
         {
             _cursor = p;
+            if (_editing) { _editing = false; _editRegion = null; return; }
             if (_phase != Phase.Dragging) return;
             if (Distance(p, _start) < 4) { _phase = Phase.FirstCorner; return; } // a click, not a drag: the second corner comes with the next click
             var region = _mode == CapturePick.Ellipse ? CaptureRegion.Ellipse(_start, p) : CaptureRegion.Rectangle(_start, p);
@@ -330,6 +436,17 @@ namespace XTPdfMergeApp.Controls
         }
 
         private static double Distance(Point a, Point b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
+
+        /// <summary>A handle drag changed the area: it is no longer exactly the window that was clicked, so the pixels come from the frozen screen.</summary>
+        private void ApplyEdit(CaptureRegion region)
+        {
+            if (!region.IsUsable) return;
+            _pickedWindow = null;
+            _region = region;
+            ShowRegion(region, null);
+            PlaceActionBar(region);
+            RefreshHandles();
+        }
 
         // ── Window hover ────────────────────────────────────────────────
 
@@ -364,6 +481,10 @@ namespace XTPdfMergeApp.Controls
             {
                 _phase = Phase.Selected;
                 PlaceActionBar(region);
+                RefreshHandles();
+                var hit = CaptureHandles.HitTest(region, _cursor, 7 * _scale);
+                _canvas.Cursor = CursorFor(hit);
+                ShowCrosshair(hit.Kind == CaptureHandle.None);
             }
         }
 

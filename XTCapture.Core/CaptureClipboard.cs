@@ -2,7 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
 
-namespace XTPdfMergeApp.Services.Capture
+namespace XTCapture
 {
     internal static class CaptureClipboard
     {

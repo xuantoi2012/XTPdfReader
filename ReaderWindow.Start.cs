@@ -187,8 +187,8 @@ namespace XTPdfMergeApp
                 Cmd("Show layers panel", "", "layers", () => { ShowStart(false); ReaderSidePanel.ShowPanel("Layers"); });
                 Cmd("Show comments panel", "", "comment", () => { ShowStart(false); ReaderSidePanel.ShowPanel("Comments"); });
             }
-            Cmd("Capture the screen…", "", "capture", () => _ = StartCaptureAsync());
-            Cmd("Captures: open the saved screen captures", "", "captures", ShowCaptureLibrary);
+            Cmd("Capture the screen (XT Capture)…", "", "capture", () => CaptureLauncher.Run("capture", this));
+            Cmd("Store: the screen captures kept by XT Capture", "", "captures", () => CaptureLauncher.Run("store", this));
             Cmd("Find in document…", "Ctrl+F", "search", OpenFind);
             if (_readerGroup != null) Cmd("Export / split PDF…", "Ctrl+Shift+E", "export", () => OpenExport(preferFlatten: false));
             if (_readerGroup != null) Cmd("Print…", "Ctrl+P", "print", () => ReaderPrint_Click(this, new RoutedEventArgs()));

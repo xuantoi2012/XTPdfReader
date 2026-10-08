@@ -12,8 +12,7 @@ using PageRow = XTPdfMergeApp.Domain.PagePlacement;
 namespace XTPdfMergeApp
 {
     /// <summary>
-    /// Select (copy text, drag across words like any PDF viewer) and SnapShot (drag a rectangle, the picture of that
-    /// area goes to the clipboard — page + visible annotations, exactly what is on screen).
+    /// Select: copy text (drag across words like any PDF viewer). Pictures of the screen are XT Capture's job (see ReaderWindow.Capture.cs).
     /// </summary>
     public partial class ReaderWindow
     {
@@ -106,83 +105,6 @@ namespace XTPdfMergeApp
             {
                 XTStyle.Controls.XTGrowl.Info("Could not copy the text: " + ex.Message, this);
             }
-        }
-
-        // ── SnapShot: picture of an area, to the clipboard (page + visible annotations, exactly like on screen) ──
-
-        private sealed record SnapshotDrag(PageRow Row, double StartU, double StartV);
-        private SnapshotDrag? _snapshotDrag;
-
-        private void BeginSnapshotDrag(PageHit hit)
-        {
-            if (!Controls.PdfPermissionDialog.Require(this, new[] { hit.Row.SourcePath }, PdfPermissionOperation.Copy)) return;
-            if (!TryPageToLayer(hit.Row, hit.U, hit.V, out Point start)) return;
-            _snapshotDrag = new SnapshotDrag(hit.Row, hit.U, hit.V);
-            ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;
-            ReaderContentHost.CaptureMouse();
-            Canvas.SetLeft(ReaderSnapshotRubber, start.X);
-            Canvas.SetTop(ReaderSnapshotRubber, start.Y);
-            ReaderSnapshotRubber.Width = ReaderSnapshotRubber.Height = 0;
-            ReaderSnapshotRubber.Visibility = Visibility.Visible;
-        }
-
-        private void UpdateSnapshotDrag(SnapshotDrag drag, Point pointInHost)
-        {
-            if (!TryGetPagePoint(drag.Row, pointInHost, clamp: true, out var current)) return;
-            if (!TryPageToLayer(drag.Row, drag.StartU, drag.StartV, out Point a) ||
-                !TryPageToLayer(drag.Row, current.U, current.V, out Point b)) return;
-            Canvas.SetLeft(ReaderSnapshotRubber, Math.Min(a.X, b.X));
-            Canvas.SetTop(ReaderSnapshotRubber, Math.Min(a.Y, b.Y));
-            ReaderSnapshotRubber.Width = Math.Abs(a.X - b.X);
-            ReaderSnapshotRubber.Height = Math.Abs(a.Y - b.Y);
-        }
-
-        private void CancelSnapshotDrag()
-        {
-            if (_snapshotDrag == null) return;
-            _snapshotDrag = null;
-            ReaderSnapshotRubber.Visibility = Visibility.Collapsed;
-            if (ReaderContentHost.IsMouseCaptured) ReaderContentHost.ReleaseMouseCapture();
-        }
-
-        /// <summary>Renders the viewport (<see cref="ContinuousPdfView.Surface"/>: exactly the pixels on screen, page + annotations,
-        /// bounded to the window — never the whole document) and crops to the dragged rectangle.</summary>
-        private void FinishSnapshotDrag(SnapshotDrag drag, Point pointInHost)
-        {
-            bool haveEnd = TryGetPagePoint(drag.Row, pointInHost, clamp: true, out var end);
-            bool bigEnough = ReaderSnapshotRubber.Width >= 6 && ReaderSnapshotRubber.Height >= 6;
-            CancelSnapshotDrag();
-            if (!haveEnd || !bigEnough) return;
-            if (!ReaderContinuousView.TryPageToView(drag.Row, Math.Min(drag.StartU, end.U), Math.Min(drag.StartV, end.V), out Point p1) ||
-                !ReaderContinuousView.TryPageToView(drag.Row, Math.Max(drag.StartU, end.U), Math.Max(drag.StartV, end.V), out Point p2))
-                return;
-
-            var surface = ReaderContinuousView.Surface;
-            var rect = new Rect(p1, p2);
-            rect.Intersect(new Rect(0, 0, surface.ActualWidth, surface.ActualHeight));
-            if (rect.Width < 2 || rect.Height < 2) return;
-
-            try
-            {
-                double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
-                int pixelWidth = Math.Max(1, (int)Math.Round(surface.ActualWidth * dpi));
-                int pixelHeight = Math.Max(1, (int)Math.Round(surface.ActualHeight * dpi));
-                var rtb = new RenderTargetBitmap(pixelWidth, pixelHeight, 96 * dpi, 96 * dpi, PixelFormats.Pbgra32);
-                rtb.Render(surface);
-
-                int x = Math.Clamp((int)Math.Round(rect.X * dpi), 0, pixelWidth - 1);
-                int y = Math.Clamp((int)Math.Round(rect.Y * dpi), 0, pixelHeight - 1);
-                int w = Math.Clamp((int)Math.Round(rect.Width * dpi), 1, pixelWidth - x);
-                int h = Math.Clamp((int)Math.Round(rect.Height * dpi), 1, pixelHeight - y);
-                var cropped = new CroppedBitmap(rtb, new Int32Rect(x, y, w, h));
-                Clipboard.SetImage(cropped);
-                XTStyle.Controls.XTGrowl.Success("Copied to clipboard", this);
-            }
-            catch (Exception ex)
-            {
-                XTStyle.Controls.XTGrowl.Info("Could not copy the picture: " + ex.Message, this);
-            }
-            if ((Keyboard.Modifiers & ModifierKeys.Shift) == 0) SetReaderTool(ReaderTool.Hand);
         }
     }
 }

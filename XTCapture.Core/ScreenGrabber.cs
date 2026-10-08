@@ -7,7 +7,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
-namespace XTPdfMergeApp.Services.Capture
+namespace XTCapture
 {
     /// <summary>A top-level window the capture can pick: its visible frame in snapshot pixels and its place in the z-order (0 = top).</summary>
     internal sealed record CaptureWindow(IntPtr Handle, string Title, Int32Rect Bounds, int ZOrder);
@@ -33,6 +33,7 @@ namespace XTPdfMergeApp.Services.Capture
         private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
 
         [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
+        [DllImport("user32.dll")] private static extern uint GetDpiForSystem();
         [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr hwnd);
         [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr hwnd, IntPtr dc);
         [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
@@ -56,6 +57,16 @@ namespace XTPdfMergeApp.Services.Capture
         /// <summary>Virtual screen (all monitors) in the pixels this process sees.</summary>
         public static Int32Rect VirtualScreen => new(GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN),
             GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN));
+
+        /// <summary>Screen pixels per WPF unit (system DPI / 96): what a window sized in WPF units is multiplied by to get pixels.</summary>
+        public static double SystemScale
+        {
+            get
+            {
+                try { return Math.Max(1, GetDpiForSystem() / 96.0); }
+                catch { return 1; }
+            }
+        }
 
         /// <summary>The primary monitor, in virtual-screen pixels (it always starts at 0,0).</summary>
         public static Int32Rect PrimaryScreen => new(0, 0, GetSystemMetrics(0), GetSystemMetrics(1));

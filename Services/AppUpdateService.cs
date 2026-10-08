@@ -32,6 +32,8 @@ namespace XTPdfMergeApp.Services
                 if (info == null) return; // đã là bản mới nhất
 
                 await mgr.DownloadUpdatesAsync(info, null);
+                // XT Capture (the tray program installed beside the Reader) would keep its files locked while the update replaces them.
+                CaptureLauncher.RequestExit();
                 await mgr.WaitExitThenApplyUpdatesAsync(info.TargetFullRelease, silent: true, restart: false, restartArgs: null);
 
                 string version = info.TargetFullRelease.Version?.ToString() ?? "mới";
