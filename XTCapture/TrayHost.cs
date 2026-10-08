@@ -164,7 +164,7 @@ namespace XTCapture
         internal async Task<CaptureStore.Entry?> HandleAsync(CaptureOutcome outcome)
         {
             CaptureStore.Entry entry;
-            try { entry = await Task.Run(() => CaptureStore.Save(outcome.Image)); }
+            try { entry = await Task.Run(() => CaptureStore.Save(outcome.Image, null, outcome.Items)); }
             catch (Exception ex)
             {
                 ToastWindow.Display("Could not keep the capture: " + ex.Message);
@@ -174,7 +174,7 @@ namespace XTCapture
             {
                 try
                 {
-                    CaptureClipboard.Copy(outcome.Image);
+                    CaptureClipboard.Copy(outcome.Flattened);
                     ToastWindow.Display("Copied. Kept in the Store.");
                 }
                 catch (Exception ex) { ToastWindow.Display("Kept in the Store, but the clipboard is busy: " + ex.Message); }

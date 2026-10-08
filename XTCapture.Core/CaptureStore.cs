@@ -37,8 +37,8 @@ namespace XTCapture
 
         private sealed record Meta(string Created, int Width, int Height, int Version = 1);
 
-        /// <summary>Keeps the picture as a new entry and returns it.</summary>
-        public static Entry Save(BitmapSource image, DateTime? now = null)
+        /// <summary>Keeps the picture (and what was drawn on it) as a new entry and returns it.</summary>
+        public static Entry Save(BitmapSource image, DateTime? now = null, IReadOnlyList<MarkupItem>? markup = null)
         {
             var time = now ?? DateTime.Now;
             Directory.CreateDirectory(Folder);
@@ -49,7 +49,8 @@ namespace XTCapture
             try
             {
                 File.WriteAllBytes(Path.Combine(temp, OriginalFile), CaptureImaging.EncodePng(image));
-                File.WriteAllBytes(Path.Combine(temp, ThumbFile), CaptureImaging.EncodePng(Thumbnail(image)));
+                File.WriteAllBytes(Path.Combine(temp, ThumbFile), CaptureImaging.EncodePng(Thumbnail(MarkupRenderer.Flatten(image, markup ?? Array.Empty<MarkupItem>()))));
+                if (markup is { Count: > 0 }) File.WriteAllText(Path.Combine(temp, MarkupFile), new MarkupDocument { Items = markup.ToList() }.ToJson());
                 File.WriteAllText(Path.Combine(temp, MetaFile), JsonSerializer.Serialize(new Meta(time.ToString("o"), image.PixelWidth, image.PixelHeight)));
                 Directory.Move(temp, folder); // a folder without the .tmp suffix is always complete
             }
@@ -123,11 +124,35 @@ namespace XTCapture
             var image = new BitmapImage();
             image.BeginInit();
             image.CacheOption = BitmapCacheOption.OnLoad; // read now, so the file is not held open
-            image.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+            image.CreateOptions = BitmapCreateOptions.IgnoreColorProfile | BitmapCreateOptions.IgnoreImageCache; // a picture rewritten after it was shown must be read again
             image.UriSource = new Uri(path);
             image.EndInit();
             image.Freeze();
             return image;
+        }
+
+        /// <summary>What is drawn on the capture (empty when nothing, or when the file cannot be read).</summary>
+        public static List<MarkupItem> LoadMarkup(Entry entry)
+        {
+            try { return File.Exists(entry.MarkupPath) ? MarkupDocument.FromJson(File.ReadAllText(entry.MarkupPath)).Items : new List<MarkupItem>(); }
+            catch (IOException) { return new List<MarkupItem>(); }
+        }
+
+        /// <summary>The picture with what is drawn on it.</summary>
+        public static BitmapSource LoadFlattened(Entry entry) => MarkupRenderer.Flatten(LoadOriginal(entry), LoadMarkup(entry));
+
+        /// <summary>Stores the drawing of the capture (the picture itself is never touched) and renews the list picture. Returns the entry as it is now.</summary>
+        public static Entry SaveMarkup(Entry entry, IReadOnlyList<MarkupItem> items)
+        {
+            if (items.Count > 0)
+            {
+                string temp = entry.MarkupPath + ".tmp";
+                File.WriteAllText(temp, new MarkupDocument { Items = items.ToList() }.ToJson());
+                File.Move(temp, entry.MarkupPath, overwrite: true);
+            }
+            else if (File.Exists(entry.MarkupPath)) File.Delete(entry.MarkupPath);
+            File.WriteAllBytes(entry.ThumbPath, CaptureImaging.EncodePng(Thumbnail(MarkupRenderer.Flatten(LoadOriginal(entry), items))));
+            return Read(entry.Folder) ?? entry;
         }
 
         /// <summary>Entries kept at least <paramref name="olderThanDays"/> days.</summary>

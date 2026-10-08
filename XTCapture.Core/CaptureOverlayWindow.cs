@@ -13,7 +13,13 @@ namespace XTCapture
 {
     internal enum CapturePick { Window, Rectangle, Ellipse, Polygon }
     internal enum CaptureAction { Copy, Store }
-    internal sealed record CaptureOutcome(CaptureAction Action, BitmapSource Image);
+    /// <summary>What the user took: the picture as it was (<see cref="Image"/>) and what was drawn on it (<see cref="Markup"/>, in the picture's own pixels).
+    /// <see cref="Flattened"/> is the picture with the markup on it.</summary>
+    internal sealed record CaptureOutcome(CaptureAction Action, BitmapSource Image, IReadOnlyList<MarkupItem>? Markup = null)
+    {
+        public IReadOnlyList<MarkupItem> Items => Markup ?? Array.Empty<MarkupItem>();
+        public BitmapSource Flattened => MarkupRenderer.Flatten(Image, Items);
+    }
 
     /// <summary>
     /// The screen frozen and dimmed (like Zalo's capture): hover a window to see its dashed frame and click to take it, or pick a rectangle
@@ -43,7 +49,13 @@ namespace XTCapture
         private readonly Border _sizeTag = new() { CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 2, 6, 2), Background = new SolidColorBrush(Color.FromArgb(0xE6, 0x1F, 0x29, 0x37)), IsHitTestVisible = false, Visibility = Visibility.Collapsed };
         private readonly TextBlock _sizeText = new() { Foreground = Brushes.White, FontSize = 12 };
         private readonly Border _modeBar = new();
-        private readonly Border _actionBar = new() { Visibility = Visibility.Collapsed };
+        private readonly Border _actionBar = new();
+        private readonly StackPanel _barStack = new() { Visibility = Visibility.Collapsed };
+        private readonly MarkupController _markup = new();
+        private readonly MarkupCanvas _markupCanvas = new();
+        private readonly MarkupToolbar _markupToolbar;
+        private readonly MarkupTextBox _markupText;
+        private bool _markupPointer;   // a drawing / moving gesture of the markup is in progress
         private readonly Dictionary<CapturePick, Border> _modeButtons = new();
         private Border? _outsideButton;
         private TextBlock? _outsideText;
@@ -69,7 +81,10 @@ namespace XTCapture
         internal CaptureRegion? Region => _region;
         internal CaptureWindow? HoveredWindow { get; private set; }
         internal CapturePick Mode => _mode;
-        internal bool ActionBarVisible => _actionBar.Visibility == Visibility.Visible;
+        internal bool ActionBarVisible => _barStack.Visibility == Visibility.Visible;
+        internal MarkupController Markup => _markup;
+        internal MarkupToolbar MarkupBars => _markupToolbar;
+        internal MarkupTextBox MarkupText => _markupText;
         internal bool CrosshairVisible => _cross[0].Visibility == Visibility.Visible;
         internal int HandleCount => _handleBoxes.Count(h => h.Visibility == Visibility.Visible);
         internal Cursor? CurrentCursor => _canvas.Cursor;
@@ -102,6 +117,14 @@ namespace XTCapture
             RenderOptions.SetBitmapScalingMode(_canvas, BitmapScalingMode.NearestNeighbor);
             _canvas.Children.Add(new Image { Source = snapshot.Image, Width = pixelWidth, Height = pixelHeight, Stretch = Stretch.Fill, IsHitTestVisible = false });
             _canvas.Children.Add(_dim);
+            _markup.Limit = _limit;
+            _markup.Tolerance = 6 * _scale;
+            _markupCanvas.Controller = _markup;
+            _markupCanvas.Original = snapshot.Image;
+            _markupCanvas.HandleScale = _scale;
+            _markupCanvas.Width = pixelWidth;
+            _markupCanvas.Height = pixelHeight;
+            _canvas.Children.Add(_markupCanvas);
             _canvas.Children.Add(_outlineHalo);
             _canvas.Children.Add(_outline);
             _canvas.Children.Add(_polyline);
@@ -117,6 +140,9 @@ namespace XTCapture
 
             _sizeTag.Child = _sizeText;
             _chrome.Children.Add(_sizeTag);
+            _markupText = new MarkupTextBox(_canvas, _markup);
+            _markupToolbar = new MarkupToolbar(_markup);
+            _markup.Changed += () => { if (_phase == Phase.Selected && _region != null) PlaceActionBar(_region); };
             BuildModeBar();
             BuildActionBar();
             UpdateDim();
@@ -220,7 +246,13 @@ namespace XTCapture
             row.Children.Add(_outsideButton);
             row.Children.Add(MakeButton(CaptureIcons.Close, "", "Cancel (Esc)", Cancel));
             _actionBar.Child = BarFrame(row);
-            _chrome.Children.Add(_actionBar);
+            foreach (var bar in new FrameworkElement[] { _markupToolbar.ToolsBar, _markupToolbar.PropertyBar, _actionBar })
+            {
+                bar.HorizontalAlignment = HorizontalAlignment.Right;
+                bar.Margin = new Thickness(0, 0, 0, 6);
+                _barStack.Children.Add(bar);
+            }
+            _chrome.Children.Add(_barStack);
             RefreshOutsideLabel();
         }
 
@@ -303,8 +335,13 @@ namespace XTCapture
             _editing = false;
             _vertices.Clear();
             _polyline.Points.Clear();
-            _actionBar.Visibility = Visibility.Collapsed;
+            _barStack.Visibility = Visibility.Collapsed;
             _sizeTag.Visibility = Visibility.Collapsed;
+            _markupText.Close(commit: false);
+            _markup.Load(Array.Empty<MarkupItem>());
+            _markup.SetTool(MarkupTool.Select);
+            _markupCanvas.Clip = null;
+            _markupPointer = false;
             HoveredWindow = null;
             _outline.Data = _outlineHalo.Data = null;
             _canvas.Cursor = Cursors.None;
@@ -322,11 +359,21 @@ namespace XTCapture
 
         private void OnCancel()
         {
+            if (_markupText.IsOpen) { _markupText.Close(commit: false); return; }
+            if (_phase == Phase.Selected && _markup.Tool != MarkupTool.Select) { _markup.SetTool(MarkupTool.Select); return; }
             if (_phase == Phase.Idle) Cancel(); else Reset();
         }
 
         internal bool OnKey(Key key)
         {
+            if (_markupText.IsOpen) return false; // the typing box has the keys
+            if (_phase == Phase.Selected)
+            {
+                bool control = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+                if (control && key == Key.Z) { _markup.Undo(); return true; }
+                if (control && key == Key.Y) { _markup.Redo(); return true; }
+                if (key == Key.Delete && _markup.Selected != null) { _markup.DeleteSelected(); return true; }
+            }
             switch (key)
             {
                 case Key.Escape: OnCancel(); return true;
@@ -349,6 +396,8 @@ namespace XTCapture
         internal void OnPointerMove(Point p)
         {
             _cursor = p;
+            if (_markupPointer) { _markup.PointerMove(p); ShowCrosshair(false); return; }
+            if (!_editing && _phase == Phase.Selected && _region != null && MarkupCursor(p)) return;
             if (_editing && _editRegion != null)
             {
                 var edited = _editHit.Kind == CaptureHandle.Move
@@ -386,6 +435,21 @@ namespace XTCapture
             _cursor = p;
             if (_phase == Phase.Selected && _region != null)
             {
+                _markupText.Close(commit: true);
+                if (_markup.Tool != MarkupTool.Select)
+                {
+                    // a drawing tool: a click in the area draws, a click outside does nothing (choose Select to change the area)
+                    bool handle = _markup.HitForCursor(p).Kind != CaptureHandle.None;
+                    if (_region.Contains(p.X, p.Y) || handle) { _markup.PointerDown(p, clickCount); _markupPointer = _markup.GestureActive; ShowCrosshair(false); }
+                    return;
+                }
+                // Select: an object (or a handle of the selected one) comes before the area's own handles
+                if (_markup.HitForCursor(p).Kind != CaptureHandle.None)
+                {
+                    _markup.PointerDown(p, clickCount);
+                    _markupPointer = _markup.GestureActive;
+                    return;
+                }
                 var hit = CaptureHandles.HitTest(_region, p, 7 * _scale);
                 if (hit.Kind != CaptureHandle.None)
                 {
@@ -395,6 +459,7 @@ namespace XTCapture
                     _editRegion = _region;
                     return;
                 }
+                if (!_markup.IsEmpty) return; // drawn on already: only Esc starts over, so a stray click cannot lose it
                 Reset(); // a click outside the area starts a new one
             }
             switch (_mode)
@@ -428,11 +493,30 @@ namespace XTCapture
         internal void OnPointerUp(Point p)
         {
             _cursor = p;
+            if (_markupPointer) { _markup.PointerUp(p); _markupPointer = false; return; }
             if (_editing) { _editing = false; _editRegion = null; return; }
             if (_phase != Phase.Dragging) return;
             if (Distance(p, _start) < 4) { _phase = Phase.FirstCorner; return; } // a click, not a drag: the second corner comes with the next click
             var region = _mode == CapturePick.Ellipse ? CaptureRegion.Ellipse(_start, p) : CaptureRegion.Rectangle(_start, p);
             if (region.IsUsable) SetRegion(region, showBar: true); else Reset();
+        }
+
+        /// <summary>The pointer over drawn objects: the cursor of what a drag would do. True when the markup claims the pointer.</summary>
+        private bool MarkupCursor(Point p)
+        {
+            if (_markup.Tool != MarkupTool.Select)
+            {
+                bool inside = _region!.Contains(p.X, p.Y);
+                var hit = _markup.HitForCursor(p);
+                _canvas.Cursor = hit.Kind != CaptureHandle.None ? CursorFor(hit) : Cursors.None;
+                ShowCrosshair(inside && hit.Kind == CaptureHandle.None);
+                return true;
+            }
+            var over = _markup.HitForCursor(p);
+            if (over.Kind == CaptureHandle.None) return false;
+            _canvas.Cursor = CursorFor(over);
+            ShowCrosshair(false);
+            return true;
         }
 
         private static double Distance(Point a, Point b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
@@ -494,6 +578,7 @@ namespace XTCapture
             _outline.Data = geometry;
             _outlineHalo.Data = geometry;
             UpdateDim(geometry);
+            _markupCanvas.Clip = _phase == Phase.Selected || _markup.Items.Count > 0 ? geometry : null;
             var b = region.Bounds;
             _sizeText.Text = (label == null ? "" : Truncate(label, 40) + "   ") + $"{b.Width} × {b.Height}";
             _sizeTag.Visibility = Visibility.Visible;
@@ -513,17 +598,16 @@ namespace XTCapture
         private void PlaceActionBar(CaptureRegion region)
         {
             _outsideButton!.Visibility = region.Kind == CaptureShapeKind.Rectangle ? Visibility.Collapsed : Visibility.Visible;
-            _actionBar.Visibility = Visibility.Visible;
-            _actionBar.UpdateLayout();
-            _actionBar.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            double width = _actionBar.DesiredSize.Width, height = _actionBar.DesiredSize.Height;
+            _barStack.Visibility = Visibility.Visible;
+            _barStack.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            double width = _barStack.DesiredSize.Width, height = _barStack.DesiredSize.Height;
             var b = region.Bounds;
             double right = (b.X + b.Width) / _scale, bottom = (b.Y + b.Height) / _scale, screenW = _snapshot.Image.PixelWidth / _scale, screenH = _snapshot.Image.PixelHeight / _scale;
             double left = Math.Clamp(right - width, 4, Math.Max(4, screenW - width - 4));
             double top = bottom + 8 + height <= screenH ? bottom + 8 : Math.Max(4, b.Y / _scale - height - 8);
             if (top + height > screenH) top = Math.Max(4, bottom - height - 8); // a region that fills the screen: the bar goes inside it
-            Canvas.SetLeft(_actionBar, left);
-            Canvas.SetTop(_actionBar, top);
+            Canvas.SetLeft(_barStack, left);
+            Canvas.SetTop(_barStack, top);
         }
 
         // ── Polygon ─────────────────────────────────────────────────────
@@ -555,7 +639,9 @@ namespace XTCapture
             if (_mode == CapturePick.Window && _pickedWindow is { } window && IsCovered(window))
                 image = _grabWindow(window);
             image ??= CaptureImaging.Crop(_snapshot.Image, region, _transparentOutside);
-            return new CaptureOutcome(action, image);
+            var box = region.Bounds;
+            var items = _markup.Items.Select(i => i.Translate(-box.X, -box.Y)).ToList();
+            return new CaptureOutcome(action, image, items);
         }
 
         private bool IsCovered(CaptureWindow window)
@@ -568,6 +654,7 @@ namespace XTCapture
 
         internal void Finish(CaptureAction action)
         {
+            _markupText.Close(commit: true);
             var outcome = Build(action);
             if (outcome == null) return;
             Outcome = outcome;

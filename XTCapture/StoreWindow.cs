@@ -10,12 +10,14 @@ using XTStyle.Controls;
 
 namespace XTCapture
 {
-    /// <summary>What can be done with a stored capture (shared by the Store list and the preview).</summary>
+    /// <summary>What can be done with a stored capture (shared by the Store list and the editor). The picture always includes what is drawn on it.</summary>
     internal static class StoreActions
     {
-        public static void Copy(CaptureStore.Entry entry)
+        public static void Copy(CaptureStore.Entry entry) => Copy(CaptureStore.LoadFlattened(entry));
+
+        public static void Copy(System.Windows.Media.Imaging.BitmapSource picture)
         {
-            CaptureClipboard.Copy(CaptureStore.LoadOriginal(entry));
+            CaptureClipboard.Copy(picture);
             ToastWindow.Display("Copied");
         }
 
@@ -23,15 +25,28 @@ namespace XTCapture
         {
             var dialog = new Microsoft.Win32.SaveFileDialog { Filter = "PNG picture (*.png)|*.png", FileName = entry.Id + ".png", AddExtension = true, DefaultExt = ".png" };
             if (dialog.ShowDialog(owner) != true) return;
-            try { File.Copy(entry.OriginalPath, dialog.FileName, overwrite: true); ToastWindow.Display("Saved"); }
+            try { File.WriteAllBytes(dialog.FileName, CaptureImaging.EncodePng(CaptureStore.LoadFlattened(entry))); ToastWindow.Display("Saved"); }
             catch (Exception ex) { MessageBox.Show(owner, "Could not save the picture: " + ex.Message, "XT Capture", MessageBoxButton.OK, MessageBoxImage.Warning); }
         }
 
         public static void ExportPdf(CaptureStore.Entry entry, Window owner)
+            => ExportPdf(entry, CaptureStore.LoadOriginal(entry), CaptureStore.LoadMarkup(entry), owner);
+
+        /// <summary>Asks where, and (when something is drawn) whether the shapes and texts stay PDF annotations.</summary>
+        public static void ExportPdf(CaptureStore.Entry entry, System.Windows.Media.Imaging.BitmapSource original, IReadOnlyList<MarkupItem> items, Window owner)
         {
+            bool annotations = false;
+            if (items.Any(PdfExporter.CanBeAnnotation))
+            {
+                var answer = MessageBox.Show(owner, "Keep the rectangles, circles, lines, arrows, pen strokes and texts as PDF annotations, so they can still be edited in a PDF viewer?" + Environment.NewLine + Environment.NewLine +
+                    "Yes: annotations (numbered markers and mosaics become part of the picture)." + Environment.NewLine + "No: everything becomes part of the picture.",
+                    "Export to PDF", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+                if (answer == MessageBoxResult.Cancel) return;
+                annotations = answer == MessageBoxResult.Yes;
+            }
             var dialog = new Microsoft.Win32.SaveFileDialog { Filter = "PDF file (*.pdf)|*.pdf", FileName = entry.Id + ".pdf", AddExtension = true, DefaultExt = ".pdf" };
             if (dialog.ShowDialog(owner) != true) return;
-            try { PdfExporter.Export(CaptureStore.LoadOriginal(entry), dialog.FileName); ToastWindow.Display("Exported to PDF"); }
+            try { PdfExporter.Export(original, items, annotations, dialog.FileName); ToastWindow.Display("Exported to PDF"); }
             catch (Exception ex) { MessageBox.Show(owner, "Could not export the PDF: " + ex.Message, "XT Capture", MessageBoxButton.OK, MessageBoxImage.Warning); }
         }
     }
@@ -88,7 +103,7 @@ namespace XTCapture
 
             _emptyText = new TextBlock
             {
-                Text = "Nothing captured yet. Press the shortcut or the button in the corner of the screen: every capture is kept here.",
+                Text = "Nothing captured yet. Press the shortcut or the button in the corner of the screen: every capture is kept here, and you can draw and write on it later.",
                 Margin = new Thickness(22, 20, 22, 0), TextWrapping = TextWrapping.Wrap, Foreground = R("Ui.Muted"), Visibility = Visibility.Collapsed
             };
             DockPanel.SetDock(_emptyText, Dock.Top);
@@ -138,7 +153,7 @@ namespace XTCapture
         {
             var entries = CaptureStore.List();
             var shown = _wrap.Children.OfType<Border>().Select(c => c.Tag as string).ToList();
-            if (!shown.SequenceEqual(entries.Select(e => e.Id)))
+            if (!shown.SequenceEqual(entries.Select(Key)))
             {
                 _wrap.Children.Clear();
                 foreach (var entry in entries) _wrap.Children.Add(MakeCard(entry));
@@ -147,17 +162,25 @@ namespace XTCapture
             _emptyText.Visibility = entries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
+        /// <summary>A card is rebuilt when its capture changes (a saved drawing renews the list picture).</summary>
+        private static string Key(CaptureStore.Entry entry)
+        {
+            try { return entry.Id + "|" + File.GetLastWriteTimeUtc(entry.ThumbPath).Ticks; }
+            catch { return entry.Id; }
+        }
+
         private Border MakeCard(CaptureStore.Entry entry)
         {
             Brush R(string key) => TryFindResource(key) as Brush ?? Brushes.Gray;
             var picture = new Image { Stretch = Stretch.Uniform, Height = 130 };
             try { picture.Source = CaptureStore.LoadThumbnail(entry); } catch { /* the picture file is gone: an empty well */ }
             var well = new Border { Background = R("Ui.Hover"), CornerRadius = new CornerRadius(5), Padding = new Thickness(4), Child = picture, Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 0, 6) };
-            well.MouseLeftButtonUp += (_, _) => PreviewWindow.ShowFor(entry, this);
+            well.MouseLeftButtonUp += (_, _) => EditorWindow.For(entry, this);
 
             var name = new TextBlock { Text = entry.Created.ToString("dd MMM yyyy  HH:mm:ss"), FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, Foreground = R("Ui.Text") };
             var meta = new TextBlock { Text = (entry.Width > 0 ? $"{entry.Width} × {entry.Height}   " : "") + CaptureStore.FormatSize(entry.Length), FontSize = 11.5, Foreground = R("Ui.Muted"), Margin = new Thickness(0, 1, 0, 6) };
             var actions = new WrapPanel();
+            actions.Children.Add(LinkButton("Edit", "Draw and write on it", () => EditorWindow.For(entry, this)));
             actions.Children.Add(LinkButton("Copy", "Copy the picture", () => StoreActions.Copy(entry)));
             actions.Children.Add(LinkButton("Save PNG", "Save the picture as a PNG file", () => StoreActions.SavePng(entry, this)));
             actions.Children.Add(LinkButton("PDF", "Export to a one-page PDF", () => StoreActions.ExportPdf(entry, this)));
@@ -171,7 +194,7 @@ namespace XTCapture
             return new Border
             {
                 Width = 224, Margin = new Thickness(0, 0, 12, 12), Padding = new Thickness(8), CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1),
-                BorderBrush = R("Ui.Border"), Child = stack, ToolTip = entry.Folder, Tag = entry.Id
+                BorderBrush = R("Ui.Border"), Child = stack, ToolTip = entry.Folder, Tag = Key(entry)
             };
         }
 
