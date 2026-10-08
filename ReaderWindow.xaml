@@ -100,6 +100,17 @@
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Tools"/>
                             </StackPanel>
                             <Border Style="{StaticResource UiToolbarSeparator}"/>
+                            <!-- Capture: the screen, kept in the Captures store -->
+                            <StackPanel VerticalAlignment="Bottom">
+                                <StackPanel Orientation="Horizontal">
+                                    <xt:XTButton x:Name="ReaderCaptureButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.capture}" Text="Capture"
+                                                 ToolTip="Capture the screen: pick a window, a rectangle, a circle or a polygon. Enter copies it, Edit opens it to add text and comments." Click="ReaderCapture_Click"/>
+                                    <xt:XTButton x:Name="ReaderCapturesButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.captures}" Text="Captures"
+                                                 ToolTip="Every capture is kept here: open one again to change its text and comments" Click="ReaderCaptures_Click"/>
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource UiGroupCaption}" Text="Capture"/>
+                            </StackPanel>
+                            <Border Style="{StaticResource UiToolbarSeparator}"/>
                             <!-- Page view -->
                             <StackPanel VerticalAlignment="Bottom">
                                 <StackPanel Orientation="Horizontal">

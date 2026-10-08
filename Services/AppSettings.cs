@@ -56,6 +56,20 @@ namespace XTPdfMergeApp.Services
             set => Set("PrintedCleanupDays", Math.Clamp(value, 0, 3650));
         }
 
+        /// <summary>Screen capture: pixels outside an ellipse / polygon are transparent (true) or white (false).</summary>
+        public static bool CaptureTransparentOutside
+        {
+            get => GetInt("CaptureTransparentOutside", 0) == 1;
+            set => Set("CaptureTransparentOutside", value ? 1 : 0);
+        }
+
+        /// <summary>Screen capture: the "older than N days" the Captures window proposes for its clean-up.</summary>
+        public static int CaptureCleanupDays
+        {
+            get => Math.Clamp(GetInt("CaptureCleanupDays", 90), 1, 3650);
+            set => Set("CaptureCleanupDays", Math.Clamp(value, 1, 3650));
+        }
+
         /// <summary>Folder the print agent saves printed PDFs into; empty = the default under %LocalAppData%\XTPdfReader\Printed.</summary>
         public static string PrintedFolder
         {
