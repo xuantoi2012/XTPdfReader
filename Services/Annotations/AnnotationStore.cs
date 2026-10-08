@@ -260,6 +260,7 @@ namespace XTPdfMergeApp.Services
                 TextEdit.TextEditPendingStore.Clear(path); // ...and the edited text
                 TextEdit.ObjectDeletePendingStore.Clear(path); // ...and the objects are gone
                 PageRotationPendingStore.Clear(path); // ...and the pages are turned
+                BookmarkPendingStore.Clear(path); // ...and the bookmarks are in the file
             }
             string key = Normalize(path);
             if (!_files.TryGetValue(key, out var file)) return;
@@ -286,6 +287,7 @@ namespace XTPdfMergeApp.Services
             TextEdit.TextEditPendingStore.Clear(path);
             TextEdit.ObjectDeletePendingStore.Clear(path);
             PageRotationPendingStore.Clear(path);
+            BookmarkPendingStore.Clear(path);
             string key = Normalize(path);
             if (!_files.Remove(key, out var file)) return;
             file.Reader.Close();

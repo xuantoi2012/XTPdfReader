@@ -111,6 +111,8 @@ namespace XTPdfMergeApp.Controls
         /// <summary>Panel vừa tự ghi thẳng vào 1 file nguồn (sửa bookmark) — ReaderWindow cập nhật lại dấu
         /// (size/giờ ghi) đã biết của file đó, để không tự báo nhầm "đã đổi trên đĩa".</summary>
         internal event Action<string>? SourceFileWritten;
+        /// <summary>A bookmark change the user made: it is kept in memory (shown at once) and written into the file on Save.</summary>
+        internal event Action<string, BookmarkEdit>? BookmarkEditRequested;
 
         /// <summary>Lệnh trên các trang đang chọn (menu chuột phải, phím tắt) — ReaderWindow thực thi.</summary>
         internal event Action<PageCommand>? PageCommandRequested;
@@ -573,7 +575,7 @@ namespace XTPdfMergeApp.Controls
             {
                 if (!_bookmarks.TryGetValue(path, out var task))
                     _bookmarks[path] = task = Task.Run(() => SafeRead(() => PdfOutlineService.ReadBookmarks(path), Array.Empty<PdfBookmarkNode>()));
-                var nodes = await task;
+                var nodes = BookmarkPendingStore.Replay(path, await task); // the file's tree with the changes that wait for Save
                 if (_tab != Tab.Bookmarks || !string.Equals(path, _sourcePath, StringComparison.OrdinalIgnoreCase)) return;
                 if (nodes.Count == 0) { ShowEmpty("This document has no bookmarks."); return; }
                 PanelEmptyText.Visibility = Visibility.Collapsed;
@@ -674,7 +676,9 @@ namespace XTPdfMergeApp.Controls
             }
             var prompt = new TextPromptWindow("Add bookmark", "Bookmark name:", $"Page {row.PageNumber}", null) { Owner = Window.GetWindow(this) };
             if (prompt.ShowDialog() != true || prompt.Value is not { } title) return;
-            await RunOutlineEditAsync(path, () => PdfOutlineService.AddBookmark(path, parentPath, title, row.PageNumber));
+            int page = row.PageNumber;
+            BookmarkEditRequested?.Invoke(path, new BookmarkEdit($"Bookmark \"{title}\" added",
+                tree => BookmarkModel.Add(tree, parentPath, title, page), doc => PdfOutlineService.ApplyAdd(doc, parentPath, title, page)));
         }
 
         private void BookmarkRename_Click(object sender, RoutedEventArgs e)
@@ -682,7 +686,9 @@ namespace XTPdfMergeApp.Controls
             if ((sender as FrameworkElement)?.DataContext is not PdfBookmarkNode node || _sourcePath is not { } path) return;
             var prompt = new TextPromptWindow("Rename bookmark", "Bookmark name:", node.Title, null) { Owner = Window.GetWindow(this) };
             if (prompt.ShowDialog() != true || prompt.Value is not { } title) return;
-            _ = RunOutlineEditAsync(path, () => PdfOutlineService.RenameBookmark(path, node.Path, title));
+            var nodePath = node.Path;
+            BookmarkEditRequested?.Invoke(path, new BookmarkEdit($"Bookmark renamed to \"{title}\"",
+                tree => BookmarkModel.Rename(tree, nodePath, title), doc => PdfOutlineService.ApplyRename(doc, nodePath, title)));
         }
 
         private void BookmarkDelete_Click(object sender, RoutedEventArgs e)
@@ -691,7 +697,9 @@ namespace XTPdfMergeApp.Controls
             string extra = node.Children.Count > 0 ? $" and its {node.Children.Count} sub-bookmark(s)" : "";
             if (AppDialog.Show(Window.GetWindow(this), $"Delete \"{node.Title}\"{extra}?", "Delete bookmark",
                     MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
-            _ = RunOutlineEditAsync(path, () => PdfOutlineService.DeleteBookmark(path, node.Path));
+            var nodePath = node.Path;
+            BookmarkEditRequested?.Invoke(path, new BookmarkEdit($"Bookmark \"{node.Title}\" deleted",
+                tree => BookmarkModel.Delete(tree, nodePath), doc => PdfOutlineService.ApplyDelete(doc, nodePath)));
         }
 
         private void BookmarkMoveUp_Click(object sender, RoutedEventArgs e) => MoveBookmark(sender, -1);
@@ -700,35 +708,9 @@ namespace XTPdfMergeApp.Controls
         private void MoveBookmark(object sender, int delta)
         {
             if ((sender as FrameworkElement)?.DataContext is not PdfBookmarkNode node || _sourcePath is not { } path) return;
-            _ = RunOutlineEditAsync(path, () => PdfOutlineService.MoveBookmark(path, node.Path, delta));
-        }
-
-        /// <summary>Đóng handle PDFium của file → sửa outline bằng iText (thread nền) → mở khoá → đọc lại cây bookmark.
-        /// Không đổi ảnh trang (geometryChanged=false), chỉ đổi cây outline.</summary>
-        private Task RunOutlineEditAsync(string path, Action edit)
-            => RunOutlineEditAsync(path, () => { edit(); return true; });
-
-        private async Task RunOutlineEditAsync(string path, Func<bool> edit)
-        {
-            if (!await PdfPermissionDialog.RequireAsync(Window.GetWindow(this), new[] { path }, PdfPermissionOperation.Modify)) return;
-            if (!await SignedPdfConfirmation.ConfirmAsync(Window.GetWindow(this), new[] { path }, "Update PDF bookmarks", true)) return;
-            try
-            {
-                AnnotationStore.ReleaseReader(path);
-                using (await PdfThumbnailService.SuspendDocumentAsync(path, TimeSpan.FromSeconds(3)))
-                {
-                    bool changed = await Task.Run(edit);
-                    if (!changed) return;
-                }
-            }
-            catch (Exception ex)
-            {
-                XTGrowl.Error("Could not update bookmarks: " + ex.Message, Window.GetWindow(this));
-                return;
-            }
-            SourceFileWritten?.Invoke(path);
-            _bookmarks.Remove(path);
-            await RefreshSourceTabAsync();
+            var nodePath = node.Path;
+            BookmarkEditRequested?.Invoke(path, new BookmarkEdit($"Bookmark \"{node.Title}\" moved {(delta < 0 ? "up" : "down")}",
+                tree => BookmarkModel.Move(tree, nodePath, delta), doc => PdfOutlineService.ApplyMove(doc, nodePath, delta)));
         }
     }
 }

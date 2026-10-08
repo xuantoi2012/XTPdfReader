@@ -76,6 +76,8 @@ namespace XTPdfMergeApp
             PdfPageEditService.ConflictRetried += OnSaveConflictRetried;
             AnnotationWorkingCopy.Conflict += OnAnnotationConflict;
             ReaderSidePanel.SourceFileWritten += path => Session.RefreshDiskStamp(path);
+            ReaderSidePanel.BookmarkEditRequested += (path, edit) => { if (EditHost != null) _ = EditHost.ApplyBookmarkEditAsync(path, edit); };
+            BookmarkPendingStore.PendingChanged += path => Dispatcher.InvokeAsync(() => ReaderSidePanel.InvalidateSource(path, false, false));
             AnnotationStore.Changed += OnAnnotationsChanged;
             TaskProgress.Changed += OnTaskProgress;
             ReaderContinuousView.PageTurn = row => PageRotationPendingStore.Delta(row.SourcePath, row.PageNumber);

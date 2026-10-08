@@ -20,13 +20,13 @@ namespace XTPdfMergeApp.Services
         private static string Folder => Path.Combine(Path.GetTempPath(), "XTPdfReader", "working");
 
         /// <summary>Unsaved annotations or unsaved OCR text.</summary>
-        public static bool HasPendingEdits(string path) => AnnotationStore.HasPending(path) || OcrPendingStore.HasPending(path) || TextEditPendingStore.HasPending(path) || ObjectDeletePendingStore.HasPending(path) || PageRotationPendingStore.HasPending(path);
+        public static bool HasPendingEdits(string path) => AnnotationStore.HasPending(path) || OcrPendingStore.HasPending(path) || TextEditPendingStore.HasPending(path) || ObjectDeletePendingStore.HasPending(path) || PageRotationPendingStore.HasPending(path) || BookmarkPendingStore.HasPending(path);
 
         public static async Task<string> GetAsync(string path)
         {
             if (!HasPendingEdits(path)) return path;
             string key = AnnotationStore.Normalize(path);
-            long version = (((AnnotationStore.Version(path) * 100003L + OcrPendingStore.Version(path)) * 100003L + TextEditPendingStore.Version(path)) * 100003L + ObjectDeletePendingStore.Version(path)) * 100003L + PageRotationPendingStore.Version(path);
+            long version = ((((AnnotationStore.Version(path) * 100003L + OcrPendingStore.Version(path)) * 100003L + TextEditPendingStore.Version(path)) * 100003L + ObjectDeletePendingStore.Version(path)) * 100003L + PageRotationPendingStore.Version(path)) * 100003L + BookmarkPendingStore.Version(path);
             if (_copies.TryGetValue(key, out var existing) && existing.Version == version && File.Exists(existing.Copy)) return existing.Copy;
 
             var changes = AnnotationStore.Pending(path);
@@ -34,9 +34,10 @@ namespace XTPdfMergeApp.Services
             var textEdits = TextEditPendingStore.All(path);
             var objectDeletes = ObjectDeletePendingStore.All(path);
             var turns = PageRotationPendingStore.All(path);
+            var bookmarks = BookmarkPendingStore.All(path);
             Directory.CreateDirectory(Folder);
             string copy = Path.Combine(Folder, $"{Path.GetFileNameWithoutExtension(path)}-{Guid.NewGuid():N}.pdf");
-            await Task.Run(() => Write(path, copy, changes, ocr, turns));
+            await Task.Run(() => Write(path, copy, changes, ocr, turns, bookmarks));
             if (objectDeletes.Count > 0) await ObjectEditService.DeleteAsync(copy, objectDeletes, ObjectProgress("Preparing a copy: removing objects")).ConfigureAwait(false); // first: their positions are those of the file
             if (textEdits.Count > 0) // the copy shows the edited text to Find, print and export: old characters out, then the new text in
             {
@@ -72,13 +73,15 @@ namespace XTPdfMergeApp.Services
             var textEdits = TextEditPendingStore.All(path);
             var objectDeletes = ObjectDeletePendingStore.All(path);
             var turns = PageRotationPendingStore.All(path);
-            PdfPageEditService.EditInPlace(path, Describe(changes, ocr.Count, textEdits.Count, objectDeletes.Count, turns.Count), doc =>
+            var bookmarks = BookmarkPendingStore.All(path);
+            PdfPageEditService.EditInPlace(path, Describe(changes, ocr.Count, textEdits.Count, objectDeletes.Count, turns.Count, bookmarks.Count), doc =>
             {
+                if (bookmarks.Count > 0) BookmarkPendingStore.Apply(doc, bookmarks); // in the order they were made
                 found.Clear(); // lần ghi có thể chạy lại trên bản mới của file (người khác lưu chen vào)
                 PdfQuickAnnotationService.ApplyChanges(doc, changes, found);
                 if (ocr.Count > 0) PdfOcrWriter.ApplyTo(doc, ocr);
                 if (turns.Count > 0) PageRotationPendingStore.Apply(doc, turns); // last: everything above was placed on the page as it is in the file
-            }, ocr.Count > 0 || textEdits.Count > 0 || objectDeletes.Count > 0 || turns.Count > 0 ? PdfPermissionOperation.Modify : PdfPermissionOperation.Annotate);
+            }, ocr.Count > 0 || textEdits.Count > 0 || objectDeletes.Count > 0 || turns.Count > 0 || bookmarks.Count > 0 ? PdfPermissionOperation.Modify : PdfPermissionOperation.Annotate);
             // objects first (their positions are those of the file), then the edited text
             if (objectDeletes.Count > 0) ObjectEditService.DeleteAsync(path, objectDeletes, ObjectProgress("Saving: removing objects")).GetAwaiter().GetResult();
             // The edited text goes in as further incremental updates: the old characters are taken off the page, then the new text is written.
@@ -99,7 +102,7 @@ namespace XTPdfMergeApp.Services
         private static IProgress<(int Done, int Total)> ObjectProgress(string text)
             => new Progress<(int Done, int Total)>(p => TaskProgress.Report($"{text}: page {p.Done} of {p.Total}…", p.Done, p.Total));
 
-        private static string Describe(IReadOnlyList<QuickAnnotationChange> changes, int ocrPages = 0, int textEdits = 0, int objects = 0, int turned = 0)
+        private static string Describe(IReadOnlyList<QuickAnnotationChange> changes, int ocrPages = 0, int textEdits = 0, int objects = 0, int turned = 0, int bookmarks = 0)
         {
             int added = changes.Count(c => c.Remove == null && c.Add != null);
             int removed = changes.Count(c => c.Add == null && c.Remove != null);
@@ -114,15 +117,17 @@ namespace XTPdfMergeApp.Services
             if (textEdits > 0) extra.Add($"{textEdits} text edit{(textEdits == 1 ? "" : "s")}");
             if (objects > 0) extra.Add($"{objects} object{(objects == 1 ? "" : "s")} removed");
             if (turned > 0) extra.Add($"{turned} page{(turned == 1 ? "" : "s")} turned");
-            if (ocrPages > 0 || textEdits > 0 || objects > 0 || turned > 0) return string.Join(", ", extra);
+            if (bookmarks > 0) extra.Add($"{bookmarks} bookmark edit{(bookmarks == 1 ? "" : "s")}");
+            if (ocrPages > 0 || textEdits > 0 || objects > 0 || turned > 0 || bookmarks > 0) return string.Join(", ", extra);
             return "Annotations " + string.Join(" ", parts);
         }
 
-        private static void Write(string path, string copy, IReadOnlyList<QuickAnnotationChange> changes, IReadOnlyList<OcrPageResult> ocr, IReadOnlyDictionary<int, int> turns)
+        private static void Write(string path, string copy, IReadOnlyList<QuickAnnotationChange> changes, IReadOnlyList<OcrPageResult> ocr, IReadOnlyDictionary<int, int> turns, IReadOnlyList<BookmarkEdit> bookmarks)
         {
             using var reader = PdfSecurityService.AuthorizedReaderFor(path, PdfPermissionOperation.Annotate);
             using var writer = new PdfWriter(copy);
             using var doc = new PdfDocument(reader, writer, new StampingProperties().UseAppendMode());
+            if (bookmarks.Count > 0) BookmarkPendingStore.Apply(doc, bookmarks);
             PdfQuickAnnotationService.ApplyChanges(doc, changes);
             if (ocr.Count > 0) PdfOcrWriter.ApplyTo(doc, ocr);
             if (turns.Count > 0) PageRotationPendingStore.Apply(doc, turns);

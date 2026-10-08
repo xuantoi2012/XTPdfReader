@@ -357,10 +357,15 @@ internal sealed class BatchFindWindow : XTWindow
         int noText = 0, rotated = 0;
         bool matchCase = _matchCase.IsChecked == true;
         var found = new List<BatchHit>();
+        int total = groups.Sum(g => g.Pages.Count), before = 0;
         foreach (var (row, pages) in groups)
         {
             var a = _areas[row.Key];
-            var answers = await TextEditService.GetAreaRunsAsync(_path, pages, a.U1, a.V1, a.U2, a.V2);
+            int offset = before;
+            int seen = 0;
+            var report = new Progress<int>(_ => ShowProgress("Reading the text", offset + ++seen, total)); // reported on this thread
+            var answers = await TextEditService.GetAreaRunsAsync(_path, pages, a.U1, a.V1, a.U2, a.V2, n => ((IProgress<int>)report).Report(n));
+            before += pages.Count;
             foreach (var (page, hasText) in answers)
             {
                 if (!hasText) { noText++; continue; }
@@ -378,6 +383,7 @@ internal sealed class BatchFindWindow : XTWindow
         var notes = new List<string>();
         if (noText > 0) notes.Add($"{noText} page{(noText == 1 ? " has" : "s have")} no text layer (scans or strokes: use Drawn object)");
         if (rotated > 0) notes.Add($"{rotated} rotated page{(rotated == 1 ? " was" : "s were")} skipped");
+        TaskProgress.End();
         _status.Text = $"{_hits.Count} found on {_hits.Select(h => h.Page).Distinct().Count()} page(s)." + (notes.Count > 0 ? " " + string.Join("; ", notes) + "." : "") + note;
         _replaceButton.IsEnabled = _deleteButton.IsEnabled = _hits.Count > 0;
     }
@@ -385,13 +391,16 @@ internal sealed class BatchFindWindow : XTWindow
     private async Task FindObjectsAsync(List<(PaperGroupRow Row, List<int> Pages)> groups, string note)
     {
         var found = new List<PdfObjectRef>();
-        int searched = 0;
+        int searched = 0, total = groups.Sum(g => g.Pages.Count);
         foreach (var (row, pages) in groups)
         {
             var a = _areas[row.Key];
+            int offset = searched;
             searched += pages.Count;
-            found.AddRange(await ObjectEditService.FindInAreaAsync(_path, pages, a.U1, a.V1, a.U2, a.V2, _touch.IsChecked == true));
+            var progress = new Progress<(int Done, int Total)>(p => ShowProgress("Looking for drawn objects", offset + p.Done, total));
+            found.AddRange(await ObjectEditService.FindInAreaAsync(_path, pages, a.U1, a.V1, a.U2, a.V2, _touch.IsChecked == true, null, progress));
         }
+        TaskProgress.End();
         foreach (var group in found.GroupBy(o => o.PageNumber).OrderBy(g => g.Key))
         {
             var kinds = group.GroupBy(o => o.Kind).Select(k => $"{k.Count()} {k.Key}{(k.Count() == 1 ? "" : "s")}");
@@ -404,6 +413,13 @@ internal sealed class BatchFindWindow : XTWindow
         // show what was found on the page drawn on
         int shown = _picker.CurrentPage;
         _picker.ShowMarks(found.Where(o => o.PageNumber == shown).Select(o => (o.X0 / o.PageWidth, o.Y0 / o.PageHeight, o.X1 / o.PageWidth, o.Y1 / o.PageHeight)));
+    }
+
+    /// <summary>"Looking for drawn objects: page 12 of 277" in the window and in the reader's status bar (the window can be left open while it works).</summary>
+    private void ShowProgress(string what, int done, int total)
+    {
+        _status.Text = $"{what}: page {done} of {total}…";
+        TaskProgress.Report($"{what}: page {done} of {total}…", done, total);
     }
 
     // ── act ──────────────────────────────────────────────────────────

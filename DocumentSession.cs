@@ -30,6 +30,7 @@ namespace XTPdfMergeApp
         {
             _dispatcher = dispatcher;
             AnnotationStore.PendingChanged += _ => UpdateAnnotationDirty();
+            Services.BookmarkPendingStore.PendingChanged += changed => { if (_dispatcher.CheckAccess()) UpdateAnnotationDirty(); else _dispatcher.InvokeAsync(UpdateAnnotationDirty); };
             Services.PageRotationPendingStore.PendingChanged += changed => { if (_dispatcher.CheckAccess()) UpdateAnnotationDirty(); else _dispatcher.InvokeAsync(UpdateAnnotationDirty); };
             Services.TextEdit.ObjectDeletePendingStore.PendingChanged += changed => { if (_dispatcher.CheckAccess()) UpdateAnnotationDirty(); else _dispatcher.InvokeAsync(UpdateAnnotationDirty); };
             Services.TextEdit.TextEditPendingStore.PendingChanged += changed => { if (_dispatcher.CheckAccess()) UpdateAnnotationDirty(); else _dispatcher.InvokeAsync(UpdateAnnotationDirty); };
@@ -486,6 +487,15 @@ namespace XTPdfMergeApp
         }
 
         // ── Xoay trang THẬT (lưu file) ──────────────────────────────────────
+
+        /// <summary>A bookmark change kept IN MEMORY (the panel shows it at once, with Undo / Redo); Ctrl+S writes it into the file.</summary>
+        Task IReaderPageEditHost.ApplyBookmarkEditAsync(string path, Services.BookmarkEdit edit)
+        {
+            if (!Controls.PdfPermissionDialog.Require(OwnerWindow, new[] { path }, PdfPermissionOperation.Modify)) return Task.CompletedTask;
+            _workspace.Execute(new Workspace.BookmarkEditCommand(path, edit));
+            NotifyStatusChanged();
+            return Task.CompletedTask;
+        }
 
         /// <summary>Pages turned IN MEMORY (shown turned at once, with Undo / Redo); Ctrl+S writes the new /Rotate into the file.</summary>
         Task IReaderPageEditHost.RotatePagesAsync(IReadOnlyList<PageRow> pages, int deltaDegrees)
@@ -1022,7 +1032,7 @@ namespace XTPdfMergeApp
             if (IsTempWindow(group)) saveAs = true;
             if (!saveAs && !group.IsDirty) return true;
             if (!saveAs && !await Controls.PdfPermissionDialog.RequireAsync(OwnerWindow, new[] { target },
-                    group.OnlyAnnotationsDirty && !Services.Ocr.OcrPendingStore.HasPending(target) && !Services.TextEdit.TextEditPendingStore.HasPending(target) && !Services.TextEdit.ObjectDeletePendingStore.HasPending(target) && !Services.PageRotationPendingStore.HasPending(target) ? PdfPermissionOperation.Annotate : PdfPermissionOperation.Modify)) return false;
+                    group.OnlyAnnotationsDirty && !Services.Ocr.OcrPendingStore.HasPending(target) && !Services.TextEdit.TextEditPendingStore.HasPending(target) && !Services.TextEdit.ObjectDeletePendingStore.HasPending(target) && !Services.PageRotationPendingStore.HasPending(target) && !Services.BookmarkPendingStore.HasPending(target) ? PdfPermissionOperation.Annotate : PdfPermissionOperation.Modify)) return false;
             if (!saveAs && !group.OnlyAnnotationsDirty && (await PdfSecurityService.ReadAsync(target)).IsEncrypted)
             {
                 if (AppDialog.Show(OwnerWindow, "Page structure changes require rewriting this PDF. Save as an unprotected copy instead?\n\nThe original encrypted file keeps its password and permissions.",
@@ -1059,7 +1069,7 @@ namespace XTPdfMergeApp
         private async Task<bool> SaveAnnotationsInPlaceAsync(string target)
         {
             var changes = AnnotationStore.Pending(target);
-            if (changes.Count == 0 && !Services.Ocr.OcrPendingStore.HasPending(target) && !Services.TextEdit.TextEditPendingStore.HasPending(target) && !Services.TextEdit.ObjectDeletePendingStore.HasPending(target) && !Services.PageRotationPendingStore.HasPending(target)) return true;
+            if (changes.Count == 0 && !Services.Ocr.OcrPendingStore.HasPending(target) && !Services.TextEdit.TextEditPendingStore.HasPending(target) && !Services.TextEdit.ObjectDeletePendingStore.HasPending(target) && !Services.PageRotationPendingStore.HasPending(target) && !Services.BookmarkPendingStore.HasPending(target)) return true;
             await _sourceEditGate.WaitAsync();
             Mouse.OverrideCursor = Cursors.Wait;
             try
@@ -1294,6 +1304,7 @@ namespace XTPdfMergeApp
         /// <summary>Trang đang chọn trong Organizer của window này, theo thứ tự trong window.</summary>
         IReadOnlyList<PageRow> GetSelectedPages(DocumentGroup group);
         Task RotatePagesAsync(IReadOnlyList<PageRow> pages, int deltaDegrees);
+        Task ApplyBookmarkEditAsync(string path, Services.BookmarkEdit edit);
         Task InsertPagesFromFileAsync(DocumentGroup target, int insertIndex);
         Task ExtractPagesAsync(DocumentGroup group, IReadOnlyList<PageRow> pages);
         void DeletePages(DocumentGroup group, IReadOnlyList<PageRow> pages);

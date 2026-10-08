@@ -94,7 +94,10 @@ namespace XTPdfMergeApp.Services
         /// thêm byte (đối tượng mới có mặt trong file) nhưng /First,/Last của mục cha không trỏ tới nó nên
         /// đọc lại không thấy — đã kiểm chứng bằng Tests/Program.cs --add-bookmark trước khi đổi sang cách này.</summary>
         public static void AddBookmark(string path, IReadOnlyList<int> parentPath, string title, int pageNumber)
-            => PdfPageEditService.EditInPlace(path, "Bookmarks edited", doc =>
+            => PdfPageEditService.EditInPlace(path, "Bookmarks edited", doc => ApplyAdd(doc, parentPath, title, pageNumber));
+
+        /// <summary>The same on an open document (a bookmark edit that waited for Save is written this way).</summary>
+        internal static void ApplyAdd(PdfDocument doc, IReadOnlyList<int> parentPath, string title, int pageNumber)
             {
                 if (pageNumber < 1 || pageNumber > doc.GetNumberOfPages())
                     throw new ArgumentOutOfRangeException(nameof(pageNumber));
@@ -120,21 +123,25 @@ namespace XTPdfMergeApp.Services
                 parentDict.Put(PdfName.Count, new PdfNumber(Math.Abs(count) + 1));
                 parentDict.SetModified();
                 item.SetModified();
-            });
+            }
 
         public static void RenameBookmark(string path, IReadOnlyList<int> nodePath, string newTitle)
-            => PdfPageEditService.EditInPlace(path, "Bookmarks edited", doc =>
+            => PdfPageEditService.EditInPlace(path, "Bookmarks edited", doc => ApplyRename(doc, nodePath, newTitle));
+
+        internal static void ApplyRename(PdfDocument doc, IReadOnlyList<int> nodePath, string newTitle)
             {
                 var root = GetOrCreateRoot(doc);
                 var content = Navigate(root, nodePath).GetContent();
                 content.Put(PdfName.Title, new PdfString(newTitle, PdfEncodings.UNICODE_BIG));
                 content.SetModified();
-            });
+            }
 
         /// <summary>Xoá mục và toàn bộ mục con của nó (mục con trở thành rác không ai trỏ tới trong file —
         /// vô hại, không hiện ra ở đâu cả — thay vì dựng lại toàn bộ cây con để xoá đúng nghĩa).</summary>
         public static void DeleteBookmark(string path, IReadOnlyList<int> nodePath)
-            => PdfPageEditService.EditInPlace(path, "Bookmarks edited", doc =>
+            => PdfPageEditService.EditInPlace(path, "Bookmarks edited", doc => ApplyDelete(doc, nodePath));
+
+        internal static void ApplyDelete(PdfDocument doc, IReadOnlyList<int> nodePath)
             {
                 var root = GetOrCreateRoot(doc);
                 var parentPath = nodePath.Take(nodePath.Count - 1).ToArray();
@@ -150,7 +157,7 @@ namespace XTPdfMergeApp.Services
                 int newCount = Math.Max(0, Math.Abs(count) - 1);
                 if (newCount == 0) parentDict.Remove(PdfName.Count); else parentDict.Put(PdfName.Count, new PdfNumber(newCount));
                 parentDict.SetModified();
-            });
+            }
 
         /// <summary>Moves one bookmark among its siblings. The node, all of its descendants, destination and
         /// custom outline metadata stay on the same indirect object; only the sibling linked list is rewired.
@@ -159,7 +166,13 @@ namespace XTPdfMergeApp.Services
         {
             if (delta == 0 || nodePath.Count == 0) return false;
             bool moved = false;
-            PdfPageEditService.EditInPlace(path, "Bookmarks edited", doc =>
+            PdfPageEditService.EditInPlace(path, "Bookmarks edited", doc => moved = ApplyMove(doc, nodePath, delta));
+            return moved;
+        }
+
+        internal static bool ApplyMove(PdfDocument doc, IReadOnlyList<int> nodePath, int delta)
+        {
+            if (delta == 0 || nodePath.Count == 0) return false;
             {
                 var root = GetOrCreateRoot(doc);
                 var parentPath = nodePath.Take(nodePath.Count - 1).ToArray();
@@ -169,15 +182,14 @@ namespace XTPdfMergeApp.Services
                 if (oldIndex < 0 || oldIndex >= siblings.Count)
                     throw new InvalidOperationException("This bookmark no longer exists — refresh the Bookmarks panel and try again.");
                 int newIndex = Math.Clamp(oldIndex + delta, 0, siblings.Count - 1);
-                if (newIndex == oldIndex) return;
+                if (newIndex == oldIndex) return false;
 
                 var item = siblings[oldIndex];
                 siblings.RemoveAt(oldIndex);
                 siblings.Insert(newIndex, item);
                 RelinkChildren(parent, siblings);
-                moved = true;
-            });
-            return moved;
+                return true;
+            }
         }
 
         /// <summary>PDF outlines are an ordered doubly linked list (/First, /Last, /Prev, /Next). Relinking

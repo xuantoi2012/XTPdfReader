@@ -268,7 +268,7 @@ internal static partial class Program
             window.FindBox.Text = "BV-";
             window.ReplaceBox.Text = "KC-";
             await window.FindAsync();
-            Check(window.Hits.Count == 3 && window.Hits.Select(h => h.Page).SequenceEqual(new[] { 1, 2, 4 }), $"Three hits, pages 1, 2 and 4 ({string.Join(",", window.Hits.Select(h => h.Page))})");
+            Check(window.Hits.Count == 3 && window.Hits.Select(h => h.Page).SequenceEqual(new[] { 1, 2, 4 }), $"Three hits, pages 1, 2 and 4 ({string.Join(",", window.Hits.Select(h => h.Page))}) [{window.StatusText}]");
             Check(window.Hits.All(h => h.Text.StartsWith("Số hiệu: BV-0")) && window.Hits[0].After == "Số hiệu: KC-01", $"The list shows the text and what it becomes (\"{window.Hits.FirstOrDefault()?.After}\")");
             Check(window.StatusText.Contains("1 page has no text layer"), "The page without text is counted: " + window.StatusText);
             Check(window.Hits.All(h => !h.Text.Contains("outside")), "Text outside the area is not found");
@@ -642,6 +642,62 @@ internal static partial class Program
             using (var doc = new PdfDocument(new PdfReader(path))) Check(doc.GetPage(1).GetRotation() == 180 && doc.GetPage(2).GetRotation() == 0, "The file has /Rotate 180 on page 1 only");
             Check(!PageRotationPendingStore.HasPending(path) && !group.IsDirty, "…and nothing is pending any more");
             Check(XTHistory.Read(path).Any(h => h.Action.Contains("1 page turned")), "The file's history has a line for it");
+        }, copyFrom: source);
+    }
+
+    static string Describe(IReadOnlyList<PdfBookmarkNode> tree, string indent = "")
+        => string.Concat(tree.Select(n => $"{indent}{n.Title}@{n.PageNumber}[{string.Join(".", n.Path)}]\n" + Describe(n.Children, indent + " ")));
+
+    /// <summary>Bookmark changes wait for Save: the panel's tree is the file's tree with them done, the model agrees with what the file gets, Undo takes one back, Save writes them in order.</summary>
+    static void TestBookmarkEditsWaitForSave()
+    {
+        string folder = System.IO.Path.Combine(Output, "bookmarks-source");
+        if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        Directory.CreateDirectory(folder);
+        string source = System.IO.Path.Combine(folder, "book.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(source)))
+        {
+            for (int i = 0; i < 4; i++) doc.AddNewPage();
+            var root = doc.GetOutlines(true);
+            var a = root.AddOutline("Chapter A"); a.AddDestination(iText.Kernel.Pdf.Navigation.PdfExplicitDestination.CreateFit(doc.GetPage(1)));
+            a.AddOutline("A.1").AddDestination(iText.Kernel.Pdf.Navigation.PdfExplicitDestination.CreateFit(doc.GetPage(2)));
+            var b = root.AddOutline("Chapter B"); b.AddDestination(iText.Kernel.Pdf.Navigation.PdfExplicitDestination.CreateFit(doc.GetPage(3)));
+        }
+        RunReaderFlow("bookmarks", async f =>
+        {
+            string path = f.Path;
+            var host = (XTPdfMergeApp.IReaderPageEditHost)f.Window.Session;
+            var group = f.Window.Session.Documents[0];
+            string Hash() => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path)));
+            string before = Hash();
+            var fileTree = PdfOutlineService.ReadBookmarks(path);
+
+            var edits = new List<BookmarkEdit>
+            {
+                new("add", t => BookmarkModel.Add(t, new[] { 1 }, "B.1", 4), d => PdfOutlineService.ApplyAdd(d, new[] { 1 }, "B.1", 4)),
+                new("rename", t => BookmarkModel.Rename(t, new[] { 0 }, "Part A"), d => PdfOutlineService.ApplyRename(d, new[] { 0 }, "Part A")),
+                new("move", t => BookmarkModel.Move(t, new[] { 1 }, -1), d => PdfOutlineService.ApplyMove(d, new[] { 1 }, -1)),
+                new("delete", t => BookmarkModel.Delete(t, new[] { 1, 0 }), d => PdfOutlineService.ApplyDelete(d, new[] { 1, 0 }))
+            };
+            foreach (var e in edits) await host.ApplyBookmarkEditAsync(path, e);
+            await Task.Delay(300);
+            Check(BookmarkPendingStore.Count(path) == 4 && group.IsDirty && Hash() == before, "Four bookmark edits are pending; the tab shows the mark and the file is not touched");
+            var shown = BookmarkPendingStore.Replay(path, fileTree);
+            Check(shown.Select(n => n.Title).SequenceEqual(new[] { "Chapter B", "Part A" }) && shown[0].Children.Count == 1 && shown[1].Children.Count == 0, $"The panel's tree has them done: {string.Join(", ", shown.Select(n => n.Title))}");
+
+            host.Undo();
+            await Task.Delay(200);
+            var undone = BookmarkPendingStore.Replay(path, fileTree);
+            Check(BookmarkPendingStore.Count(path) == 3 && undone[1].Children.Count == 1, "Undo takes the last one back (the sub-bookmark returns)");
+            host.Redo();
+            await Task.Delay(200);
+
+            Check(await host.SaveGroupAsync(group, saveAs: false), "Save writes them");
+            await Task.Delay(600);
+            var written = PdfOutlineService.ReadBookmarks(path);
+            Check(Describe(written) == Describe(shown), "The file's tree is the tree the panel showed:\n" + Describe(written));
+            Check(!BookmarkPendingStore.HasPending(path) && !group.IsDirty, "Nothing is pending any more");
+            Check(XTHistory.Read(path).Any(h => h.Action.Contains("4 bookmark edits")), "The file's history has a line for them");
         }, copyFrom: source);
     }
 }
