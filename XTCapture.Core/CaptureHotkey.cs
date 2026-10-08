@@ -11,11 +11,11 @@ namespace XTCapture
     {
         public const uint Alt = 1, Ctrl = 2, Shift = 4, Win = 8;
 
-        /// <summary>Offered in Settings, most wanted first. Win+C belongs to Windows (Copilot) on many PCs, so it often cannot be taken.</summary>
-        public static readonly string[] Presets = { "Win+C", "Win+Alt+C", "Ctrl+Alt+C", "Ctrl+Shift+C", "Ctrl+Alt+F9", "PrintScreen" };
+        /// <summary>Offered in Settings, most wanted first. Win+Alt+C is the default (chosen by the owner). Win+C belongs to Windows (Copilot) on many PCs, so it often cannot be taken; it stays in the list for PCs where it is free.</summary>
+        public static readonly string[] Presets = { "Win+Alt+C", "Ctrl+Alt+C", "Ctrl+Shift+C", "Ctrl+Alt+F9", "PrintScreen", "Win+C" };
 
         /// <summary>Tried in this order when the chosen shortcut is taken by another program.</summary>
-        public static readonly string[] Fallbacks = { "Win+Alt+C", "Ctrl+Alt+C", "Ctrl+Shift+C", "Ctrl+Alt+F9" };
+        public static readonly string[] Fallbacks = { "Ctrl+Alt+C", "Ctrl+Shift+C", "Ctrl+Alt+F9", "Win+Alt+C" };
 
         public static CaptureHotkey? Parse(string? text)
         {
@@ -107,7 +107,7 @@ namespace XTCapture
             {
                 if (!TryRegister(fallback!.Value)) continue;
                 Status = HotkeyStatus.Fallback;
-                Message = $"{wanted} is used by another program (Windows keeps Win+C for Copilot on many PCs): {fallback} starts a capture instead";
+                Message = $"{wanted} is used by another program{(wanted.ToString() == "Win+C" ? " (Windows keeps Win+C for Copilot on many PCs)" : "")}: {fallback} starts a capture instead";
                 return Status;
             }
             Status = HotkeyStatus.Unavailable;

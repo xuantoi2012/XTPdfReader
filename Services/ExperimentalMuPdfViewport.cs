@@ -95,6 +95,8 @@ internal static class ExperimentalMuPdfViewport
     }
     private static volatile bool _failed;
     private static readonly Timer IdleTimer = new(_ => TrimIdle(), null, 10000, 10000);
+    /// <summary>The runtime settings (python, packages, worker) — also used to start other scripts of the same embedded Python (OCR).</summary>
+    internal static string? RuntimeSetting(string name) => Setting(name);
     private static string? Setting(string name) => Environment.GetEnvironmentVariable(name) ??
         (LocalSettings.TryGetValue(name, out var value) ? value : DefaultSetting(name));
     private static string? DefaultSetting(string name)

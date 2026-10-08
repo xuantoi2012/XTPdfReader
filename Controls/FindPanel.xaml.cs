@@ -222,6 +222,11 @@ namespace XTPdfMergeApp.Controls
             RaiseChanged();
         }
 
+        /// <summary>The hint under the results offers OCR for the scanned pages that could not be searched.</summary>
+        public event Action? OcrRequested;
+
+        private void NoTextOcrLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e) => OcrRequested?.Invoke();
+
         private void QueueRebuild(string query, bool multiFile)
         {
             if (_rebuildQueued) return;

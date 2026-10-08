@@ -32,6 +32,7 @@ namespace XTPdfMergeApp
                 return (thisFile, all);
             };
             find.HitActivated += OnFindHitActivated;
+            find.OcrRequested += StartOcr;
             find.ResultsChanged += (hits, current, index) =>
             {
                 _findHits = hits;

@@ -135,7 +135,11 @@
                             <Path Data="{StaticResource Ui.Icon.info}" Fill="{DynamicResource Ui.Accent}"/>
                         </Canvas>
                     </Viewbox>
-                    <TextBlock x:Name="NoTextText" TextWrapping="Wrap" Width="250" LineHeight="17" Foreground="{DynamicResource Ui.Text}"/>
+                    <StackPanel>
+                        <TextBlock x:Name="NoTextText" TextWrapping="Wrap" Width="250" LineHeight="17" Foreground="{DynamicResource Ui.Text}"/>
+                        <TextBlock x:Name="NoTextOcrLink" Text="Read the scanned pages (OCR)…" Margin="0,6,0,0" Cursor="Hand" Foreground="{DynamicResource Ui.Accent}" FontWeight="SemiBold"
+                                   ToolTip="Make a searchable copy of this file" MouseLeftButtonUp="NoTextOcrLink_Click"/>
+                    </StackPanel>
                 </StackPanel>
             </Border>
         </StackPanel>

@@ -192,6 +192,7 @@ namespace XTPdfMergeApp
             Cmd("Find in document…", "Ctrl+F", "search", OpenFind);
             if (_readerGroup != null) Cmd("Export / split PDF…", "Ctrl+Shift+E", "export", () => OpenExport(preferFlatten: false));
             if (_readerGroup != null) Cmd("Print…", "Ctrl+P", "print", () => ReaderPrint_Click(this, new RoutedEventArgs()));
+            if (_readerGroup != null) Cmd("OCR: read the scanned pages into a searchable copy…", "", "selecttext", StartOcr);
             if (_readerGroup != null) Cmd("Document security and permissions…", "", "lock", () => ReaderSecurity_Click(this, new RoutedEventArgs()));
             Cmd("Undo", "Ctrl+Z", "undo", () => EditHost?.Undo());
             Cmd("Redo", "Ctrl+Y", "redo", () => EditHost?.Redo());

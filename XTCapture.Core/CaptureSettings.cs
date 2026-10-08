@@ -25,8 +25,8 @@ namespace XTCapture
             set { Set("FloatingX", value.X); Set("FloatingY", value.Y); }
         }
 
-        /// <summary>The capture shortcut as text, e.g. "Win+C".</summary>
-        public static string Hotkey { get => GetString(nameof(Hotkey), "Win+C"); set => Set(nameof(Hotkey), value); }
+        /// <summary>The capture shortcut as text, e.g. "Win+Alt+C".</summary>
+        public static string Hotkey { get => GetString(nameof(Hotkey), "Win+Alt+C"); set => Set(nameof(Hotkey), value); }
 
         /// <summary>True until the first run has switched on the defaults (start with Windows, the welcome message).</summary>
         public static bool FirstRun { get => GetInt(nameof(FirstRun), 1) == 1; set => Set(nameof(FirstRun), value ? 1 : 0); }

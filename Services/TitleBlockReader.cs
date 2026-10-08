@@ -36,26 +36,28 @@ namespace XTPdfMergeApp.Services
     /// </summary>
     internal static class TitleBlockReader
     {
-        /// <summary>Hình chữ nhật trong không gian trang gốc (chưa xoay) của vùng <paramref name="region"/> trên trang <paramref name="page"/>.</summary>
-        public static Rectangle ToUserSpace(PdfPage page, TitleBlockRegion region)
+        /// <summary>Điểm (fx, fy) — phân số của trang NHÌN THẤY, gốc ở góc trên trái — trong không gian trang gốc (chưa xoay).</summary>
+        public static (double X, double Y) MapPoint(PdfPage page, double fx, double fy)
         {
             var box = page.GetMediaBox();
             double x0 = box.GetX(), y0 = box.GetY(), w = box.GetWidth(), h = box.GetHeight();
             int rotation = ((page.GetRotation() % 360) + 360) % 360;
             double dispW = rotation % 180 == 0 ? w : h, dispH = rotation % 180 == 0 ? h : w;
-            (double X, double Y) Map(double fx, double fy)
+            double dx = fx * dispW, dy = fy * dispH;
+            return rotation switch
             {
-                double dx = fx * dispW, dy = fy * dispH;
-                return rotation switch
-                {
-                    90 => (x0 + dy, y0 + dx),
-                    180 => (x0 + w - dx, y0 + dy),
-                    270 => (x0 + w - dy, y0 + h - dx),
-                    _ => (x0 + dx, y0 + h - dy)
-                };
-            }
-            var a = Map(region.Left, region.Top);
-            var b = Map(region.Right, region.Bottom);
+                90 => (x0 + dy, y0 + dx),
+                180 => (x0 + w - dx, y0 + dy),
+                270 => (x0 + w - dy, y0 + h - dx),
+                _ => (x0 + dx, y0 + h - dy)
+            };
+        }
+
+        /// <summary>Hình chữ nhật trong không gian trang gốc (chưa xoay) của vùng <paramref name="region"/> trên trang <paramref name="page"/>.</summary>
+        public static Rectangle ToUserSpace(PdfPage page, TitleBlockRegion region)
+        {
+            var a = MapPoint(page, region.Left, region.Top);
+            var b = MapPoint(page, region.Right, region.Bottom);
             return new Rectangle((float)Math.Min(a.X, b.X), (float)Math.Min(a.Y, b.Y), (float)Math.Abs(a.X - b.X), (float)Math.Abs(a.Y - b.Y));
         }
 

@@ -218,6 +218,8 @@
                                                  ToolTip="Print (Ctrl+P)" Click="ReaderPrint_Click"/>
                                     <xt:XTButton x:Name="ReaderSecurityButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.lock}" Text="Protect"
                                                  ToolTip="Show document encryption and permissions" Click="ReaderSecurity_Click"/>
+                                    <xt:XTButton x:Name="ReaderOcrButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.selecttext}" Text="OCR"
+                                                 ToolTip="Read the text of scanned pages (Vietnamese and Latin letters) into a searchable copy" Click="ReaderOcr_Click"/>
                                 </StackPanel>
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Document"/>
                             </StackPanel>

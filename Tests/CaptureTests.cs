@@ -185,7 +185,7 @@ internal static partial class Program
     /// <summary>Settings: defaults, saved values, the Reader's theme choice is read from the Reader's key.</summary>
     static void TestCaptureSettings() => WithCaptureTestSettings(() =>
     {
-        Check(CaptureSettings.ShowFloatingButton && CaptureSettings.Hotkey == "Win+C" && !CaptureSettings.TransparentOutside && CaptureSettings.FirstRun && CaptureSettings.CleanupDays == 90, "Defaults: corner button on, Win+C, white outside, first run, 90 days");
+        Check(CaptureSettings.ShowFloatingButton && CaptureSettings.Hotkey == "Win+Alt+C" && !CaptureSettings.TransparentOutside && CaptureSettings.FirstRun && CaptureSettings.CleanupDays == 90, "Defaults: corner button on, Win+Alt+C, white outside, first run, 90 days");
         CaptureSettings.ShowFloatingButton = false;
         CaptureSettings.Hotkey = "Win+Alt+C";
         CaptureSettings.CleanupDays = 30;
