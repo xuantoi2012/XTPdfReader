@@ -493,6 +493,7 @@
                         </ToggleButton>
                         <Border Width="1" Height="18" Margin="6,0,8,0" Background="{DynamicResource Ui.Border}"/>
                         <StackPanel x:Name="FmtColors" Orientation="Horizontal" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="FmtOpacityBox" Width="70" Height="28" Margin="8,0,0,0" Focusable="False" SelectionChanged="FmtOpacity_Changed" ToolTip="Text opacity"/>
                         <Border Width="1" Height="18" Margin="8,0" Background="{DynamicResource Ui.Border}"/>
                         <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.copy}" Width="28" Height="28" IconSize="16" ToolTip="Duplicate" Click="PropDuplicate_Click"/>
                         <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.up2}" Width="28" Height="28" IconSize="16" ToolTip="Bring to front" Click="PropFront_Click"/>
@@ -551,6 +552,7 @@
                         <Border Width="1" Height="18" Margin="8,0" Background="{DynamicResource Ui.Border}"/>
                         <ComboBox x:Name="ShapeWidthBox" Width="80" Height="28" Focusable="False" SelectionChanged="ShapeWidth_Changed" ToolTip="Line width"/>
                         <ComboBox x:Name="ShapeDashBox" Width="80" Height="28" Margin="6,0,0,0" Focusable="False" SelectionChanged="ShapeDash_Changed" ToolTip="Line style"/>
+                        <ComboBox x:Name="ShapeOpacityBox" Width="70" Height="28" Margin="6,0,0,0" Focusable="False" SelectionChanged="ShapeOpacity_Changed" ToolTip="Opacity"/>
                         <Border Width="1" Height="18" Margin="8,0" Background="{DynamicResource Ui.Border}"/>
                         <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.copy}" Width="28" Height="28" IconSize="16" ToolTip="Duplicate" Click="PropDuplicate_Click"/>
                         <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.up2}" Width="28" Height="28" IconSize="16" ToolTip="Bring to front" Click="PropFront_Click"/>

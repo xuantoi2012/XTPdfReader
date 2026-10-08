@@ -166,4 +166,47 @@ internal static partial class Program
         }
         Check(dashed == 4, "Four annotations carry /BS /S /D with a 2-number pattern (got " + dashed + ")");
     });
+
+    /// <summary>Opacity: shapes and text carry it in their format, the bar changes it, and the file gets /CA and a transparent appearance.</summary>
+    static void TestOpacity() => RunReaderFlow("opacity", async f =>
+    {
+        Check(ShapeStyle.Decode("Rect|#C0392B|2|0").Opacity == 100 && new ShapeStyle("Rect", "#C0392B", 2, 0).Encode() == "Rect|#C0392B|2|0", "Old shape text is fully opaque and encodes as before");
+        Check(ShapeStyle.Decode(new ShapeStyle("Line", "#C0392B", 2, 0, ShapeStyle.Dotted, 50).Encode()) is { Opacity: 50, Dash: ShapeStyle.Dotted }, "Shape opacity and dash survive encode / decode");
+        var plain = new TextFormat("Arial", 12, "#000000", false, false);
+        Check(plain.Encode() == "Arial|12|#000000|0|0" && TextFormat.Decode(plain.Encode()).Opacity == 100, "Old text format is fully opaque and encodes as before");
+        Check(TextFormat.Decode((plain with { Opacity = 25, Width = 80 }).Encode()) is { Opacity: 25, Width: 80 }, "Text opacity survives encode / decode");
+
+        await f.AddAsync(RectSpec("xt-thick", 0.1, 0.2, 0.7, 0.3, new ShapeStyle(ShapeStyle.Line, "#C0392B", 6, 0)));
+        await f.AddAsync(RectSpec("xt-half", 0.1, 0.4, 0.7, 0.5, new ShapeStyle(ShapeStyle.Line, "#C0392B", 6, 0, ShapeStyle.Solid, 50)));
+        var text = new QuickAnnotationSpec("xt-text", QuickAnnotationKind.Typewriter, 1, 0.12, 0.05, 0.5, 0.1, "Faded text") { Format = (plain with { Size = 28, Opacity = 50 }).Encode() };
+        await f.AddAsync(text);
+        var page = await f.PageAsync();
+
+        f.Select(page.Annotations.Single(x => x.Name == "xt-thick"));
+        var box = f.Find<System.Windows.Controls.ComboBox>("ShapeOpacityBox");
+        Check(box.SelectedIndex == 0, "The bar shows 100% for an opaque shape");
+        box.SelectedIndex = Array.IndexOf(ShapeStyle.Opacities, 25);
+        await Task.Delay(1500);
+        page = await f.PageAsync();
+        Check(ShapeStyle.Decode(page.Annotations.Single(x => x.Name == "xt-thick").Format).Opacity == 25, "Choosing 25% in the bar changes the selected shape");
+
+        var typed = page.Annotations.Single(x => x.Kind == QuickAnnotationKind.Typewriter);
+        f.Select(typed);
+        var textBox = f.Find<System.Windows.Controls.ComboBox>("FmtOpacityBox");
+        Check(textBox.IsVisible && textBox.SelectedIndex == Array.IndexOf(TextFormat.Opacities, 50), "The text bar shows the box's 50%");
+        textBox.SelectedIndex = Array.IndexOf(TextFormat.Opacities, 75);
+        await Task.Delay(1500);
+        page = await f.PageAsync();
+        Check(TextFormat.Decode(page.Annotations.Single(x => x.Kind == QuickAnnotationKind.Typewriter).Format).Opacity == 75, "Choosing 75% in the text bar changes the selected text box");
+
+        f.Window.UpdateLayout();
+        SavePng(f.Find<System.Windows.FrameworkElement>("ReaderContentHost"), "opacity");
+
+        string saved = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(f.Path)!, "saved.pdf");
+        using (var writing = new PdfDocument(new PdfReader(f.Path), new PdfWriter(saved)))
+            PdfQuickAnnotationService.ApplyChanges(writing, AnnotationStore.Pending(f.Path));
+        using var doc = new PdfDocument(new PdfReader(saved));
+        var alphas = doc.GetPage(1).GetAnnotations().Select(a => a.GetPdfObject().GetAsNumber(PdfName.CA)?.DoubleValue() ?? 1.0).OrderBy(v => v).ToList();
+        Check(alphas.SequenceEqual(new[] { 0.25, 0.5, 0.75 }) || alphas.Count(v => v < 1) == 3, "Three annotations carry /CA (got " + string.Join(", ", alphas) + ")");
+    });
 }

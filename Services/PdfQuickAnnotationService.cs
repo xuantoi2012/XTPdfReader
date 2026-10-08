@@ -537,6 +537,11 @@ namespace XTPdfMergeApp.Services
             var canvas = new PdfCanvas(form, doc);
             float inner = width - 2 * TypewriterPadding, firstBaseline = height - TypewriterPadding - size * 0.9f;
             float StartX(string line) => TypewriterPadding + (format.Align == 1 ? (inner - font.GetWidth(line, size)) / 2 : format.Align == 2 ? inner - font.GetWidth(line, size) : 0);
+            if (format.Opacity < 100)
+            {
+                annot.GetPdfObject().Put(PdfName.CA, new PdfNumber(format.Opacity / 100.0));
+                canvas.SetExtGState(new PdfExtGState().SetFillOpacity(format.Opacity / 100f).SetStrokeOpacity(format.Opacity / 100f));
+            }
             canvas.BeginText().SetFontAndSize(font, size).SetFillColor(color);
             float previousX = 0;
             for (int i = 0; i < lines.Length; i++)
@@ -697,6 +702,11 @@ namespace XTPdfMergeApp.Services
             var canvas = new PdfCanvas(form, doc);
             canvas.SetStrokeColor(color).SetFillColor(color).SetLineWidth(lw).SetLineCapStyle(dash.Length > 0 && style.Dash == ShapeStyle.Dashed ? PdfCanvasConstants.LineCapStyle.BUTT : PdfCanvasConstants.LineCapStyle.ROUND).SetLineJoinStyle(PdfCanvasConstants.LineJoinStyle.ROUND);
             if (dash.Length > 0) canvas.SetLineDash(dash, 0);
+            if (style.Opacity < 100)
+            {
+                annot.GetPdfObject().Put(PdfName.CA, new PdfNumber(style.Opacity / 100.0));
+                canvas.SetExtGState(new PdfExtGState().SetFillOpacity(style.Opacity / 100f).SetStrokeOpacity(style.Opacity / 100f));
+            }
             switch (style.Type)
             {
                 case ShapeStyle.Oval:

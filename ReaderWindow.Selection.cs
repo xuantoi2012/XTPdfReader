@@ -82,7 +82,7 @@ namespace XTPdfMergeApp
             else if (spec is { Kind: QuickAnnotationKind.Shape })
             {
                 var style = ShapeStyle.Decode(spec.Format);
-                _shapeStyle = _shapeStyle with { Color = style.Color, Width = style.Width, Dash = style.Dash };
+                _shapeStyle = _shapeStyle with { Color = style.Color, Width = style.Width, Dash = style.Dash, Opacity = style.Opacity };
                 LoadShapeBar();
             }
             UpdateFormatBarVisibility();
@@ -463,6 +463,8 @@ namespace XTPdfMergeApp
                 FmtFont.Items.Add(new ComboBoxItem { Content = family, FontFamily = new FontFamily(family), Focusable = false });
             foreach (double size in TextFormat.Sizes)
                 FmtSize.Items.Add(new ComboBoxItem { Content = size.ToString("0"), Tag = size, Focusable = false });
+            foreach (int opacity in TextFormat.Opacities)
+                FmtOpacityBox.Items.Add(new ComboBoxItem { Content = opacity + "%", Tag = opacity, Focusable = false });
             foreach (string hex in TextFormat.Colors)
             {
                 var swatch = new RadioButton
@@ -509,6 +511,7 @@ namespace XTPdfMergeApp
                 FmtFont.SelectedIndex = Math.Max(0, Array.FindIndex(TextFormat.Families, f => f == _textFormat.Family));
                 FmtSize.SelectedIndex = Array.FindIndex(TextFormat.Sizes, s => Math.Abs(s - _textFormat.Size) < 0.01);
                 if (FmtSize.SelectedIndex < 0) FmtSize.Text = _textFormat.Size.ToString("0.##");
+                FmtOpacityBox.SelectedIndex = Math.Max(0, Array.IndexOf(TextFormat.Opacities, _textFormat.Opacity));
                 FmtBold.IsChecked = _textFormat.Bold;
                 FmtItalic.IsChecked = _textFormat.Italic;
                 FmtUnderline.IsChecked = _textFormat.Underline;
@@ -529,6 +532,7 @@ namespace XTPdfMergeApp
             if (show && TextFormatBar.Visibility != Visibility.Visible) LoadFormatBar();
             if (callout) LoadCalloutRow();
             CalloutRow.Visibility = callout ? Visibility.Visible : Visibility.Collapsed;
+            if (_formatBarBuilt) FmtOpacityBox.Visibility = callout ? Visibility.Collapsed : Visibility.Visible; // a callout's text has no opacity
             TextFormatBar.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
 
 
@@ -587,6 +591,13 @@ namespace XTPdfMergeApp
             var changed = Regenerated(spec) with { Color = hex };
             _selAnn = changed;
             CommitAnnotationChange(row, new QuickAnnotationChange(spec, changed), "Change colour");
+        }
+
+        private void FmtOpacity_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_formatLoading || !_formatBarBuilt || FmtOpacityBox.SelectedItem is not ComboBoxItem { Tag: int opacity }) return;
+            _textFormat = _textFormat with { Opacity = opacity };
+            FormatBarChanged();
         }
 
         private void FmtControl_Changed(object sender, RoutedEventArgs e)
@@ -653,7 +664,7 @@ namespace XTPdfMergeApp
             editor.FontFamily = new FontFamily(_textFormat.Family);
             editor.FontWeight = _textFormat.Bold ? FontWeights.Bold : FontWeights.Normal;
             editor.FontStyle = _textFormat.Italic ? FontStyles.Italic : FontStyles.Normal;
-            try { editor.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(_textFormat.Color)); }
+            try { editor.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(_textFormat.Color)) { Opacity = _annotationEditor is { Kind: QuickAnnotationKind.Typewriter } ? _textFormat.Opacity / 100.0 : 1 }; }
             catch { editor.Foreground = Brushes.Black; }
             editor.TextDecorations = _textFormat.Underline ? TextDecorations.Underline : null;
             editor.TextAlignment = _textFormat.Align switch { 1 => TextAlignment.Center, 2 => TextAlignment.Right, _ => TextAlignment.Left };

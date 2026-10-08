@@ -51,7 +51,7 @@ namespace XTPdfMergeApp
         /// <summary>Hiện hình xem trước giữa 2 điểm góc (toạ độ ReaderInteractionLayer) — dùng chung cho vẽ mới và resize.</summary>
         private void ShowShapePreview(ShapeStyle style, Point a, Point b, double ppp, double pageScale = 1)
         {
-            var brush = new SolidColorBrush(ParseWpfColor(style.Color));
+            var brush = new SolidColorBrush(ParseWpfColor(style.Color)) { Opacity = style.Opacity / 100.0 };
             double lw = Math.Max(1, style.Width * pageScale * ppp); // same effective width as the PDF appearance (Width x PageScale points)
             bool oval = style.Type == ShapeStyle.Oval;
             bool rectLike = !style.IsLine && !oval;
@@ -240,6 +240,8 @@ namespace XTPdfMergeApp
                 ShapeWidthBox.Items.Add(new ComboBoxItem { Content = width.ToString("0") + " pt", Tag = width, Focusable = false });
             for (int i = 0; i < ShapeStyle.DashNames.Length; i++)
                 ShapeDashBox.Items.Add(new ComboBoxItem { Content = ShapeStyle.DashNames[i], Tag = i, Focusable = false });
+            foreach (int opacity in ShapeStyle.Opacities)
+                ShapeOpacityBox.Items.Add(new ComboBoxItem { Content = opacity + "%", Tag = opacity, Focusable = false });
             foreach (string hex in TextFormat.Colors.Append("#FFFFFF").Where(c => c != "#FFFFFF"))
             {
                 var swatch = new RadioButton
@@ -259,6 +261,7 @@ namespace XTPdfMergeApp
             try
             {
                 ShapeWidthBox.SelectedIndex = Math.Max(0, Array.FindIndex(ShapeStyle.Widths, w => Math.Abs(w - _shapeStyle.Width) < 0.01));
+                ShapeOpacityBox.SelectedIndex = Math.Max(0, Array.IndexOf(ShapeStyle.Opacities, _shapeStyle.Opacity));
                 ShapeDashBox.SelectedIndex = Math.Clamp(_shapeStyle.Dash, 0, ShapeStyle.DashNames.Length - 1);
                 foreach (RadioButton swatch in ShapeColors.Children)
                     swatch.IsChecked = string.Equals((string)swatch.Tag, _shapeStyle.Color, StringComparison.OrdinalIgnoreCase);
@@ -280,6 +283,13 @@ namespace XTPdfMergeApp
             ShapeBarChanged();
         }
 
+        private void ShapeOpacity_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_shapeLoading || !_shapeBarBuilt || ShapeOpacityBox.SelectedItem is not ComboBoxItem { Tag: int opacity }) return;
+            _shapeStyle = _shapeStyle with { Opacity = opacity };
+            ShapeBarChanged();
+        }
+
         private void ShapeBarChanged()
         {
             AppSettings.ShapeStyleSetting = _shapeStyle.Encode();
@@ -288,7 +298,7 @@ namespace XTPdfMergeApp
             AppSettings.SetShapeStyleFor(type, (_shapeStyle with { Type = type, Corner = 0 }).Encode());
             if (_selAnn is not { Kind: QuickAnnotationKind.Shape } spec || _selRow is not { } row) return;
             var old = ShapeStyle.Decode(spec.Format);
-            var style = old with { Color = _shapeStyle.Color, Width = _shapeStyle.Width, Dash = _shapeStyle.Dash };
+            var style = old with { Color = _shapeStyle.Color, Width = _shapeStyle.Width, Dash = _shapeStyle.Dash, Opacity = _shapeStyle.Opacity };
             if (style == old) return;
             double u1 = spec.U1, v1 = spec.V1, u2 = spec.U2, v2 = spec.V2;
             if (style.IsLine && GetCachedPageAnnotations(row)?.Geometry is { } geometry)
