@@ -52,8 +52,9 @@ namespace XTPdfMergeApp
             string sub = stamp.Signature ? $"{Environment.UserName} · {DateTime.Now:dd/MM/yyyy}" : stamp.Definition.Sub;
             var (width, height) = PdfQuickAnnotationService.StampSize(stamp.Definition, sub, page.Geometry.DisplayWidth);
             double u1 = Math.Clamp(hit.U - width / 2 / page.Geometry.DisplayWidth, 0, 1), v1 = Math.Clamp(hit.V - height / 2 / page.Geometry.DisplayHeight, 0, 1);
+            string encoded = stamp.Definition.Encode(stamp.Opacity, sub);
             var spec = new QuickAnnotationSpec(NewAnnotationName(), QuickAnnotationKind.Stamp, hit.Row.PageNumber, u1, v1,
-                u1 + width / page.Geometry.DisplayWidth, v1 + height / page.Geometry.DisplayHeight, stamp.Definition.Encode(stamp.Opacity, sub));
+                u1 + width / page.Geometry.DisplayWidth, v1 + height / page.Geometry.DisplayHeight, encoded) { Format = encoded, Template = "stamp:" + stamp.Definition.Id };
             CommitAnnotationChange(hit.Row, new QuickAnnotationChange(null, spec), "Stamp");
             if ((Keyboard.Modifiers & ModifierKeys.Shift) == 0) SetReaderTool(ReaderTool.Hand);
         }

@@ -50,6 +50,11 @@ namespace XTPdfMergeApp.Services
         /// native grouping, so other viewers simply see the members as separate annotations. "" = not grouped.</summary>
         public string Group { get; init; } = "";
 
+        /// <summary>What this was made from (/XTTemplate): "stamp:{id of the stamp}" for a placed stamp or signature, so every copy of the same one can be found ("select similar"). "" = none.</summary>
+        public string Template { get; init; } = "";
+        /// <summary>The batch it was made in (/XTBatch): everything one "stamp many pages" or one batch tool made shares it. "" = none.</summary>
+        public string Batch { get; init; } = "";
+
         public bool Contains(double u, double v) => u >= U1 && u <= U2 && v >= V1 && v <= V2;
 
         /// <summary>Dịch chuyển (toạ độ trang hiển thị chuẩn hoá); highlight theo chữ dời luôn các dòng.</summary>
@@ -184,7 +189,9 @@ namespace XTPdfMergeApp.Services
                     Date = ParsePdfDate(obj.GetAsString(PdfName.M)?.ToUnicodeString() ?? obj.GetAsString(PdfName.CreationDate)?.ToUnicodeString()),
                     Resolved = state is "Completed" or "Accepted" or "Cancelled" or "Rejected",
                     Subtype = subtype.GetValue(),
-                    Group = obj.GetAsString(GroupKey)?.ToUnicodeString() ?? ""
+                    Group = obj.GetAsString(GroupKey)?.ToUnicodeString() ?? "",
+                    Template = obj.GetAsString(TemplateKey)?.ToUnicodeString() ?? "",
+                    Batch = obj.GetAsString(BatchKey)?.ToUnicodeString() ?? ""
                 });
             }
             return result;
@@ -595,15 +602,20 @@ namespace XTPdfMergeApp.Services
         private static void AddStamp(PdfDocument doc, PdfPage page, QuickAnnotationSpec spec, PdfFont font)
         {
             var geometry = GetGeometry(page);
-            var (definition, opacity) = StampDefinition.Decode(spec.Text);
+            string encoded = spec.Format.Length > 0 ? spec.Format : spec.Text;
+            var (definition, opacity) = StampDefinition.Decode(encoded);
             string sub = definition.Sub;
+            // the appearance is drawn at its natural size; the annotation's /Rect is the size the user gave it (a resized stamp), the viewer fits the first into the second
             var (width, height) = StampSize(definition, sub, geometry.DisplayWidth, font);
-            var rect = DisplayBoxToUser(geometry, spec.U1, spec.V1, width, height);
+            double boxWidth = (spec.U2 - spec.U1) * geometry.DisplayWidth, boxHeight = (spec.V2 - spec.V1) * geometry.DisplayHeight;
+            var rect = DisplayBoxToUser(geometry, spec.U1, spec.V1, boxWidth > 1 ? boxWidth : width, boxHeight > 1 ? boxHeight : height);
+            var template = spec.Template.Length > 0 || definition.Id.Length == 0 ? spec : spec with { Template = "stamp:" + definition.Id };
 
             var annot = new PdfStampAnnotation(rect);
             annot.SetStampName(new PdfName(definition.IsImage ? "Image" : "Custom"));
             annot.SetContents(new PdfString(definition.IsImage ? "Stamp" : definition.Text, PdfEncodings.UNICODE_BIG));
-            StampCommon(annot, spec);
+            StampCommon(annot, template);
+            annot.GetPdfObject().Put(FormatKey, new PdfString(encoded, PdfEncodings.UNICODE_BIG)); // the stamp can be redrawn (resized) after Save
 
             var form = new PdfFormXObject(new Rectangle(0, 0, (float)width, (float)height));
             SetRotationMatrix(form, geometry.Rotation);
@@ -1165,10 +1177,14 @@ namespace XTPdfMergeApp.Services
         // ── Dùng chung ──────────────────────────────────────────────────
 
         private static readonly PdfName GroupKey = new("XTGroup");
+        private static readonly PdfName TemplateKey = new("XTTemplate");
+        private static readonly PdfName BatchKey = new("XTBatch");
 
         private static void StampCommon(PdfMarkupAnnotation annot, QuickAnnotationSpec spec)
         {
             if (spec.Group.Length > 0) annot.GetPdfObject().Put(GroupKey, new PdfString(spec.Group));
+            if (spec.Template.Length > 0) annot.GetPdfObject().Put(TemplateKey, new PdfString(spec.Template));
+            if (spec.Batch.Length > 0) annot.GetPdfObject().Put(BatchKey, new PdfString(spec.Batch));
             annot.SetName(new PdfString(spec.Name));
             annot.SetTitle(new PdfString(spec.Author.Length > 0 ? spec.Author : Environment.UserName, PdfEncodings.UNICODE_BIG));
             annot.SetDate((spec.Date is { } date ? new PdfDate(date) : new PdfDate()).GetPdfObject());

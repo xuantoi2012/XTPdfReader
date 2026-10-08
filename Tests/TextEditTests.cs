@@ -242,6 +242,7 @@ internal static partial class Program
     static void TestBatchFindInArea()
     {
         if (!TextEditService.IsAvailable) { Console.WriteLine("Batch find: no embedded Python; skipped"); return; }
+        UseTestAreaStore("batchfind");
         string source = BuildBatchPdf(System.IO.Path.Combine(Output, "batchfind-source"));
         RunReaderFlow("batchfind", async f =>
         {
@@ -297,37 +298,169 @@ internal static partial class Program
         }, copyFrom: source);
     }
 
-    /// <summary>Stamp pages: one stamp at the same place on the chosen pages, as one undoable change.</summary>
+    /// <summary>Areas and places go to a file of the test, never the real user's.</summary>
+    static void UseTestAreaStore(string name)
+    {
+        AreaPresetStore.FilePath = System.IO.Path.Combine(Output, name + "-areas.json");
+        try { File.Delete(AreaPresetStore.FilePath); } catch { }
+    }
+
+    /// <summary>Two A4 pages and two A3 pages, each with the sheet number at a different place; the A3 ones are drawn bigger.</summary>
+    static string BuildTwoSizesPdf(string folder)
+    {
+        if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        Directory.CreateDirectory(folder);
+        string path = System.IO.Path.Combine(folder, "sizes.pdf");
+        using (var doc = new PdfDocument(new PdfWriter(path)))
+        {
+            var font = iText.Kernel.Font.PdfFontFactory.CreateFont(@"C:\Windows\Fonts\arial.ttf", iText.IO.Font.PdfEncodings.IDENTITY_H, iText.Kernel.Font.PdfFontFactory.EmbeddingStrategy.PREFER_EMBEDDED);
+            for (int i = 1; i <= 4; i++)
+            {
+                bool a3 = i > 2;
+                var page = doc.AddNewPage(a3 ? PageSize.A3 : PageSize.A4);
+                var canvas = new PdfCanvas(page);
+                var (x, y) = a3 ? (100f, 1000f) : (72f, 700f);   // A3: further right and lower on the page
+                canvas.BeginText().SetFontAndSize(font, a3 ? 20 : 14).MoveText(x, y).ShowText($"Số hiệu: BV-0{i}").EndText();
+            }
+        }
+        return path;
+    }
+
+    /// <summary>Paper sizes are the base of the area tools: the pages are grouped by size, each size keeps its own area, and unticking a size leaves its pages out.</summary>
+    static void TestFindAreaPerPaperSize()
+    {
+        if (!TextEditService.IsAvailable) { Console.WriteLine("Find area per size: no embedded Python; skipped"); return; }
+        UseTestAreaStore("per-size");
+        string source = BuildTwoSizesPdf(System.IO.Path.Combine(Output, "persize-source"));
+        RunReaderFlow("persize", async f =>
+        {
+            string path = f.Path;
+            var pages = await PaperSizeIndex.ReadAsync(path);
+            var groups = PaperSizeIndex.Group(pages);
+            Check(groups.Count == 2 && groups.Select(g => g.Key).OrderBy(k => k).SequenceEqual(new[] { "A3 portrait", "A4 portrait" }), $"Two paper sizes: {string.Join(", ", groups.Select(g => g.Label))}");
+
+            var window = new XTPdfMergeApp.Controls.BatchFindWindow(path, 1, 4) { Left = -32000, Top = -32000, ShowActivated = false, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual };
+            window.Show();
+            await Task.Delay(1500);
+            Check(window.Sizes.Rows.Count == 2 && window.Sizes.Selected?.Key == "A4 portrait", "The window lists both sizes and starts on the size of the current page");
+            window.Picker.DrawForTest((0.05, 0.12, 0.6, 0.22));          // A4: y 142 of 842
+            window.Sizes.SelectKey("A3 portrait");
+            await Task.Delay(800);
+            Check(window.Picker.Area == null, "Another size starts with no area of its own");
+            window.Picker.DrawForTest((0.08, 0.12, 0.7, 0.2));           // A3: y 191 of 1191, x 100 of 842
+            Check(AreaPresetStore.Get("find-text", "A4 portrait") is { U2: 0.6 } && AreaPresetStore.Get("find-text", "A3 portrait") is { U2: 0.7 }, "Each size remembers its own area in the store");
+            window.Sizes.SelectKey("A4 portrait");
+            await Task.Delay(800);
+            Check(window.Picker.Area is { U2: 0.6 }, "Going back shows the A4 area again");
+
+            window.FindBox.Text = "BV-";
+            window.ReplaceBox.Text = "KC-";
+            await window.FindAsync();
+            Check(window.Hits.Select(h => h.Page).SequenceEqual(new[] { 1, 2, 3, 4 }), $"One Find reads both sizes with their own areas ({string.Join(",", window.Hits.Select(h => h.Page))})");
+            window.Sizes.Rows.First(r => r.Key == "A3 portrait").IsChecked = false;
+            await window.FindAsync();
+            Check(window.Hits.Select(h => h.Page).SequenceEqual(new[] { 1, 2 }), "Unticking A3 leaves its pages out");
+            SavePng(window, "findarea-window");
+            window.Close();
+
+            // a new window for the same file already knows both areas
+            var again = new XTPdfMergeApp.Controls.BatchFindWindow(path, 3, 4) { Left = -32000, Top = -32000, ShowActivated = false, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual };
+            again.Show();
+            await Task.Delay(1500);
+            Check(again.Sizes.Rows.All(r => r.HasArea) && again.Sizes.Selected?.Key == "A3 portrait" && again.Picker.Area is { U2: 0.7 }, $"A new window knows the areas of both sizes (rows {string.Join(",", again.Sizes.Rows.Select(r => r.Key + r.HasArea))}, selected {again.Sizes.Selected?.Key}, area {again.Picker.Area})");
+            again.FindBox.Text = "BV-";
+            await again.FindAsync();
+            Check(again.Hits.Count == 4, "…and finds on all four pages without drawing again");
+            again.Close();
+        }, copyFrom: source);
+    }
+
+    /// <summary>Stamp pages: a stamp with an id, placed once per paper size, resizable (the corners keep its shape), put on many pages as one undoable change, with ids written into the file.</summary>
     static void TestStampManyPages()
     {
-        string source = BuildBatchPdf(System.IO.Path.Combine(Output, "stamppages-source"));
+        UseTestAreaStore("stamp");
+        string source = BuildTwoSizesPdf(System.IO.Path.Combine(Output, "stamppages-source"));
         RunReaderFlow("stamppages", async f =>
         {
             string path = f.Path;
             var host = (XTPdfMergeApp.IReaderPageEditHost)f.Window.Session;
             var window = new XTPdfMergeApp.Controls.StampPagesWindow(path, 1, 4) { Left = -32000, Top = -32000, ShowActivated = false, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual };
             window.Show();
-            await Task.Delay(1500);
+            await Task.Delay(1800);
             Check(window.StampList.Items.Count >= 6 && window.StampList.SelectedItem != null, "The list has the stamps and one is chosen");
-            Check(window.Picker.PlaceSize != null && window.Picker.Area != null, "The stamp has a box on the sample page");
-            window.Picker.PlaceForTest(0.75, 0.9);
-            var area = window.Picker.Area!.Value;
-            Check(area.U2 <= 1.0001 && area.V2 <= 1.0001 && area.U1 >= 0 && area.V1 >= 0, "The box stays on the page");
+            Check(window.Sizes.Rows.Count == 2 && window.Picker.PlaceMode && window.Picker.Area != null, "The stamp has a box on the sample page, one place per paper size");
+            var standard = StampLibrary.Standard.First(d => d.Id == "std-approved");
+            Check(StampLibrary.Standard.Select(d => d.Id).Distinct().Count() == StampLibrary.Standard.Count && StampLibrary.Standard.All(d => d.Id.Length > 0), "Every stamp has its own id");
+            var roundTrip = StampDefinition.Decode(standard.Encode(80, "x")).Definition;
+            Check(roundTrip.Id == "std-approved" && roundTrip.Text == "APPROVED", "The id travels with the stamp when it is encoded into an annotation");
+
+            var chosen = (StampDefinition)((System.Windows.Controls.ListBoxItem)window.StampList.SelectedItem).Tag;
+            window.Picker.PlaceForTest(0.7, 0.9);
+            var before = window.Picker.Area!.Value;
+            window.Picker.ResizeForTest("SE", before.U2 + 0.1, before.V2 + 0.01);
+            var after = window.Picker.Area!.Value;
+            double shape(double u1, double v1, double u2, double v2) => (u2 - u1) / ((v2 - v1) * window.Picker.PageAspect);
+            Check((after.U2 - after.U1) > (before.U2 - before.U1) * 1.2 && Math.Abs(shape(after.U1, after.V1, after.U2, after.V2) - shape(before.U1, before.V1, before.U2, before.V2)) < 0.02, "A corner makes the stamp bigger and keeps its shape");
+            Check(AreaPresetStore.Get("stamp:" + chosen.Id, "A4 portrait") is { } saved && Math.Abs(saved.U2 - after.U2) < 1e-9, "The place and size are kept for this stamp and this paper size");
             SavePng(window, "stamppages-window");
+
+            window.Sizes.SelectKey("A3 portrait");
+            await Task.Delay(800);
+            Check(window.Picker.Area != null && Math.Abs(window.Picker.Area.Value.U2 - after.U2) > 1e-6, "A3 has its own place (the default until it is placed)");
             window.RangeButton.IsChecked = true;
             window.RangeBox.Text = "2-4";
             window.ApplyForTest();
-            Check(window.Definition != null && window.Pages.SequenceEqual(new[] { 2, 3, 4 }), "The window answers with the stamp and pages 2-4");
+            Check(window.Definition != null && window.Placements.Select(p => p.Page).SequenceEqual(new[] { 2, 3, 4 }), "The window answers with the stamp and pages 2-4");
+            var a4 = window.Placements.First(p => p.Page == 2);
+            var a3 = window.Placements.First(p => p.Page == 3);
+            Check(Math.Abs(a4.U2 - after.U2) < 1e-9 && Math.Abs(a3.U2 - a4.U2) > 1e-6 && window.Placements.First(p => p.Page == 4).U2 == a3.U2, "A4 pages get the A4 place, A3 pages the A3 place");
+
             await (Task)f.Call("StampPagesAsync", path, window)!;
             await Task.Delay(600);
             var pending = AnnotationStore.Pending(path);
             Check(pending.Count == 3 && pending.All(c => c.Add != null && c.Add.Kind == QuickAnnotationKind.Stamp), $"Three stamps wait for Save ({pending.Count})");
-            Check(pending.Select(c => Math.Round(c.Add!.U1, 3)).Distinct().Count() == 1 && pending.Select(c => Math.Round(c.Add!.V1, 3)).Distinct().Count() == 1, "…all at the same place");
+            Check(pending.All(c => c.Add!.Template == "stamp:" + chosen.Id) && pending.Select(c => c.Add!.Batch).Distinct().Count() == 1 && pending[0].Add!.Batch.StartsWith("batch-"), "Each carries the id of its stamp and the id of the batch");
             Check(pending.Select(c => c.Add!.PageNumber).OrderBy(n => n).SequenceEqual(new[] { 2, 3, 4 }), "…on pages 2, 3 and 4");
-            host.Undo();
-            await Task.Delay(400);
-            Check(AnnotationStore.Pending(path).Count == 0, "One Undo takes all three back");
             window.Close();
+
+            // written into the file with the ids, at the size that was chosen
+            Check(await host.SaveGroupAsync(f.Window.Session.Documents[0], saveAs: false), "Save writes them");
+            await Task.Delay(600);
+            using (var doc = new PdfDocument(new PdfReader(path)))
+            {
+                var annots = Enumerable.Range(2, 3).Select(n => doc.GetPage(n).GetAnnotations().First(a => a is iText.Kernel.Pdf.Annot.PdfStampAnnotation)).ToList();
+                var templates = annots.Select(a => a.GetPdfObject().GetAsString(new PdfName("XTTemplate"))?.ToUnicodeString()).ToList();
+                var batches = annots.Select(a => a.GetPdfObject().GetAsString(new PdfName("XTBatch"))?.ToUnicodeString()).Distinct().ToList();
+                Check(templates.All(t => t == "stamp:" + chosen.Id) && batches.Count == 1 && batches[0]!.StartsWith("batch-"), "The file keeps /XTTemplate and /XTBatch on every stamp (for select similar)");
+                var r4 = annots[0].GetRectangle().ToRectangle();
+                Check(Math.Abs(r4.GetWidth() / 595.0 - (a4.U2 - a4.U1)) < 0.003, $"The stamp is written at the size that was chosen ({r4.GetWidth():0} pt wide on A4)");
+            }
+
+            // read back: the stamp can be selected and has its resize squares
+            var page2 = await AnnotationStore.GetPageAsync(path, 2);
+            var spec = page2!.Annotations.First(a => a.Kind == QuickAnnotationKind.Stamp);
+            Check(spec.Template == "stamp:" + chosen.Id && spec.Batch.StartsWith("batch-"), "The ids are read back from the file");
+            var row2 = f.Window.Session.Documents[0].Pages.First(p => p.PageNumber == 2);
+            f.Call("SelectAnnotation", row2, spec);
+            f.Window.UpdateLayout();
+            var grip = f.Find<System.Windows.Shapes.Rectangle>("GripSE");
+            Check(grip.Visibility == System.Windows.Visibility.Visible, "A selected stamp shows the squares to resize it on the real page");
+
+            // drag the corner like the mouse would: the stamp grows, keeps its shape and its ids
+            var layer = f.Find<System.Windows.Controls.Canvas>("ReaderInteractionLayer");
+            var centre = new System.Windows.Point(System.Windows.Controls.Canvas.GetLeft(grip) + grip.Width / 2, System.Windows.Controls.Canvas.GetTop(grip) + grip.Height / 2);
+            var host2 = f.Find<System.Windows.FrameworkElement>("ReaderContentHost");
+            var start = layer.TranslatePoint(centre, host2);
+            var down = new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left) { RoutedEvent = System.Windows.UIElement.PreviewMouseLeftButtonDownEvent };
+            f.Call("Grip_MouseDown", grip, down);
+            f.Call("UpdateShapeResize", new System.Windows.Point(start.X + 50, start.Y + 4));
+            f.Call("FinishShapeResize");
+            await Task.Delay(500);
+            var resized = AnnotationStore.Pending(path).LastOrDefault(c => c.Add?.Name == spec.Name)?.Add;
+            double widthBefore = spec.U2 - spec.U1, aspectBefore = (spec.U2 - spec.U1) * 595 / ((spec.V2 - spec.V1) * 842);
+            Check(resized != null && resized.U2 - resized.U1 > widthBefore * 1.05, $"Dragging the corner on the real page makes the stamp bigger ({widthBefore:0.000} -> {(resized == null ? 0 : resized.U2 - resized.U1):0.000})");
+            Check(resized != null && Math.Abs((resized.U2 - resized.U1) * 595 / ((resized.V2 - resized.V1) * 842) - aspectBefore) < 0.05, "…keeping its shape");
+            Check(resized != null && resized.Template == spec.Template && resized.Batch == spec.Batch && resized.Name == spec.Name, "…and its ids");
         }, copyFrom: source);
     }
 
@@ -364,6 +497,7 @@ internal static partial class Program
     static void TestFindSignatureObjects()
     {
         if (!TextEditService.IsAvailable) { Console.WriteLine("Signature objects: no embedded Python; skipped"); return; }
+        UseTestAreaStore("signature");
         string source = BuildSignaturePdf(System.IO.Path.Combine(Output, "signature-source"));
         RunReaderFlow("signature", async f =>
         {
@@ -382,6 +516,7 @@ internal static partial class Program
             window.Show();
             await Task.Delay(1200);
             window.ObjectsModeButton.IsChecked = true;
+            await Task.Delay(300);
             window.Picker.DrawForTest((0.45, 0.12, 0.82, 0.30));
             await window.FindAsync();
             Check(window.Hits.Select(h => h.Page).SequenceEqual(new[] { 1, 2, 3 }), $"Mostly inside the area: pages 1, 2 and 3 ({string.Join(",", window.Hits.Select(h => h.Page))}); the text above is not an object");

@@ -30,11 +30,15 @@ namespace XTPdfMergeApp
 
         private ShapeResizeDrag? _shapeResizeDrag;
 
+        /// <summary>A stamp or signature made by this app (its definition travels with it), so it can be drawn again at another size.</summary>
+        private static bool IsResizableStamp(QuickAnnotationSpec spec)
+            => spec.Kind == QuickAnnotationKind.Stamp && (spec.Format.Contains('\u001f') || spec.Text.Contains('\u001f'));
+
         /// <summary>Shows/positions the grips for the current selection — called from UpdateSelectionVisual whenever it runs.</summary>
         private void UpdateShapeGrips()
         {
             if (_shapeResizeDrag != null || _lineResizeDrag != null || _annotationEditor != null || _annMove != null ||
-                _selAnn is not { } selected || _selRow is not { } row || selected.Kind is not (QuickAnnotationKind.Shape or QuickAnnotationKind.Callout))
+                _selAnn is not { } selected || _selRow is not { } row || selected.Kind is not (QuickAnnotationKind.Shape or QuickAnnotationKind.Callout) && !IsResizableStamp(selected))
             {
                 foreach (var g in ShapeGrips) g.Visibility = Visibility.Collapsed;
                 foreach (var g in LineGrips) g.Visibility = Visibility.Collapsed;
@@ -107,7 +111,7 @@ namespace XTPdfMergeApp
         private void Grip_MouseDown(object sender, MouseButtonEventArgs e)
         {
             if (_selAnn is not { } spec || _selRow is not { } row || sender is not Rectangle grip ||
-                spec.Kind is not (QuickAnnotationKind.Shape or QuickAnnotationKind.Callout)) return;
+                spec.Kind is not (QuickAnnotationKind.Shape or QuickAnnotationKind.Callout) && !IsResizableStamp(spec)) return;
             e.Handled = true;
             // Callout không có ShapeStyle thật (format là "C|tipU,tipV|..." ) — chỉ cần 1 kiểu bất kỳ để vẽ khung xem trước lúc kéo.
             var style = spec.Kind == QuickAnnotationKind.Shape ? ShapeStyle.Decode(spec.Format) : new ShapeStyle(ShapeStyle.Rect, "#5B9BD5", 1.2, 0);
@@ -132,6 +136,13 @@ namespace XTPdfMergeApp
             if (drag.Handle.Contains('E')) drag.U2 = Math.Max(current.U, drag.U1 + min);
             if (drag.Handle.Contains('N')) drag.V1 = Math.Min(current.V, drag.V2 - min);
             if (drag.Handle.Contains('S')) drag.V2 = Math.Max(current.V, drag.V1 + min);
+            if (drag.Spec.Kind == QuickAnnotationKind.Stamp && drag.Handle.Length == 2 && GetCachedPageAnnotations(drag.Row)?.Geometry is { } geometry)
+            {
+                // a signature keeps its shape: the corner decides the width, the height follows
+                double aspect = (drag.Spec.U2 - drag.Spec.U1) * geometry.DisplayWidth / Math.Max(1e-6, (drag.Spec.V2 - drag.Spec.V1) * geometry.DisplayHeight);
+                double height = (drag.U2 - drag.U1) * geometry.DisplayWidth / aspect / geometry.DisplayHeight;
+                if (drag.Handle.Contains('N')) drag.V1 = drag.V2 - height; else drag.V2 = drag.V1 + height;
+            }
 
             if (!TryPageToLayer(drag.Row, drag.U1, drag.V1, out Point a) || !TryPageToLayer(drag.Row, drag.U2, drag.V2, out Point b)) return true;
             ShowShapePreview(drag.Style, a, b, ShapePixelsPerPoint(drag.Row), ShapePageScale(drag.Row));
@@ -153,7 +164,7 @@ namespace XTPdfMergeApp
             {
                 var changed = Regenerated(s) with { U1 = drag.U1, V1 = drag.V1, U2 = drag.U2, V2 = drag.V2 };
                 _selAnn = changed;
-                string kind = s.Kind == QuickAnnotationKind.Callout ? "callout" : ShapeStyle.Decode(s.Format).Type.ToLowerInvariant();
+                string kind = s.Kind == QuickAnnotationKind.Callout ? "callout" : s.Kind == QuickAnnotationKind.Stamp ? "stamp" : ShapeStyle.Decode(s.Format).Type.ToLowerInvariant();
                 CommitAnnotationChange(drag.Row, new QuickAnnotationChange(s, changed), "Resize " + kind);
             }
             ReaderContinuousView.Redraw();

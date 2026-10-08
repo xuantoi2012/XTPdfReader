@@ -59,21 +59,20 @@ namespace XTPdfMergeApp
         {
             var definition = window.Definition!;
             string sub = window.AddNameAndDate ? $"{Environment.UserName} · {DateTime.Now:dd/MM/yyyy}" : definition.Sub;
+            string encoded = definition.Encode(window.Opacity, sub);
+            string batch = "batch-" + Guid.NewGuid().ToString("N")[..12]; // everything this run makes shares it ("select similar" later)
             var changes = new List<QuickAnnotationChange>();
-            foreach (int page in window.Pages)
+            foreach (var (page, u1, v1, u2, v2) in window.Placements)
             {
-                var annotations = await AnnotationStore.GetPageAsync(path, page);
-                if (annotations == null) continue;
-                var g = annotations.Geometry;
-                var (width, height) = PdfQuickAnnotationService.StampSize(definition, sub, g.DisplayWidth);
-                double w = width / g.DisplayWidth, h = height / g.DisplayHeight;
-                double u1 = Math.Clamp(window.U1, 0, Math.Max(0, 1 - w)), v1 = Math.Clamp(window.V1, 0, Math.Max(0, 1 - h));
-                var spec = new QuickAnnotationSpec(NewAnnotationName(), QuickAnnotationKind.Stamp, page, u1, v1, u1 + w, v1 + h, definition.Encode(window.Opacity, sub));
+                var spec = new QuickAnnotationSpec(NewAnnotationName(), QuickAnnotationKind.Stamp, page, u1, v1, u2, v2, encoded)
+                {
+                    Format = encoded, Template = "stamp:" + definition.Id, Batch = batch
+                };
                 changes.Add(new QuickAnnotationChange(null, spec));
             }
             if (changes.Count == 0 || EditHost == null) return;
             await EditHost.ApplyAnnotationChangesAsync(path, changes, $"Stamp on {changes.Count} page{(changes.Count == 1 ? "" : "s")}");
-            XTGrowl.Success($"Stamped {changes.Count} page{(changes.Count == 1 ? "" : "s")} at the same place. Ctrl+S saves them; Undo takes them all back.", this);
+            XTGrowl.Success($"Stamped {changes.Count} page{(changes.Count == 1 ? "" : "s")}. Ctrl+S saves them; Undo takes them all back; drag a corner to resize one.", this);
         }
     }
 }
