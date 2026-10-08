@@ -236,4 +236,6 @@
     <Geometry x:Key="Ui.Icon.tablist">F1 M4,5 H20 V7 H4 Z M4,11 H20 V13 H4 Z M4,17 H20 V19 H4 Z</Geometry>
     <Geometry x:Key="Ui.Icon.eraser">F1 M21.094,7.538 L17.212,3.656 a2.25,2.25 0 0 0 -3.182,0 L2.906,14.781 a2.25,2.25 0 0 0 0,3.182 l2.818,2.818 A0.75,0.75 0 0 0 6.257,21 H20.25 a0.75,0.75 0 0 0 0,-1.5 h-7.941 L21.094,10.719 A2.25,2.25 0 0 0 21.094,7.538 Z M10.189,19.5 H6.567 L3.968,16.901 a0.75,0.75 0 0 1 0,-1.06 L9,10.81 L13.94,15.75 Z m9.844,-9.844 L15,14.69 L10.06,9.75 L15.094,4.719 a0.75,0.75 0 0 1 1.061,0 l3.879,3.879 a0.75,0.75 0 0 1 0,1.06 Z</Geometry>
     <Geometry x:Key="Ui.Icon.eraser.Tint">F1 M15,15.75 l-4.5,4.5 H6.258 L3.44,17.432 a1.5,1.5 0 0 1 0,-2.122 L9,9.75 Z</Geometry>
+    <!-- Thick download arrow (filled, about 3.6 wide) for the title-bar update button. -->
+    <Geometry x:Key="Ui.Icon.update">F1 M10.2,2.5 H13.8 V11.6 L17.1,8.3 L19.7,10.9 L12,18.6 L4.3,10.9 L6.9,8.3 L10.2,11.6 Z M4,20 H20 V23 H4 Z</Geometry>
 </ResourceDictionary>

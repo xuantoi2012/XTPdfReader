@@ -627,6 +627,38 @@
         </Style.Triggers>
     </Style>
 
+    <!-- Search box of the title bar: a light surface so it stands out from the bar. -->
+    <Style x:Key="UiTitleSearchButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiGhostButton}">
+        <Setter Property="Background" Value="{DynamicResource Ui.Surface}"/>
+    </Style>
+
+    <!-- ══ Nút icon nền accent (nút "Cập nhật" ở thanh title): chỉ icon, hover = phủ trắng nhẹ ══ -->
+    <ControlTemplate x:Key="UiAccentIconButtonTemplate" TargetType="{x:Type xt:XTButton}">
+        <Grid SnapsToDevicePixels="True">
+            <Border CornerRadius="6" Background="{DynamicResource Ui.Accent}"/>
+            <Border x:Name="Veil" CornerRadius="6" Background="White" Opacity="0"/>
+            <Viewbox Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Canvas Width="24" Height="24">
+                    <Path Data="{TemplateBinding IconData}" Fill="{DynamicResource Ui.OnAccent}"/>
+                </Canvas>
+            </Viewbox>
+        </Grid>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Veil" Property="Opacity" Value="0.2"/></Trigger>
+            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Veil" Property="Opacity" Value="0.07"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.42"/></Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <Style x:Key="UiAccentIconButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource XTToolButton}">
+        <Setter Property="Template" Value="{StaticResource UiAccentIconButtonTemplate}"/>
+        <Setter Property="Width" Value="30"/>
+        <Setter Property="Height" Value="28"/>
+        <Setter Property="MinWidth" Value="0"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="IconSize" Value="18"/>
+    </Style>
+
     <!-- ══ Dòng danh sách (Layers…): hover + chọn nền accent nhạt ══ -->
     <Style x:Key="UiRowItem" TargetType="ListBoxItem">
         <Setter Property="Padding" Value="0"/>

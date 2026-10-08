@@ -45,12 +45,12 @@
     <xt:XTWindow.TitleBarRightContent>
         <!-- Title bar chỉ giữ lệnh toàn cục: kính lúp mở Command Palette (Ctrl+K), Find nội dung vẫn ở ribbon/Ctrl+F. -->
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,6,0">
-            <!-- Wide search box: a click (or Ctrl+K) drops the command palette down right under it. -->
-            <!-- Only visible when a newer release exists (AppUpdateService); the click opens the update offer. -->
-            <xt:XTButton x:Name="UpdateTitleButton" Style="{StaticResource UiPrimaryButton}" Icon="{StaticResource Ui.Icon.down}" Height="28" Margin="0,0,10,0"
-                         Padding="10,0" Visibility="Collapsed" Click="UpdateTitle_Click"/>
-            <xt:XTButton x:Name="TitleSearchButton" Style="{StaticResource UiGhostButton}" Icon="{StaticResource Ui.Icon.search}" Width="260" Height="28"
-                         Text="Search commands and files…   Ctrl+K" Margin="0,0,8,0" ToolTip="Command palette (Ctrl+K)" Click="ReaderMore_Click"/>
+            <!-- Narrow search box on a light surface: a click (or Ctrl+K) drops the command palette down right under it. -->
+            <xt:XTButton x:Name="TitleSearchButton" Style="{StaticResource UiTitleSearchButton}" Icon="{StaticResource Ui.Icon.search}" Width="200" Height="28"
+                         Text="Search commands…   Ctrl+K" Margin="0,0,8,0" ToolTip="Command palette: commands, files and pages (Ctrl+K)" Click="ReaderMore_Click"/>
+            <!-- Only visible when a newer release exists (AppUpdateService); icon only, the tooltip says which version. -->
+            <xt:XTButton x:Name="UpdateTitleButton" Style="{StaticResource UiAccentIconButton}" Icon="{StaticResource Ui.Icon.update}" Margin="0,0,6,0"
+                         Visibility="Collapsed" Click="UpdateTitle_Click"/>
             <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.settings}" Width="30" Height="30" IconSize="18"
                          ToolTip="Settings" Click="RibbonSettings_Click"/>
             <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.info}" Width="30" Height="30" IconSize="18"
