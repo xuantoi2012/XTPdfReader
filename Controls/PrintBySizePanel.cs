@@ -31,6 +31,8 @@ internal sealed class PrintBySizePanel : UserControl
         public required CheckBox Collate;
         public required TextBox Copies;
         public required TextBlock Status;
+        public required CheckBox Gray;
+        public required Border IconHost;
         public byte[]? DevMode;
         public RouteResult Result = new(RouteState.NotAssigned, null, 0, "");
     }
@@ -45,7 +47,7 @@ internal sealed class PrintBySizePanel : UserControl
     private readonly StackPanel _stack = new();
     private readonly ComboBox _profiles = new() { Height = 28, MinWidth = 150, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _summary = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
-    private readonly string _defaultPrinter;
+    private string _defaultPrinter;
     private bool _loading;
     private string _profileName = "";
 
@@ -118,6 +120,8 @@ internal sealed class PrintBySizePanel : UserControl
     public string? FirstPrinter() => _rows.Where(r => r.Skip.IsChecked != true).Select(r => r.Printers.SelectedItem as string).FirstOrDefault(p => !string.IsNullOrEmpty(p) && p != NoPrinter);
 
     /// <summary>The paper chosen for the card with this key (what the preview of its pages shows), or null when it is not decided yet.</summary>
+    public bool GrayOf(string groupKey) => _rows.FirstOrDefault(r => PrintSizePlan.Key(r.Group) == groupKey)?.Gray.IsChecked == true;
+
     public PaperSize? PaperOf(string groupKey) => _rows.FirstOrDefault(r => PrintSizePlan.Key(r.Group) == groupKey)?.Result.Paper;
 
     private void Remember(Row row) => _memory[PrintSizePlan.Key(row.Group)] = AssignmentOf(row);
@@ -130,6 +134,8 @@ internal sealed class PrintBySizePanel : UserControl
         row.Printers.SelectedItem = assignment.Printer.Length > 0 ? assignment.Printer : NoPrinter;
         row.DevMode = assignment.DevMode.Length > 0 ? Convert.FromBase64String(assignment.DevMode) : null;
         row.Copies.Text = Math.Clamp(assignment.Copies, 1, 99).ToString();
+        row.Gray.IsChecked = assignment.Gray;
+        row.IconHost.Child = ModeIcon(row.Group.Color && !assignment.Gray);
         FillPapers(row, assignment);
         RefreshCollate(row, assignment.Collate == null);
         if (assignment.Collate is { } collate && row.Collate.IsEnabled) row.Collate.IsChecked = collate;
@@ -149,6 +155,8 @@ internal sealed class PrintBySizePanel : UserControl
         properties.ToolTip = Loc.T("The printer driver's own settings for this size (tray, quality, plotter options…), kept in the profile");
         var collate = new CheckBox { Content = "Collate", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
         var copies = new TextBox { Width = 44, Height = 28, Text = "1", VerticalContentAlignment = VerticalAlignment.Center, HorizontalContentAlignment = HorizontalAlignment.Center, ToolTip = "Copies" };
+        var gray = new CheckBox { Content = "Grayscale", VerticalAlignment = VerticalAlignment.Center, FontSize = 12, Margin = new Thickness(10, 0, 0, 0), ToolTip = "Print this size in shades of gray" };
+        var iconHost = new Border { Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center, Child = ModeIcon(group.Color) };
         var skip = new CheckBox { Content = "Do not print", VerticalAlignment = VerticalAlignment.Center, FontSize = 12, Margin = new Thickness(10, 0, 0, 0) };
         var status = new TextBlock { FontSize = 11.5, Margin = new Thickness(0, 5, 0, 0), TextWrapping = TextWrapping.Wrap };
         var card = new Border
@@ -163,10 +171,14 @@ internal sealed class PrintBySizePanel : UserControl
         detail.Margin = new Thickness(8, 0, 0, 0);
         detail.ToolTip = "Which pages";
         var title = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
-        DockPanel.SetDock(skip, Dock.Right);
-        title.Children.Add(skip);
+        var rightSide = new StackPanel { Orientation = Orientation.Horizontal };
+        rightSide.Children.Add(gray);
+        rightSide.Children.Add(skip);
+        DockPanel.SetDock(rightSide, Dock.Right);
+        title.Children.Add(rightSide);
         var titleText = new StackPanel { Orientation = Orientation.Horizontal };
-        titleText.Children.Add(new TextBlock { Text = $"{group.Name}{(group.Color ? " · color" : "")} ({group.Count} page{(group.Count == 1 ? "" : "s")})", FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Foreground = group.Color ? Brushes.DarkOrange : R("Ui.Text") });
+        titleText.Children.Add(iconHost);
+        titleText.Children.Add(new TextBlock { Text = $"{group.Name} ({group.Count} page{(group.Count == 1 ? "" : "s")})", FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Foreground = R("Ui.Text") });
         titleText.Children.Add(new TextBlock { Text = $"  {group.Dims}", Opacity = 0.65, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center });
         if (PrintSizePlan.IsSpecial(group.Name)) titleText.Children.Add(new TextBlock { Text = "  special size", Foreground = Brushes.DarkOrange, FontWeight = FontWeights.SemiBold, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center });
         titleText.Children.Add(detail);
@@ -200,13 +212,14 @@ internal sealed class PrintBySizePanel : UserControl
         paperLine.Children.Add(papers);
 
         card.Child = new StackPanel { Children = { title, printerLine, paperLine, status } };
-        var row = new Row { Group = group, Card = card, Skip = skip, Printers = printers, Papers = papers, Properties = properties, Collate = collate, Copies = copies, Status = status };
+        var row = new Row { Group = group, Card = card, Skip = skip, Printers = printers, Papers = papers, Properties = properties, Collate = collate, Copies = copies, Status = status, Gray = gray, IconHost = iconHost };
         _rows.Add(row);
 
         printers.SelectionChanged += (_, _) => { if (_loading) return; row.DevMode = null; FillPapers(row, null); RefreshCollate(row, true); RefreshRow(row); RefreshSummary(); Remember(row); Changed?.Invoke(); };
         papers.SelectionChanged += (_, _) => { if (_loading) return; RefreshRow(row); RefreshSummary(); Remember(row); Changed?.Invoke(); };
         skip.Click += (_, _) => { RefreshRow(row); RefreshSummary(); Remember(row); Changed?.Invoke(); };
         collate.Click += (_, _) => { Remember(row); };
+        gray.Click += (_, _) => { row.IconHost.Child = ModeIcon(row.Group.Color && gray.IsChecked != true); Remember(row); Changed?.Invoke(); };
         copies.LostFocus += (_, _) => { copies.Text = CopiesOf(row).ToString(); Remember(row); };
         properties.Click += (_, _) => OpenProperties(row);
         _loading = true;
@@ -286,7 +299,7 @@ internal sealed class PrintBySizePanel : UserControl
         {
             Printer = printer == NoPrinter ? "" : printer, Paper = paper.Choice, PaperName = paper.Name, Skip = row.Skip.IsChecked == true,
             DevMode = row.DevMode == null ? "" : Convert.ToBase64String(row.DevMode),
-            Copies = CopiesOf(row), Collate = row.Collate.IsEnabled ? row.Collate.IsChecked == true : null
+            Copies = CopiesOf(row), Collate = row.Collate.IsEnabled ? row.Collate.IsChecked == true : null, Gray = row.Gray.IsChecked == true
         };
     }
 
@@ -307,7 +320,7 @@ internal sealed class PrintBySizePanel : UserControl
         // "prints on A3" is not worth a line on every card: only what needs a look is written
         row.Status.Visibility = result.State is RouteState.Exact or RouteState.Skipped ? Visibility.Collapsed : Visibility.Visible;
         row.Card.BorderBrush = result.NeedsAttention ? Brushes.DarkOrange : TryFindResource("Ui.Border") as Brush ?? Brushes.Gray;
-        row.Printers.IsEnabled = row.Papers.IsEnabled = row.Properties.IsEnabled = row.Copies.IsEnabled = row.Skip.IsChecked != true;
+        row.Printers.IsEnabled = row.Papers.IsEnabled = row.Properties.IsEnabled = row.Copies.IsEnabled = row.Gray.IsEnabled = row.Skip.IsChecked != true;
         if (row.Skip.IsChecked == true) row.Collate.IsEnabled = false; else RefreshCollate(row, false);
     }
 
@@ -321,6 +334,58 @@ internal sealed class PrintBySizePanel : UserControl
     {
         int ok = _rows.Count(r => r.Result.State == RouteState.Exact), attention = _rows.Count(r => r.Result.NeedsAttention), skipped = _rows.Count(r => r.Result.State == RouteState.Skipped);
         _summary.Text = Loc.T($"{ok} of {_rows.Count} sizes match their paper") + (attention > 0 ? " · " + attention + Loc.T(" to look at") : "") + (skipped > 0 ? " · " + skipped + Loc.T(" left out") : "");
+    }
+
+    /// <summary>A small mark before the card title: three overlapping dots for color pages, a half-black dot for black and white.</summary>
+    private static FrameworkElement ModeIcon(bool color)
+    {
+        var canvas = new Canvas { Width = 18, Height = 16 };
+        void Dot(double x, double y, Brush brush) { var e = new System.Windows.Shapes.Ellipse { Width = 10, Height = 10, Fill = brush, Opacity = 0.85 }; Canvas.SetLeft(e, x); Canvas.SetTop(e, y); canvas.Children.Add(e); }
+        if (color)
+        {
+            Dot(0, 0, new SolidColorBrush(Color.FromRgb(0xE5, 0x39, 0x35)));
+            Dot(8, 0, new SolidColorBrush(Color.FromRgb(0x43, 0xA0, 0x47)));
+            Dot(4, 5, new SolidColorBrush(Color.FromRgb(0x1E, 0x88, 0xE5)));
+        }
+        else
+        {
+            var ring = new System.Windows.Shapes.Ellipse { Width = 13, Height = 13, Stroke = Brushes.Gray, StrokeThickness = 1.2, Fill = Brushes.White };
+            var half = new System.Windows.Shapes.Path { Fill = Brushes.Gray, Data = Geometry.Parse("M 6.5,0.6 A 5.9,5.9 0 0 0 6.5,12.4 Z") };
+            Canvas.SetLeft(ring, 2); Canvas.SetTop(ring, 1.5); Canvas.SetLeft(half, 2); Canvas.SetTop(half, 1.5);
+            canvas.Children.Add(ring); canvas.Children.Add(half);
+        }
+        canvas.ToolTip = color ? "Prints in color" : "Prints in black and white";
+        return canvas;
+    }
+
+    /// <summary>The simple dialog: every card prints on this printer with these settings (Advanced is where each size gets its own).</summary>
+    public void ApplyToAll(string printer, byte[]? devMode, bool gray, int copies, bool? collate)
+    {
+        if (printer.Length == 0) return;
+        _defaultPrinter = printer;
+        bool changed = false;
+        foreach (var row in _rows)
+        {
+            if (row.Printers.SelectedItem as string != printer && row.Printers.Items.Contains(printer))
+            {
+                _loading = true;
+                row.Printers.SelectedItem = printer;
+                row.DevMode = null;
+                FillPapers(row, null);
+                RefreshCollate(row, true);
+                _loading = false;
+                changed = true;
+            }
+            if (devMode != null) row.DevMode = devMode;
+            row.Copies.Text = Math.Clamp(copies, 1, 99).ToString();
+            RefreshRow(row);
+            if (collate is { } c && row.Collate.IsEnabled) row.Collate.IsChecked = c;
+            row.Gray.IsChecked = gray;
+            row.IconHost.Child = ModeIcon(row.Group.Color && !gray);
+            Remember(row);
+        }
+        RefreshSummary();
+        if (changed) Changed?.Invoke();
     }
 
     // ── profiles ─────────────────────────────────────────────────────
@@ -399,7 +464,7 @@ internal sealed class PrintBySizePanel : UserControl
                 "Print by size", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return null;
 
         var jobs = _rows.Where(r => r.Result.CanPrint && r.Printers.SelectedItem is string)
-            .Select(r => new RoutedPrintJob(r.Group, (string)r.Printers.SelectedItem!, r.Result.Paper!, r.DevMode, CopiesOf(r), r.Collate.IsEnabled ? r.Collate.IsChecked == true : null)).ToList();
+            .Select(r => new RoutedPrintJob(r.Group, (string)r.Printers.SelectedItem!, r.Result.Paper!, r.DevMode, CopiesOf(r), r.Collate.IsEnabled ? r.Collate.IsChecked == true : null, r.Gray.IsChecked == true)).ToList();
         if (jobs.Count == 0) { AppDialog.Show(owner, "Nothing to print: every size is left out.", "Print by size", MessageBoxButton.OK, MessageBoxImage.Information); return null; }
         if (_profileName.Length > 0) PrintProfileStore.SetLast(_profileName);
         return jobs;

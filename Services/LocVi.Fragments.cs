@@ -113,6 +113,12 @@ namespace XTPdfMergeApp.Services
             A("Purple", "Tím");
             A("Red", "Đỏ");
 
+            // status bar
+            A("Also open by", "Đang được mở bởi");
+            A("Also open: ", "Cũng đang mở: ");
+            A("Others have this file open", "Có người khác đang mở tệp này");
+            A("Crosshair: lines through the pointer, to read a drawing (X; Esc turns it off)", "Đường chữ thập: các đường qua con trỏ, để soi bản vẽ (X; Esc để tắt)");
+
             // print dialog
             A("Looking for color pages…", "Đang tìm các trang màu…");
             A("Pages that carry color pictures are picked for you. Add or remove pages by typing; they are printed in color on the printer chosen for them.", "Các trang có ảnh màu được chọn sẵn cho bạn. Gõ để thêm hoặc bớt trang; các trang này được in màu trên máy in chọn cho chúng.");

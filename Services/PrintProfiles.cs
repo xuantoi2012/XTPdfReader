@@ -32,6 +32,9 @@ namespace XTPdfMergeApp.Services
         public int Copies { get; init; } = 1;
         /// <summary>Collate of this size; null = what the printer itself has (or the driver does not take it from us).</summary>
         public bool? Collate { get; init; }
+
+        /// <summary>Print this size in grayscale.</summary>
+        public bool Gray { get; init; }
     }
 
     /// <summary>A named set of assignments: "Office: A1 on the plotter, A3 on the big Canon, A4 on the laser, A3 extended on the roll plotter". Chosen once, then a whole set prints without setting anything by hand.</summary>

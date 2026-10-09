@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:xt="clr-namespace:XTStyle.Controls;assembly=XTStyle"
-        Title="Print" Width="1150" Height="700" MinWidth="900" MinHeight="580"
+        Title="Print" Width="860" Height="700" MinWidth="700" MinHeight="580"
         TitleBarMode="Tool" TitleIcon="{StaticResource Ui.Icon.print}" TitleIconBrush="{DynamicResource Ui.Brand}" WindowStartupLocation="CenterOwner" FontFamily="Segoe UI" FontSize="13"
         UseLayoutRounding="True" SnapsToDevicePixels="True" ShowInTaskbar="False">
     <xt:XTWindow.Resources>
@@ -34,22 +34,40 @@
 
     <Grid Background="{DynamicResource Ui.Panel}">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- The printer of each kind of sheet is chosen in the third column. This box only holds the printer that new cards start with and that the Copies / Collate boxes read. -->
-        <ComboBox x:Name="PrinterBox" Visibility="Collapsed" Width="0" Height="0" SelectionChanged="Printer_Changed"/>
-        <CheckBox x:Name="GrayBox" Visibility="Collapsed"/>
-        <CheckBox x:Name="LinesBox" Visibility="Collapsed"/>
+        <!-- The simple dialog: one printer and a few settings on top, like the old print dialog. "Advanced" hides this row and opens the third column (a printer and paper for each kind of sheet). -->
+        <Border x:Name="TopBar" Grid.Row="0" Margin="12,12,12,0" Style="{StaticResource Card}">
+            <StackPanel>
+                <DockPanel Margin="0,0,0,8">
+                    <xt:XTButton x:Name="PrinterProps" DockPanel.Dock="Right" Style="{StaticResource UiGhostButton}" Text="Properties…" Height="28" Margin="8,0,0,0" Click="PrinterProps_Click"
+                                 ToolTip="The printer driver's own settings (tray, quality, duplex, plotter options…)"/>
+                    <TextBlock Text="Name:" Style="{StaticResource Small}" VerticalAlignment="Center" Width="56"/>
+                    <ComboBox x:Name="PrinterBox" Height="28" SelectionChanged="Printer_Changed"/>
+                </DockPanel>
+                <WrapPanel>
+                    <TextBlock Text="Copies:" Style="{StaticResource Small}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBox x:Name="CopiesBox" Width="48" Height="28" Text="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" LostFocus="TopSetting_Changed" Margin="0,0,14,0"/>
+                    <CheckBox x:Name="CollateBox" Content="Collate" VerticalAlignment="Center" Margin="0,0,14,0" Click="TopSetting_Changed"/>
+                    <CheckBox x:Name="GrayBox" Content="Print as grayscale" VerticalAlignment="Center" Margin="0,0,14,0" Click="ColorBox_Changed"/>
+                    <CheckBox x:Name="LinesBox" Content="Black lines only" VerticalAlignment="Center" Margin="0,0,14,0" Click="ColorBox_Changed"
+                              ToolTip="Every colored line and text prints black (clean drawings on a black-and-white printer)"/>
+                    <CheckBox x:Name="ImageBox" Content="Print as image" VerticalAlignment="Center" Click="ImageBox_Changed"
+                              ToolTip="Sends each page as a lighter picture (150 DPI). A heavy drawing spools and prints much faster, with a little less sharpness."/>
+                </WrapPanel>
+            </StackPanel>
+        </Border>
 
-        <Grid Grid.Row="0" Margin="12,12,12,0">
+        <Grid Grid.Row="1" Margin="12,12,12,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="1.19*" MinWidth="240"/>
                 <ColumnDefinition Width="8"/>
                 <ColumnDefinition Width="0.86*" MinWidth="260"/>
-                <ColumnDefinition Width="8"/>
-                <ColumnDefinition Width="1*" MinWidth="340"/>
+                <ColumnDefinition x:Name="SplitCol" Width="0"/>
+                <ColumnDefinition x:Name="Col3" Width="0" MinWidth="0"/>
             </Grid.ColumnDefinitions>
 
             <!-- Column 1: preview -->
@@ -93,15 +111,24 @@
                                 <TextBox x:Name="RangeBox" Height="28" Margin="10,0,0,0" VerticalContentAlignment="Center" IsEnabled="False" TextChanged="Range_TextChanged"/>
                             </DockPanel>
                             <TextBlock Text="Example: 1-12, 40, 55-60" Style="{StaticResource Small}" Margin="24,0,0,8"/>
-                            <RadioButton x:Name="PagesBySize" GroupName="PrintPages" Content="Pages by paper size" Margin="0,0,0,2" Checked="Setting_Changed" IsEnabled="False"/>
-                            <StackPanel x:Name="SizeChecks" Margin="24,2,0,6" Visibility="Collapsed"/>
-                            <TextBlock x:Name="SizesNote" TextWrapping="Wrap" Text="Reading page sizes…" Style="{StaticResource Small}" Margin="24,0,0,8"/>
-                            <TextBlock Text="Color pages" Style="{StaticResource CardTitle}" Margin="0,12,0,4" ToolTip="Pages that carry color pictures are picked for you. Add or remove pages by typing; they are printed in color on the printer chosen for them."/>
-                            <DockPanel>
-                                <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource UiGhostButton}" Text="Reset" Height="28" Margin="8,0,0,0" ToolTip="Back to the pages with color pictures" Click="ColorReset_Click"/>
-                                <TextBox x:Name="ColorPagesBox" Height="28" VerticalContentAlignment="Center" TextChanged="ColorPages_TextChanged" ToolTip="For example 5, 12, 40-42"/>
+                            <DockPanel Margin="0,0,0,8">
+                                <RadioButton x:Name="PagesBySize" GroupName="PrintPages" Content="Pages by paper size" Checked="Setting_Changed" IsEnabled="False" VerticalAlignment="Center"/>
+                                <xt:XTButton x:Name="SizeButton" Style="{StaticResource UiGhostButton}" Text="Reading sizes…" Height="28" Margin="10,0,0,0" IsEnabled="False" Click="SizeButton_Click"/>
+                                <Popup x:Name="SizePopup" PlacementTarget="{Binding ElementName=SizeButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+                                    <Border Background="{DynamicResource Ui.Surface}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="1" CornerRadius="6" Padding="10,8,10,4" Margin="0,4,12,12">
+                                        <Border.Effect><DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.25"/></Border.Effect>
+                                        <StackPanel x:Name="SizeChecks"/>
+                                    </Border>
+                                </Popup>
                             </DockPanel>
-                            <TextBlock x:Name="ColorStat" Style="{StaticResource Small}" Margin="0,4,0,0"/>
+                            <TextBlock x:Name="SizesNote" Visibility="Collapsed"/>
+                            <DockPanel Margin="0,0,0,2">
+                                <RadioButton x:Name="PagesColor" GroupName="PrintPages" Content="Color pages" Checked="PagesColor_Checked" VerticalAlignment="Center"
+                                             ToolTip="Pages that carry color pictures are picked for you. Add or remove pages by typing."/>
+                                <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource UiGhostButton}" Text="Reset" Height="28" Margin="8,0,0,0" ToolTip="Back to the pages with color pictures" Click="ColorReset_Click"/>
+                                <TextBox x:Name="ColorPagesBox" Height="28" Margin="10,0,0,0" VerticalContentAlignment="Center" TextChanged="ColorPages_TextChanged" ToolTip="For example 5, 12, 40-42"/>
+                            </DockPanel>
+                            <TextBlock x:Name="ColorStat" Style="{StaticResource Small}" Margin="24,2,0,0" TextWrapping="Wrap"/>
                             <DockPanel Margin="0,10,0,0">
                                 <TextBlock Text="Subset:" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                 <ComboBox x:Name="SubsetBox" Height="28" SelectedIndex="0" SelectionChanged="Subset_Changed">
@@ -132,18 +159,20 @@
                                 <ComboBoxItem Content="Landscape"/>
                             </ComboBox>
                             <CheckBox x:Name="AutoCenterBox" Content="Auto-center" IsChecked="True" Margin="0,10,0,0" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
-                            <CheckBox x:Name="HighQualityBox" Content="High quality CAD (600 DPI)" Margin="0,10,0,0" Checked="Setting_Changed" Unchecked="Setting_Changed"
+                            <CheckBox x:Name="HighQualityBox" Content="High quality CAD (600 DPI)" Margin="0,10,0,0" Checked="HighQuality_Changed" Unchecked="Setting_Changed"
                                       ToolTip="Renders in memory-bounded bands for sharp CAD lines. Large sheets can take longer to spool."/>
+                            <CheckBox x:Name="LinesBox2" Content="Black lines only" Margin="0,10,0,0" Click="Mirror_Changed"/>
+                            <CheckBox x:Name="ImageBox2" Content="Print as image (faster for heavy drawings)" Margin="0,10,0,0" Click="Mirror_Changed"/>
                             <TextBlock x:Name="LayerNote" Margin="0,10,0,0" TextWrapping="Wrap" Style="{StaticResource Small}"/>
                         </StackPanel>
                     </Border>
                 </StackPanel>
             </ScrollViewer>
 
-            <GridSplitter Grid.Column="3" Style="{StaticResource ColumnSplitter}"/>
+            <GridSplitter x:Name="Splitter3" Grid.Column="3" Style="{StaticResource ColumnSplitter}" Visibility="Collapsed"/>
 
             <!-- Column 3: how to print (gray, lines, copies), which pages are color, and the printer and paper of each kind of sheet -->
-            <ScrollViewer Grid.Column="4" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer x:Name="Col3Host" Grid.Column="4" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                 <StackPanel>
                     <Border Style="{StaticResource Card}">
                         <StackPanel>
@@ -155,13 +184,15 @@
             </ScrollViewer>
         </Grid>
 
-        <Border Grid.Row="1" Margin="0,10,0,0" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" Padding="16,10">
+        <Border Grid.Row="2" Margin="0,10,0,0" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" Padding="16,10">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                     <xt:XTButton x:Name="PrintButton" Style="{StaticResource UiPrimaryButton}" Icon="{StaticResource Ui.Icon.print}" Text="Print" MinWidth="110" Height="34" Margin="0,0,8,0" IsDefault="True" Click="Print_Click"/>
                     <xt:XTButton Style="{StaticResource UiGhostButton}" Text="Cancel" Width="100" Height="34" IsCancel="True" Click="Cancel_Click"/>
                 </StackPanel>
-                <Border x:Name="ProfileHost" DockPanel.Dock="Left" VerticalAlignment="Center"/>
+                <xt:XTButton x:Name="AdvancedButton" DockPanel.Dock="Left" Style="{StaticResource UiGhostButton}" Text="Advanced" Height="34" MinWidth="100" Margin="0,0,12,0" Click="Advanced_Click"
+                             ToolTip="A printer, paper, copies and grayscale for each paper size, and profiles"/>
+                <Border x:Name="ProfileHost" DockPanel.Dock="Left" VerticalAlignment="Center" Visibility="Collapsed"/>
                 <TextBlock x:Name="SummaryText" VerticalAlignment="Center" Margin="16,0,16,0" TextTrimming="CharacterEllipsis" Style="{StaticResource Small}"/>
             </DockPanel>
         </Border>

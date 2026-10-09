@@ -13,7 +13,7 @@ namespace XTPdfMergeApp.Services
     public enum PrintScale { FitToPaper, ActualSize, Custom, ReduceToPaper }
     public enum PrintOrientation { Auto, Portrait, Landscape }
     public enum PrintColor { Color, Grayscale, BlackLines }
-    public enum PrintQuality { Standard, CadHigh }
+    public enum PrintQuality { Standard, CadHigh, Fast }
 
     /// <summary>Yêu cầu in: các trang (theo thứ tự in), máy in, khổ giấy, số bản, tỉ lệ, màu.</summary>
     public sealed record PrintRequest(
@@ -253,6 +253,7 @@ namespace XTPdfMergeApp.Services
     {
         private const int StandardDpi = 300;
         private const int CadHighDpi = 600;
+        private const int FastDpi = 150; // "Print as image": a smaller picture to spool, much quicker for heavy drawings
         private const int MaxRasterDimension = 20_000;
         private const int MaxBandPixels = 12_000_000;
 
@@ -261,7 +262,7 @@ namespace XTPdfMergeApp.Services
 
         internal static RasterPlan GetRasterPlan(double drawWidth, double drawHeight, PrintQuality quality)
         {
-            int requestedDpi = quality == PrintQuality.CadHigh ? CadHighDpi : StandardDpi;
+            int requestedDpi = quality == PrintQuality.CadHigh ? CadHighDpi : quality == PrintQuality.Fast ? FastDpi : StandardDpi;
             double rawWidth = Math.Max(1, drawWidth / 100.0 * requestedDpi);
             double rawHeight = Math.Max(1, drawHeight / 100.0 * requestedDpi);
             double reduction = Math.Min(1.0, MaxRasterDimension / Math.Max(rawWidth, rawHeight));

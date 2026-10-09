@@ -145,7 +145,7 @@ namespace XTPdfMergeApp
             _lastPageByGroup[group] = row;
             ReaderContinuousView.RetainTabPages(_lastPageByGroup.Values);
             if (_presenceReported.ContainsKey(row.SourcePath)) UpdatePresenceStatus(row.SourcePath);
-            else { ReaderPresenceText.Visibility = Visibility.Collapsed; _ = PresenceTickAsync(); }
+            else { ReaderPresenceButton.Visibility = Visibility.Collapsed; _ = PresenceTickAsync(); }
             ScheduleViewPositionSave(row);
             UpdateDocumentTabs(group);
             if (!ReferenceEquals(ReaderDocumentTabs.SelectedItem, group))

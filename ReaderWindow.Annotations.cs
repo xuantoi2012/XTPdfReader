@@ -155,6 +155,7 @@ namespace XTPdfMergeApp
         {
             if (on == _crosshair) return;
             _crosshair = on;
+            ReaderCrosshairButton.Tag = on ? "Active" : null;
             if (!on) ReaderCrossH.Visibility = ReaderCrossV.Visibility = Visibility.Collapsed;
             ApplyToolCursor();
             if (on) UpdateCrosshair(Mouse.GetPosition(ReaderContentHost));

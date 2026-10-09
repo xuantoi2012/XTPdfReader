@@ -10,7 +10,7 @@ using XTStyle.Controls;
 namespace XTPdfMergeApp.Controls;
 
 /// <summary>One thing to print: the pages of one kind of sheet, the printer, the paper and the driver's own settings kept for that size.</summary>
-internal sealed record RoutedPrintJob(PageSizeGroup Group, string Printer, PaperSize Paper, byte[]? DevMode = null, int Copies = 1, bool? Collate = null);
+internal sealed record RoutedPrintJob(PageSizeGroup Group, string Printer, PaperSize Paper, byte[]? DevMode = null, int Copies = 1, bool? Collate = null, bool Gray = false);
 
 /// <summary>
 /// "Print by paper size" in a window of its own. The print dialog now carries the same thing inside it (<see cref="PrintBySizePanel"/>, beside the page range, so only the sizes of the pages that

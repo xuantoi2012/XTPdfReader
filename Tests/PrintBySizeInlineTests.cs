@@ -48,6 +48,8 @@ internal static partial class Program
 
         var window = new PrintWindow(new[] { (pdf, 1), (pdf, 2), (pdf, 3), (pdf, 4) }, 0) { Left = -32000, Top = -32000, ShowActivated = false, WindowStartupLocation = System.Windows.WindowStartupLocation.Manual };
         window.Show();
+        WaitSync(500);
+        ((System.Windows.Controls.Primitives.ButtonBase)window.FindName("AdvancedButton")!).RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); // the color pages are read when Advanced opens
         WaitSync(3000);
         var host = (System.Windows.Controls.Border)window.FindName("BySizeHost")!;
         var panel = (PrintBySizePanel)host.Child;

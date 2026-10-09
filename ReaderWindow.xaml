@@ -714,7 +714,34 @@
                                  ToolTip="Next page" Click="ReaderNextPage_Click"/>
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0">
-                    <TextBlock x:Name="ReaderPresenceText" Visibility="Collapsed" MaxWidth="220" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,12,0" Foreground="{DynamicResource Ui.Muted}"/>
+                    <!-- Others who have this file open: the people icon with their number; a click lists who. Then the crosshair, then a divider before the page views. -->
+                    <Button x:Name="ReaderPresenceButton" Visibility="Collapsed" Height="26" MinWidth="26" Margin="0,0,2,0" Padding="7,0" Cursor="Hand" Focusable="False" Click="ReaderPresence_Click" ToolTip="Others have this file open">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="Bd" Background="Transparent" CornerRadius="5" Padding="{TemplateBinding Padding}">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Path Data="{StaticResource Ui.Icon.users}" Width="15" Height="15" Stretch="Uniform" Fill="{DynamicResource Ui.Warn}"/>
+                                        <TextBlock Text="{Binding Content, RelativeSource={RelativeSource TemplatedParent}}" Margin="5,0,0,0" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
+                                    </StackPanel>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/></Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    <Popup x:Name="ReaderPresencePopup" PlacementTarget="{Binding ElementName=ReaderPresenceButton}" Placement="Top" StaysOpen="False" AllowsTransparency="True">
+                        <Border Margin="10" Padding="12,10" CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Surface}">
+                            <Border.Effect><DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.25"/></Border.Effect>
+                            <StackPanel>
+                                <TextBlock Text="Also open by" FontWeight="SemiBold" Margin="0,0,0,6" Foreground="{DynamicResource Ui.Muted}"/>
+                                <StackPanel x:Name="ReaderPresenceList"/>
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+                    <xt:XTButton x:Name="ReaderCrosshairButton" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.crosshair}" Margin="0,0,0,0"
+                                 ToolTip="Crosshair: lines through the pointer, to read a drawing (X; Esc turns it off)" Click="ReaderCrosshair_Click"/>
+                    <Rectangle Width="1" Height="16" Margin="8,0,8,0" VerticalAlignment="Center" Fill="{DynamicResource Ui.Border}"/>
                     <!-- Bố cục trang: cùng nút/handler với nhóm "Page view" trên ribbon, chỉ đồng bộ Tag="Active". -->
                     <xt:XTButton x:Name="ReaderStatusSingleButton" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.singlepage}"
                                  ToolTip="Single page" Click="ReaderViewSingle_Click"/>
