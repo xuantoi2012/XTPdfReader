@@ -41,6 +41,7 @@
     <SolidColorBrush x:Key="Ui.Pressed" Color="#363E4A"/>
     <SolidColorBrush x:Key="Ui.Hover" Color="#2A3039"/>
     <SolidColorBrush x:Key="Ui.View" Color="#303846"/>
+    <SolidColorBrush x:Key="Ui.Success" Color="#34C26B"/>
     <SolidColorBrush x:Key="Ui.Chip" Color="#2A3039"/>
     <SolidColorBrush x:Key="Ui.Accent" Color="#6EA8FF"/>
     <SolidColorBrush x:Key="Ui.AccentSoft" Color="#33445E"/>

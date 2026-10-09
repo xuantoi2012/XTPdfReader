@@ -84,6 +84,6 @@ public partial class ReaderWindow
         if (_groups.Contains(revision) && !revision.IsDirty) EditHost.CloseDocument(revision);
         if (_groups.Contains(target)) SelectDocumentTab(target);
         if (replaced > 0)
-            XTStyle.Controls.XTGrowl.Success($"Replaced {replaced} sheet(s). Not saved yet: Ctrl+S to save, Ctrl+Z to undo.", this);
+            XTPdfMergeApp.Services.Growl.Success($"Replaced {replaced} sheet(s). Not saved yet: Ctrl+S to save, Ctrl+Z to undo.", this);
     }
 }

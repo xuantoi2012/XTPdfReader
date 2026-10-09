@@ -9,7 +9,7 @@
         xmlns:local="clr-namespace:XTPdfMergeApp"
         xmlns:ctl="clr-namespace:XTPdfMergeApp.Controls"
         Title="PDF Reader Pro" Width="1280"
-        TitleIcon="{StaticResource App.Icon.Logo}" Icon="{StaticResource App.Icon.Logo}" Height="820"
+        TitleIcon="{StaticResource App.Icon.Logo}" Height="820"
         MinWidth="760" MinHeight="520" TitleBarMode="Full"
         WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI" FontSize="13"
@@ -46,10 +46,10 @@
         <!-- Title bar chỉ giữ lệnh toàn cục: kính lúp mở Command Palette (Ctrl+K), Find nội dung vẫn ở ribbon/Ctrl+F. -->
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,6,0">
             <!-- Narrow search box on a light surface: a click (or Ctrl+K) drops the command palette down right under it. -->
-            <xt:XTButton x:Name="TitleSearchButton" Style="{StaticResource UiTitleSearchButton}" Icon="{StaticResource Ui.Icon.search}" Width="200" Height="28"
-                         Text="Search commands…   Ctrl+K" Margin="0,0,8,0" ToolTip="Command palette: commands, files and pages (Ctrl+K)" Click="ReaderMore_Click"/>
+            <xt:XTButton x:Name="TitleSearchButton" Style="{StaticResource UiTitleSearchButton}" Icon="{StaticResource Ui.Icon.search}" Width="360" Height="28"
+                         Text="Search commands, files and pages…   Ctrl+K" Margin="0,0,8,0" ToolTip="Command palette: commands, files and pages (Ctrl+K)" Click="ReaderMore_Click"/>
             <!-- Only visible when a newer release exists (AppUpdateService); icon only, the tooltip says which version. -->
-            <xt:XTButton x:Name="UpdateTitleButton" Style="{StaticResource UiAccentIconButton}" Icon="{StaticResource Ui.Icon.update}" Margin="0,0,6,0"
+            <xt:XTButton x:Name="UpdateTitleButton" Style="{StaticResource UiAccentGlyphButton}" Icon="{StaticResource Ui.Icon.update}" Margin="0,0,6,0"
                          Visibility="Collapsed" Click="UpdateTitle_Click"/>
             <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.settings}" Width="30" Height="30" IconSize="18"
                          ToolTip="Settings" Click="RibbonSettings_Click"/>
@@ -236,7 +236,7 @@
                                                  ToolTip="Print (Ctrl+P)" Click="ReaderPrint_Click"/>
                                     <xt:XTButton x:Name="ReaderSecurityButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.lock}" Text="Protect"
                                                  ToolTip="Show document encryption and permissions" Click="ReaderSecurity_Click"/>
-                                    <xt:XTButton x:Name="ReaderOcrButton" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.selecttext}" Text="OCR"
+                                    <xt:XTButton x:Name="ReaderOcrButton" Visibility="Collapsed" Style="{StaticResource UiRibbonButton}" Icon="{StaticResource Ui.Icon.selecttext}" Text="OCR"
                                                  ToolTip="Read the text of scanned pages (Vietnamese and Latin letters) into a searchable copy" Click="ReaderOcr_Click"/>
                                 </StackPanel>
                                 <TextBlock Style="{StaticResource UiGroupCaption}" Text="Document"/>
@@ -256,7 +256,7 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <xt:XTButton x:Name="ReaderStartButton" Style="{StaticResource UiTabButton}" Icon="{StaticResource Ui.Icon.home}" Text="Start"
-                             Width="76" VerticalAlignment="Bottom" ToolTip="Home: recent files and quick tools" Tag="Active" Click="StartButton_Click"/>
+                             MinWidth="76" MaxWidth="170" VerticalAlignment="Bottom" ToolTip="Home: recent files and quick tools" Tag="Active" Click="StartButton_Click"/>
             <!-- Host báo "rộng 0" cho cha nên bề ngang nó nhận được luôn là chỗ còn lại thật, không bị chính các tab làm phình (xem ReaderTabsHost). -->
             <local:ReaderTabsHost x:Name="ReaderTabsHost" Grid.Column="1" ClipToBounds="True" SizeChanged="ReaderTabsHost_SizeChanged">
             <StackPanel Orientation="Horizontal">
@@ -311,7 +311,7 @@
                                     <MenuItem Header="Close all tabs" Click="ReaderTabCloseAll_Click"/>
                                 </ContextMenu>
                             </Grid.ContextMenu>
-                            <Image Width="18" Height="18" VerticalAlignment="Center" Source="{StaticResource App.Icon.Logo}" RenderOptions.BitmapScalingMode="HighQuality"/>
+                            <Image Width="18" Height="18" VerticalAlignment="Center" Source="{StaticResource App.Icon.Document}" RenderOptions.BitmapScalingMode="HighQuality"/>
                             <TextBlock Grid.Column="1" Text="{Binding FileName}" TextTrimming="CharacterEllipsis" Margin="8,0,0,0" VerticalAlignment="Center"/>
                             <Ellipse Grid.Column="2" Width="7" Height="7" Margin="8,0,0,0" VerticalAlignment="Center" Fill="{DynamicResource Ui.Warn}"
                                      ToolTip="Unsaved changes (Ctrl+S to save)"
@@ -358,6 +358,8 @@
                     <ColumnDefinition x:Name="ReaderSidePanelColumn" Width="364" MinWidth="304" MaxWidth="640"/>
                     <ColumnDefinition Width="4"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition x:Name="ReaderToolSplitterColumn" Width="0"/>
+                    <ColumnDefinition x:Name="ReaderToolPanelColumn" Width="0" MinWidth="0" MaxWidth="640"/>
                 </Grid.ColumnDefinitions>
                 <ctl:ReaderSidePanel x:Name="ReaderSidePanel" Grid.Column="0"/>
                 <GridSplitter x:Name="ReaderPanelSplitter" Grid.Column="1" Width="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
@@ -393,6 +395,9 @@
                             <Setter Property="Panel.ZIndex" Value="5"/>
                         </Style>
                     </Canvas.Resources>
+                    <!-- Crosshair (key X): two thin lines through the pointer, to read a drawing against its axes. -->
+                    <Line x:Name="ReaderCrossH" Visibility="Collapsed" IsHitTestVisible="False" Stroke="#D9E11D48" StrokeThickness="1" Panel.ZIndex="7"/>
+                    <Line x:Name="ReaderCrossV" Visibility="Collapsed" IsHitTestVisible="False" Stroke="#D9E11D48" StrokeThickness="1" Panel.ZIndex="7"/>
                     <Polyline x:Name="ReaderInkPreview" Stroke="{DynamicResource Ui.Accent}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
                               IsHitTestVisible="False" Visibility="Collapsed"/>
                     <Border x:Name="AnnotationSelectionBox" Visibility="Collapsed" IsHitTestVisible="False" BorderThickness="1.5" CornerRadius="3"
@@ -649,6 +654,22 @@
                     </DockPanel>
                 </Border>
             </Grid>
+
+            <!-- Right-hand tool panel (Find in area, Stamp pages, later more): shows beside the page, which is where the area is drawn. -->
+            <GridSplitter x:Name="ReaderToolSplitter" Grid.Column="3" Width="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          ResizeBehavior="PreviousAndNext" Background="{DynamicResource Ui.Border}" Visibility="Collapsed"/>
+            <Border x:Name="ReaderToolPanel" Grid.Column="4" Visibility="Collapsed" Background="{DynamicResource Ui.Surface}">
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" Height="40" Padding="14,0,6,0" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource Ui.Border}" Background="{DynamicResource Ui.Panel}">
+                        <DockPanel>
+                            <xt:XTButton DockPanel.Dock="Right" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.close}" VerticalAlignment="Center"
+                                         ToolTip="Close the panel (Esc)" Click="ReaderToolPanelClose_Click"/>
+                            <TextBlock x:Name="ReaderToolPanelTitle" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
+                        </DockPanel>
+                    </Border>
+                    <ContentPresenter x:Name="ReaderToolPanelBody"/>
+                </DockPanel>
+            </Border>
             </Grid>
 
             <!-- Màn hình Start (Recent, Quick locations, Quick tools): tự hiện khi chưa mở file nào. -->
@@ -670,6 +691,17 @@
                 <Border Grid.ColumnSpan="3" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,1,0,0" IsHitTestVisible="False"/>
                 <TextBlock x:Name="ReaderTitleText" Grid.Column="0" VerticalAlignment="Center" FontSize="12"
                            TextTrimming="CharacterEllipsis" Margin="12,0,12,0" Foreground="{DynamicResource Ui.Muted}"/>
+                <!-- One place for every long job (loading a file into memory, a find over many pages, a save, later the right-hand tools):
+                     what it does, a green bar, the percentage. It replaces the file name while it runs. -->
+                <StackPanel x:Name="ReaderActivityPanel" Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,12,0" Visibility="Collapsed">
+                    <TextBlock x:Name="ReaderActivityText" FontSize="12" MaxWidth="300" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                               Foreground="{DynamicResource Ui.Text}"/>
+                    <Border x:Name="ReaderActivityTrack" Width="120" Height="6" CornerRadius="3" Margin="10,0,10,0" VerticalAlignment="Center"
+                            Background="{DynamicResource Ui.Chip}" ClipToBounds="True">
+                        <Border x:Name="ReaderActivityFill" Width="0" HorizontalAlignment="Left" CornerRadius="3" Background="{DynamicResource Ui.Success}"/>
+                    </Border>
+                    <TextBlock x:Name="ReaderActivityPercent" FontSize="12" MinWidth="34" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Muted}"/>
+                </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <xt:XTButton Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.chevl}"
                                  ToolTip="Previous page" Click="ReaderPreviousPage_Click"/>
@@ -683,14 +715,6 @@
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0">
                     <TextBlock x:Name="ReaderPresenceText" Visibility="Collapsed" MaxWidth="220" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,12,0" Foreground="{DynamicResource Ui.Muted}"/>
-                    <!-- A long job of the app (a find over many pages, a save that removes objects): what it does and how far it is. -->
-                    <TextBlock x:Name="ReaderTaskText" Visibility="Collapsed" MaxWidth="360" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"
-                               Foreground="{DynamicResource Ui.Text}"/>
-                    <ProgressBar x:Name="ReaderTaskBar" Visibility="Collapsed" Width="110" Height="6" Minimum="0" Maximum="1" VerticalAlignment="Center" Margin="0,0,14,0"/>
-                    <!-- Tiến độ nạp file vào bộ đệm (đọc nền) — hết khi nạp xong. Không chặn thao tác. -->
-                    <TextBlock x:Name="ReaderLoadProgressText" Visibility="Collapsed" VerticalAlignment="Center" Margin="0,0,12,0"
-                               Foreground="{DynamicResource Ui.Muted}"
-                               ToolTip="Reading the whole file into the cache. The page you are viewing is always read first."/>
                     <!-- Bố cục trang: cùng nút/handler với nhóm "Page view" trên ribbon, chỉ đồng bộ Tag="Active". -->
                     <xt:XTButton x:Name="ReaderStatusSingleButton" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.singlepage}"
                                  ToolTip="Single page" Click="ReaderViewSingle_Click"/>

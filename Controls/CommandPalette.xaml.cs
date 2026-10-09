@@ -30,7 +30,7 @@ namespace XTPdfMergeApp.Controls
             _all = items;
             Query.Text = "";
             Pop.PlacementTarget = anchor;
-            Pop.HorizontalOffset = anchor.ActualWidth - 520 - 20 + 10; // panel is 520 wide with 10 px side margins for the shadow
+            Pop.HorizontalOffset = anchor.ActualWidth - 400 - 20 + 10; // panel is 400 wide with 10 px side margins for the shadow
             Pop.IsOpen = true;
             Refresh();
             Dispatcher.BeginInvoke(new Action(() => Query.Focus()), System.Windows.Threading.DispatcherPriority.Input);

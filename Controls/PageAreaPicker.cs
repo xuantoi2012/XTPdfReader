@@ -19,7 +19,7 @@ namespace XTPdfMergeApp.Controls;
 /// again sharper when zoomed. Drag on the page to draw a rectangle (an area to search); drag inside it to move it, drag its squares to resize it. In <see cref="PlaceMode"/> the rectangle is a
 /// stamp or signature: click puts it there, drag moves it, the corners resize it keeping its shape. Positions are fractions 0..1 of the displayed page, so they fit every page of the same size.
 /// </summary>
-internal sealed class PageAreaPicker : DockPanel
+internal sealed class PageAreaPicker : DockPanel, IAreaSurface
 {
     private const double BaseWidth = 1000;
     private static readonly string[] HandleNames = { "NW", "N", "NE", "E", "SE", "S", "SW", "W" };
@@ -142,7 +142,7 @@ internal sealed class PageAreaPicker : DockPanel
     }
 
     /// <summary>True when the arrows already step through exactly these pages.</summary>
-    internal bool SamePages(IReadOnlyList<int> pages) => _pages.SequenceEqual(pages);
+    public bool SamePages(IReadOnlyList<int> pages) => _pages.SequenceEqual(pages);
 
     public Task ShowPageAsync(string path, int pageNumber) => SetPagesAsync(path, new[] { pageNumber });
 

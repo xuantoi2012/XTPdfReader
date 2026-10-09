@@ -282,13 +282,14 @@ namespace XTPdfMergeApp
             }
             if (loaded is { } fraction && fraction < 1)
             {
-                ReaderLoadProgressText.Text = $"Loading into memory {fraction:P0}";
-                ReaderLoadProgressText.Visibility = Visibility.Visible;
+                _loadFraction = fraction;
+                RefreshActivity();
                 _waitingForFullLoad = true;
             }
             else
             {
-                ReaderLoadProgressText.Visibility = Visibility.Collapsed;
+                _loadFraction = null;
+                RefreshActivity();
                 // Vừa nạp xong cả file: giờ mới làm ấm thumbnail quanh trang đang xem (trước đó băng thông dành cho trang).
                 if (_waitingForFullLoad && loaded is >= 1) ScheduleNearbyThumbnailWarmup();
                 _waitingForFullLoad = false;
@@ -308,7 +309,7 @@ namespace XTPdfMergeApp
 
         private void ShowEmptyReaderState()
         {
-            ReaderEmptyText.Text = "Open a PDF with Ctrl+O, or drag files into the window.";
+            ReaderEmptyText.Text = Loc.T("Open a PDF with Ctrl+O, or drag files into the window.");
             ReaderEmptyText.Visibility = Visibility.Visible;
             ReaderTitleText.Text = "";
             ReaderPageBox.Text = "";
@@ -359,12 +360,50 @@ namespace XTPdfMergeApp
         {
             Dispatcher.InvokeAsync(() =>
             {
-                bool show = text != null;
-                ReaderTaskText.Text = text ?? "";
-                ReaderTaskText.Visibility = ReaderTaskBar.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-                ReaderTaskBar.IsIndeterminate = show && fraction < 0;
-                if (show && fraction >= 0) ReaderTaskBar.Value = fraction;
+                _taskText = text;
+                _taskFraction = fraction;
+                RefreshActivity();
             });
+        }
+
+        private string? _taskText;
+        private double _taskFraction = -1;
+        private double? _loadFraction;
+        private bool _activityIndeterminate;
+        private bool _opening;
+
+        /// <summary>
+        /// The bottom-left status slot: a running job (task) wins over "loading into memory"; with neither, the file name shows.
+        /// Every long operation reports through here so they all look the same: text, green bar, percentage.
+        /// </summary>
+        private void RefreshActivity()
+        {
+            string? text; double fraction;
+            if (_taskText != null) { text = _taskText; fraction = _taskFraction; }
+            else if (_opening) { text = "Opening file"; fraction = _loadFraction ?? -1; }
+            else if (_loadFraction is { } load) { text = "Loading into memory"; fraction = load; }
+            else { text = null; fraction = 0; }
+
+            ReaderActivityPanel.Visibility = text != null ? Visibility.Visible : Visibility.Collapsed;
+            ReaderTitleText.Visibility = text != null ? Visibility.Collapsed : Visibility.Visible;
+            if (text == null) { SetActivityIndeterminate(false); return; }
+            ReaderActivityText.Text = Loc.T(text);
+            bool indeterminate = fraction < 0;
+            SetActivityIndeterminate(indeterminate);
+            ReaderActivityPercent.Text = indeterminate ? "" : $"{(int)Math.Round(fraction * 100)}%";
+            if (!indeterminate) ReaderActivityFill.Width = ReaderActivityTrack.Width * Math.Clamp(fraction, 0, 1);
+        }
+
+        /// <summary>No percentage known: a short green segment sweeps along the track.</summary>
+        private void SetActivityIndeterminate(bool on)
+        {
+            if (on == _activityIndeterminate) return;
+            _activityIndeterminate = on;
+            if (!on) { ReaderActivityFill.BeginAnimation(FrameworkElement.MarginProperty, null); ReaderActivityFill.Margin = new Thickness(0); return; }
+            ReaderActivityFill.Width = 40;
+            ReaderActivityFill.BeginAnimation(FrameworkElement.MarginProperty, new System.Windows.Media.Animation.ThicknessAnimation(
+                new Thickness(-40, 0, 0, 0), new Thickness(ReaderActivityTrack.Width, 0, 0, 0), TimeSpan.FromSeconds(1.2))
+            { RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever });
         }
 
         private void ReaderTab_PreviewMouseRightButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -528,7 +567,7 @@ namespace XTPdfMergeApp
             }
             if (added.Count == 0) return;
             SelectDocumentTab(draft);
-            XTStyle.Controls.XTGrowl.Success($"{draft.FileName}: {draft.Pages.Count} pages. Not saved yet: Ctrl+Shift+S to save, Ctrl+Z to undo.", this);
+            XTPdfMergeApp.Services.Growl.Success($"{draft.FileName}: {draft.Pages.Count} pages. Not saved yet: Ctrl+Shift+S to save, Ctrl+Z to undo.", this);
         }
 
         private void ReaderTabs_PreviewDragOver(object sender, DragEventArgs e)
@@ -704,6 +743,25 @@ namespace XTPdfMergeApp
             return _mergeWindow = window;
         }
 
+        /// <summary>Files the user opened from Explorer while the app is running (a second start forwards them): they open in the Reader, as a File &gt; Open would.</summary>
+        internal async void ReceiveOpenRequest(IEnumerable<string> paths)
+        {
+            var files = paths.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            if (files.Length == 0) return;
+            if (_groups.Count > 0) ShowStart(false);
+            try { await Session.OpenFilesInReaderAsync(files); }
+            catch { /* the open reports its own errors */ }
+            // Whatever the open did, the file the user asked for ends up on screen (not only as a tab).
+            string last = System.IO.Path.GetFullPath(files[^1]);
+            if (_groups.LastOrDefault(g => string.Equals(g.SourcePath, last, StringComparison.OrdinalIgnoreCase)) is { } group && group.Pages.Count > 0
+                && !ReferenceEquals(_readerGroup, group))
+            {
+                ShowStart(false);
+                ShowGroup(group);
+            }
+            BringToFront();
+        }
+
         internal void ReceiveIncomingPdfs(IEnumerable<string> paths)
         {
             var incoming = paths.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -742,8 +800,13 @@ namespace XTPdfMergeApp
         /// <summary>Đưa cửa sổ đọc lên trước (vd double-click 1 trang trong cửa sổ ghép).</summary>
         internal void BringToFront()
         {
+            if (!IsVisible) Show();
             if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
             Activate();
+            // Over another window Activate() can be refused: raise it for a moment (not left on top) and give it the focus.
+            Topmost = true;
+            Topmost = false;
+            Focus();
         }
 
         private bool _closingConfirmed;
@@ -945,14 +1008,14 @@ namespace XTPdfMergeApp
                     PdfLayerStateStore.Forget(path); // id layer còn lại giữ nguyên nhưng tập đang tắt cũ không còn đúng
                     ReaderSidePanel.InvalidateSource(path, false, true);
                     OnLayerStateChanged(path);
-                    XTStyle.Controls.XTGrowl.Success("Layers updated in " + System.IO.Path.GetFileName(path), this);
+                    XTPdfMergeApp.Services.Growl.Success("Layers updated in " + System.IO.Path.GetFileName(path), this);
                 }
                 else
                 {
                     if (!await Controls.PdfPermissionDialog.RequireAsync(this, paths, PdfPermissionOperation.Copy)) return;
                     string output = dialog.OutputPath;
                     await System.Threading.Tasks.Task.Run(() => PdfLayerEditService.SaveCopy(path, output, edits));
-                    XTStyle.Controls.XTGrowl.Success("Saved " + System.IO.Path.GetFileName(output), this);
+                    XTPdfMergeApp.Services.Growl.Success("Saved " + System.IO.Path.GetFileName(output), this);
                 }
             }
             catch (Exception ex)
@@ -976,7 +1039,7 @@ namespace XTPdfMergeApp
                 PdfLayerStateStore.Forget(path);
                 ReaderSidePanel.InvalidateSource(path, false, true);
                 OnLayerStateChanged(path);
-                XTStyle.Controls.XTGrowl.Success("Missing layers added to " + System.IO.Path.GetFileName(path), this);
+                XTPdfMergeApp.Services.Growl.Success("Missing layers added to " + System.IO.Path.GetFileName(path), this);
             }
             catch (Exception ex)
             {
@@ -1000,7 +1063,7 @@ namespace XTPdfMergeApp
             var dialog = new Controls.ExportWindow(pages, baseName, System.IO.Directory.Exists(dir) ? dir : "", preferFlatten,
                 _readerGroup.Pages.Select(p => p.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase).ToList()) { Owner = this };
             if (dialog.ShowDialog() == true)
-                XTStyle.Controls.XTGrowl.Success(dialog.Written == 1 ? "Exported 1 file" : $"Exported {dialog.Written} files", this);
+                XTPdfMergeApp.Services.Growl.Success(dialog.Written == 1 ? "Exported 1 file" : $"Exported {dialog.Written} files", this);
         }
 
         /// <summary>Trạng thái layer của file vừa đổi (lease PDFium cũ đã đóng). Trang đang hiện: vẽ lại TẠI CHỖ

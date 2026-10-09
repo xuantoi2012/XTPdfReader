@@ -43,7 +43,7 @@ public partial class ReaderWindow
             using (await PdfThumbnailService.SuspendDocumentAsync(path, TimeSpan.FromSeconds(3)))
                 added = await Task.Run(() => XTSheetLinks.WriteInPlace(path, links));
             Session.RefreshDiskStamp(path);
-            XTStyle.Controls.XTGrowl.Success(added == 0 ? "Those numbers already have links." : $"{added} sheet link(s) added. Click a number to jump to the sheet.", this);
+            XTPdfMergeApp.Services.Growl.Success(added == 0 ? "Those numbers already have links." : $"{added} sheet link(s) added. Click a number to jump to the sheet.", this);
         }
         catch (Exception ex) { AppDialog.Show(this, "Could not add the links:\n" + ex.Message, "Link sheet numbers", MessageBoxButton.OK, MessageBoxImage.Error); }
     }
@@ -65,7 +65,7 @@ public partial class ReaderWindow
                 sheets = await Task.Run(() => XTPageLabels.WriteInPlace(path));
             if (sheets == 0) { AppDialog.Show(this, "This file has no sheet numbers yet. Use “Read info…” first.", "Page labels", MessageBoxButton.OK, MessageBoxImage.Information); return; }
             Session.RefreshDiskStamp(path);
-            XTStyle.Controls.XTGrowl.Success($"Page labels set from {sheets} sheet numbers.", this);
+            XTPdfMergeApp.Services.Growl.Success($"Page labels set from {sheets} sheet numbers.", this);
         }
         catch (Exception ex) { AppDialog.Show(this, "Could not set the page labels:\n" + ex.Message, "Page labels", MessageBoxButton.OK, MessageBoxImage.Error); }
     }
@@ -102,7 +102,7 @@ public partial class ReaderWindow
                 await Task.Run(() => XTSheetInfoWriter.WriteInPlace(path, dialog.Result));
             Session.RefreshDiskStamp(path);
             await ReaderSidePanel.RefreshSheetsAsync();
-            XTStyle.Controls.XTGrowl.Success($"Sheet info written for {dialog.Result.Count} pages.", this);
+            XTPdfMergeApp.Services.Growl.Success($"Sheet info written for {dialog.Result.Count} pages.", this);
         }
         catch (Exception ex)
         {
@@ -149,6 +149,6 @@ public partial class ReaderWindow
         finally { System.Windows.Input.Mouse.OverrideCursor = null; }
 
         if (result.Error.Length > 0) AppDialog.Show(this, "Could not split the file:\n" + result.Error, "Split", MessageBoxButton.OK, MessageBoxImage.Error);
-        else XTStyle.Controls.XTGrowl.Success($"Created {result.Written} files", this);
+        else XTPdfMergeApp.Services.Growl.Success($"Created {result.Written} files", this);
     }
 }

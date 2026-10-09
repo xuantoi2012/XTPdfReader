@@ -46,6 +46,8 @@ internal sealed class AppDialogWindow : XTWindow
     internal AppDialogWindow(string message, string title, MessageBoxButton buttons, MessageBoxImage image,
         MessageBoxResult defaultResult = MessageBoxResult.None, string? acceptLabel = null)
     {
+        message = XTPdfMergeApp.Services.Loc.T(message);
+        title = XTPdfMergeApp.Services.Loc.T(title);
         Title = "PDF Reader Pro";
         TitleBarMode = TitleBarMode.Dialog;
         TitleIcon = TryFindResource("App.Icon.Logo");

@@ -74,7 +74,8 @@ namespace XTPdfMergeApp.Services
                 progId.SetValue("", "PDF document");
                 progId.SetValue("FriendlyTypeName", AppName);
                 using var icon = progId.CreateSubKey("DefaultIcon");
-                icon.SetValue("", ExePath + ",0");
+                string documentIcon = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(ExePath)!, "PDFDocument.ico");
+                icon.SetValue("", System.IO.File.Exists(documentIcon) ? documentIcon : ExePath + ",0");
                 using var command = progId.CreateSubKey(@"shell\open\command");
                 command.SetValue("", $"\"{ExePath}\" \"%1\"");
             }

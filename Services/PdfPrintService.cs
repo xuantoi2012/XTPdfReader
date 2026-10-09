@@ -104,6 +104,95 @@ namespace XTPdfMergeApp.Services
             catch { return true; }
         }
 
+        private enum CollateWay { Public, Patched, None }
+
+        private static readonly Dictionary<string, CollateWay> CollateHonored = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Where some drivers keep Collate in their private DEVMODE: the offset (from the end of the public part) of the one byte that holds it, found by changing every byte of the private part and
+        /// asking the driver what it then reports. Only drivers listed here are patched, and the patch is checked against the driver (HonorsCollate) before it is ever used.
+        /// </summary>
+        private static readonly Dictionary<string, int> CollateByte = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Canon LBP8630/8620/8610 LIPSLX"] = 1457,
+            ["Canon LBP9600C/9500C LIPSLX"] = 1362,
+            ["Canon Generic Plus PS3"] = 9148
+        };
+
+        private static string? DriverNameOf(string printerName)
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Print\Printers\" + printerName);
+                return key?.GetValue("Printer Driver") as string;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>The DEVMODE with the driver's own Collate byte set (for the drivers that keep Collate there), as the driver validates it.</summary>
+        private static byte[] PatchCollate(string printerName, byte[] devMode, bool collate)
+        {
+            if (DriverNameOf(printerName) is not { } driver || !CollateByte.TryGetValue(driver, out int offset) || devMode.Length < 72) return devMode;
+            int index = BitConverter.ToUInt16(devMode, 68) + offset;
+            if (index >= devMode.Length) return devMode;
+            var copy = (byte[])devMode.Clone();
+            copy[index] = collate ? (byte)1 : (byte)0;
+            return Normalize(printerName, copy) ?? copy;
+        }
+
+        private static CollateWay WayOfCollate(string printerName)
+        {
+            lock (CollateHonored)
+            {
+                if (CollateHonored.TryGetValue(printerName, out var known)) return known;
+                var way = CollateWay.Public;
+                try
+                {
+                    if (SupportsCollate(printerName) && GetDefault(printerName) is { } baseMode)
+                    {
+                        bool ReadBack(bool value, bool patch)
+                        {
+                            var made = WithSettings(printerName, baseMode, value, null, null, patch);
+                            var round = made == null ? null : Normalize(printerName, made);
+                            return round != null && Read(printerName, round).Collate;
+                        }
+                        if (!(!ReadBack(false, false) && ReadBack(true, false)))
+                            way = !ReadBack(false, true) && ReadBack(true, true) && DriverNameOf(printerName) is { } d && CollateByte.ContainsKey(d) ? CollateWay.Patched : CollateWay.None;
+                    }
+                }
+                catch { way = CollateWay.Public; }
+                return CollateHonored[printerName] = way;
+            }
+        }
+
+        /// <summary>True when Collate can be set from here: the driver takes the public field, or it keeps Collate in a private byte this program knows (and has verified against the driver).</summary>
+        public static bool HonorsCollate(string printerName) => WayOfCollate(printerName) != CollateWay.None;
+
+        /// <summary>Hands a DEVMODE to the driver without a dialog and takes back what the driver makes of it: the driver merges the public fields we set (collate, copies, paper) into its own private part.</summary>
+        public static byte[]? Normalize(string printerName, byte[] devMode)
+        {
+            if (!OpenPrinter(printerName, out var printer, IntPtr.Zero)) return null;
+            IntPtr input = IntPtr.Zero, output = IntPtr.Zero;
+            try
+            {
+                int size = DocumentProperties(IntPtr.Zero, printer, printerName, IntPtr.Zero, IntPtr.Zero, 0);
+                if (size <= 0) return null;
+                output = System.Runtime.InteropServices.Marshal.AllocHGlobal(size);
+                input = System.Runtime.InteropServices.Marshal.AllocHGlobal(Math.Max(size, devMode.Length));
+                System.Runtime.InteropServices.Marshal.Copy(devMode, 0, input, devMode.Length);
+                if (DocumentProperties(IntPtr.Zero, printer, printerName, output, input, DM_IN_BUFFER | DM_OUT_BUFFER) != IDOK) return null;
+                var result = new byte[size];
+                System.Runtime.InteropServices.Marshal.Copy(output, result, 0, size);
+                return result;
+            }
+            finally
+            {
+                if (input != IntPtr.Zero) System.Runtime.InteropServices.Marshal.FreeHGlobal(input);
+                if (output != IntPtr.Zero) System.Runtime.InteropServices.Marshal.FreeHGlobal(output);
+                ClosePrinter(printer);
+            }
+        }
+
         /// <summary>The printer's own default DEVMODE (no dialog).</summary>
         public static byte[]? GetDefault(string printerName)
         {
@@ -130,7 +219,9 @@ namespace XTPdfMergeApp.Services
         /// The DEVMODE with our own settings put into it: collate, copies and paper. The driver's DEVMODE is the one truth: the print dialog writes its boxes into it before the driver's
         /// Properties dialog opens and before printing, and reads it back after Properties, so the two places never show different things (the fault of some print dialogs).
         /// </summary>
-        public static byte[]? WithSettings(string printerName, byte[]? devMode, bool? collate, int? copies, PaperSize? paper)
+        public static byte[]? WithSettings(string printerName, byte[]? devMode, bool? collate, int? copies, PaperSize? paper) => WithSettings(printerName, devMode, collate, copies, paper, null);
+
+        private static byte[]? WithSettings(string printerName, byte[]? devMode, bool? collate, int? copies, PaperSize? paper, bool? patch)
         {
             var document = new PrintDocument();
             document.PrinterSettings.PrinterName = printerName;
@@ -149,6 +240,8 @@ namespace XTPdfMergeApp.Services
                 var result = new byte[size];
                 System.Runtime.InteropServices.Marshal.Copy(locked, result, 0, size);
                 GlobalUnlock(handle);
+                // a driver that keeps Collate in a private byte of its own is told there too
+                if (collate is { } want && (patch ?? WayOfCollate(printerName) == CollateWay.Patched)) result = PatchCollate(printerName, result, want);
                 return result;
             }
             finally { GlobalFree(handle); }
@@ -195,9 +288,12 @@ namespace XTPdfMergeApp.Services
             if (!document.PrinterSettings.IsValid) return false;
             if (request.DevMode != null) PrinterDriver.Apply(document, request.DevMode);
             document.PrinterSettings.Copies = (short)Math.Clamp(request.Copies, 1, 99);
-            if (PrinterDriver.SupportsCollate(request.Printer)) document.PrinterSettings.Collate = request.Collate;
+            if (PrinterDriver.SupportsCollate(request.Printer) && PrinterDriver.HonorsCollate(request.Printer)) document.PrinterSettings.Collate = request.Collate;
             document.DefaultPageSettings.PaperSize = request.Paper;
             document.DefaultPageSettings.Margins = new Margins(0, 0, 0, 0);
+            // The graphics origin is the corner of the PHYSICAL page, not of the printable area: without this a printer with a hard margin (4 mm on a plotter or an A3 laser) prints everything
+            // shifted down and to the right by that margin and cuts the far edges.
+            document.OriginAtMargins = true;
             document.DocumentName = "PDF Reader Pro";
             document.PrintController = new StandardPrintController();
 

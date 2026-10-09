@@ -25,7 +25,7 @@ public partial class SetupWindow : Window
     private readonly CancellationTokenSource _cancel = new();
     private double _real;
     private string _realStage = "Đang chuẩn bị…";
-    private bool _workDone, _finished, _cancelled;
+    private bool _workDone, _finished, _cancelled, _begun;
     private string? _error;
     private readonly DispatcherTimer _timer = new(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(33) };
 
@@ -34,11 +34,40 @@ public partial class SetupWindow : Window
         InitializeComponent();
         _options = options;
         _uninstall = options.Uninstall;
-        TitleText.Text = _uninstall ? "Đang gỡ cài đặt" : "Đang cài đặt";
-        SubtitleText.Text = _uninstall ? "Đang dọn dẹp PDF Reader Pro." : "Chuẩn bị không gian làm việc của bạn.";
         VersionText.Text = Installer.PeekVersion(options.Layout, options.InstallerPath, options.Uninstall) is { } version ? "PDF Reader Pro v" + version : "PDF Reader Pro";
-        Loaded += async (_, _) => await BeginAsync();
+        Loaded += async (_, _) =>
+        {
+            ShowWelcome();
+            if (options.Launch) await BeginAsync(); // an update was already agreed to in the Reader
+        };
         Closing += OnClosing;
+    }
+
+    /// <summary>The first screen: what this is and one button. Nothing is touched until the user presses it.</summary>
+    private void ShowWelcome()
+    {
+        _begun = false;
+        TitleText.Text = _uninstall ? "Gỡ cài đặt PDF Reader Pro" : "Chào mừng đến với PDF Reader Pro";
+        SubtitleText.Text = _uninstall ? "PDF Reader Pro sẽ được gỡ khỏi máy này. Tài liệu PDF của bạn không bị xóa." : "Trình đọc và chỉnh sửa PDF nhanh, gọn cho công việc hằng ngày.";
+        Feature1.Text = _uninstall ? "" : "•  Xem trang nhanh, cuộn mượt không giật";
+        Feature2.Text = _uninstall ? "" : "•  Ghép (merge) nhiều file nhanh gọn";
+        Feature3.Text = _uninstall ? "" : "•  Chỉnh sửa chữ, đối tượng và chú thích thuận tiện";
+        FeaturesPanel.Visibility = _uninstall ? Visibility.Collapsed : Visibility.Visible;
+        ProgressPanel.Visibility = Visibility.Collapsed;
+        ActionButton.Content = _uninstall ? "Gỡ cài đặt" : "Cài đặt";
+        ActionButton.IsEnabled = true;
+        ActionButton.Visibility = Visibility.Visible;
+        ActionButton.Focus();
+    }
+
+    private async void Action_Click(object sender, RoutedEventArgs e)
+    {
+        if (_begun)
+        {
+            Close(); // "Hủy": OnClosing asks, and ignores it once the install can no longer be undone
+            return;
+        }
+        await BeginAsync();
     }
 
     private static bool Animated => SystemParameters.ClientAreaAnimation && RenderCapability.Tier > 0;
@@ -75,21 +104,31 @@ public partial class SetupWindow : Window
     /// <summary>Checks that the app is not running (asking to close it), then starts the work.</summary>
     private async Task BeginAsync()
     {
+        _begun = true;
         string dir = _options.Layout.InstallDir;
         // An update is started by the Reader itself, which is closing at that moment: give it time before asking anything.
         if (_options.Launch) await Task.Run(() => Installer.WaitForExit(dir, TimeSpan.FromSeconds(8)));
-        if (await Task.Run(() => Installer.IsRunning(dir)))
+        // After an update the user has already closed the Reader; a leftover helper is closed by the install itself.
+        if (_options.WaitPid == 0 && await Task.Run(() => Installer.IsRunning(dir)))
         {
             bool close = ConfirmDialog.Ask(this, _uninstall ? "Gỡ cài đặt PDF Reader Pro" : "Cài đặt PDF Reader Pro",
                 "PDF Reader Pro đang chạy. Cần đóng ứng dụng để tiếp tục.\nHãy lưu công việc đang làm trước khi đóng.",
                 "Đóng ứng dụng và tiếp tục", "Hủy", actionIsPrimary: true);
-            if (!close) { _finished = true; Close(); return; }
+            if (!close) { ShowWelcome(); return; }
         }
         Start();
     }
 
     private void Start()
     {
+        TitleText.Text = _uninstall ? "Đang gỡ cài đặt" : "Đang cài đặt";
+        SubtitleText.Text = _uninstall ? "Đang dọn dẹp PDF Reader Pro." : "Chuẩn bị không gian làm việc của bạn.";
+        FeaturesPanel.Visibility = Visibility.Collapsed;
+        ProgressPanel.Visibility = Visibility.Visible;
+        ActionButton.Content = _uninstall ? "Đang gỡ…" : "Hủy";
+        ActionButton.IsEnabled = !_uninstall;
+        ActionButton.Background = new SolidColorBrush(Color.FromArgb(0x88, 0xFF, 0xFF, 0xFF));
+        ActionButton.Foreground = new SolidColorBrush(Color.FromRgb(0x16, 0x2B, 0x62));
         _started = DateTime.UtcNow;
         StartMotion();
         _timer.Tick += (_, _) => Tick();
@@ -136,6 +175,7 @@ public partial class SetupWindow : Window
         StageText.Text = cancelling ? "Đang hủy…" : stage;
         // After the point of no return (install) or at all (uninstall) the X would only leave a half-done job.
         CloseX.IsEnabled = !_uninstall && real < Installer.CommitFraction && !cancelling;
+        if (!_uninstall) ActionButton.IsEnabled = CloseX.IsEnabled;
         if (workDone && shown >= 1.0 - 1e-9) Finish();
     }
 
@@ -151,6 +191,7 @@ public partial class SetupWindow : Window
         TitleText.Text = _uninstall ? "Đã gỡ cài đặt" : "Đã cài đặt xong";
         SubtitleText.Text = _uninstall ? "PDF Reader Pro đã được gỡ khỏi máy này." : "PDF Reader Pro đã sẵn sàng. Bạn có thể mở ngay.";
         LaunchButton.Visibility = _uninstall ? Visibility.Collapsed : Visibility.Visible;
+        ActionButton.Visibility = Visibility.Collapsed;
         Buttons.Visibility = Visibility.Visible;
         CloseX.IsEnabled = true;
         if (_options.Launch && !_uninstall) Launch_Click(this, new RoutedEventArgs());
@@ -167,6 +208,7 @@ public partial class SetupWindow : Window
         StageText.Text = "Đã dừng";
         SheenShift.BeginAnimation(TranslateTransform.XProperty, null);
         LaunchButton.Visibility = Visibility.Collapsed;
+        ActionButton.Visibility = Visibility.Collapsed;
         Buttons.Visibility = Visibility.Visible;
         CloseX.IsEnabled = true;
     }
@@ -174,7 +216,7 @@ public partial class SetupWindow : Window
     /// <summary>The X, Alt+F4 and Esc-style closes all come here: ask while the work can still be undone, ignore it when it cannot.</summary>
     private void OnClosing(object? sender, CancelEventArgs e)
     {
-        if (_finished) return;
+        if (_finished || !_begun) return;
         e.Cancel = true;
         double real;
         lock (_gate) real = _real;

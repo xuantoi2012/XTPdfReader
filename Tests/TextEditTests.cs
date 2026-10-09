@@ -384,6 +384,33 @@ internal static partial class Program
         }, copyFrom: source);
     }
 
+    /// <summary>The batch tools live in the reader's right-hand panel and draw their rectangle on the page being read.</summary>
+    static void TestToolPanelOnReader()
+    {
+        UseTestAreaStore("toolpanel");
+        string source = BuildTwoSizesPdf(System.IO.Path.Combine(Output, "toolpanel-source"));
+        RunReaderFlow("toolpanel", async f =>
+        {
+            var window = f.Window;
+            await Task.Delay(1200);
+            f.Call("OpenStampPages");
+            await Task.Delay(2500);
+            Check((bool)f.Get("ToolPanelOpen")!, "The Stamp pages panel opens beside the page");
+            var surface = (XTPdfMergeApp.Controls.ReaderAreaSurface)f.Get("_areaSurface")!;
+            Check(surface.Active && surface.PlaceMode && surface.Area != null, "The stamp has a box on the page being read");
+            Check(surface.CurrentPage == 1, "…on the page the reader shows (" + surface.CurrentPage + ")");
+            SavePng(window, "toolpanel-stamp");
+            f.Call("CloseToolPanel");
+            Check(!(bool)f.Get("ToolPanelOpen")! && !surface.Active, "Closing the panel removes the box");
+            f.Call("OpenBatchFind");
+            await Task.Delay(2500);
+            Check((bool)f.Get("ToolPanelOpen")! && surface.Active && !surface.PlaceMode, "Find in area opens in the same panel, drawing a free rectangle");
+            surface.SetArea((0.05, 0.12, 0.6, 0.22));
+            SavePng(window, "toolpanel-find");
+            f.Call("CloseToolPanel");
+        }, copyFrom: source);
+    }
+
     /// <summary>Stamp pages: a stamp with an id, placed once per paper size, resizable (the corners keep its shape), put on many pages as one undoable change, with ids written into the file.</summary>
     static void TestStampManyPages()
     {
@@ -424,7 +451,7 @@ internal static partial class Program
             var a3 = window.Placements.First(p => p.Page == 3);
             Check(Math.Abs(a4.U2 - after.U2) < 1e-9 && Math.Abs(a3.U2 - a4.U2) > 1e-6 && window.Placements.First(p => p.Page == 4).U2 == a3.U2, "A4 pages get the A4 place, A3 pages the A3 place");
 
-            await (Task)f.Call("StampPagesAsync", path, window)!;
+            await (Task)f.Call("StampPagesAsync", path, window.Panel)!;
             await Task.Delay(600);
             var pending = AnnotationStore.Pending(path);
             Check(pending.Count == 3 && pending.All(c => c.Add != null && c.Add.Kind == QuickAnnotationKind.Stamp), $"Three stamps wait for Save ({pending.Count})");

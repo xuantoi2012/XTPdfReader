@@ -16,8 +16,7 @@ namespace XTPdfMergeApp.Services
     /// <summary>
     /// Looks for a newer release on GitHub (a PUBLIC repo that holds only the installers, not the code) when the app starts. When there is one,
     /// the title bar shows an "Update" button and a small window offers it once per start. Only "Cập nhật ngay" downloads
-    /// <c>PDFReaderPro-Setup.exe</c> and starts it (it asks for administrator rights, because the app lives in Program Files); the app then
-    /// exits and the setup reopens it. "Để sau" does nothing: the next start offers it again. Silent when running from a development
+    /// <c>PDFReaderPro-Setup.exe</c> and starts it (it asks for administrator rights, because the app lives in Program Files); the setup then waits until the user closes the app, installs, and reopens it. "Để sau" does nothing: the next start offers it again. Silent when running from a development
     /// folder, offline, or when no release exists.
     /// </summary>
     public static class AppUpdateService
@@ -123,25 +122,31 @@ namespace XTPdfMergeApp.Services
                     if (total > 0) progress.Report(Math.Min(1.0, (double)done / total));
                 }
             }
-            if (info.Size > 0 && new FileInfo(partial).Length != info.Size) { File.Delete(partial); throw new IOException("Tập tin tải về không đầy đủ."); }
+            if (info.Size > 0 && new FileInfo(partial).Length != info.Size) { File.Delete(partial); throw new IOException("The downloaded file is incomplete."); }
             File.Move(partial, file, overwrite: true);
             return file;
         }
 
-        /// <summary>Starts the downloaded setup with administrator rights and reopening the app afterwards. False when the user declined the prompt.</summary>
+        /// <summary>True once a downloaded setup is waiting for the Reader to be closed (this session).</summary>
+        internal static bool SetupPending { get; private set; }
+
+        /// <summary>
+        /// Starts the downloaded setup with administrator rights, but the app keeps running: the setup waits (invisibly) until this process has
+        /// exited, then installs and reopens the app. What the user is reading is never closed for them. False when the UAC prompt was declined.
+        /// </summary>
         internal static bool StartSetup(string setupPath)
         {
+            if (SetupPending) return true;
             try
             {
-                // XT Capture (the tray program beside the Reader) would keep its files locked while the setup replaces them.
-                CaptureLauncher.RequestExit();
-                var start = new ProcessStartInfo(setupPath, "--launch") { UseShellExecute = true, Verb = "runas" };
+                var start = new ProcessStartInfo(setupPath, $"--launch --wait-pid {Environment.ProcessId}") { UseShellExecute = true, Verb = "runas" };
                 if (TestFeed is not null)
                 {
                     start.Arguments += " " + Environment.GetEnvironmentVariable("XTPDF_UPDATE_SETUPARGS");
                     start.Verb = "";
                 }
                 Process.Start(start);
+                SetupPending = true;
                 return true;
             }
             catch (System.ComponentModel.Win32Exception)

@@ -48,7 +48,7 @@ namespace XTPdfMergeApp.Controls
             int version = ++_version;
             if (_all.Count == 0)
             {
-                EmptyText.Text = "Loading comments…";
+                EmptyText.Text = Loc.T("Loading comments…");
                 EmptyText.Visibility = Visibility.Visible;
             }
             var all = new List<CommentInfo>();
@@ -95,9 +95,9 @@ namespace XTPdfMergeApp.Controls
         private void Rebuild()
         {
             var scoped = Filtered().ToList();
-            StatusAll.Content = $"All {scoped.Count}";
-            StatusOpen.Content = $"Open {scoped.Count(c => !c.Resolved)}";
-            StatusResolved.Content = $"Resolved {scoped.Count(c => c.Resolved)}";
+            StatusAll.Content = Loc.T($"All {scoped.Count}");
+            StatusOpen.Content = Loc.T($"Open {scoped.Count(c => !c.Resolved)}");
+            StatusResolved.Content = Loc.T($"Resolved {scoped.Count(c => c.Resolved)}");
             var shown = Shown();
 
             bool multiFile = _paths.Count > 1;

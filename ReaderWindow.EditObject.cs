@@ -73,10 +73,10 @@ namespace XTPdfMergeApp
                 double x = hit.U * page.Geometry.DisplayWidth, y = hit.V * page.Geometry.DisplayHeight;
                 IReadOnlyList<PdfObjectRef> found;
                 try { found = await ObjectEditService.PickAsync(hit.Row.SourcePath, hit.Row.PageNumber, x, y); }
-                catch (Exception ex) { XTGrowl.Info(ex.Message, this); return; }
+                catch (Exception ex) { Growl.Info(ex.Message, this); return; }
                 if (found.Count == 0)
                 {
-                    XTGrowl.Info("Nothing drawn there. Click right on a line, a shape's edge or an image.", this);
+                    Growl.Info("Nothing drawn there. Click right on a line, a shape's edge or an image.", this);
                     return;
                 }
                 bool add = (Keyboard.Modifiers & ModifierKeys.Shift) != 0 && _objectSelection != null && _objectSelection.Row.PageNumber == hit.Row.PageNumber
@@ -110,7 +110,7 @@ namespace XTPdfMergeApp
                 ReaderInteractionLayer.Children.Add(box);
                 _objectVisuals.Add(box);
             }
-            XTGrowl.Info($"{objects.Count} selected: Delete removes {(objects.Count == 1 ? "it" : "them")}, Ctrl+C copies the picture, right-click for the menu.", this);
+            Growl.Info($"{objects.Count} selected: Delete removes {(objects.Count == 1 ? "it" : "them")}, Ctrl+C copies the picture, right-click for the menu.", this);
         }
 
         // ── drag an area ─────────────────────────────────────────────────
@@ -162,8 +162,8 @@ namespace XTPdfMergeApp
                 found = await ObjectEditService.PickAreaAsync(start.Row.SourcePath, start.Row.PageNumber,
                     Math.Min(start.U, end.U) * w, Math.Min(start.V, end.V) * h, Math.Max(start.U, end.U) * w, Math.Max(start.V, end.V) * h);
             }
-            catch (Exception ex) { XTGrowl.Info(ex.Message, this); return; }
-            if (found.Count == 0) { XTGrowl.Info("Nothing drawn completely inside that area.", this); return; }
+            catch (Exception ex) { Growl.Info(ex.Message, this); return; }
+            if (found.Count == 0) { Growl.Info("Nothing drawn completely inside that area.", this); return; }
             if (_readerTool == ReaderTool.EditObject) ShowObjectSelection(start.Row, found.ToList());
         }
 
@@ -176,7 +176,7 @@ namespace XTPdfMergeApp
             ClearObjectSelection();
             string what = objects.Count == 1 ? $"1 {objects[0].Kind}" : $"{objects.Count} objects";
             await EditHost.ApplyObjectDeleteAsync(selection.Row.SourcePath, objects, $"Removed {what}");
-            XTGrowl.Success($"Removed {what} from the page. Ctrl+S removes {(objects.Count == 1 ? "it" : "them")} from the file; Undo (Ctrl+Z) brings {(objects.Count == 1 ? "it" : "them")} back.", this);
+            Growl.Success($"Removed {what} from the page. Ctrl+S removes {(objects.Count == 1 ? "it" : "them")} from the file; Undo (Ctrl+Z) brings {(objects.Count == 1 ? "it" : "them")} back.", this);
         }
 
         internal async Task CopySelectedObjectsAsync()
@@ -187,16 +187,16 @@ namespace XTPdfMergeApp
             {
                 var bitmap = await PdfThumbnailService.RenderPageAsync(selection.Row.SourcePath, selection.Row.PageNumber - 1, 2600,
                     layerToken: PdfLayerStateStore.GetToken(selection.Row.SourcePath));
-                if (bitmap == null) { XTGrowl.Info("The page could not be drawn to copy it.", this); return; }
+                if (bitmap == null) { Growl.Info("The page could not be drawn to copy it.", this); return; }
                 double w = objects[0].PageWidth, h = objects[0].PageHeight;
                 double x0 = objects.Min(o => o.X0) - 2, y0 = objects.Min(o => o.Y0) - 2, x1 = objects.Max(o => o.X1) + 2, y1 = objects.Max(o => o.Y1) + 2;
                 var rect = new Int32Rect((int)Math.Max(0, x0 / w * bitmap.PixelWidth), (int)Math.Max(0, y0 / h * bitmap.PixelHeight), 0, 0);
                 int width = (int)Math.Min(bitmap.PixelWidth - rect.X, Math.Max(2, (x1 - x0) / w * bitmap.PixelWidth));
                 int height = (int)Math.Min(bitmap.PixelHeight - rect.Y, Math.Max(2, (y1 - y0) / h * bitmap.PixelHeight));
                 Clipboard.SetImage(new CroppedBitmap(bitmap, new Int32Rect(rect.X, rect.Y, Math.Max(1, width), Math.Max(1, height))));
-                XTGrowl.Success("Copied the picture of the selection. Paste it into another program.", this);
+                Growl.Success("Copied the picture of the selection. Paste it into another program.", this);
             }
-            catch (Exception ex) { XTGrowl.Info("Could not copy: " + ex.Message, this); }
+            catch (Exception ex) { Growl.Info("Could not copy: " + ex.Message, this); }
         }
 
         private void ShowObjectContextMenu()

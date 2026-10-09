@@ -47,7 +47,7 @@ namespace XTPdfMergeApp
             EditHost = Session;
             var groups = Session.Documents;
             InitializeComponent();
-            Icon = AppShellIcon.Image;
+            // No Window.Icon: Windows then takes the exe icon and picks the native frame (16-256) for the taskbar, instead of shrinking one bitmap.
             _groups = groups;
             ReaderContentHost.LostMouseCapture += (_, _) => CancelHighlightDrag();
             // File đang xem bị đóng khỏi workspace (đóng hẳn, không phải chỉ xoá vài trang — trường hợp
@@ -55,6 +55,7 @@ namespace XTPdfMergeApp
             _groups.CollectionChanged += (_, _) => OnGroupsChanged();
             InitializeShellParts();
             HookUpdateButton();
+            Loc.Changed += () => { RefreshUpdateButton(); RefreshActivity(); };
             HookContinuousView();
             DiagnosticsReport.ViewerSection = GetViewerDiagnostics;
         }
@@ -98,6 +99,12 @@ namespace XTPdfMergeApp
         private void ReaderWindow_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             if (HandleDocumentTabKey(e)) { e.Handled = true; return; }
+            if (e.Key == Key.Escape && ToolPanelOpen && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
+            {
+                CloseToolPanel();
+                e.Handled = true;
+                return;
+            }
             if (e.Key == Key.F1)
             {
                 Controls.KeyboardShortcutsWindow.ShowFor(this);
@@ -251,7 +258,12 @@ namespace XTPdfMergeApp
                     e.Handled = true;
                     break;
                 case Key.Escape:
+                    SetCrosshair(false);
                     SetReaderTool(ReaderTool.Hand);
+                    e.Handled = true;
+                    break;
+                case Key.X when Keyboard.Modifiers == ModifierKeys.None:
+                    ToggleCrosshair();
                     e.Handled = true;
                     break;
                 case Key.D0:
@@ -334,6 +346,7 @@ namespace XTPdfMergeApp
         public void HideReader()
         {
             StopNearbyThumbnailWarmup();
+            CloseToolPanel();
             PdfThumbnailService.SetHotPages(Array.Empty<(string, int)>());
             CommitAnnotationEditor(cancel: true);
             CancelHighlightDrag();
@@ -419,10 +432,11 @@ namespace XTPdfMergeApp
         private void UpdateReaderChrome(DocumentGroup group, PageRow row)
         {
             int position = group.Pages.IndexOf(row);
-            ReaderTitleText.Text = $"{Path.GetFileName(row.SourcePath)} - page {row.PageNumber}";
+            ReaderTitleText.Text = Loc.T($"{Path.GetFileName(row.SourcePath)} - page {row.PageNumber}");
             ReaderPageBox.Text = position >= 0 ? (position + 1).ToString() : row.Index.ToString();
-            ReaderPageTotalText.Text = $"/ {group.Pages.Count}";
+            ReaderPageTotalText.Text = Loc.T($"/ {group.Pages.Count}");
             OnReaderCurrentPageChanged(group, row);
+            _areaSurface?.OnReaderPageChanged();
         }
 
         private async Task NavigateReaderAsync(int delta)
@@ -701,7 +715,7 @@ namespace XTPdfMergeApp
         {
             _readerZoomMode = mode;
             _readerZoom = ReaderContinuousView.Zoom;
-            ReaderZoomText.Text = $"{_readerZoom * 100:0}%";
+            ReaderZoomText.Text = Loc.T($"{_readerZoom * 100:0}%");
             _syncingZoomSlider = true;
             ReaderZoomSlider.Value = Math.Clamp(Math.Sqrt(_readerZoom), ReaderZoomSlider.Minimum, ReaderZoomSlider.Maximum); // thang căn bậc hai: kéo mịn cả ở zoom thấp lẫn tới 3200%
             _syncingZoomSlider = false;

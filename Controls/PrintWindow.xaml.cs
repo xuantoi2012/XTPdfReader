@@ -15,26 +15,35 @@ namespace XTPdfMergeApp.Controls
     /// <summary>Print dialog laid out like Foxit's (printer + driver Properties, range/subset, handling, paper/orientation, preview). Rare options (booklet, tiling, bleed marks) are left out.</summary>
     public partial class PrintWindow : XTWindow
     {
-        private readonly IReadOnlyList<(string SourcePath, int PageNumber)> _pages;
+        private IReadOnlyList<(string SourcePath, int PageNumber)> _pages;
         private readonly int _currentIndex;
         private int _previewPosition;
         private int _previewVersion;
         private bool _ready;
-        private byte[]? _devMode;
-        private bool _syncing; // the boxes are being set from the driver: do not write that back into it
+        private PrintBySizePanel? _routing;
+        private string _routingKey = "";
+        private IReadOnlyList<PageSizeGroup> _routingGroups = Array.Empty<PageSizeGroup>();
+        private readonly List<(CheckBox Box, PageSizeGroup Group)> _sizeChecks = new();
+        private readonly Dictionary<string, Dictionary<int, double>> _colorShare = new(StringComparer.OrdinalIgnoreCase); // per file: page -> percent of the page that is colored
+        private HashSet<int> _colorDefault = new();   // 0-based positions of the pages that carry color pictures
+        private HashSet<int> _colorSet = new();       // the pages that print in color (the default, as the user edited it)
         private readonly Dictionary<string, (double W, double H)> _sizes = new();
         private List<(double Width, double Height)> _pagePoints = new();   // khổ mọi trang của file (point), theo thứ tự trang
         private List<PaperOption> _papers = new();                          // khổ giấy máy in đang chọn
         private IReadOnlyList<PageSizeGroup> _groups = Array.Empty<PageSizeGroup>();
 
-        internal PrintWindow(IReadOnlyList<(string SourcePath, int PageNumber)> pages, int currentIndex)
+        /// <summary>
+        /// <paramref name="prepared"/>: the same pages read from a working copy that carries the unsaved edits, still being made. The window opens at once (the copy of a big file
+        /// takes a while); printing and the preview wait for it.
+        /// </summary>
+        internal PrintWindow(IReadOnlyList<(string SourcePath, int PageNumber)> pages, int currentIndex, Task<List<(string SourcePath, int PageNumber)>>? prepared = null)
         {
             _pages = pages;
             _currentIndex = Math.Clamp(currentIndex, 0, Math.Max(0, pages.Count - 1));
             InitializeComponent();
 
-            PagesAll.Content = $"All pages ({pages.Count})";
-            PagesCurrent.Content = $"Current page ({_currentIndex + 1})";
+            PagesAll.Content = Loc.T($"All pages ({pages.Count})");
+            PagesCurrent.Content = Loc.T($"Current page ({_currentIndex + 1})");
             RangeTotal.Text = "/ " + pages.Count;
             PagesAll.IsChecked = true;
 
@@ -44,19 +53,47 @@ namespace XTPdfMergeApp.Controls
             if (PrinterBox.Items.Count == 0)
             {
                 PrintButton.IsEnabled = false;
-                PropertiesButton.IsEnabled = false;
-                SummaryText.Text = "No printer is installed.";
+                SummaryText.Text = Loc.T("No printer is installed.");
             }
             LayerNote.Text = pages.Select(p => p.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase).Any(p => PdfLayerStateStore.GetToken(p).Length > 0)
                 ? "Hidden layers are not printed (the current layer view is used)." : "";
+            Routing();
+            ProfileHost.Child = Routing().ProfileBar;
             _ready = true;
-            Loaded += (_, _) => { UpdateSummary(); _ = RefreshPreviewAsync(); _ = LoadPageSizesAsync(); };
+            bool waiting = prepared is { IsCompleted: false };
+            string layerNote = LayerNote.Text;
+            if (waiting)
+            {
+                PrintButton.IsEnabled = false;
+                LayerNote.Text = Loc.T("Preparing a copy with your unsaved edits… (progress in the status bar)");
+            }
+            Loaded += async (_, _) =>
+            {
+                UpdateSummary();
+                if (prepared != null)
+                {
+                    try { _pages = await prepared; }
+                    catch (Exception ex)
+                    {
+                        AppDialog.Show(this, "Could not prepare the PDF for printing:\n" + ex.Message, "Print", MessageBoxButton.OK, MessageBoxImage.Error);
+                        Close();
+                        return;
+                    }
+                    LayerNote.Text = layerNote;
+                    if (PrinterBox.Items.Count > 0) PrintButton.IsEnabled = true;
+                    UpdateSummary();
+                }
+                _ = RefreshPreviewAsync();
+                _ = LoadPageSizesAsync();
+                _ = LoadColorPagesAsync();
+            };
         }
 
         private List<int>? SelectedIndices()
         {
             List<int>? list;
             if (PagesCurrent.IsChecked == true) list = new List<int> { _currentIndex };
+            else if (PagesBySize.IsChecked == true) list = _sizeChecks.Where(c => c.Box.IsChecked == true).SelectMany(c => c.Group.PageIndexes).Distinct().OrderBy(i => i).ToList();
             else if (PagesRange.IsChecked == true) list = PdfPrintService.ParseRange(RangeBox.Text, _pages.Count)?.Select(n => n - 1).ToList();
             else list = Enumerable.Range(0, _pages.Count).ToList();
             if (list == null) return null;
@@ -67,10 +104,9 @@ namespace XTPdfMergeApp.Controls
             return list;
         }
 
-        private PaperSize? SelectedPaper => (PaperBox.SelectedItem as ComboBoxItem)?.Tag as PaperSize;
         private PrintScale Scale => ScaleActual.IsChecked == true ? PrintScale.ActualSize : ScaleCustom.IsChecked == true ? PrintScale.Custom
             : ScaleReduce.IsChecked == true ? PrintScale.ReduceToPaper : PrintScale.FitToPaper;
-        private PrintColor Color => LinesBox.IsChecked == true ? PrintColor.BlackLines : GrayBox.IsChecked == true ? PrintColor.Grayscale : PrintColor.Color;
+        private PrintColor Color => PrintColor.Color;
         private PrintQuality Quality => HighQualityBox.IsChecked == true ? PrintQuality.CadHigh : PrintQuality.Standard;
         private PrintOrientation Orientation => OrientBox.SelectedIndex switch { 1 => PrintOrientation.Portrait, 2 => PrintOrientation.Landscape, _ => PrintOrientation.Auto };
         private int Percent => int.TryParse(PercentBox.Text, out int p) ? Math.Clamp(p, 5, 1000) : 100;
@@ -79,70 +115,12 @@ namespace XTPdfMergeApp.Controls
 
         private void Printer_Changed(object sender, SelectionChangedEventArgs e)
         {
-            PaperBox.Items.Clear();
-            _devMode = null; // driver settings belong to one printer
             if (PrinterBox.SelectedItem is not string name) return;
             var settings = new PrinterSettings { PrinterName = name };
-            ShowDriverState(name, settings);
-            PrinterStatus.Text = settings.IsValid ? (settings.IsDefaultPrinter ? "Default printer" : "") : "Printer not available";
             if (!settings.IsValid) return;
-            ComboBoxItem? selected = null;
-            string defaultPaper = settings.DefaultPageSettings.PaperSize.PaperName;
-            foreach (PaperSize paper in settings.PaperSizes)
-            {
-                double w = paper.Width / 100.0 * 25.4, h = paper.Height / 100.0 * 25.4;
-                var item = new ComboBoxItem { Content = $"{paper.PaperName} ({w:0} × {h:0} mm)", Tag = paper };
-                PaperBox.Items.Add(item);
-                if (paper.PaperName == defaultPaper) selected = item;
-            }
-            _syncing = true;
-            PaperBox.SelectedItem = selected ?? (PaperBox.Items.Count > 0 ? PaperBox.Items[0] : null);
-            _syncing = false;
             _papers = settings.PaperSizes.Cast<PaperSize>()
                 .Select(p => new PaperOption(p.PaperName, p.Width / 100.0 * 25.4, p.Height / 100.0 * 25.4)).ToList();
             RefreshSizes();
-        }
-
-        // ── Collate, copies and paper follow the driver ───────────────
-
-        /// <summary>The boxes show what the printer itself says: its default collate and copies, and Collate is off when the driver cannot collate.</summary>
-        private void ShowDriverState(string printer, PrinterSettings settings)
-        {
-            _syncing = true;
-            try
-            {
-                bool canCollate = PrinterDriver.SupportsCollate(printer);
-                CollateBox.IsEnabled = canCollate;
-                CollateBox.IsChecked = canCollate && settings.Collate;
-                CollateBox.ToolTip = canCollate ? "Same as the Collate setting of the printer's Properties" : "This printer's driver cannot collate copies";
-                CopiesBox.Text = Math.Max(1, (int)settings.Copies).ToString();
-            }
-            finally { _syncing = false; }
-        }
-
-        /// <summary>The driver settings with this dialog's collate, copies and paper written into them (what Properties opens with and what is printed).</summary>
-        private byte[]? CurrentDevMode()
-        {
-            if (PrinterBox.SelectedItem is not string printer) return _devMode;
-            int copies = int.TryParse(CopiesBox.Text, out int c) ? Math.Clamp(c, 1, 99) : 1;
-            _devMode = PrinterDriver.WithSettings(printer, _devMode, CollateBox.IsEnabled ? CollateBox.IsChecked == true : null, copies, SelectedPaper);
-            return _devMode;
-        }
-
-        /// <summary>What the driver says now, shown in this dialog's boxes (after its Properties dialog).</summary>
-        private void ShowFromDevMode(string printer, byte[] devMode)
-        {
-            var (paper, copies, collate) = PrinterDriver.Read(printer, devMode);
-            _syncing = true;
-            try
-            {
-                if (paper != null)
-                    foreach (ComboBoxItem item in PaperBox.Items)
-                        if ((item.Tag as PaperSize)?.PaperName == paper.PaperName) { PaperBox.SelectedItem = item; break; }
-                CopiesBox.Text = Math.Max(1, (int)copies).ToString();
-                if (CollateBox.IsEnabled) CollateBox.IsChecked = collate;
-            }
-            finally { _syncing = false; }
         }
 
         // ── Khổ giấy của các trang so với máy in ──────────────────────
@@ -167,46 +145,101 @@ namespace XTPdfMergeApp.Controls
         private void RefreshSizes()
         {
             if (_pagePoints.Count == 0) return;
-            _groups = PrintSizePlan.Build(_pagePoints, _papers);
+            var built = PrintSizePlan.Build(_pagePoints, _papers);
+            bool changed = _groups.Count != built.Count || _groups.Zip(built).Any(z => z.First.Name != z.Second.Name || !z.First.PageIndexes.SequenceEqual(z.Second.PageIndexes));
+            _groups = built;
             SizesNote.Text = string.Join("  ·  ", _groups.Select(g => PrintSizePlan.Label(g)));
-            SizesButton.IsEnabled = true;
-            PrintBySizeButton.IsEnabled = true;
-            var warn = Mismatches();
-            SizesWarning.Visibility = warn.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            SizesWarning.Text = warn.Count == 0 ? "" : "⚠ " + string.Join("\n⚠ ", warn.Select(g =>
-                PrintSizePlan.Label(g) + ": " + PrintSizePlan.Status(g)));
+            if (changed) FillSizeChecks();
+            PagesBySize.IsEnabled = true;
+            RefreshRouting();
         }
 
-        /// <summary>Nhóm khổ có trang đang được chọn in mà máy in không có đúng khổ giấy đó.</summary>
-        private List<PageSizeGroup> Mismatches()
+        /// <summary>One tick box for each paper size of the file, under "Pages by paper size".</summary>
+        private void FillSizeChecks()
         {
-            var selected = SelectedIndices();
-            if (selected == null || _groups.Count == 0) return new List<PageSizeGroup>();
-            var set = new HashSet<int>(selected);
-            return _groups.Where(g => g.Fit != SizeFit.Exact && g.PageIndexes.Any(set.Contains)).ToList();
+            var ticked = _sizeChecks.Where(c => c.Box.IsChecked != true).Select(c => c.Group.Name).ToHashSet();
+            _sizeChecks.Clear();
+            SizeChecks.Children.Clear();
+            foreach (var group in _groups)
+            {
+                var box = new CheckBox { Content = $"{group.Name}  ({group.Dims})  ×  {group.Count}", IsChecked = !ticked.Contains(group.Name), Margin = new Thickness(0, 0, 0, 4) };
+                box.Checked += Setting_Changed;
+                box.Unchecked += Setting_Changed;
+                _sizeChecks.Add((box, group));
+                SizeChecks.Children.Add(box);
+            }
         }
 
-        /// <summary>In từng khổ giấy trên máy in riêng, mỗi nhóm tự lấy đúng khổ giấy của máy in đó (xem <see cref="PrintRoutingWindow"/>).</summary>
+        // ── Color pages ───────────────────────────────────────────────
+
+        /// <summary>The pages that carry color pictures are the quick pick of the pages that print in color (read in the background; the box can be edited).</summary>
+        private async Task LoadColorPagesAsync()
+        {
+            var paths = _pages.Select(p => p.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            ColorStat.Text = Loc.T("Looking for color pages…");
+            for (int k = 0; k < paths.Count; k++)
+            {
+                var progress = new Progress<(int Done, int Total)>(p => ColorStat.Text = Loc.T($"Looking for color pages… {p.Done} of {p.Total}"));
+                _colorShare[paths[k]] = await PdfColorPages.ShareAsync(paths[k], progress);
+            }
+            int tenths = AppSettings.ColorPageTenths;
+            _colorDefault = Enumerable.Range(0, _pages.Count).Where(i => _colorShare.TryGetValue(_pages[i].SourcePath, out var share) && share.TryGetValue(_pages[i].PageNumber, out double f) && f * 10 >= tenths).ToHashSet();
+            ColorPagesBox.Text = PrintSizePlan.PageList(_colorDefault.ToList()); // fires ColorPages_TextChanged
+            UpdateColorStat();
+            RefreshRouting();
+        }
+
+        private void ColorPages_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!_ready) return;
+            UpdateColorStat();
+            RefreshRouting();
+            _ = RefreshPreviewAsync();
+        }
+
+        private void ColorReset_Click(object sender, RoutedEventArgs e) => ColorPagesBox.Text = PrintSizePlan.PageList(_colorDefault.ToList());
+
+        private void UpdateColorStat()
+        {
+            var parsed = PdfPrintService.ParseRange(ColorPagesBox.Text, _pages.Count);
+            if (parsed == null) { ColorStat.Text = Loc.T($"The pages must be like 1-3, 7 (this file has {_pages.Count})"); return; }
+            _colorSet = parsed.Select(n => n - 1).ToHashSet();
+            ColorStat.Text = _colorSet.Count == 0 ? Loc.T("No page prints in color.") : Loc.T($"{_colorSet.Count} of {_pages.Count} pages print in color");
+        }
+
+        /// <summary>The groups the cards show: the sizes of the pages that print, each split into its black-and-white pages and its color pages.</summary>
+        private List<PageSizeGroup> BuildRoutingGroups()
+        {
+            var set = new HashSet<int>(SelectedIndices() ?? new List<int>());
+            var result = new List<PageSizeGroup>();
+            foreach (var group in _groups)
+            {
+                var pages = group.PageIndexes.Where(set.Contains).ToList();
+                var color = pages.Where(_colorSet.Contains).ToList();
+                var mono = pages.Where(i => !_colorSet.Contains(i)).ToList();
+                if (mono.Count > 0) result.Add(group with { PageIndexes = mono, Color = false });
+                if (color.Count > 0) result.Add(group with { PageIndexes = color, Color = true });
+            }
+            return result;
+        }
+
+        /// <summary>In from every card: each kind of sheet on its own printer and paper (see <see cref="PrintBySizePanel"/>); the color pages of a size keep their color whatever the gray options say.</summary>
         private async Task PrintByRoutingAsync()
         {
             var selected = SelectedIndices();
             if (selected is not { Count: > 0 } || _groups.Count == 0) return;
-            var set = new HashSet<int>(selected);
-            var groups = _groups.Select(g => g with { PageIndexes = g.PageIndexes.Where(set.Contains).ToList() }).Where(g => g.PageIndexes.Count > 0).ToList();
-            var dialog = new PrintRoutingWindow(groups, PrinterBox.SelectedItem as string ?? "") { Owner = this };
-            if (dialog.ShowDialog() != true) return;
+            var jobsToPrint = Routing().TryBuildJobs(this);
+            if (jobsToPrint == null) return;
 
-            int copies = int.TryParse(CopiesBox.Text, out int c) ? Math.Clamp(c, 1, 99) : 1;
             PrintButton.IsEnabled = false;
-            SizesButton.IsEnabled = false;
             int done = 0, failed = 0;
-            foreach (var job in dialog.Jobs)
+            foreach (var job in jobsToPrint)
             {
-                SummaryText.Text = $"Printing {PrintSizePlan.Label(job.Group)} on {job.Printer}…";
-                // this size's own driver settings (tray, quality…) with this dialog's collate and copies and the paper chosen for it written in
-                bool collate = CollateBox.IsChecked == true && PrinterDriver.SupportsCollate(job.Printer);
-                var devMode = PrinterDriver.WithSettings(job.Printer, job.DevMode, collate, copies, job.Paper) ?? job.DevMode;
-                var request = new PrintRequest(job.Group.PageIndexes.Select(i => _pages[i]).ToList(), job.Printer, job.Paper, copies, Scale, Percent, Color, Quality, Orientation,
+                SummaryText.Text = Loc.T($"Printing {PrintSizePlan.Label(job.Group)} on {job.Printer}…");
+                // this card's own driver settings (tray, quality…) with its collate, copies and paper written in
+                bool collate = job.Collate == true && PrinterDriver.SupportsCollate(job.Printer) && PrinterDriver.HonorsCollate(job.Printer);
+                var devMode = PrinterDriver.WithSettings(job.Printer, job.DevMode, job.Collate is null ? null : collate, job.Copies, job.Paper) ?? job.DevMode;
+                var request = new PrintRequest(job.Group.PageIndexes.Select(i => _pages[i]).ToList(), job.Printer, job.Paper, job.Copies, Scale, Percent, PrintColor.Color, Quality, Orientation,
                     AutoCenterBox.IsChecked == true, collate, devMode);
                 try { if (await PdfPrintService.PrintAsync(request, new Progress<int>(_ => { }))) done++; else failed++; }
                 catch { failed++; }
@@ -215,61 +248,53 @@ namespace XTPdfMergeApp.Controls
             {
                 AppDialog.Show(this, $"{done} size group(s) were sent to the printers; {failed} could not be printed (printer not available or an error).", "Print by size", MessageBoxButton.OK, MessageBoxImage.Warning);
                 PrintButton.IsEnabled = true;
-                SizesButton.IsEnabled = true;
                 UpdateSummary();
                 return;
             }
             DialogResult = true;
         }
 
-        private async void PrintBySize_Click(object sender, RoutedEventArgs e) => await PrintByRoutingAsync();
-
-        private void Sizes_Click(object sender, RoutedEventArgs e)
+        private PrintBySizePanel Routing()
         {
-            var menu = new ContextMenu { PlacementTarget = SizesButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
-            var route = new MenuItem { Header = "Print the set by paper size (printer per size, profiles)…", FontWeight = FontWeights.SemiBold };
-            route.Click += async (_, _) => await PrintByRoutingAsync();
-            menu.Items.Add(route);
-            menu.Items.Add(new Separator());
-            foreach (var group in _groups)
+            if (_routing != null) return _routing;
+            _routing = new PrintBySizePanel(PrinterBox.SelectedItem as string ?? "");
+            _routing.Changed += () =>
             {
-                var item = new MenuItem
-                {
-                    Header = $"{(group.Fit == SizeFit.Exact ? "✓" : "⚠")} {PrintSizePlan.Label(group)} — {PrintSizePlan.Status(group)}",
-                    ToolTip = "Print only these pages: " + PrintSizePlan.PageList(group.PageIndexes)
-                };
-                var pages = group.PageIndexes;
-                item.Click += (_, _) =>
-                {
-                    PagesRange.IsChecked = true;
-                    RangeBox.Text = PrintSizePlan.PageList(pages);
-                };
-                menu.Items.Add(item);
-            }
-            menu.Items.Add(new Separator());
-            var copy = new MenuItem { Header = "Copy size report" };
-            copy.Click += (_, _) => { try { Clipboard.SetText(PrintSizePlan.Report(_groups, PrinterBox.SelectedItem as string ?? "")); } catch { } };
-            menu.Items.Add(copy);
-            menu.IsOpen = true;
+                if (!_ready) return;
+                // the Copies / Collate boxes read the printer of the first card
+                if (_routing!.FirstPrinter() is { } first && !Equals(PrinterBox.SelectedItem, first) && PrinterBox.Items.Contains(first)) PrinterBox.SelectedItem = first;
+                LayoutPaper(); // the paper chosen for a card is the paper of the preview of its pages
+            };
+            BySizeHost.Child = _routing;
+            return _routing;
         }
 
-        private void Properties_Click(object sender, RoutedEventArgs e)
+        /// <summary>The cards follow the print range and the color pages: one for each size (and color) of the pages that will print.</summary>
+        private void RefreshRouting()
         {
-            if (PrinterBox.SelectedItem is not string name) return;
-            // the driver's dialog opens with what this dialog shows (collate, copies, paper), and what it returns is shown here
-            var devMode = PrinterDriver.ShowDialog(new System.Windows.Interop.WindowInteropHelper(this).Handle, name, CurrentDevMode());
-            if (devMode == null) return;
-            _devMode = devMode;
-            try { ShowFromDevMode(name, devMode); }
-            catch { /* the driver settings are still applied when printing */ }
+            if (_routing == null || _groups.Count == 0) return;
+            var groups = BuildRoutingGroups();
+            string key = string.Join("|", groups.Select(g => PrintSizePlan.Key(g) + ":" + string.Join(",", g.PageIndexes)));
+            if (key == _routingKey) return;
+            _routingKey = key;
+            _routingGroups = groups;
+            _routing.SetGroups(groups);
         }
 
-        private void Paper_Changed(object sender, SelectionChangedEventArgs e) { if (_ready) LayoutPaper(); }
+        /// <summary>The paper the page will print on: the one chosen on its card; until a printer is chosen, a sheet as big as the page.</summary>
+        private PaperSize? PaperForPage(int pageIndex)
+        {
+            if (_routing != null && _routingGroups.FirstOrDefault(g => g.PageIndexes.Contains(pageIndex)) is { } group && _routing.PaperOf(PrintSizePlan.Key(group)) is { } routed) return routed;
+            var (w, h) = pageIndex < _pagePoints.Count ? _pagePoints[pageIndex] : (595.0, 842.0);
+            double a = Math.Min(w, h) / 72 * 100, b = Math.Max(w, h) / 72 * 100;
+            return new PaperSize("page", (int)Math.Round(a), (int)Math.Round(b));
+        }
 
         private void Setting_Changed(object sender, RoutedEventArgs e)
         {
             if (!_ready) return;
             RangeBox.IsEnabled = PagesRange.IsChecked == true;
+            SizeChecks.Visibility = PagesBySize.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
             PercentBox.IsEnabled = ScaleCustom.IsChecked == true;
             _previewPosition = 0;
             UpdateSummary();
@@ -281,7 +306,7 @@ namespace XTPdfMergeApp.Controls
         private void ColorBox_Changed(object sender, RoutedEventArgs e)
         {
             if (!_ready) return;
-            _ready = false; // Black lines and grayscale exclude each other.
+            _ready = false; // (the gray options are gone: nothing to exclude)
             if (ReferenceEquals(sender, LinesBox) && LinesBox.IsChecked == true) GrayBox.IsChecked = false;
             else if (ReferenceEquals(sender, GrayBox) && GrayBox.IsChecked == true) LinesBox.IsChecked = false;
             _ready = true;
@@ -301,11 +326,10 @@ namespace XTPdfMergeApp.Controls
         private void UpdateSummary()
         {
             var indices = SelectedIndices();
-            string quality = Quality == PrintQuality.CadHigh ? " · CAD high quality (600 DPI)" : " · Standard (300 DPI)";
-            SummaryText.Text = indices == null ? "Check the page range (for example 1-12, 40, 55-60)."
-                : indices.Count == 0 ? "No pages selected." : $"{indices.Count} page{(indices.Count == 1 ? "" : "s")} will be printed{quality}";
+            SummaryText.Text = indices == null ? Loc.T("Check the page range (for example 1-12, 40, 55-60).")
+                : indices.Count == 0 ? Loc.T("No pages selected.") : "";
             PrintButton.IsEnabled = indices is { Count: > 0 } && PrinterBox.Items.Count > 0;
-            if (_groups.Count > 0) RefreshSizes(); // chọn trang đổi → cảnh báo khổ giấy theo các trang sẽ in
+            if (_groups.Count > 0) RefreshRouting(); // the pages to print changed: the cards follow
         }
 
         // ── Xem trước ─────────────────────────────────────────────────
@@ -335,8 +359,8 @@ namespace XTPdfMergeApp.Controls
             var sizes = await PdfThumbnailService.GetPageSizesAsync(path);
             if (version != _previewVersion) return;
             _sizes[path + "|" + number] = sizes != null && number - 1 < sizes.Length && sizes[number - 1].Width > 0 ? sizes[number - 1] : (595, 842);
-            PreviewImage.Source = bitmap == null ? null : Color == PrintColor.Color ? bitmap : new FormatConvertedBitmap(bitmap, PixelFormats.Gray8, null, 0);
-            PreviewCaption.Text = $"Page {_previewPosition + 1} of {indices.Count}";
+            PreviewImage.Source = bitmap == null ? null : Color == PrintColor.Color || _colorSet.Contains(pageIndex) ? bitmap : new FormatConvertedBitmap(bitmap, PixelFormats.Gray8, null, 0);
+            PreviewCaption.Text = Loc.T($"Page {_previewPosition + 1} of {indices.Count}");
             LayoutPaper();
         }
 
@@ -351,9 +375,10 @@ namespace XTPdfMergeApp.Controls
         private void LayoutPaper()
         {
             var indices = SelectedIndices();
-            var paper = SelectedPaper;
-            if (paper == null || indices == null || indices.Count == 0) return;
+            if (indices == null || indices.Count == 0) return;
             int pageIndex = indices[Math.Clamp(_previewPosition, 0, indices.Count - 1)];
+            var paper = PaperForPage(pageIndex);
+            if (paper == null) return;
             bool landscape = IsLandscape(pageIndex);
             double pw = landscape ? paper.Height : paper.Width, ph = landscape ? paper.Width : paper.Height;
             double maxW = Math.Max(50, PreviewHost.ActualWidth - 20), maxH = Math.Max(50, PreviewHost.ActualHeight - 20);
@@ -378,49 +403,15 @@ namespace XTPdfMergeApp.Controls
             PreviewImage.HorizontalAlignment = AutoCenterBox.IsChecked == true ? HorizontalAlignment.Center : HorizontalAlignment.Left;
             PreviewImage.VerticalAlignment = AutoCenterBox.IsChecked == true ? VerticalAlignment.Center : VerticalAlignment.Top;
 
-            ZoomText.Text = $"{scale * 100:0.##}%";
-            DocText.Text = $"{pageW / 100:0.0} x {pageH / 100:0.0} inch";
-            PaperText.Text = $"{pw / 100:0.0} x {ph / 100:0.0} inch";
+            ZoomText.Text = Loc.T($"{scale * 100:0.##}%");
+            DocText.Text = Loc.T($"{pageW / 100:0.0} x {pageH / 100:0.0} inch");
+            PaperText.Text = Loc.T($"{pw / 100:0.0} x {ph / 100:0.0} inch");
         }
 
         // ── Nút ───────────────────────────────────────────────────────
 
         private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
 
-        private async void Print_Click(object sender, RoutedEventArgs e)
-        {
-            var indices = SelectedIndices();
-            var paper = SelectedPaper;
-            if (indices is not { Count: > 0 } || paper == null || PrinterBox.SelectedItem is not string printer) return;
-            var mismatches = Mismatches();
-            if (mismatches.Count > 0 && AppDialog.Show(this,
-                    "This printer does not have the exact paper for some of the pages:\n\n" +
-                    string.Join("\n", mismatches.Select(g => $"• {PrintSizePlan.Label(g)}: {PrintSizePlan.Status(g)} (pages {PrintSizePlan.PageList(g.PageIndexes)})")) +
-                    "\n\nPrint anyway?", "Print", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-            int copies = int.TryParse(CopiesBox.Text, out int c) ? Math.Clamp(c, 1, 99) : 1;
-            var request = new PrintRequest(indices.Select(i => _pages[i]).ToList(), printer, paper, copies, Scale, Percent, Color, Quality, Orientation,
-                AutoCenterBox.IsChecked == true, CollateBox.IsChecked == true, CurrentDevMode());
-
-            PrintButton.IsEnabled = false;
-            bool ok;
-            try
-            {
-                var progress = new Progress<int>(n => SummaryText.Text = $"Printing page {n} of {indices.Count}…");
-                ok = await PdfPrintService.PrintAsync(request, progress);
-            }
-            catch (Exception ex)
-            {
-                AppDialog.Show(this, "Printing failed:\n" + ex.Message, "Print", MessageBoxButton.OK, MessageBoxImage.Error);
-                PrintButton.IsEnabled = true;
-                return;
-            }
-            if (!ok)
-            {
-                AppDialog.Show(this, "The selected printer is not available.", "Print", MessageBoxButton.OK, MessageBoxImage.Warning);
-                PrintButton.IsEnabled = true;
-                return;
-            }
-            DialogResult = true;
-        }
+        private async void Print_Click(object sender, RoutedEventArgs e) => await PrintByRoutingAsync();
     }
 }

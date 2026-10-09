@@ -23,6 +23,9 @@ namespace XTPdfMergeApp.Services
         PaperOption? Paper, SizeFit Fit, double ShrinkTo)
     {
         public int Count => PageIndexes.Count;
+
+        /// <summary>The pages of this group print in color (they carry color pictures); the same size without it is a group of its own.</summary>
+        public bool Color { get; init; }
     }
 
     /// <summary>
@@ -111,7 +114,10 @@ namespace XTPdfMergeApp.Services
         }
 
         /// <summary>Dòng mô tả 1 nhóm: "A1 × 12".</summary>
-        public static string Label(PageSizeGroup g) => $"{g.Name} × {g.Count}";
+        public static string Label(PageSizeGroup g) => $"{g.Name}{(g.Color ? " · color" : "")} × {g.Count}";
+
+        /// <summary>What a choice is kept under (profiles, the dialog): the size, and "· color" for the color pages of it.</summary>
+        public static string Key(PageSizeGroup g) => g.Name + (g.Color ? " · color" : "");
 
         public static string Status(PageSizeGroup g) => g.Fit switch
         {

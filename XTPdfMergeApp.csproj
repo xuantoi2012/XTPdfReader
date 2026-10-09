@@ -17,6 +17,11 @@
          (dùng /p:Version lúc publish), không cần sửa tay ở đây mỗi lần. -->
     <Version>1.0.0</Version>
     <Product>PDF Reader Pro</Product>
+    <!-- Task Manager shows the file description, not the assembly name. -->
+    <AssemblyTitle>PDF Reader Pro</AssemblyTitle>
+    <Description>PDF Reader Pro</Description>
+    <Company>XT Solution</Company>
+    <Copyright>XT Solution © 2026</Copyright>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <PlatformTarget>x64</PlatformTarget>
@@ -48,7 +53,10 @@
 
   <ItemGroup>
     <Resource Include="Resources\AppIcon.png" />
+    <Resource Include="Resources\DocumentIcon.png" />
     <Resource Include="PDF icon.ico" />
+    <!-- The icon of .pdf files that open with this app (a page with the F badge), registered by the setup; it must sit beside the exe. -->
+    <Content Include="PDFDocument.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Tests\GpuPdfium\MuPdfViewportWorker.py" Link="MuPdfWorker.py" CopyToOutputDirectory="PreserveNewest" />
     <!-- OCR of scanned pages: the worker script (run by the embedded Python) and the Vietnamese + Latin language data of tesseract (tessdata_fast, Apache-2.0). -->
     <Content Include="Services\Ocr\OcrWorker.py" Link="OcrWorker.py" CopyToOutputDirectory="PreserveNewest" />

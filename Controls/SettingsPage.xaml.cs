@@ -31,11 +31,14 @@ namespace XTPdfMergeApp.Controls
             _loading = true;
             try
             {
+                (Loc.IsVietnamese ? LangVi : LangEn).IsChecked = true;
                 ((AppSettings.Theme switch { "Dark" => ThemeDark, "System" => ThemeSystem, _ => ThemeLight })).IsChecked = true;
                 foreach (RadioButton swatch in SwatchHost.Children)
                     swatch.IsChecked = (string)swatch.Tag == AppSettings.Accent;
                 ViewModeBox.SelectedIndex = AppSettings.ContinuousByDefault ? 0 : 1;
                 ZoomBox.SelectedIndex = (int)AppSettings.ZoomOnOpen;
+                LineWeightBox.SelectedIndex = AppSettings.LineWeight;
+                ColorPercentBox.SelectedItem = ColorPercentBox.Items.OfType<ComboBoxItem>().OrderBy(i => Math.Abs(int.Parse((string)i.Tag) - AppSettings.ColorPageTenths)).First();
                 DefaultToolBox.SelectedIndex = AppSettings.DefaultTool == "Select" ? 1 : 0;
                 PerformanceModeBox.SelectedIndex = (int)AppSettings.PerformanceMode;
                 RefreshPerformanceHint();
@@ -75,6 +78,12 @@ namespace XTPdfMergeApp.Controls
             }
         }
 
+        private void Language_Checked(object sender, RoutedEventArgs e)
+        {
+            if (_loading || sender is not RadioButton { Tag: string language }) return;
+            Loc.Set(language); // every open window is translated at once
+        }
+
         private void Theme_Checked(object sender, RoutedEventArgs e)
         {
             if (_loading || sender is not RadioButton { Tag: string theme }) return;
@@ -102,6 +111,7 @@ namespace XTPdfMergeApp.Controls
             bool custom = AppSettings.PrintedFolder.Length > 0;
             PrintedFolderHint.Text = (custom ? "Custom: " : "Default: ") + PrintedFilesService.Folder +
                 ". The virtual-printer agent reads the folder when it starts, so a change reaches it after you sign out and in (or restart the agent).";
+            Loc.Translate(PrintedFolderHint);
         }
 
         private void PrintedFolderBrowse_Click(object sender, RoutedEventArgs e)
@@ -143,6 +153,18 @@ namespace XTPdfMergeApp.Controls
             AppSettings.DefaultTool = tag;
         }
 
+        private void ColorPercent_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loading || ColorPercentBox.SelectedItem is not ComboBoxItem { Tag: string tag } || !int.TryParse(tag, out int percent)) return;
+            AppSettings.ColorPageTenths = percent;
+        }
+
+        private void LineWeight_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loading || LineWeightBox.SelectedItem is not ComboBoxItem { Tag: string tag } || !int.TryParse(tag, out int weight)) return;
+            AppSettings.LineWeight = weight;
+        }
+
         // ── Performance & memory ──────────────────────────────────────
 
         private void PerformanceMode_Changed(object sender, SelectionChangedEventArgs e)
@@ -161,6 +183,7 @@ namespace XTPdfMergeApp.Controls
                 _ => "Reclaims distant pages promptly and preloads 1 page ahead. Recommended for keeping memory usage low."
             };
             PerformanceModeHint.Text += " Applies while reading; all modes reduce memory use when Windows is low on memory.";
+            Loc.Translate(PerformanceModeHint);
         }
 
         private void Warm_Changed(object sender, SelectionChangedEventArgs e)
@@ -176,6 +199,7 @@ namespace XTPdfMergeApp.Controls
             double bytes = files.Sum(f => f.Length * Math.Clamp(f.Loaded, 0, 1));
             string usage = files.Count == 0 ? "Nothing is cached right now." : $"Using {FormatSize(bytes)} for {files.Count} open file{(files.Count == 1 ? "" : "s")}.";
             CacheHint.Text = "Files opened over a network are cached in the temp folder and deleted when the file is closed. " + usage;
+            Loc.Translate(CacheHint);
         }
 
         private static string FormatSize(double bytes)
@@ -202,9 +226,9 @@ namespace XTPdfMergeApp.Controls
         private void DefaultPdf_Click(object sender, RoutedEventArgs e)
         {
             if (!DefaultPdfAppService.OpenDefaultAppsSettings())
-                DefaultPdfHint.Text = "⚠ Could not open Windows Settings. Open Settings > Apps > Default apps and choose PDF Reader Pro for .pdf.";
+                DefaultPdfHint.Text = Loc.T("⚠ Could not open Windows Settings. Open Settings > Apps > Default apps and choose PDF Reader Pro for .pdf.");
             else
-                DefaultPdfHint.Text = "Windows Settings is open: choose PDF Reader Pro for .pdf, then come back here.";
+                DefaultPdfHint.Text = Loc.T("Windows Settings is open: choose PDF Reader Pro for .pdf, then come back here.");
             // Windows Settings is a separate window; the state is read again when this window is activated (below).
             Application.Current.MainWindow.Activated -= RefreshDefaultPdfOnActivated;
             Application.Current.MainWindow.Activated += RefreshDefaultPdfOnActivated;
@@ -221,6 +245,8 @@ namespace XTPdfMergeApp.Controls
             DefaultPdfHint.Foreground = (Brush)FindResource("Ui.Muted");
             DefaultPdfButton.IsEnabled = !isDefault;
             DefaultPdfButton.Text = isDefault ? "Default app" : "Set as default…";
+            Loc.Translate(DefaultPdfHint);
+            Loc.Translate(DefaultPdfButton);
         }
 
         private void PdfFactory_Changed(object sender, RoutedEventArgs e)
@@ -253,6 +279,7 @@ namespace XTPdfMergeApp.Controls
             }
             bool on = PdfFactoryToggle.IsChecked == true;
             PdfFactoryHint.Text = on ? "On — “View PDF file” in pdfFactory opens this app." : "Off — pdfFactory uses its own viewer.";
+            Loc.Translate(PdfFactoryHint);
             PdfFactoryHint.Foreground = (Brush)FindResource("Ui.Muted");
         }
     }

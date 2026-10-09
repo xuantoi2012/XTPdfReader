@@ -1,0 +1,173 @@
+using System.Collections.Generic;
+
+namespace XTPdfMergeApp.Services
+{
+    /// <summary>
+    /// The Vietnamese texts of the interface. <see cref="Words"/> maps an English text to its Vietnamese; <see cref="Patterns"/> handles messages with numbers or names in them
+    /// ("Exported 3 pages", "Page 4 of 20"). A text that is in neither stays English. Sentences of a longer message are looked up one by one (see <see cref="Loc.T"/>), so a
+    /// message built from several parts needs an entry per part, not one for every combination.
+    /// </summary>
+    internal static partial class LocVi
+    {
+        public static readonly Dictionary<string, string> Words = BuildWords();
+
+        private static Dictionary<string, string> BuildWords()
+        {
+            var words = new Dictionary<string, string>(System.StringComparer.Ordinal);
+            AddChrome(words);
+            AddMessages(words);
+            AddFragments(words);
+            return words;
+        }
+
+        /// <summary>(regular expression over the English text, replacement with $1, $2…). The expressions have no final full stop: it is kept apart.</summary>
+        public static readonly (string Pattern, string Replacement)[] Patterns =
+        {
+            // counts and labels
+            (@"^Looking for color pages… (\d+) of (\d+)$", "Đang tìm các trang màu… $1 / $2"),
+            (@"^(.+) \((\d+) pages?\)$", "$1 ($2 trang)"),
+            (@"^pages (.+)$", "trang $1"),
+            (@"^(\d+) of (\d+) pages print in color$", "$1 / $2 trang in màu"),
+            (@"^prints on (.+)$", "in trên $1"),
+            (@"^custom paper (.+) × (.+) mm$", "giấy tùy chỉnh $1 × $2 mm"),
+            (@"^forced onto (.+) \(bigger than the pages\)$", "ép vào $1 (lớn hơn trang)"),
+            (@"^forced onto (.+): the pages shrink to (\d+)%$", "ép vào $1: trang thu nhỏ còn $2%"),
+            (@"^no paper of this size: prints on the larger (.+)$", "không có giấy đúng khổ: in trên giấy lớn hơn $1"),
+            (@"^bigger than every paper: shrinks to (\d+)% on (.+)$", "lớn hơn mọi loại giấy: thu nhỏ còn $1% trên $2"),
+            (@"^""(.+)"" is not installed or cannot be reached\.$", "“$1” chưa được cài hoặc không kết nối được."),
+            (@"^""(.+)"" has no paper called ""(.+)""\.$", "“$1” không có loại giấy tên “$2”."),
+            (@"^Default: (.+?)\. The virtual-printer agent reads the folder when it starts, so a change reaches it after you sign out and in \(or restart the agent\)\.$", "Mặc định: $1. Tác nhân máy in ảo đọc thư mục này khi khởi động, nên thay đổi sẽ có hiệu lực sau khi bạn đăng xuất rồi đăng nhập lại (hoặc khởi động lại tác nhân)."),
+            (@"^Custom: (.+?)\. The virtual-printer agent reads the folder when it starts, so a change reaches it after you sign out and in \(or restart the agent\)\.$", "Tùy chỉnh: $1. Tác nhân máy in ảo đọc thư mục này khi khởi động, nên thay đổi sẽ có hiệu lực sau khi bạn đăng xuất rồi đăng nhập lại (hoặc khởi động lại tác nhân)."),
+            (@"^Off — PDF files open with (.+)$", "Tắt — tệp PDF đang mở bằng $1"),
+            (@"^(\d+) pages? selected$", "Đã chọn $1 trang"),
+            (@"^Pages \((\d+)\)$", "Trang ($1)"),
+            (@"^(.+) - page (\d+)$", "$1 - trang $2"),
+            (@"^(\d+) pages?$", "$1 trang"),
+            (@"^(\d+) files?$", "$1 tệp"),
+            (@"^All pages \((\d+)\)$", "Tất cả trang ($1)"),
+            (@"^All (\d+) pages$", "Cả $1 trang"),
+            (@"^All (\d+)$", "Tất cả $1"),
+            (@"^Open (\d+)$", "Chưa xử lý $1"),
+            (@"^Resolved (\d+)$", "Đã giải quyết $1"),
+            (@"^Current page \((\d+)\)$", "Trang hiện tại ($1)"),
+            (@"^This page \((\d+)\)$", "Trang này ($1)"),
+            (@"^Page (\d+) of (\d+)$", "Trang $1 / $2"),
+            (@"^Page (\d+)$", "Trang $1"),
+            (@"^(\d+) pages? · about (\d+) MB$", "$1 trang · khoảng $2 MB"),
+            (@"^(\d+) pages? · (.+)$", "$1 trang · $2"),
+            (@"^(\d+) files? · (\d+) pages$", "$1 tệp · $2 trang"),
+            (@"^(\d+) results? on (\d+) pages?$", "$1 kết quả trên $2 trang"),
+            (@"^(\d+) visible$", "$1 đang hiện"),
+            (@"^(\d+) pages? will be printed(.*)$", "Sẽ in $1 trang$2"),
+            (@"^Print only these pages: (.*)$", "Chỉ in các trang này: $1"),
+            (@"^(\d+) matched sheet\(s\)$", "$1 bản vẽ khớp"),
+            (@"^(\d+) of (\d+) sizes match their paper$", "$1 / $2 khổ khớp với giấy"),
+            (@"^(\d+) of (\d+) pages have text in the areas$", "$1 / $2 trang có chữ trong các vùng"),
+            (@"^(\d+) layers stay separate, grouped by file$", "$1 lớp được giữ riêng, nhóm theo tệp"),
+            (@"^(\d+) printed PDF\(s\), (.+), are no longer in the inbox or open anywhere(.*)$", "$1 PDF đã in, $2, không còn trong hộp chờ hoặc không mở ở đâu$3"),
+            (@"^Using (.+) for (\d+) open files?$", "Đang dùng $1 cho $2 tệp đang mở"),
+            (@"^(\d+) files? added · (\d+) loading$", "Đã thêm $1 tệp · đang nạp $2"),
+            (@"^(\d+) files? added$", "Đã thêm $1 tệp"),
+            (@"^(\d+) words read on (\d+) pages?$", "Đã đọc $1 từ trên $2 trang"),
+            (@"^(\d+) pages? already had text$", "$1 trang đã có chữ"),
+            (@"^(\d+) pages? could not be read$", "$1 trang không đọc được"),
+            (@"^All (\d+) pages$", "Cả $1 trang"),
+            (@"^paper (.+)$", "khổ $1"),
+            (@"^Page (\d+)  \((\d+) of (\d+)\)$", "Trang $1  ($2 / $3)"),
+            (@"^(Move|Copy) (\d+) pages? · hold Ctrl to copy$", "$1 $2 trang · giữ Ctrl để sao chép"),
+            (@"^Last saved by (.+) · (.+)$", "Lưu lần cuối bởi $1 · $2"),
+            (@"^Also open: (.+)$", "Cũng đang mở: $1"),
+            (@"^Source: (.+)$", "Nguồn: $1"),
+            (@"^Folder: (.+)$", "Thư mục: $1"),
+            (@"^(.+) · areas set$", "$1 · đã đặt vùng"),
+            (@"^(.+) · draw the areas$", "$1 · hãy vẽ các vùng"),
+
+            // progress lines
+            (@"^Looking for drawn objects: page (\d+) of (\d+)…$", "Đang tìm đối tượng vẽ: trang $1 / $2…"),
+            (@"^Reading the text: page (\d+) of (\d+)…$", "Đang đọc chữ: trang $1 / $2…"),
+            (@"^Preparing a copy: removing objects: page (\d+) of (\d+)…$", "Đang chuẩn bị bản sao: xóa đối tượng: trang $1 / $2…"),
+            (@"^Saving: removing objects: page (\d+) of (\d+)…$", "Đang lưu: xóa đối tượng: trang $1 / $2…"),
+            (@"^Looking on (\d+) pages…$", "Đang tìm trên $1 trang…"),
+            (@"^Searching… (\d+) so far$", "Đang tìm… đã có $1"),
+            (@"^Exporting… (\d+) of (\d+)$", "Đang xuất… $1 / $2"),
+            (@"^Printing page (\d+) of (\d+)…$", "Đang in trang $1 / $2…"),
+            (@"^Printing (.+) on (.+)…$", "Đang in $1 trên $2…"),
+            (@"^Reading by OCR… (\d+) of (\d+) pages$", "Đang đọc bằng OCR… $1 / $2 trang"),
+            (@"^Reading page 1 of (.+)$", "Đang đọc trang 1 trong $1"),
+            (@"^Reading page (\d+) of (\d+)$", "Đang đọc trang $1 / $2"),
+            (@"^Loading into memory (\d+)%$", "Đang nạp vào bộ nhớ $1%"),
+
+            // results of the find and stamp tools
+            (@"^(\d+) found on (\d+) page\(s\)$", "Tìm thấy $1 kết quả trên $2 trang"),
+            (@"^Found on (\d+) page\(s\), (\d+) object\(s\)$", "Tìm thấy trên $1 trang, $2 đối tượng"),
+            (@"^(\d+) pages? (?:has|have) nothing in the area$", "$1 trang không có gì trong vùng"),
+            (@"^No area for (.+) \(skipped\)$", "Chưa có vùng cho $1 (bỏ qua)"),
+            (@"^(\d+) pages? (?:has|have) no text layer \(scans or strokes: use Drawn object\)$", "$1 trang không có lớp chữ (trang quét hoặc nét vẽ: dùng Đối tượng vẽ)"),
+            (@"^(\d+) rotated pages? (?:was|were) skipped$", "Đã bỏ qua $1 trang bị xoay"),
+            (@"^The pages must be like 1-3, 7 \(this file has (\d+)\)$", "Các trang phải có dạng 1-3, 7 (tệp này có $1 trang)"),
+            (@"^Type the pages like 1-3, 7 \(this file has (\d+)\)$", "Hãy nhập các trang dạng 1-3, 7 (tệp này có $1 trang)"),
+            (@"^Replaced text in (\d+) places?$", "Đã thay chữ ở $1 chỗ"),
+            (@"^Deleted text in (\d+) places?$", "Đã xóa chữ ở $1 chỗ"),
+            (@"^Removed (\d+) objects? on (\d+) page\(s\) \(saved to file\)$", "Đã xóa $1 đối tượng trên $2 trang (lưu vào tệp)"),
+            (@"^Stamped (\d+) pages?$", "Đã đóng dấu $1 trang"),
+            (@"^Stamp on (\d+) pages?$", "Đóng dấu $1 trang"),
+            (@"^OCR (\d+) pages?$", "OCR $1 trang"),
+            (@"^OCR text added to (\d+) pages? \((\d+) words\)$", "Đã thêm chữ OCR vào $1 trang ($2 từ)"),
+            (@"^OCR text on (\d+) pages?$", "Chữ OCR trên $1 trang"),
+            (@"^(\d+) text edits?$", "$1 chỉnh sửa chữ"),
+            (@"^(\d+) objects? removed$", "Đã xóa $1 đối tượng"),
+            (@"^(\d+) pages? turned$", "Đã xoay $1 trang"),
+            (@"^(\d+) bookmark edits?$", "$1 chỉnh sửa dấu trang"),
+            (@"^Annotations (.+)$", "Chú thích $1"),
+            (@"^Rotate (\d+) pages? (right|left)(?: \(saved to file\))?$", "Xoay $1 trang sang $2"),
+            (@"^Sheet info read for (\d+) pages?$", "Đã đọc thông tin bản vẽ của $1 trang"),
+            (@"^Page labels set from (\d+) sheet numbers$", "Đã đặt nhãn trang từ $1 số hiệu bản vẽ"),
+            (@"^Sheet info written for (\d+) pages$", "Đã ghi thông tin bản vẽ cho $1 trang"),
+            (@"^Saved (\d+) sheets to (.+)$", "Đã lưu $1 bản vẽ vào $2"),
+            (@"^Created (\d+) files$", "Đã tạo $1 tệp"),
+            (@"^Created (.+)$", "Đã tạo $1"),
+            (@"^Replaced (\d+) sheet\(s\)$", "Đã thay $1 bản vẽ"),
+            (@"^Rebuilt (.+) from (\d+) parts$", "Đã dựng lại $1 từ $2 phần"),
+            (@"^(.+) was changed on disk \((.+)\)$", "$1 đã bị đổi trên đĩa ($2)"),
+            (@"^Exported (\d+) pages? to:(?:\n|$)", "Đã xuất $1 trang ra:\n"),
+            (@"^Export (\d+) pages? to a new PDF$", "Xuất $1 trang ra PDF mới"),
+            (@"^Export (\d+) pages?$", "Xuất $1 trang"),
+            (@"^Exported (\d+) pages?$", "Đã xuất $1 trang"),
+            (@"^Exported (\d+) of (\d+) files$", "Đã xuất $1 / $2 tệp"),
+            (@"^(.+) · (\d+) matched sheet\(s\)$", "$1 · $2 bản vẽ khớp"),
+            (@"^PCs on this account \(max (\d+)\)$", "Máy tính của tài khoản này (tối đa $1)"),
+            (@"^Profile ""(.+)"" saved$", "Đã lưu hồ sơ “$1”"),
+            (@"^Delete the view ""(.+)""\?$", "Xóa chế độ xem “$1”?"),
+            (@"^Delete ""(.+)""(.*)\?$", "Xóa “$1”$2?"),
+            (@"^A view named ""(.+)"" already exists\. Replace it\?$", "Đã có chế độ xem tên “$1”. Thay thế?"),
+            (@"^""(.+)"" already exists\. Replace it\?$", "“$1” đã tồn tại. Thay thế?"),
+            (@"^""(.+)"" is one of the source files\. Choose another folder\.$", "“$1” là một trong các tệp nguồn. Hãy chọn thư mục khác."),
+            (@"^""(.+)"" has unsaved changes that will be lost\. Reload anyway\?$", "“$1” có thay đổi chưa lưu sẽ bị mất. Vẫn tải lại?"),
+            (@"^Save changes to ""(.+)"" before closing\?$", "Lưu thay đổi của “$1” trước khi đóng?"),
+            (@"^Open all (\d+) PDF files in this folder\?$", "Mở cả $1 tệp PDF trong thư mục này?"),
+            (@"^(\d+) file\(s\) already exist in that folder and will be replaced\. Continue\?$", "$1 tệp đã có trong thư mục đó và sẽ bị thay thế. Tiếp tục?"),
+            (@"^Write the layer changes into ""(.+)""\?\nThis changes the file itself and cannot be undone here\.$", "Ghi các thay đổi lớp vào “$1”?\nViệc này đổi chính tệp và không hoàn tác được tại đây."),
+            (@"^Could not read permissions for ""(.+)"":\n\n([\s\S]*)$", "Không đọc được quyền của “$1”:\n\n$2"),
+            (@"^Could not check digital signatures in ""(.+)""\.\n\n([\s\S]*)\n\nThe operation was stopped before writing any PDF\.$", "Không kiểm tra được chữ ký số trong “$1”.\n\n$2\n\nThao tác đã dừng trước khi ghi bất kỳ PDF nào."),
+            (@"^Could not write the file:\n(.+)\n\n([\s\S]*)$", "Không ghi được tệp:\n$1\n\n$2"),
+            (@"^Exported (\d+) of (\d+) files\.\n\n([\s\S]*)$", "Đã xuất $1 / $2 tệp.\n\n$3"),
+            (@"^Found (\d+) sheet number\(s\) on (\d+) page\(s\), pointing to (\d+) sheet\(s\)\.\nMake them clickable\?\n\nThe links are added to the file; the text itself is not changed\.$", "Tìm thấy $1 số hiệu bản vẽ trên $2 trang, trỏ tới $3 bản vẽ.\nLàm cho chúng bấm được?\n\nCác liên kết được thêm vào tệp; chữ không bị thay đổi."),
+            (@"^Replace (\d+) sheet\(s\) in ""(.+)"" with the revised pages from ""(.+)""\?\n([\s\S]*)\n\nNothing is saved until you save the file; Ctrl\+Z undoes it\.$", "Thay $1 bản vẽ trong “$2” bằng các trang sửa đổi từ “$3”?\n$4\n\nChưa có gì được lưu cho đến khi bạn lưu tệp; Ctrl+Z để hoàn tác."),
+            (@"^(\d+) part file\(s\) of ""(.+)"" are missing, so it cannot be rebuilt:\n([\s\S]*)$", "Thiếu $1 tệp thành phần của “$2” nên không dựng lại được:\n$3"),
+            (@"^(\d+) printed PDF\(s\)", "$1 PDF đã in"),
+            (@"^(\d+) selected: Delete removes (.+)$", "Đã chọn $1: Delete để xóa $2"),
+            (@"^Removed (.+) from the page\. Ctrl\+S removes (.+)$", "Đã xóa $1 khỏi trang. Ctrl+S để xóa $2"),
+            (@"^(\d+) size group\(s\) were sent to the printers; (\d+) could not be printed \(printer not available or an error\)$", "Đã gửi $1 nhóm khổ tới máy in; $2 nhóm không in được (máy in không sẵn sàng hoặc có lỗi)"),
+            (@"^(.+): (\d+) pages\. Not saved yet: Ctrl\+Shift\+S to save, Ctrl\+Z to undo$", "$1: $2 trang. Chưa lưu: Ctrl+Shift+S để lưu, Ctrl+Z để hoàn tác"),
+            (@"^Layers updated in (.+)$", "Đã cập nhật lớp trong $1"),
+            (@"^Missing layers added to (.+)$", "Đã thêm các lớp còn thiếu vào $1"),
+            (@"^Searchable copy opened: (.+)$", "Đã mở bản sao tìm kiếm được: $1"),
+            (@"^Saved (.+)$", "Đã lưu $1"),
+            (@"^Version (.+) \(you are using (.+)\) · (.+) MB$", "Phiên bản $1 (bạn đang dùng $2) · $3 MB"),
+            (@"^Version (.+) \(you are using (.+)\)$", "Phiên bản $1 (bạn đang dùng $2)"),
+            (@"^Update available: (.+) \(you are using (.+)\)\. Click to see it and update\.$", "Có bản cập nhật mới: $1 (bạn đang dùng $2). Bấm để xem và cập nhật."),
+            (@"^Downloading… (\d+)%$", "Đang tải… $1%"),
+            (@"^Could not download the update: (.+)$", "Không tải được bản cập nhật: $1"),
+        };
+    }
+}

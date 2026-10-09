@@ -38,7 +38,7 @@ namespace XTPdfMergeApp
             CommitTextEdit();
             if (!TextEditService.IsAvailable)
             {
-                XTGrowl.Info("Text editing is not installed with this copy of the program.", this);
+                Growl.Info("Text editing is not installed with this copy of the program.", this);
                 return;
             }
             _textEditBusy = true;
@@ -46,23 +46,23 @@ namespace XTPdfMergeApp
             {
                 PageTextRuns? page;
                 try { page = await TextEditService.GetRunsAsync(hit.Row.SourcePath, hit.Row.PageNumber); }
-                catch (Exception ex) { XTGrowl.Info("The text of this page could not be read: " + ex.Message, this); return; }
+                catch (Exception ex) { Growl.Info("The text of this page could not be read: " + ex.Message, this); return; }
                 if (page == null || _readerTool != ReaderTool.EditText) return;
                 if (page.Runs.Count == 0)
                 {
-                    XTGrowl.Info("This page has no text layer (a scan, or letters drawn as strokes), so its text cannot be edited. Use Edit Object to select, copy or delete what is drawn.", this);
+                    Growl.Info("This page has no text layer (a scan, or letters drawn as strokes), so its text cannot be edited. Use Edit Object to select, copy or delete what is drawn.", this);
                     return;
                 }
                 if (page.Rotation != 0)
                 {
-                    XTGrowl.Info("Text editing works on upright pages for now. Rotate the page back (Turn left / right), edit, then rotate again.", this);
+                    Growl.Info("Text editing works on upright pages for now. Rotate the page back (Turn left / right), edit, then rotate again.", this);
                     return;
                 }
                 double x = hit.U * page.Width, y = hit.V * page.Height;
                 var run = page.Runs.LastOrDefault(r => r.Contains(x, y));
                 if (run == null)
                 {
-                    XTGrowl.Info("Click on a piece of text.", this);
+                    Growl.Info("Click on a piece of text.", this);
                     return;
                 }
                 OpenTextEditor(hit.Row, page, run);

@@ -1,4 +1,6 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <BitmapImage x:Key="App.Icon.Logo" UriSource="pack://application:,,,/XTPdfMergeApp;component/Resources/AppIcon.png"/>
+    <!-- The page icon of .pdf files (same as the one the setup registers in Explorer): tabs and the Recent list. -->
+    <BitmapImage x:Key="App.Icon.Document" UriSource="pack://application:,,,/XTPdfMergeApp;component/Resources/DocumentIcon.png"/>
 </ResourceDictionary>

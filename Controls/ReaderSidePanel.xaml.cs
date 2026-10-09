@@ -671,7 +671,7 @@ namespace XTPdfMergeApp.Controls
         {
             if (_sourcePath is not { } path || _currentRow is not { } row || !string.Equals(row.SourcePath, path, StringComparison.OrdinalIgnoreCase))
             {
-                XTGrowl.Info("Open a page from this file first.", Window.GetWindow(this));
+                Growl.Info("Open a page from this file first.", Window.GetWindow(this));
                 return;
             }
             var prompt = new TextPromptWindow("Add bookmark", "Bookmark name:", $"Page {row.PageNumber}", null) { Owner = Window.GetWindow(this) };

@@ -48,6 +48,9 @@ internal static class ExperimentalMuPdfViewport
     private static long _recycledWorkers;
     internal static long RecycledWorkerCount => Interlocked.Read(ref _recycledWorkers);
 #if MUPDF_ONLY
+    /// <summary>The width, in screen pixels, the page is being shown at right now: the worker keeps thin lines at least one screen pixel wide after the picture is scaled down to it.</summary>
+    internal static volatile int DisplayWidthHint;
+
     internal static bool BalancedMode => true;
     internal static bool ThroughputMode => true;
 #else
@@ -250,6 +253,7 @@ internal static class ExperimentalMuPdfViewport
                     page,
                     fullWidth,
                     fullHeight,
+                    displayWidth = DisplayWidthHint,
                     annotations = withAnnotations,
                     alpha,
                     password = PdfThumbnailService.TryGetDocumentPassword(path),
@@ -321,6 +325,8 @@ internal static class ExperimentalMuPdfViewport
         }
         if (!native && Setting("XTPDF_MUPDF_PACKAGES") is { } packages)
             info.Environment["PYTHONPATH"] = packages;
+        if (Setting("XTPDF_MIN_LINE_PX") == null) info.Environment["XTPDF_MIN_LINE_PX"] = AppSettings.MinLinePixels.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (Setting("XTPDF_GAMMA") == null) info.Environment["XTPDF_GAMMA"] = AppSettings.LineGamma.ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (BalancedMode)
         {
             info.Environment["XTPDF_MUPDF_NO_RASTER_CACHE"] = "1";

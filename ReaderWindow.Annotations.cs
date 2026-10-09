@@ -140,6 +140,34 @@ namespace XTPdfMergeApp
                 _ => null
             };
             ReaderContentHost.ForceCursor = tool != ReaderTool.Hand;
+            _handOverText = false;
+            if (_crosshair && tool == ReaderTool.Hand) { ReaderContentHost.Cursor = Cursors.Cross; ReaderContentHost.ForceCursor = true; }
+        }
+
+        // ── Crosshair ───────────────────────────────────────────────────
+
+        private bool _crosshair;
+
+        /// <summary>Key X: two thin lines through the pointer, for reading a drawing against its axes. Esc turns it off.</summary>
+        private void ToggleCrosshair() => SetCrosshair(!_crosshair);
+
+        private void SetCrosshair(bool on)
+        {
+            if (on == _crosshair) return;
+            _crosshair = on;
+            if (!on) ReaderCrossH.Visibility = ReaderCrossV.Visibility = Visibility.Collapsed;
+            ApplyToolCursor();
+            if (on) UpdateCrosshair(Mouse.GetPosition(ReaderContentHost));
+        }
+
+        private void UpdateCrosshair(Point point)
+        {
+            if (!_crosshair) return;
+            bool inside = point.X >= 0 && point.Y >= 0 && point.X <= ReaderContentHost.ActualWidth && point.Y <= ReaderContentHost.ActualHeight;
+            ReaderCrossH.Visibility = ReaderCrossV.Visibility = inside ? Visibility.Visible : Visibility.Collapsed;
+            if (!inside) return;
+            ReaderCrossH.X1 = 0; ReaderCrossH.X2 = ReaderContentHost.ActualWidth; ReaderCrossH.Y1 = ReaderCrossH.Y2 = point.Y;
+            ReaderCrossV.Y1 = 0; ReaderCrossV.Y2 = ReaderContentHost.ActualHeight; ReaderCrossV.X1 = ReaderCrossV.X2 = point.X;
         }
 
         private void ReaderDeletePages_Click(object sender, RoutedEventArgs e)
@@ -220,6 +248,13 @@ namespace XTPdfMergeApp
         private void ReaderContentHost_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             _linkPress = null;
+            // A batch tool's rectangle (Find in area, Stamp pages) is drawn on the page itself: it gets the click first.
+            if (_areaSurface is { Active: true } area && !IsOverlayBar(e.OriginalSource as DependencyObject) && area.OnDown(e.GetPosition(ReaderContentHost)))
+            {
+                e.Handled = true;
+                ReaderContentHost.CaptureMouse();
+                return;
+            }
             if (_textEditor != null && _textEditor.Box.IsMouseOver) return; // clicks inside the text being edited
             // Thanh Find / thanh định dạng nằm đè lên trang: bấm vào chúng không được coi là bấm lên trang.
             if (IsOverlayBar(e.OriginalSource as DependencyObject)) return;
@@ -265,9 +300,18 @@ namespace XTPdfMergeApp
                             if (alreadySelected && picked.Kind == QuickAnnotationKind.Typewriter && _annMove != null) _annMove.OpenEditOnClick = true;
                         }
                     }
+                    else if (_handOverText)
+                    {
+                        // The pointer is an I-beam (over a word): a drag selects text; a plain click on a link still follows it (see the mouse-up).
+                        SelectAnnotation(null, null);
+                        e.Handled = true;
+                        _linkPress = new LinkPress(hit, e.GetPosition(ReaderContentHost));
+                        BeginTextSelectionDrag(hit);
+                    }
                     else
                     {
                         SelectAnnotation(null, null);
+                        if (_textSelection != null) ClearTextSelection();
                         // Để ContinuousPdfView vẫn bắt được kéo-pan. Chỉ mouse-up gần đúng điểm bấm mới kích hoạt Link.
                         _linkPress = new LinkPress(hit, e.GetPosition(ReaderContentHost));
                     }
@@ -364,6 +408,7 @@ namespace XTPdfMergeApp
         private void ReaderContentHost_PreviewMouseMove(object sender, MouseEventArgs e)
         {
             Point point = e.GetPosition(ReaderContentHost);
+            if (_areaSurface is { Active: true } area && area.OnMove(point)) { e.Handled = true; return; }
             UpdateChromeCursor(e.OriginalSource);
             if (UpdateObjectDrag(point) || UpdateMeasure(point) || UpdateTextChromeDrag(point) || UpdateAnnotationMove(point) || UpdateShapeDrag(point) || UpdateShapeResize(point) || UpdateLineResize(point))
             {
@@ -392,11 +437,19 @@ namespace XTPdfMergeApp
                 _linkPress = null;
 
             UpdateSelectCursor(point);
+            UpdateHandTextCursor(point);
+            UpdateCrosshair(point);
             UpdateCommentHover(point);
         }
 
         private void ReaderContentHost_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
+            if (_areaSurface is { Active: true } area && area.OnUp())
+            {
+                ReaderContentHost.ReleaseMouseCapture();
+                e.Handled = true;
+                return;
+            }
             if (FinishObjectDrag(e.GetPosition(ReaderContentHost)) || FinishMeasure(e.GetPosition(ReaderContentHost)) || FinishTextChromeDrag() || FinishAnnotationMove() || FinishShapeDrag(e.GetPosition(ReaderContentHost)) || FinishShapeResize() || FinishLineResize())
             {
                 e.Handled = true;
@@ -416,7 +469,11 @@ namespace XTPdfMergeApp
             if (_textSelDrag is { } selDrag)
             {
                 e.Handled = true;
+                bool click = TextSelectDragRubber.Width < 3 && TextSelectDragRubber.Height < 3;
+                var pressed = _linkPress;
+                _linkPress = null;
                 _ = FinishTextSelectionDragAsync(selDrag, e.GetPosition(ReaderContentHost));
+                if (click && pressed != null && _readerTool == ReaderTool.Hand) _ = ActivateLinkAsync(pressed.Hit);
                 return;
             }
             if (_linkPress is not { } press) return;
@@ -457,6 +514,8 @@ namespace XTPdfMergeApp
         {
             _linkPress = null;
             ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;
+            ReaderCrossH.Visibility = ReaderCrossV.Visibility = Visibility.Collapsed;
+            SetHandOverText(false);
         }
 
         // ── Ghi chú: hiện nội dung khi rê chuột lên icon ─────────────────
@@ -1025,6 +1084,7 @@ namespace XTPdfMergeApp
 
         private void ReaderContentHost_LayoutUpdated(object? sender, EventArgs e)
         {
+            if (_areaSurface is { Active: true } area) area.Refresh();
             if (_textSelection != null) RefreshTextSelectionVisuals();
             if (_annotationEditor != null) PositionAnnotationEditor();
             else if (_selAnn != null)

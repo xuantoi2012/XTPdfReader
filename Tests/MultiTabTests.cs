@@ -194,12 +194,13 @@ internal static partial class Program
 
     static Application CreateReaderTestApplication()
     {
+        XTPdfMergeApp.Services.Loc.Use("en"); // the checks read the English texts
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         foreach (var path in new[]
         {
             "XTStyle;component/Themes/Generic.xaml", "XTStyle;component/Themes/Light.xaml",
             "XTPdfMergeApp;component/Resources/UiTokens.Light.xaml", "XTPdfMergeApp;component/Resources/UiIcons.xaml",
-            "XTPdfMergeApp;component/Resources/UiStyles.xaml"
+            "XTPdfMergeApp;component/Resources/UiStyles.xaml", "XTPdfMergeApp;component/Resources/AppBrand.xaml"
         })
             app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/" + path) });
         return app;

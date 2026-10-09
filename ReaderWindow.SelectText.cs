@@ -66,7 +66,7 @@ namespace XTPdfMergeApp
             var result = await PdfThumbnailService.SelectTextWithStringAsync(drag.Row.SourcePath, drag.Row.PageNumber, ax, ay, bx, by);
             if (result is not { } value || value.Rects.Count == 0 || string.IsNullOrEmpty(value.Text.Trim()))
             {
-                XTStyle.Controls.XTGrowl.Info("No selectable text there — a scanned page has no text to select.", this);
+                XTPdfMergeApp.Services.Growl.Info("No selectable text there — a scanned page has no text to select.", this);
                 return;
             }
             if (_readerTool != ReaderTool.Select) return; // tool changed while the text lookup ran
@@ -99,11 +99,11 @@ namespace XTPdfMergeApp
             try
             {
                 Clipboard.SetText(selection.Text);
-                XTStyle.Controls.XTGrowl.Success("Copied", this);
+                XTPdfMergeApp.Services.Growl.Success("Copied", this);
             }
             catch (Exception ex)
             {
-                XTStyle.Controls.XTGrowl.Info("Could not copy the text: " + ex.Message, this);
+                XTPdfMergeApp.Services.Growl.Info("Could not copy the text: " + ex.Message, this);
             }
         }
     }

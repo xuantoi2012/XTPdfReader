@@ -187,7 +187,7 @@ namespace XTPdfMergeApp.Controls
             _searching = true;
             Results.ItemsSource = null;
             NoTextNote.Visibility = Visibility.Collapsed;
-            StatusText.Text = "Searching…";
+            StatusText.Text = Loc.T("Searching…");
             RaiseChanged();
 
             int totalPages = 0, withoutText = 0;
@@ -215,7 +215,7 @@ namespace XTPdfMergeApp.Controls
             StatusText.Text = _hits.Count == 0 ? "No results" : $"{_hits.Count} result{(_hits.Count == 1 ? "" : "s")} on {pagesWithHits} page{(pagesWithHits == 1 ? "" : "s")}";
             if (withoutText > 0 && totalPages > 0)
             {
-                NoTextText.Text = $"{withoutText} of {totalPages} pages have no searchable text (their text is drawn as lines or scanned). Results cover the other {totalPages - withoutText} pages.";
+                NoTextText.Text = Loc.T($"{withoutText} of {totalPages} pages have no searchable text (their text is drawn as lines or scanned). Results cover the other {totalPages - withoutText} pages.");
                 NoTextNote.Visibility = Visibility.Visible;
             }
             if (_hits.Count > 0 && _current < 0) Step(1, activate: false);
@@ -236,7 +236,7 @@ namespace XTPdfMergeApp.Controls
                 _rebuildQueued = false;
                 if (!_searching) return; // đã xong: kết quả cuối đã dựng
                 Rebuild(query, multiFile);
-                StatusText.Text = $"Searching… {_hits.Count} so far";
+                StatusText.Text = Loc.T($"Searching… {_hits.Count} so far");
             }), DispatcherPriority.Background);
         }
 

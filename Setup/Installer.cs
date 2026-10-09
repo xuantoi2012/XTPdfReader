@@ -228,12 +228,21 @@ internal static class Installer
     /// </summary>
     private static void WriteAssociations(Layout layout, string exe)
     {
+        // The name Windows lists for the program (Default apps, Open with) is read from here, not from the file; without it the exe name shows.
+        using (var app = layout.Hive.CreateSubKey($@"{layout.ClassesPath}\Applications\{Layout.ExeName}"))
+        {
+            app.SetValue("FriendlyAppName", Layout.AppName);
+            using var command = app.CreateSubKey(@"shell\open\command");
+            command.SetValue("", $"\"{exe}\" \"%1\"");
+            using var types = app.CreateSubKey("SupportedTypes");
+            types.SetValue(".pdf", "");
+        }
         using (var progId = layout.Hive.CreateSubKey($@"{layout.ClassesPath}\{ProgId}"))
         {
             progId.SetValue("", "PDF document");
             progId.SetValue("FriendlyTypeName", Layout.AppName);
             using var icon = progId.CreateSubKey("DefaultIcon");
-            icon.SetValue("", exe + ",0");
+            icon.SetValue("", File.Exists(Path.Combine(Path.GetDirectoryName(exe)!, "PDFDocument.ico")) ? Path.Combine(Path.GetDirectoryName(exe)!, "PDFDocument.ico") : exe + ",0");
             using var command = progId.CreateSubKey(@"shell\open\command");
             command.SetValue("", $"\"{exe}\" \"%1\"");
         }
@@ -255,6 +264,7 @@ internal static class Installer
     {
         try
         {
+            layout.Hive.DeleteSubKeyTree($@"{layout.ClassesPath}\Applications\{Layout.ExeName}", throwOnMissingSubKey: false);
             layout.Hive.DeleteSubKeyTree($@"{layout.ClassesPath}\{ProgId}", throwOnMissingSubKey: false);
             using (var openWith = layout.Hive.OpenSubKey($@"{layout.ClassesPath}\.pdf\OpenWithProgids", writable: true)) openWith?.DeleteValue(ProgId, throwOnMissingValue: false);
             layout.Hive.DeleteSubKeyTree(layout.CapabilitiesPath, throwOnMissingSubKey: false);

@@ -13,16 +13,16 @@ using XTStyle.Controls;
 namespace XTPdfMergeApp.Controls;
 
 /// <summary>
-/// "Stamp pages": the owner's set of signatures and stamps (<see cref="StampLibrary"/>, each with a name: whose signature it is) shown as thumbnails with the name below, like the pages.
-/// Pick one, choose where it goes on a sample page of each paper size (click, drag, resize the corners), tick the sizes and pages, and the same stamp is put at that place on every one of them
+/// "Stamp pages" as a panel beside the page view: the owner's set of signatures and stamps (<see cref="StampLibrary"/>, each with a name: whose signature it is) shown as thumbnails with the name below, like the pages.
+/// Pick one, choose where it goes on the page you are reading (click, drag, resize the corners; the sample page can be any page of that paper size), tick the sizes and pages, and the same stamp is put at that place on every one of them
 /// as one undoable change. The place is remembered per stamp and paper size, so an A1 sheet and an A3 sheet each keep their own.
 /// </summary>
-internal sealed class StampPagesWindow : XTWindow
+internal sealed class StampPagesPanel : UserControl
 {
     private readonly string _path;
     private readonly int _pageCount;
     private readonly int _startPage;
-    private readonly PageAreaPicker _picker = new() { MinHeight = 280, PlaceMode = true };
+    private readonly IAreaSurface _picker;
     private readonly PaperGroupList _sizes = new();
     private readonly ListBox _stamps = new() { SelectionMode = SelectionMode.Single, BorderThickness = new Thickness(1), Height = 232 };
     private readonly TextBox _nameBox = AreaKit.Box();
@@ -37,12 +37,12 @@ internal sealed class StampPagesWindow : XTWindow
     private bool _loaded, _filling;
 
     public StampDefinition? Definition { get; private set; }
-    public int Opacity { get; private set; } = 100;
+    public int StampOpacity { get; private set; } = 100;
     public bool AddNameAndDate { get; private set; }
     /// <summary>Every page to stamp and where the stamp goes on it (fractions of the page), one entry per page.</summary>
     public IReadOnlyList<(int Page, double U1, double V1, double U2, double V2)> Placements { get; private set; } = Array.Empty<(int, double, double, double, double)>();
 
-    internal PageAreaPicker Picker => _picker;
+    internal IAreaSurface Picker => _picker;
     internal PaperGroupList Sizes => _sizes;
     internal ListBox StampList => _stamps;
     internal TextBox NameBox => _nameBox;
@@ -52,42 +52,25 @@ internal sealed class StampPagesWindow : XTWindow
     internal XTButton ApplyButton => _apply;
     internal string StatusText => _status.Text;
 
-    public StampPagesWindow(string path, int currentPage, int pageCount)
+    /// <summary>The stamp, its look and the pages are chosen and the user pressed the button: the host puts the stamps into the file.</summary>
+    public event Action<StampPagesPanel>? Applied;
+
+    public StampPagesPanel(IAreaSurface surface, string path, int currentPage, int pageCount)
     {
+        _picker = surface;
+        _picker.PlaceMode = true;
         _path = path;
         _pageCount = Math.Max(1, pageCount);
         _startPage = Math.Clamp(currentPage, 1, _pageCount);
-        Title = "Stamp or sign many pages";
-        TitleBarMode = TitleBarMode.Dialog;
-        Width = 1200;
-        Height = 820;
-        MinWidth = 960;
-        MinHeight = 600;
-        ResizeMode = ResizeMode.CanResizeWithGrip;
-        WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        ShowInTaskbar = false;
         FontFamily = new FontFamily("Segoe UI");
         FontSize = 13;
         Brush R(string key) => TryFindResource(key) as Brush ?? Brushes.Gray;
-        var root = new DockPanel { Background = R("Ui.Surface") };
+        var root = new DockPanel();
 
-        var close = AreaKit.Ghost("Close", minWidth: 90);
-        close.IsCancel = true;
-        close.Margin = new Thickness(8, 0, 0, 0);
         _apply.Margin = new Thickness(0);
-        var footer = AreaKit.Footer(this, _status, _apply, close);
+        var footer = AreaKit.PanelFooter(_status, _apply);
         DockPanel.SetDock(footer, Dock.Bottom);
         root.Children.Add(footer);
-
-        var head = new StackPanel { Margin = new Thickness(20, 12, 20, 8) };
-        head.Children.Add(AreaKit.Muted(this, "Choose a signature or stamp, then put it on a sample page of each paper size: click to place it, drag to move it, drag its corners to resize it (it keeps its shape). Ctrl + wheel zooms, right-drag pans. The place is kept for each size."));
-        DockPanel.SetDock(head, Dock.Top);
-        root.Children.Add(head);
-
-        var body = new Grid { Margin = new Thickness(20, 0, 20, 12) };
-        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(340), MinWidth = 280 });
-        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 400 });
 
         var side = new StackPanel { Margin = new Thickness(0, 0, 2, 0) };
         side.Children.Add(new TextBlock { Text = "Signatures and stamps", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 4) });
@@ -100,10 +83,10 @@ internal sealed class StampPagesWindow : XTWindow
         side.Children.Add(_stamps);
         var tools = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
         var import = AreaKit.Ghost("Add image…", 28);
-        import.ToolTip = "Add a scanned signature or seal (PNG, JPG) to your set";
+        import.ToolTip = Loc.T("Add a scanned signature or seal (PNG, JPG) to your set");
         var create = AreaKit.Ghost("New text stamp…", 28);
         var remove = AreaKit.Ghost("Remove", 28);
-        remove.ToolTip = "Take the chosen one out of your set";
+        remove.ToolTip = Loc.T("Take the chosen one out of your set");
         foreach (var b in new[] { import, create, remove }) { b.Margin = new Thickness(0, 0, 6, 4); tools.Children.Add(b); }
         side.Children.Add(tools);
         side.Children.Add(AreaKit.Heading(this, "Name (whose signature)"));
@@ -118,32 +101,27 @@ internal sealed class StampPagesWindow : XTWindow
         var copyPlace = AreaKit.Ghost("Use this place on all sizes", 28);
         copyPlace.Margin = new Thickness(0, 6, 0, 0);
         copyPlace.HorizontalAlignment = HorizontalAlignment.Left;
-        copyPlace.ToolTip = "The same share of the page, on every size";
+        copyPlace.ToolTip = Loc.T("The same share of the page, on every size");
         side.Children.Add(copyPlace);
         side.Children.Add(AreaKit.Heading(this, "Pages"));
-        _allPages.Content = "All pages of the ticked sizes";
+        _allPages.Content = Loc.T("All pages of the ticked sizes");
         _rangeBox.GotFocus += (_, _) => _range.IsChecked = true;
         side.Children.Add(_allPages);
         side.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 0), Children = { _range, _rangeBox } });
-        body.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = side });
-        var splitter = new GridSplitter { Width = 8, HorizontalAlignment = HorizontalAlignment.Stretch, Background = Brushes.Transparent, ResizeBehavior = GridResizeBehavior.PreviousAndNext };
-        Grid.SetColumn(splitter, 1);
-        body.Children.Add(splitter);
-        Grid.SetColumn(_picker, 2);
-        body.Children.Add(_picker);
-        root.Children.Add(body);
+        root.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(14, 12, 14, 12), Content = side });
         Content = root;
 
         _stamps.SelectionChanged += async (_, _) => await OnStampChangedAsync();
         _sizes.GroupSelected += async row => await ShowGroupAsync(row);
         _picker.AreaChanged += OnPlaceChanged;
+        _picker.PageChanged += OnSurfacePageChanged;
         _nameDate.Click += async (_, _) => await OnStampChangedAsync();
         _nameBox.LostFocus += (_, _) => CommitName();
         _nameBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) { CommitName(); e.Handled = true; } };
         import.Click += (_, _) => ImportImages();
         create.Click += (_, _) =>
         {
-            var definition = NewStampWindow.Ask(this);
+            var definition = NewStampWindow.Ask(Window.GetWindow(this)!);
             if (definition == null) return;
             StampLibrary.Add(definition);
             FillStamps(StampLibrary.Mine.Last());
@@ -155,8 +133,7 @@ internal sealed class StampPagesWindow : XTWindow
         };
         copyPlace.Click += (_, _) => CopyPlaceToAll();
         _apply.Click += (_, _) => Apply();
-        Loaded += async (_, _) => await InitializeAsync();
-        _status.Text = "Choose a signature or stamp, then place it on the page.";
+        _status.Text = Loc.T("Choose a signature or stamp, then click the page to place it.");
     }
 
     // ── the stamps ───────────────────────────────────────────────────
@@ -226,10 +203,10 @@ internal sealed class StampPagesWindow : XTWindow
                 StampLibrary.Add(new StampDefinition(StampDefinition.ImageKind, System.IO.Path.GetFileNameWithoutExtension(file), "", "", StampLibrary.ImportImage(file)));
                 last = StampLibrary.Mine.Last();
             }
-            catch (Exception ex) { AppDialog.Show(this, "Could not add the image:\n" + ex.Message, "Add image", MessageBoxButton.OK, MessageBoxImage.Warning); }
+            catch (Exception ex) { AppDialog.Show(Window.GetWindow(this), "Could not add the image:\n" + ex.Message, "Add image", MessageBoxButton.OK, MessageBoxImage.Warning); }
         }
         FillStamps(last);
-        _status.Text = "Type whose signature it is in the Name box.";
+        _status.Text = Loc.T("Type whose signature it is in the Name box.");
         _nameBox.Focus();
         _nameBox.SelectAll();
     }
@@ -258,7 +235,8 @@ internal sealed class StampPagesWindow : XTWindow
 
     // ── sizes and places ─────────────────────────────────────────────
 
-    private async Task InitializeAsync()
+    /// <summary>Reads the paper sizes of the file and fills the lists; the host calls it once the panel is shown.</summary>
+    public async Task StartAsync()
     {
         IReadOnlyList<PaperGroup> groups;
         try { groups = PaperSizeIndex.Group(await PaperSizeIndex.ReadAsync(_path)); }
@@ -266,6 +244,19 @@ internal sealed class StampPagesWindow : XTWindow
         _sizes.Load(groups, _ => false, _startPage);
         _loaded = true;
         FillStamps();
+    }
+
+    /// <summary>The reader moved to a page of another paper size: that size becomes the chosen one (with its own place).</summary>
+    private void OnSurfacePageChanged()
+    {
+        if (_loaded && _picker.CurrentPage > 0) _sizes.SelectPage(_picker.CurrentPage);
+    }
+
+    /// <summary>The panel is closed: the surface stops listening.</summary>
+    public void Detach()
+    {
+        _picker.AreaChanged -= OnPlaceChanged;
+        _picker.PageChanged -= OnSurfacePageChanged;
     }
 
     /// <summary>Where the stamp goes on a page of this size when the user has not placed it: the bottom right corner, at its natural size.</summary>
@@ -313,7 +304,7 @@ internal sealed class StampPagesWindow : XTWindow
             AreaPresetStore.Set("stamp:" + d.Id, row.Key, preset);
             row.HasArea = true;
         }
-        _status.Text = "The same place is now set for every paper size.";
+        _status.Text = Loc.T("The same place is now set for every paper size.");
     }
 
     // ── act ──────────────────────────────────────────────────────────
@@ -337,10 +328,10 @@ internal sealed class StampPagesWindow : XTWindow
         }
         if (list.Count == 0) { _status.Text = "No page to stamp: tick a paper size (and check the page list)."; return; }
         Definition = definition;
-        Opacity = (int)_opacity.Value;
+        StampOpacity = (int)_opacity.Value;
         AddNameAndDate = _nameDate.IsChecked == true;
         Placements = list.OrderBy(p => p.Item1).ToList();
-        try { DialogResult = true; } catch (InvalidOperationException) { Close(); }
+        Applied?.Invoke(this);
     }
 
     internal void ApplyForTest() => Apply();

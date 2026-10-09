@@ -303,7 +303,7 @@ public sealed class SheetsPanel : UserControl
         try
         {
             File.WriteAllText(dialog.FileName, XTSheetRegister.ToCsv(rows), new System.Text.UTF8Encoding(false));
-            XTStyle.Controls.XTGrowl.Success($"Saved {rows.Count} sheets to {Path.GetFileName(dialog.FileName)}", Window.GetWindow(this));
+            XTPdfMergeApp.Services.Growl.Success($"Saved {rows.Count} sheets to {Path.GetFileName(dialog.FileName)}", Window.GetWindow(this));
         }
         catch (Exception ex) { AppDialog.Show(Window.GetWindow(this), "Could not save the register:\n" + ex.Message, "Drawing register", MessageBoxButton.OK, MessageBoxImage.Error); }
     }

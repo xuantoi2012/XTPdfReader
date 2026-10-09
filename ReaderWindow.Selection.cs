@@ -235,7 +235,7 @@ namespace XTPdfMergeApp
             if (_selRow is { } row && !Controls.PdfPermissionDialog.Require(this, new[] { row.SourcePath }, PdfPermissionOperation.Copy)) return;
             if (string.IsNullOrWhiteSpace(spec.Text)) return;
             try { Clipboard.SetText(spec.Text); }
-            catch { XTStyle.Controls.XTGrowl.Error("Could not copy the annotation text.", this); }
+            catch { XTPdfMergeApp.Services.Growl.Error("Could not copy the annotation text.", this); }
         }
 
         private void ToggleSelectedAnnotationResolved()
@@ -375,7 +375,7 @@ namespace XTPdfMergeApp
             var rects = await PdfThumbnailService.SelectTextAsync(drag.Row.SourcePath, drag.Row.PageNumber, ax, ay, bx, by);
             if (rects == null || rects.Count == 0)
             {
-                XTStyle.Controls.XTGrowl.Info(kind == QuickAnnotationKind.Highlight
+                XTPdfMergeApp.Services.Growl.Info(kind == QuickAnnotationKind.Highlight
                     ? "No selectable text there. Use Area mode for drawings and scanned pages."
                     : "No selectable text there.", this);
                 return;

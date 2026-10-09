@@ -121,31 +121,21 @@ internal static partial class Program
         using (var doc = new iText.Kernel.Pdf.PdfDocument(new iText.Kernel.Pdf.PdfWriter(pdf))) { doc.AddNewPage(); doc.AddNewPage(); }
         var window = new PrintWindow(new[] { (pdf, 1), (pdf, 2) }, 0);
         Offscreen(window);
-        Pump(TimeSpan.FromMilliseconds(600));
-        var printerBox = (System.Windows.Controls.ComboBox)window.FindName("PrinterBox");
-        var collate = (System.Windows.Controls.CheckBox)window.FindName("CollateBox");
-        var copies = (System.Windows.Controls.TextBox)window.FindName("CopiesBox");
-        printerBox.SelectedItem = printer;
+        Pump(TimeSpan.FromMilliseconds(1500));
+        var panel = (PrintBySizePanel)((System.Windows.Controls.Border)window.FindName("BySizeHost")!).Child;
+        var card = panel.CardsForTest.First();
+        card.Printer.SelectedItem = printer;
         Pump(TimeSpan.FromMilliseconds(300));
         bool can = PrinterDriver.SupportsCollate(printer);
         Console.WriteLine($"Collate: {printer} driver {(can ? "can" : "cannot")} collate");
-        Check(collate.IsEnabled == can && (can || collate.IsChecked == false), $"The box is {(can ? "on" : "off and unchecked")} like the driver ({PdfPrinter} {(can ? "can" : "cannot")} collate)");
+        Check(card.Collate.IsEnabled == (can && PrinterDriver.HonorsCollate(printer)), "The card's box is on only when the driver takes Collate from us");
         var settings = new PrinterSettings { PrinterName = printer };
-        Check(!can || collate.IsChecked == settings.Collate, "It starts as the printer's own default");
+        Check(!card.Collate.IsEnabled || card.Collate.IsChecked == settings.Collate, "It starts as the printer's own default");
 
-        // the dialog's boxes go into the driver settings (what Properties opens with and what is printed)
-        copies.Text = "3";
-        if (can) collate.IsChecked = !collate.IsChecked;
-        var devMode = (byte[]?)typeof(PrintWindow).GetMethod("CurrentDevMode", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window, null);
-        Check(devMode != null && devMode.Length > 100, "The driver settings are built from the dialog");
-        var read = PrinterDriver.Read(printer, devMode!);
-        Check(read.Copies == 3, "Copies are in the driver settings (" + read.Copies + ")");
-        Check(!can || read.Collate == (collate.IsChecked == true), "Collate is in the driver settings and equals the box");
-
-        // the driver's own dialog changes it: the box follows
-        var changed = PrinterDriver.WithSettings(printer, devMode, can ? !(collate.IsChecked == true) : null, 5, null)!;
-        typeof(PrintWindow).GetMethod("ShowFromDevMode", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window, new object[] { printer, changed });
-        Check(copies.Text == "5" && (!can || collate.IsChecked == PrinterDriver.Read(printer, changed).Collate), "After Properties the boxes show what the driver says");
+        // the driver's own dialog changes it: the card follows
+        var devMode = PrinterDriver.WithSettings(printer, null, can ? !(card.Collate.IsChecked == true) : null, 5, null)!;
+        panel.ShowFromDevMode(card.Class, devMode);
+        Check(card.Copies.Text == "5" && (!can || card.Collate.IsChecked == PrinterDriver.Read(printer, devMode).Collate), "After Properties the card shows what the driver says");
         window.Close();
     }
 }

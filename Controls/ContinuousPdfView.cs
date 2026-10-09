@@ -1351,6 +1351,7 @@ public sealed class ContinuousPdfView : Grid
         var (ua, va) = Unrotate(dx0, dy0, RotationOf(row));
         var (ub, vb) = Unrotate(dx1, dy1, RotationOf(row));
         double fx0 = Math.Min(ua, ub), fx1 = Math.Max(ua, ub), fy0 = Math.Min(va, vb), fy1 = Math.Max(va, vb);
+        ExperimentalMuPdfViewport.DisplayWidthHint = (int)Math.Round(neededPx);
         int fullWidth = (int)Math.Min(MaxRegionFullWidth, Math.Round(neededPx));
         int fullHeight = Math.Max(1, (int)Math.Round(fullWidth * (row.LayoutHeight / Math.Max(1, row.LayoutWidth))));
         string layers = PdfLayerStateStore.GetToken(row.SourcePath);
@@ -1744,6 +1745,7 @@ public sealed class ContinuousPdfView : Grid
         var (ua, va) = Unrotate(dx0, dy0, RotationOf(row));
         var (ub, vb) = Unrotate(dx1, dy1, RotationOf(row));
         double fx0 = Math.Min(ua, ub), fx1 = Math.Max(ua, ub), fy0 = Math.Min(va, vb), fy1 = Math.Max(va, vb);
+        ExperimentalMuPdfViewport.DisplayWidthHint = (int)Math.Round(neededPx);
         int fullWidth = ExactRaster
             ? (int)Math.Min(MaxRegionFullWidth, Math.Round(neededPx))
             : (int)Math.Min(MaxRegionFullWidth,

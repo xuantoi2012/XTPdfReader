@@ -106,7 +106,7 @@ namespace XTPdfMergeApp
             catch (Exception ex) { AppDialog.Show(this, "Could not prepare the PDF for printing:\n" + ex.Message, "Print", MessageBoxButton.OK, MessageBoxImage.Error); return; }
             int current = _readerPage == null ? 0 : Math.Max(0, _readerGroup.Pages.IndexOf(_readerPage));
             var dialog = new Controls.PrintWindow(pages, current) { Owner = this };
-            if (dialog.ShowDialog() == true) XTStyle.Controls.XTGrowl.Success("Sent to the printer", this);
+            if (dialog.ShowDialog() == true) XTPdfMergeApp.Services.Growl.Success("Sent to the printer", this);
         }
 
         private async void ReaderSecurity_Click(object sender, RoutedEventArgs e)
@@ -137,7 +137,7 @@ namespace XTPdfMergeApp
                 else await PdfThumbnailService.SetDocumentPasswordAsync(path, options.OwnerPassword);
                 Session.RefreshDiskStamp(path);
                 ReaderSidePanel.OnSourceEdited(path);
-                XTStyle.Controls.XTGrowl.Success(options.RemoveProtection ? "Removed PDF protection" : "Protected PDF with AES-256", this);
+                XTPdfMergeApp.Services.Growl.Success(options.RemoveProtection ? "Removed PDF protection" : "Protected PDF with AES-256", this);
             }
             catch (Exception ex)
             {

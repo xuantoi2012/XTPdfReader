@@ -10,13 +10,13 @@ using XTStyle.Controls;
 namespace XTPdfMergeApp.Controls;
 
 /// <summary>
-/// A newer version exists. "Cập nhật ngay" downloads it (with a progress bar) and starts the setup; the app exits. "Để sau" just closes:
+/// A newer version exists. "Update now" downloads it (with a progress bar) and starts the setup; the app exits. "Later" just closes:
 /// nothing was downloaded, and the next start offers the update again. Built like <see cref="AppDialogWindow"/> (same title bar, badge,
 /// footer, buttons and theme resources) so it looks like any other window of the app, light or dark.
 /// </summary>
 internal sealed class UpdateReadyWindow : XTWindow
 {
-    private const string Hint = "~15 giây · cần quyền quản trị";
+    private const string Hint = "Requires administrator rights";
 
     private readonly UpdateInfo _info;
     private readonly CancellationTokenSource _cancel = new();
@@ -35,7 +35,7 @@ internal sealed class UpdateReadyWindow : XTWindow
     {
         _info = info;
         Title = "PDF Reader Pro";
-        TitleBarMode = TitleBarMode.Dialog;
+        TitleBarMode = TitleBarMode.Tool;
         TitleIcon = TryFindResource("App.Icon.Logo");
         TitleIconBrush = new SolidColorBrush(Color.FromRgb(255, 112, 24));
         Width = Math.Min(480, SystemParameters.WorkArea.Width - 32);
@@ -50,8 +50,8 @@ internal sealed class UpdateReadyWindow : XTWindow
         SetResourceReference(BackgroundProperty, "Ui.Surface");
         SetResourceReference(ForegroundProperty, "Ui.Text");
 
-        _later = Button("Để sau", primary: false);
-        _update = Button("Cập nhật ngay", primary: true);
+        _later = Button("Later", primary: false);
+        _update = Button("Update now", primary: true);
         _later.IsCancel = true;
         _update.IsDefault = true;
         _later.Click += (_, _) => Close();
@@ -87,10 +87,10 @@ internal sealed class UpdateReadyWindow : XTWindow
 
         var text = new StackPanel();
         Grid.SetColumn(text, 1);
-        var heading = new TextBlock { Text = "Có bản cập nhật mới", FontSize = 16, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+        var heading = new TextBlock { Text = "A new version is available", FontSize = 16, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
         heading.SetResourceReference(TextBlock.ForegroundProperty, "Ui.Text");
         text.Children.Add(heading);
-        var version = new TextBlock { Text = $"Phiên bản {info.Version} (bạn đang dùng {AppInfo.Version})" + (info.Size > 0 ? $" · {info.Size / 1048576.0:0.#} MB" : ""), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap };
+        var version = new TextBlock { Text = $"Version {info.Version} (you are using {AppInfo.Version})" + (info.Size > 0 ? $" · {info.Size / 1048576.0:0.#} MB" : ""), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap };
         version.SetResourceReference(TextBlock.ForegroundProperty, "Ui.Muted");
         text.Children.Add(version);
 
@@ -99,7 +99,7 @@ internal sealed class UpdateReadyWindow : XTWindow
         if (sha >= 0) notes = notes[..sha].Trim();
         _notesBox.SetResourceReference(Border.BackgroundProperty, "Ui.Bg");
         _notesBox.SetResourceReference(Border.BorderBrushProperty, "Ui.Border");
-        var notesText = new TextBlock { Text = notes.Length > 0 ? notes : "Cải tiến và sửa lỗi.", TextWrapping = TextWrapping.Wrap, LineHeight = 18 };
+        var notesText = new TextBlock { Text = notes.Length > 0 ? notes : "Improvements and fixes.", TextWrapping = TextWrapping.Wrap, LineHeight = 18 };
         notesText.SetResourceReference(TextBlock.ForegroundProperty, "Ui.Text");
         _notesBox.Child = new ScrollViewer
         {
@@ -148,33 +148,45 @@ internal sealed class UpdateReadyWindow : XTWindow
         _error.Visibility = Visibility.Collapsed;
         _notesBox.Visibility = Visibility.Collapsed;
         _progressArea.Visibility = Visibility.Visible;
-        _hint.Text = "Đang tải bản cập nhật…";
+        _hint.Text = Loc.T("Downloading the update…");
         var progress = new Progress<double>(p =>
         {
             _progressFill.Width = Math.Max(0, _progressTrack.ActualWidth * p);
-            _progressText.Text = $"Đang tải… {(int)Math.Round(p * 100)}%";
+            _progressText.Text = Loc.T($"Downloading… {(int)Math.Round(p * 100)}%");
         });
         try
         {
             string setup = await AppUpdateService.DownloadAsync(_info, progress, _cancel.Token);
-            _progressText.Text = "Đang mở trình cài đặt…";
+            _progressText.Text = Loc.T("Preparing to install…");
             if (AppUpdateService.StartSetup(setup))
             {
-                Close();
-                Application.Current.Shutdown();
+                ShowWaiting();
                 return;
             }
-            Fail("Bạn đã từ chối quyền quản trị, nên chưa cập nhật. Bấm “Cập nhật ngay” để thử lại.");
+            Fail("You declined the administrator permission, so the update was not installed. Press “Update now” to try again.");
         }
         catch (OperationCanceledException) { return; }
-        catch (Exception ex) { Fail("Không tải được bản cập nhật: " + ex.Message); }
+        catch (Exception ex) { Fail("Could not download the update: " + ex.Message); }
+    }
+
+    /// <summary>Downloaded and handed to the setup: it installs by itself once the Reader is closed. Nothing is closed here.</summary>
+    private void ShowWaiting()
+    {
+        _downloading = false;
+        _progressArea.Visibility = Visibility.Collapsed;
+        _notesBox.Visibility = Visibility.Visible;
+        _notesBox.Child = new TextBlock { Text = "Downloaded. The update installs by itself when you close PDF Reader Pro; the files you have open are not affected.", TextWrapping = TextWrapping.Wrap, LineHeight = 18 };
+        ((TextBlock)_notesBox.Child).SetResourceReference(TextBlock.ForegroundProperty, "Ui.Text");
+        _hint.Text = Loc.T("Waiting for you to close the app");
+        _update.Visibility = Visibility.Collapsed;
+        _later.Text = Loc.T("Close");
     }
 
     private void Fail(string message)
     {
         _downloading = false;
         _update.IsEnabled = true;
-        _later.Text = "Để sau";
+        _later.Text = Loc.T("Later");
         _progressArea.Visibility = Visibility.Collapsed;
         _notesBox.Visibility = Visibility.Visible;
         _hint.Text = Hint;
@@ -190,6 +202,7 @@ internal sealed class UpdateReadyWindow : XTWindow
         if (!owner.IsVisible || Application.Current.Dispatcher.HasShutdownStarted) return;
         if (_open is { IsVisible: true }) { _open.Activate(); return; }
         _open = new UpdateReadyWindow(info) { Owner = owner };
+        if (AppUpdateService.SetupPending) _open.ShowWaiting();
         _open.Show();
     }
 }

@@ -40,6 +40,8 @@ namespace XTPdfMergeApp
             StartPage.MergePdfRequested += () => ReaderShowMergeWindow_Click(this, new RoutedEventArgs());
             StartPage.ExportPdfRequested += () => OpenExport(preferFlatten: false);
             StartPage.PrintPdfRequested += () => ReaderPrint_Click(this, new RoutedEventArgs());
+            StartPage.CaptureRequested += () => CaptureLauncher.Run("capture", this);
+            StartPage.CapturesRequested += () => CaptureLauncher.Run("store", this);
             StartPage.HasActiveDocument = () => _readerGroup?.Pages.Count > 0;
             Loaded += (_, _) => { if (_groups.Count == 0) ShowStart(true); };
             _groups.CollectionChanged += (_, _) =>
@@ -80,6 +82,7 @@ namespace XTPdfMergeApp
             {
                 ShowSettings(false);
                 StartPage.Reload();
+                Loc.ApplyTree(StartPage);
             }
             StartPage.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             // Start covers the viewer without changing its WPF visibility.
@@ -130,7 +133,7 @@ namespace XTPdfMergeApp
         {
             if (_readerGroup != null && _changedOnDisk.TryGetValue(_readerGroup, out var time))
             {
-                DiskChangedText.Text = $"{_readerGroup.FileName} was changed on disk ({time:HH:mm}). What you see may be out of date.";
+                DiskChangedText.Text = Loc.T($"{_readerGroup.FileName} was changed on disk ({time:HH:mm}). What you see may be out of date.");
                 DiskChangedBanner.Visibility = Visibility.Visible;
                 _ = AddLastSaverToBannerAsync(_readerGroup);
             }
@@ -165,7 +168,7 @@ namespace XTPdfMergeApp
         private void OpenPalette()
         {
             var items = new List<PaletteItem>();
-            void Cmd(string title, string shortcut, string icon, Action run) => items.Add(new PaletteItem("Commands", title, shortcut, PaletteIcon(icon), run));
+            void Cmd(string title, string shortcut, string icon, Action run) => items.Add(new PaletteItem(Loc.T("Commands"), Loc.T(title), shortcut, PaletteIcon(icon), run));
 
             Cmd("Open file…", "Ctrl+O", "folder", () => { if (EditHost != null) _ = EditHost.OpenFilesAsync(); });
             Cmd("Start: recent files and quick tools", "", "clock", () => ShowStart(true));
@@ -190,6 +193,7 @@ namespace XTPdfMergeApp
             Cmd("Capture the screen (XT Capture)…", "", "capture", () => CaptureLauncher.Run("capture", this));
             Cmd("Store: the screen captures kept by XT Capture", "", "captures", () => CaptureLauncher.Run("store", this));
             Cmd("Find in document…", "Ctrl+F", "search", OpenFind);
+            Cmd(_crosshair ? "Crosshair off" : "Crosshair: lines through the pointer, to read a drawing", "X", "select", ToggleCrosshair);
             if (_readerGroup != null) Cmd("Export / split PDF…", "Ctrl+Shift+E", "export", () => OpenExport(preferFlatten: false));
             if (_readerGroup != null) Cmd("Print…", "Ctrl+P", "print", () => ReaderPrint_Click(this, new RoutedEventArgs()));
             if (_readerGroup != null) Cmd("OCR: read the scanned pages into a searchable copy…", "", "selecttext", StartOcr);
@@ -208,7 +212,7 @@ namespace XTPdfMergeApp
             foreach (var group in _groups)
             {
                 var g = group;
-                items.Add(new PaletteItem("Open files", group.FileName, "", PaletteIcon("file"), () =>
+                items.Add(new PaletteItem(Loc.T("Open files"), group.FileName, "", PaletteIcon("file"), () =>
                 {
                     ShowStart(false);
                     ReaderDocumentTabs.SelectedItem = g;
@@ -218,13 +222,14 @@ namespace XTPdfMergeApp
             foreach (var recent in RecentFilesStore.Items.Where(r => !open.Contains(r.Path) && File.Exists(r.Path)).Take(15))
             {
                 string path = recent.Path;
-                items.Add(new PaletteItem("Recent files", Path.GetFileName(path), "", PaletteIcon("clock"), () =>
+                items.Add(new PaletteItem(Loc.T("Recent files"), Path.GetFileName(path), "", PaletteIcon("clock"), () =>
                 {
                     ShowStart(false);
                     if (EditHost != null) _ = EditHost.OpenPathsAsync(new[] { path });
                 }));
             }
             Palette.Open(items, TitleSearchButton);
+            Loc.ApplyTree(Palette);
         }
     }
 }

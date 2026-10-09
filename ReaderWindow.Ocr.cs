@@ -25,7 +25,7 @@ namespace XTPdfMergeApp
         {
             if (_readerGroup == null || _readerPage == null)
             {
-                XTGrowl.Info("Open a scanned PDF first.", this);
+                Growl.Info("Open a scanned PDF first.", this);
                 return;
             }
             RunOcr(_readerPage.SourcePath, new[] { _readerPage.PageNumber }, quick: false);
@@ -60,12 +60,12 @@ namespace XTPdfMergeApp
             {
                 int total = words.Values.Sum(w => w.Count);
                 _ = EditHost.ApplyOcrAsync(path, words.ToDictionary(p => p.Key, p => (IReadOnlyList<OcrWord>?)p.Value), $"OCR {words.Count} page{(words.Count == 1 ? "" : "s")}");
-                XTGrowl.Success($"OCR text added to {words.Count} page{(words.Count == 1 ? "" : "s")} ({total} words). Ctrl+S saves it into the file.", this);
+                Growl.Success($"OCR text added to {words.Count} page{(words.Count == 1 ? "" : "s")} ({total} words). Ctrl+S saves it into the file.", this);
             }
             else if (window.OutputPath is { } output && File.Exists(output))
             {
                 if (EditHost != null) _ = EditHost.OpenPathsAsync(new[] { output });
-                XTGrowl.Success("Searchable copy opened: " + Path.GetFileName(output), this);
+                Growl.Success("Searchable copy opened: " + Path.GetFileName(output), this);
             }
         }
 

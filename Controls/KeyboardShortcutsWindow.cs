@@ -24,6 +24,7 @@ internal sealed class KeyboardShortcutsWindow : XTWindow
         new("View", "+ / −", "Zoom in / out"),
         new("View", "0", "Fit width"),
         new("View", "F11", "Full screen"),
+        new("View", "X", "Crosshair through the pointer (Esc turns it off)"),
         new("View", "PgUp / PgDn", "Previous / next page"),
         new("Editing", "Ctrl+Z / Ctrl+Y", "Undo / redo page or annotation changes"),
         new("Editing", "Del", "Delete selected annotation or page"),

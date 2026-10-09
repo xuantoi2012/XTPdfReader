@@ -152,7 +152,7 @@ public sealed class HistoryPanel : UserControl
             AppDialog.Show(Window.GetWindow(this), "Choose a different file name; the current file is not replaced.", "History", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-        try { XTHistory.SaveVersion(_path, entry.LengthBefore, output); XTStyle.Controls.XTGrowl.Success("Saved " + Path.GetFileName(output), Window.GetWindow(this)); }
+        try { XTHistory.SaveVersion(_path, entry.LengthBefore, output); XTPdfMergeApp.Services.Growl.Success("Saved " + Path.GetFileName(output), Window.GetWindow(this)); }
         catch (Exception ex) { AppDialog.Show(Window.GetWindow(this), "Could not save that version:\n" + ex.Message, "History", MessageBoxButton.OK, MessageBoxImage.Error); }
     }
 }

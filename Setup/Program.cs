@@ -14,6 +14,8 @@ internal sealed class Options
     internal bool Uninstall { get; set; }
     internal bool Silent { get; set; }
     internal bool Launch { get; set; }
+    /// <summary>An update started by the Reader: wait for that process to be closed by the user before installing (never close it for them).</summary>
+    internal int WaitPid { get; set; }
     /// <summary>The window never finishes sooner than this (see SetupWindow).</summary>
     internal double Seconds { get; set; } = 15;
 }
@@ -37,6 +39,7 @@ internal static class Program
                 case "--silent": options.Silent = true; break;
                 case "--launch": options.Launch = true; break;
                 case "--uninstall": options.Uninstall = true; options.Seconds = 8; break;
+                case "--wait-pid" when i + 1 < args.Length && int.TryParse(args[i + 1], out var pid): options.WaitPid = pid; i++; break;
                 case "--seconds" when i + 1 < args.Length && double.TryParse(args[i + 1], System.Globalization.CultureInfo.InvariantCulture, out var s):
                     options.Seconds = Math.Max(0.1, s); i++; break;
                 case "--sandbox" when i + 1 < args.Length: options.Layout = Layout.Sandbox(Path.GetFullPath(args[++i])); break;
@@ -56,6 +59,13 @@ internal static class Program
             foreach (var a in args.Where(a => a != "--uninstall")) start.ArgumentList.Add(a);
             Process.Start(start);
             return 0;
+        }
+
+        if (options.WaitPid > 0)
+        {
+            try { using var reader = Process.GetProcessById(options.WaitPid); reader.WaitForExit(); }
+            catch (ArgumentException) { /* already gone */ }
+            Installer.WaitForExit(options.Layout.InstallDir, TimeSpan.FromSeconds(8)); // XT Capture and workers follow the Reader out
         }
 
         int code = options.Silent ? RunSilent(options) : RunWindow(options);

@@ -118,7 +118,7 @@ internal sealed class CompareWindow : XTWindow
     /// <summary>Vẽ lần lượt từng cặp trang (nền) và tính chồng; danh sách cập nhật % thay đổi dần, trang đang chọn hiện ngay khi xong.</summary>
     private async Task ComputeAllAsync()
     {
-        _caption.Text = $"{System.IO.Path.GetFileName(_oldPath)}  →  {System.IO.Path.GetFileName(_newPath)} · {_pairs.Count} matched sheet(s)";
+        _caption.Text = Loc.T($"{System.IO.Path.GetFileName(_oldPath)}  →  {System.IO.Path.GetFileName(_newPath)} · {_pairs.Count} matched sheet(s)");
         if (_pairs.Count > 0) _list.SelectedIndex = 0;
         foreach (var pair in _pairs)
         {

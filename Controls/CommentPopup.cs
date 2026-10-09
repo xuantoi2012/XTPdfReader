@@ -283,7 +283,7 @@ namespace XTPdfMergeApp.Controls
             var editor = new StackPanel();
             editor.Children.Add(box);
             var buttons = BuildPostCancel(Save, Done, out var save);
-            save.Text = "Save";
+            save.Text = Loc.T("Save");
             editor.Children.Add(buttons);
             container.Children.Insert(index + 1, editor);
             box.PreviewKeyDown += (_, e) =>

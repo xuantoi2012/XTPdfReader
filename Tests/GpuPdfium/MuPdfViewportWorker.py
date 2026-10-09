@@ -8,6 +8,23 @@ import sys
 import time
 import pymupdf as fitz
 
+# Hairlines: MuPDF lets a very thin line fade to a pale grey (a 0.1 pt rule comes out almost white); Foxit never draws a line lighter than about a pixel.
+# The minimum is in device pixels, so thin CAD lines stay dark at every zoom. XTPDF_MIN_LINE_PX overrides it (0 = MuPDF's own behaviour).
+MIN_LINE_PX = float(os.environ.get("XTPDF_MIN_LINE_PX", "1.2"))
+# Soft edges of lines and letters are darkened by a gamma on every picture (white stays white), so thin strokes also stay dark in small pictures.
+GAMMA = float(os.environ.get("XTPDF_GAMMA", "1.4"))
+
+def apply_min_line(full_width, display_width):
+    """The minimum is in pixels of the picture being drawn. A page is drawn wider than it is shown (headroom, then scaled down to the screen), so the
+    minimum grows by that ratio: a line that is 1 px on screen stays 1 px on screen. Thumbnails (no display width) are small: a lighter minimum."""
+    try:
+        ratio = full_width / display_width if display_width and display_width > 0 else (1.0 if full_width >= 800 else 0.8)
+        fitz.TOOLS.set_graphics_min_line_width(MIN_LINE_PX * min(max(ratio, 0.5), 4.0))
+    except Exception:
+        pass
+
+apply_min_line(1000, 1000)
+
 # Resolve unembedded TrueType fonts against the Windows font registry.
 # Font streams are attached only to the worker's in-memory document; never saved.
 def font_key(name):
@@ -377,6 +394,7 @@ for line in sys.stdin:
             x, y, w, h = 0, 0, fullw, fullh
         if fullw <= 0 or fullh <= 0 or w <= 0 or h <= 0 or w * h > 64 * 1024 * 1024:
             raise ValueError("Invalid or oversized raster request; use viewport crops for very long pages")
+        apply_min_line(fullw, request.get("displayWidth", 0))
         start = time.perf_counter()
         alpha = request.get("alpha", False)
         channels = 4 if alpha else 3
@@ -384,6 +402,8 @@ for line in sys.stdin:
             clip=fitz.Rect(x * pw / fullw, y * ph / fullh,
                            (x + w) * pw / fullw, (y + h) * ph / fullh),
             colorspace=BGR, alpha=alpha)
+        if GAMMA > 1.0:
+            pix.gamma_with(GAMMA)
         render_ms = (time.perf_counter() - start) * 1000
         data = pix.samples
         # Float clip rounding can add a row/column. Keep the requested global

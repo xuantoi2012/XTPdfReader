@@ -628,8 +628,26 @@
     </Style>
 
     <!-- Search box of the title bar: a light surface so it stands out from the bar. -->
+    <!-- The search box of the title bar: icon and hint gathered at the left (not centred across the whole box). -->
+    <ControlTemplate x:Key="UiTitleSearchButtonTemplate" TargetType="{x:Type xt:XTButton}">
+        <Border x:Name="Box" Background="{TemplateBinding Background}" BorderBrush="{DynamicResource Ui.Border}" BorderThickness="1" CornerRadius="6" Padding="10,0" SnapsToDevicePixels="True">
+            <Grid VerticalAlignment="Center">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <Viewbox Width="15" Height="15" Margin="0,0,8,0">
+                    <Canvas Width="24" Height="24"><Path Data="{TemplateBinding IconData}" Fill="{DynamicResource Ui.Muted}"/></Canvas>
+                </Viewbox>
+                <TextBlock Grid.Column="1" Text="{TemplateBinding Text}" Foreground="{DynamicResource Ui.Muted}" FontSize="{TemplateBinding FontSize}" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+            </Grid>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Box" Property="Background" Value="{DynamicResource Ui.Chip}"/></Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
     <Style x:Key="UiTitleSearchButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiGhostButton}">
         <Setter Property="Background" Value="{DynamicResource Ui.Surface}"/>
+        <Setter Property="Template" Value="{StaticResource UiTitleSearchButtonTemplate}"/>
     </Style>
 
     <!-- ══ Nút icon nền accent (nút "Cập nhật" ở thanh title): chỉ icon, hover = phủ trắng nhẹ ══ -->
@@ -657,6 +675,27 @@
         <Setter Property="MinWidth" Value="0"/>
         <Setter Property="Padding" Value="0"/>
         <Setter Property="IconSize" Value="18"/>
+    </Style>
+
+    <!-- Update button of the title bar: just the orange arrow, a soft orange wash on hover. -->
+    <ControlTemplate x:Key="UiAccentGlyphButtonTemplate" TargetType="{x:Type xt:XTButton}">
+        <Grid SnapsToDevicePixels="True">
+            <Border x:Name="Veil" CornerRadius="6" Background="{DynamicResource Ui.Brand}" Opacity="0"/>
+            <Viewbox Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Canvas Width="24" Height="24">
+                    <Path Data="{TemplateBinding IconData}" Fill="{DynamicResource Ui.Brand}"/>
+                </Canvas>
+            </Viewbox>
+        </Grid>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Veil" Property="Opacity" Value="0.14"/></Trigger>
+            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Veil" Property="Opacity" Value="0.24"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.42"/></Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <Style x:Key="UiAccentGlyphButton" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiAccentIconButton}">
+        <Setter Property="Template" Value="{StaticResource UiAccentGlyphButtonTemplate}"/>
     </Style>
 
     <!-- ══ Dòng danh sách (Layers…): hover + chọn nền accent nhạt ══ -->

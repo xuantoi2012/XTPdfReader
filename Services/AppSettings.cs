@@ -17,6 +17,33 @@ namespace XTPdfMergeApp.Services
 
         public static event Action<string>? Changed;
 
+        /// <summary>How dark thin lines are drawn: 0 = as the file says (a hairline fades to pale grey), 1 = at least 1.2 px and a darker edge curve (default), 2 = at least 1.6 px and darker still. Applies when the page renderers start.</summary>
+        public static int LineWeight
+        {
+            get => Math.Clamp(GetInt("LineWeight", 1), 0, 2);
+            set => Set("LineWeight", Math.Clamp(value, 0, 2));
+        }
+
+        /// <summary>The minimum line width in screen pixels for <see cref="LineWeight"/>.</summary>
+        public static double MinLinePixels => LineWeight switch { 0 => 0.0, 2 => 1.6, _ => 1.2 };
+
+        /// <summary>Gamma applied to every page picture (thumbnails too): above 1 darkens the soft edges of lines and letters, white stays white.</summary>
+        public static double LineGamma => LineWeight switch { 0 => 1.0, 2 => 1.8, _ => 1.4 };
+
+        /// <summary>A page counts as a color page for printing when at least this many tenths of a percent of it is colored (a logo in the title block covers about 0.1%, so it does not make every sheet a color sheet).</summary>
+        public static int ColorPageTenths
+        {
+            get => Math.Clamp(GetInt("ColorPageTenths", 10), 1, 1000);
+            set => Set("ColorPageTenths", Math.Clamp(value, 1, 1000));
+        }
+
+        /// <summary>"en" (English, US) | "vi" (Vietnamese); empty = not chosen yet (the app then follows the language of Windows).</summary>
+        public static string Language
+        {
+            get => GetString("Language", "");
+            set => Set("Language", value is "en" or "vi" ? value : "");
+        }
+
         // ── Appearance ────────────────────────────────────────────────
 
         /// <summary>"Light" (mặc định) | "Dark" | "System" (theo Windows).</summary>

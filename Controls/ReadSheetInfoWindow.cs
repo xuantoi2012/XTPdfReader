@@ -220,7 +220,7 @@ internal sealed class ReadSheetInfoWindow : XTWindow
         _readPage.Click += async (_, _) => await ReadAsync(SelectedPages());
         foreach (string name in new[] { "Auto: PDF text, OCR where there is none", "PDF text only", "OCR always" }) _sourceBox.Items.Add(name);
         _sourceBox.SelectedIndex = 0;
-        _sourceBox.ToolTip = "Where the text is read from";
+        _sourceBox.ToolTip = Loc.T("Where the text is read from");
         _pageView = new RadioButton { Content = "Page", GroupName = "view", IsChecked = true, Margin = new Thickness(18, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
         _tableView = new RadioButton { Content = "Table", GroupName = "view", VerticalAlignment = VerticalAlignment.Center, ToolTip = "All pages in one table, to fix many at once" };
         _pageView.Checked += (_, _) => ShowView();
@@ -495,7 +495,7 @@ internal sealed class ReadSheetInfoWindow : XTWindow
     {
         _current = row;
         int version = ++_loadVersion;
-        _pageHeader.Text = $"Page {row.Page}";
+        _pageHeader.Text = Loc.T($"Page {row.Page}");
         _pageInfo.Text = row.SizeKey.Length == 0 ? "" : $"paper {row.SizeKey}" + (CurrentLayout.HasAny ? "  ·  areas set" : "  ·  draw the areas");
         BindFields();
         _image.Source = null;
@@ -792,7 +792,7 @@ internal sealed class ReadSheetInfoWindow : XTWindow
         }
         else if (RegionOf(CurrentLayout, _dragField) is { IsEmpty: false } placed) SetRegion(_dragField, placed); // keep the new place
         _dragOrigin = null;
-        _status.Text = "Areas changed: press Read this page / Read all pages to read them again.";
+        _status.Text = Loc.T("Areas changed: press Read this page / Read all pages to read them again.");
     }
 
     private void Overlay_LeftDown(object sender, MouseButtonEventArgs e) { OverlayDown(e.GetPosition(_overlay)); if (_drag != Drag.None) _overlay.CaptureMouse(); e.Handled = true; }
@@ -889,7 +889,7 @@ internal sealed class ReadSheetInfoWindow : XTWindow
         _cancel = new CancellationTokenSource();
         _progress.Visibility = Visibility.Visible;
         _progress.Value = 0;
-        _status.Text = "Reading…";
+        _status.Text = Loc.T("Reading…");
         UpdateButtons();
         var missing = new HashSet<string>();
         try

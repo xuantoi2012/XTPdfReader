@@ -69,6 +69,6 @@ public partial class ReaderWindow
         }
         try { PdfFileBuffer.Invalidate(Path.GetFullPath(output), PdfFileBuffer.InvalidateReason.Changed); } catch { }
         await Session.OpenFilesInReaderAsync(new[] { output });
-        XTStyle.Controls.XTGrowl.Success($"Rebuilt {Path.GetFileName(output)} from {recipe.Items.Count} parts", this);
+        XTPdfMergeApp.Services.Growl.Success($"Rebuilt {Path.GetFileName(output)} from {recipe.Items.Count} parts", this);
     }
 }

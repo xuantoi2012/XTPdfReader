@@ -23,7 +23,7 @@ public partial class StartupSplash : Window
 
     private static bool Animated => SystemParameters.ClientAreaAnimation && RenderCapability.Tier > 0;
 
-    internal void SetStatus(string text) => StatusText.Text = text;
+    internal void SetStatus(string text) => StatusText.Text = XTPdfMergeApp.Services.Loc.T(text);
 
     private void StartMotion()
     {

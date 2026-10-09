@@ -18,6 +18,9 @@
     <SelfContained>false</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <Deterministic>true</Deterministic>
+    <AssemblyTitle>PDF Reader Pro Setup</AssemblyTitle>
+    <Product>PDF Reader Pro</Product>
+    <Company>XT Solution</Company>
   </PropertyGroup>
 
   <!-- The same ambient backdrop and logo as the Reader's own windows. -->

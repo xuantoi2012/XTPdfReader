@@ -63,6 +63,13 @@ internal sealed class PaperGroupList : Border
     {
         if (_rows.FirstOrDefault(r => r.Key == key) is { } row) _list.SelectedItem = row;
     }
+    /// <summary>Selects the size that has this page (the reader moved to another page); false when none has it.</summary>
+    public bool SelectPage(int page)
+    {
+        if (_rows.FirstOrDefault(r => r.Group.Pages.Any(x => x.Page == page)) is not { } row) return false;
+        if (!ReferenceEquals(_list.SelectedItem, row)) _list.SelectedItem = row;
+        return true;
+    }
     public PaperGroupRow? Selected => _list.SelectedItem as PaperGroupRow;
     public IReadOnlyList<PaperGroupRow> Checked => _rows.Where(r => r.IsChecked).ToList();
 
@@ -151,6 +158,21 @@ internal static class AreaKit
 
     public static TextBox Box(double height = 28)
         => new() { Height = height, VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 2, 0, 0) };
+
+    /// <summary>The footer of a side panel: the status text (wrapping) and the buttons under it.</summary>
+    public static Border PanelFooter(TextBlock status, params UIElement[] buttons)
+    {
+        status.TextWrapping = TextWrapping.Wrap;
+        status.FontSize = 12;
+        status.Margin = new Thickness(0, 0, 0, 8);
+        status.SetResourceReference(TextBlock.ForegroundProperty, "Ui.Muted");
+        var row = new WrapPanel();
+        foreach (var button in buttons) { if (button is FrameworkElement fe) fe.Margin = new Thickness(0, 0, 8, 0); row.Children.Add(button); }
+        var footer = new Border { BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(14, 10, 14, 12), Child = new StackPanel { Children = { status, row } } };
+        footer.SetResourceReference(Border.BorderBrushProperty, "Ui.Border");
+        footer.SetResourceReference(Border.BackgroundProperty, "Ui.Panel");
+        return footer;
+    }
 
     /// <summary>The footer bar: status text on the left, the buttons on the right.</summary>
     public static Border Footer(FrameworkElement owner, TextBlock status, params UIElement[] buttons)

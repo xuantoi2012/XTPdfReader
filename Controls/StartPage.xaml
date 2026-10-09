@@ -37,8 +37,8 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <Border Width="40" Height="48" CornerRadius="4" Background="{DynamicResource Ui.AccentSoft}" Margin="0,0,14,0">
-                        <Image Width="30" Height="30" Source="{StaticResource App.Icon.Logo}" RenderOptions.BitmapScalingMode="HighQuality"/>
+                    <Border Width="40" Height="48" CornerRadius="4" Margin="0,0,14,0">
+                        <Image Width="34" Height="34" Source="{StaticResource App.Icon.Document}" RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Ui.Text}"/>
@@ -49,7 +49,7 @@
                             MouseLeftButtonUp="Pin_MouseLeftButtonUp" ToolTip="Pin to the top">
                         <Viewbox Width="17" Height="17">
                             <Canvas Width="24" Height="24">
-                                <Path x:Name="Star" Data="{StaticResource Ui.Icon.star}" Fill="{DynamicResource Ui.Border}"/>
+                                <Path x:Name="Star" Data="{StaticResource Ui.Icon.star}" Fill="{DynamicResource Ui.Muted}"/>
                             </Canvas>
                         </Viewbox>
                     </Border>
@@ -192,6 +192,18 @@
                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Viewbox Width="24" Height="24" HorizontalAlignment="Left"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.print}" Fill="{DynamicResource Ui.Brand}"/></Canvas></Viewbox>
                             <StackPanel Grid.Column="1"><TextBlock Text="Print PDF" FontWeight="SemiBold"/><TextBlock Text="Choose pages and print settings" FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" Foreground="{DynamicResource Ui.Muted}"/></StackPanel>
+                        </Grid>
+                    </Button>
+                    <Button x:Name="CaptureButton" Style="{StaticResource QuickToolCard}" Click="Capture_Click" ToolTip="Capture any part of the screen into an editable PDF">
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Viewbox Width="24" Height="24" HorizontalAlignment="Left"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.capture}" Fill="{DynamicResource Ui.Brand}"/></Canvas></Viewbox>
+                            <StackPanel Grid.Column="1"><TextBlock Text="Screen capture" FontWeight="SemiBold"/><TextBlock Text="Capture the screen into an editable PDF" FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" Foreground="{DynamicResource Ui.Muted}"/></StackPanel>
+                        </Grid>
+                    </Button>
+                    <Button Style="{StaticResource QuickToolCard}" Click="Captures_Click" ToolTip="Open the screen captures kept by XT Capture">
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Viewbox Width="24" Height="24" HorizontalAlignment="Left"><Canvas Width="24" Height="24"><Path Data="{StaticResource Ui.Icon.captures}" Fill="{DynamicResource Ui.Brand}"/></Canvas></Viewbox>
+                            <StackPanel Grid.Column="1"><TextBlock Text="Capture store" FontWeight="SemiBold"/><TextBlock Text="Your saved captures, ready to edit" FontSize="11.5" TextWrapping="Wrap" Margin="0,3,0,0" Foreground="{DynamicResource Ui.Muted}"/></StackPanel>
                         </Grid>
                     </Button>
                     <TextBlock x:Name="DocumentToolsHint" Text="Open a PDF to split, export or print." FontSize="11.5" TextWrapping="Wrap" Margin="2,4,2,0" Foreground="{DynamicResource Ui.Muted}"/>

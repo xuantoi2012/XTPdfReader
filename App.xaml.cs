@@ -27,6 +27,7 @@ namespace XTPdfMergeApp
     {
         private const string SingleInstanceMutexName = "XTPdfMergeApp_SingleInstance";
         private const string PipeName = "XTPdfMergeApp_IncomingPdfPipe";
+        private const string OpenPrefix = "open|";
 
         /// <summary>Cửa sổ đọc — entry point và Application.MainWindow. Cửa sổ ghép nhiều file do chính nó
         /// tạo khi cần (ReaderWindow.OpenMergeWindow), App không biết tới.</summary>
@@ -36,6 +37,20 @@ namespace XTPdfMergeApp
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+            Services.Loc.Initialize(); // the language of the interface (saved choice, or the language of Windows the first time)
+            _ = Task.Run(() =>
+            {
+                // Task Manager and Windows lists show the name cached for the exe (MuiCache); an exe that was once named after its file keeps that name until it is rewritten.
+                try
+                {
+                    string exe = Environment.ProcessPath ?? "";
+                    if (exe.Length == 0) return;
+                    using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache");
+                    key.SetValue(exe + ".FriendlyAppName", "PDF Reader Pro");
+                    key.SetValue(exe + ".ApplicationCompany", "XT Solution");
+                }
+                catch { /* cosmetic only */ }
+            });
 
             // Cửa sổ đọc (ReaderWindow) là cửa sổ chính: đóng nó = thoát app (nó tự đóng cửa sổ ghép phụ).
             ShutdownMode = ShutdownMode.OnMainWindowClose;
@@ -90,7 +105,7 @@ namespace XTPdfMergeApp
 
         private void ContinueStartup(string[] incomingPaths)
         {
-            _splash?.SetStatus("Đang tải giao diện…");
+            _splash?.SetStatus("Loading the interface…");
             ThemeService.ApplySaved();
             if (!PassLicenseGate()) { Shutdown(); return; }
             StartLicenseWatch();
@@ -103,7 +118,7 @@ namespace XTPdfMergeApp
             MainWindow = _reader;
             ShutdownMode = ShutdownMode.OnMainWindowClose;
             _reader.Show();
-            _splash?.SetStatus(incomingPaths.Length > 0 ? "Đang mở tài liệu…" : "Sắp xong…");
+            _splash?.SetStatus(incomingPaths.Length > 0 ? "Opening the document…" : "Almost ready…");
             if (DiagnosticsLog.Begin())
             {
                 var logTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background)
@@ -199,15 +214,20 @@ namespace XTPdfMergeApp
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool AllowSetForegroundWindow(int processId);
+
         private static void ForwardToRunningInstance(string[] paths)
         {
             try
             {
+                // This process was just started by the user (a double-click), so it may hand the foreground to the running copy: without it Windows only flashes the taskbar button.
+                AllowSetForegroundWindow(-1);
                 using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out);
                 client.Connect(timeout: 3000);
                 using var writer = new StreamWriter(client) { AutoFlush = true };
+                // "open|" = the user opened these files (double-click, Open with): they go to the Reader. Plain lines are what the virtual printer delivers: they go to the merge inbox.
                 foreach (var path in paths)
-                    writer.WriteLine(path);
+                    writer.WriteLine(OpenPrefix + path);
             }
             catch { }
         }
@@ -225,17 +245,20 @@ namespace XTPdfMergeApp
                         await server.WaitForConnectionAsync();
                         using var reader = new StreamReader(server);
                         var paths = new System.Collections.Generic.List<string>();
+                        var opened = new System.Collections.Generic.List<string>();
                         string? path;
                         while ((path = await reader.ReadLineAsync()) != null)
                         {
-                            if (!string.IsNullOrWhiteSpace(path))
-                                paths.Add(path);
+                            if (string.IsNullOrWhiteSpace(path)) continue;
+                            if (path.StartsWith(OpenPrefix, StringComparison.Ordinal)) opened.Add(path[OpenPrefix.Length..]);
+                            else paths.Add(path);
                         }
 
-                        if (paths.Count > 0)
+                        if (paths.Count > 0 || opened.Count > 0)
                             Dispatcher.Invoke(() =>
                             {
-                                _reader?.ReceiveIncomingPdfs(paths);
+                                if (paths.Count > 0) _reader?.ReceiveIncomingPdfs(paths);
+                                if (opened.Count > 0) _reader?.ReceiveOpenRequest(opened);
                             });
                     }
                     catch { await Task.Delay(500); }

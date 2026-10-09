@@ -50,7 +50,7 @@ namespace XTPdfMergeApp.Controls
             _pages = pages;
             InitializeComponent();
 
-            NameBox.Text = "Merged.pdf";
+            NameBox.Text = Loc.T("Merged.pdf");
             FolderBox.Text = defaultFolder;
             var saved = AppSettings.MergeOptionsSaved;
             FileBookmarksBox.IsChecked = saved.FileBookmarks;
@@ -197,7 +197,7 @@ namespace XTPdfMergeApp.Controls
 
         private async Task AnalyzeAsync()
         {
-            SummaryText.Text = $"{_pages.Count} pages";
+            SummaryText.Text = Loc.T($"{_pages.Count} pages");
             var pages = _pages;
             var (layersAll, layersDistinct, bytes, perName, rawNames) = await Task.Run(() =>
             {
@@ -236,7 +236,7 @@ namespace XTPdfMergeApp.Controls
             foreach (var item in _keepItems) item.PropertyChanged += (_, _) => UpdateLayersHint();
             ApplyKeepFilter();
             UpdateLayersHint();
-            SummaryText.Text = $"{_pages.Count} pages · about {Math.Max(1, bytes >> 20)} MB";
+            SummaryText.Text = Loc.T($"{_pages.Count} pages · about {Math.Max(1, bytes >> 20)} MB");
         }
 
         // ── Nút ───────────────────────────────────────────────────────

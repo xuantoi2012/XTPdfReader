@@ -31,6 +31,8 @@ namespace XTPdfMergeApp.Controls
         internal event Action? MergePdfRequested;
         internal event Action? ExportPdfRequested;
         internal event Action? PrintPdfRequested;
+        internal event Action? CaptureRequested;
+        internal event Action? CapturesRequested;
         internal Func<bool>? HasActiveDocument { get; set; }
 
         internal void Reload()
@@ -108,5 +110,7 @@ namespace XTPdfMergeApp.Controls
         private void MergePdf_Click(object sender, RoutedEventArgs e) => MergePdfRequested?.Invoke();
         private void ExportPdf_Click(object sender, RoutedEventArgs e) => ExportPdfRequested?.Invoke();
         private void PrintPdf_Click(object sender, RoutedEventArgs e) => PrintPdfRequested?.Invoke();
+        private void Capture_Click(object sender, RoutedEventArgs e) => CaptureRequested?.Invoke();
+        private void Captures_Click(object sender, RoutedEventArgs e) => CapturesRequested?.Invoke();
     }
 }

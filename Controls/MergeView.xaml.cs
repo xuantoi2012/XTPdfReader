@@ -185,7 +185,7 @@ namespace XTPdfMergeApp.Controls
             var owner = Window.GetWindow(this);
             if (unused.Count == 0)
             {
-                XTStyle.Controls.XTGrowl.Info(days > 0 ? $"Nothing to clean up: no unused printed PDF is older than {days} days (Settings > Integration changes the age)."
+                XTPdfMergeApp.Services.Growl.Info(days > 0 ? $"Nothing to clean up: no unused printed PDF is older than {days} days (Settings > Integration changes the age)."
                     : "Nothing to clean up: every printed PDF is still in the inbox or open.", owner);
                 return;
             }
@@ -195,14 +195,14 @@ namespace XTPdfMergeApp.Controls
                 "Clean up printed files", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
             if (answer != MessageBoxResult.Yes) return;
             int removed = PrintedFilesService.Delete(unused);
-            XTStyle.Controls.XTGrowl.Success(removed == unused.Count ? $"Moved {removed} file(s) to the Recycle Bin" : $"Moved {removed} of {unused.Count} file(s); the rest are in use", owner);
+            XTPdfMergeApp.Services.Growl.Success(removed == unused.Count ? $"Moved {removed} file(s) to the Recycle Bin" : $"Moved {removed} of {unused.Count} file(s); the rest are in use", owner);
         }
 
         private void Inbox_Click(object sender, RoutedEventArgs e)
         {
             if (_draft?.Inbox is not { Pages.Count: > 0 } inbox)
             {
-                XTStyle.Controls.XTGrowl.Info("The print inbox is empty. Printed and plotted PDFs arrive here.", Window.GetWindow(this));
+                XTPdfMergeApp.Services.Growl.Info("The print inbox is empty. Printed and plotted PDFs arrive here.", Window.GetWindow(this));
                 return;
             }
             ShowGroup(inbox);
@@ -522,7 +522,7 @@ namespace XTPdfMergeApp.Controls
                 };
                 DockChips.Children.Add(card);
             }
-            DockInfo.Text = "Temporary groups are not included in Merge all · drag = move · Ctrl+drag = copy";
+            DockInfo.Text = Loc.T("Temporary groups are not included in Merge all · drag = move · Ctrl+drag = copy");
             if (temporaryGroups.Count == 0)
             {
                 var hint = new TextBlock { Text = "Drop pages anywhere in this shelf to create a temporary group.", FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
@@ -691,7 +691,7 @@ namespace XTPdfMergeApp.Controls
             var documents = TickedDocuments().ToList();
             if (documents.Count == 0)
             {
-                XTStyle.Controls.XTGrowl.Info("No window is ticked. Use the windows button to choose which files to merge.", Window.GetWindow(this));
+                XTPdfMergeApp.Services.Growl.Info("No window is ticked. Use the windows button to choose which files to merge.", Window.GetWindow(this));
                 return;
             }
             var orderWindow = new MergeOrderWindow(documents) { Owner = Window.GetWindow(this) };
@@ -735,7 +735,7 @@ namespace XTPdfMergeApp.Controls
                 return;
             }
             PrintInboxStore.Remove(exported); // merged pages are consumed: they leave the print inbox for good
-            XTStyle.Controls.XTGrowl.Success($"Created {System.IO.Path.GetFileName(dialog.OutputPath)}", Window.GetWindow(this));
+            XTPdfMergeApp.Services.Growl.Success($"Created {System.IO.Path.GetFileName(dialog.OutputPath)}", Window.GetWindow(this));
         }
     }
 }

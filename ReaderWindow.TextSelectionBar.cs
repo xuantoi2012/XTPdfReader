@@ -39,6 +39,37 @@ namespace XTPdfMergeApp
             return task;
         }
 
+        /// <summary>True while the Hand tool is over a word: the pointer is an I-beam and a drag selects text instead of panning.</summary>
+        private bool _handOverText;
+
+        /// <summary>Hand tool: the pointer turns into the I-beam over text (like Select does) and back to the hand elsewhere.</summary>
+        private void UpdateHandTextCursor(Point pointInHost)
+        {
+            if (_readerTool != ReaderTool.Hand || _textSelDrag != null || _crosshair || _areaSurface is { Active: true } || Mouse.LeftButton == MouseButtonState.Pressed) return;
+            bool over = false;
+            if (TryHitPage(pointInHost, out var hit) && PickAnnotation(GetCachedPageAnnotations(hit.Row), hit) == null)
+            {
+                var task = WordsOf(hit.Row);
+                if (!task.IsCompleted) _ = task.ContinueWith(_ => Dispatcher.BeginInvoke(() => UpdateHandTextCursor(Mouse.GetPosition(ReaderContentHost))));
+                else if (task.IsCompletedSuccessfully && task.Result is { } words)
+                {
+                    const double tolerance = 0.002;
+                    foreach (var w in words)
+                        if (hit.U >= w.U1 - tolerance && hit.U <= w.U2 + tolerance && hit.V >= w.V1 - tolerance && hit.V <= w.V2 + tolerance) { over = true; break; }
+                }
+            }
+            SetHandOverText(over);
+        }
+
+        private void SetHandOverText(bool over)
+        {
+            if (over == _handOverText) return;
+            _handOverText = over;
+            if (_readerTool != ReaderTool.Hand) return;
+            ReaderContentHost.Cursor = over ? Cursors.IBeam : null;
+            ReaderContentHost.ForceCursor = over;
+        }
+
         private void UpdateSelectCursor(Point pointInHost)
         {
             if (_readerTool != ReaderTool.Select || _textSelDrag != null) return;

@@ -64,7 +64,7 @@ internal sealed class AboutWindow : XTWindow
         var copy = new XTButton { Text = "Copy version info", Height = 32, Padding = new Thickness(14, 0, 14, 0), Margin = new Thickness(0, 0, 8, 0) };
         copy.Click += (_, _) =>
         {
-            try { Clipboard.SetText($"PDF Reader Pro, {VersionText()}, {Environment.OSVersion}, .NET {Environment.Version}"); XTGrowl.Success("Version info copied", this); }
+            try { Clipboard.SetText($"PDF Reader Pro, {VersionText()}, {Environment.OSVersion}, .NET {Environment.Version}"); XTPdfMergeApp.Services.Growl.Success("Version info copied", this); }
             catch { /* clipboard busy */ }
         };
         var close = new XTButton { Text = "Close", Width = 84, Height = 32, IsCancel = true };

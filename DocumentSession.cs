@@ -60,8 +60,8 @@ namespace XTPdfMergeApp
         private static void ShowSuccess(string message)
         {
             var owner = OwnerWindow;
-            if (owner == null) XTStyle.Controls.XTGrowl.Success(message);
-            else XTStyle.Controls.XTGrowl.Success(message, owner);
+            if (owner == null) XTPdfMergeApp.Services.Growl.Success(message);
+            else XTPdfMergeApp.Services.Growl.Success(message, owner);
         }
 
         /// <summary>Vùng chọn trang trong Organizer — cửa sổ ghép gắn vào khi mở, bỏ khi đóng.</summary>

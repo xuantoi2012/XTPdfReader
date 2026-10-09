@@ -30,6 +30,29 @@
             </Setter>
         </Style>
 
+        <!-- Language buttons: a drawn flag and the name of the language; the chosen one has the accent border. -->
+        <Style x:Key="FlagItem" TargetType="RadioButton">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bd" Padding="10,6" CornerRadius="7" BorderThickness="1.5" BorderBrush="{DynamicResource Ui.Border}" Background="Transparent" SnapsToDevicePixels="True">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.Hover}"/></Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Ui.Accent}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Ui.AccentSoft}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Ô màu nhấn: chấm tròn, đang chọn có vòng ngoài. Màu = Background của RadioButton. -->
         <Style x:Key="SwatchItem" TargetType="RadioButton">
             <Setter Property="Cursor" Value="Hand"/>
@@ -88,6 +111,39 @@
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel>
+                            <TextBlock Text="Language" Foreground="{DynamicResource Ui.Text}"/>
+                            <TextBlock Style="{StaticResource RowHint}" Text="Choose the language of the whole interface."/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="24,0,0,0">
+                            <RadioButton x:Name="LangVi" Style="{StaticResource FlagItem}" GroupName="Lang" Tag="vi" Checked="Language_Checked" AutomationProperties.Name="Tiếng Việt">
+                                <StackPanel Orientation="Horizontal">
+                                    <Border Width="30" Height="20" CornerRadius="2" ClipToBounds="True" BorderBrush="#33000000" BorderThickness="0.5" Margin="0,0,9,0">
+                                        <Canvas Width="30" Height="20" Background="#DA251D">
+                                            <Polygon Fill="#FFFF00" Points="15.00,4.30 16.41,8.66 20.99,8.65 17.28,11.34 18.70,15.70 15.00,13.00 11.30,15.70 12.72,11.34 9.01,8.65 13.59,8.66"/>
+                                        </Canvas>
+                                    </Border>
+                                    <TextBlock Text="Tiếng Việt" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
+                                </StackPanel>
+                            </RadioButton>
+                            <RadioButton x:Name="LangEn" Style="{StaticResource FlagItem}" GroupName="Lang" Tag="en" Checked="Language_Checked" AutomationProperties.Name="English (US)">
+                                <StackPanel Orientation="Horizontal">
+                                    <Border Width="30" Height="20" CornerRadius="2" ClipToBounds="True" BorderBrush="#33000000" BorderThickness="0.5" Margin="0,0,9,0">
+                                        <Canvas Width="30" Height="20" Background="White">
+                                            <Rectangle Canvas.Top="0.000" Width="30" Height="1.538" Fill="#B22234"/><Rectangle Canvas.Top="3.076" Width="30" Height="1.538" Fill="#B22234"/><Rectangle Canvas.Top="6.152" Width="30" Height="1.538" Fill="#B22234"/><Rectangle Canvas.Top="9.228" Width="30" Height="1.538" Fill="#B22234"/><Rectangle Canvas.Top="12.304" Width="30" Height="1.538" Fill="#B22234"/><Rectangle Canvas.Top="15.380" Width="30" Height="1.538" Fill="#B22234"/><Rectangle Canvas.Top="18.456" Width="30" Height="1.538" Fill="#B22234"/>
+                                            <Rectangle Width="12" Height="10.77" Fill="#3C3B6E"/>
+                                            <Canvas Width="12" Height="10.77"><Ellipse Canvas.Left="0.70" Canvas.Top="0.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="2.80" Canvas.Top="0.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="4.90" Canvas.Top="0.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="7.00" Canvas.Top="0.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="9.10" Canvas.Top="0.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="1.75" Canvas.Top="2.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="3.85" Canvas.Top="2.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="5.95" Canvas.Top="2.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="8.05" Canvas.Top="2.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="0.70" Canvas.Top="4.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="2.80" Canvas.Top="4.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="4.90" Canvas.Top="4.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="7.00" Canvas.Top="4.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="9.10" Canvas.Top="4.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="1.75" Canvas.Top="6.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="3.85" Canvas.Top="6.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="5.95" Canvas.Top="6.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="8.05" Canvas.Top="6.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="0.70" Canvas.Top="8.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="2.80" Canvas.Top="8.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="4.90" Canvas.Top="8.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="7.00" Canvas.Top="8.70" Width="1" Height="1" Fill="White"/><Ellipse Canvas.Left="9.10" Canvas.Top="8.70" Width="1" Height="1" Fill="White"/></Canvas>
+                                        </Canvas>
+                                    </Border>
+                                    <TextBlock Text="English (US)" VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
+                                </StackPanel>
+                            </RadioButton>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
                             <TextBlock Text="Theme" Foreground="{DynamicResource Ui.Text}"/>
                             <TextBlock Style="{StaticResource RowHint}" Text="Light is the default. Dark is easier on the eyes for drawings with dark backgrounds. System follows Windows."/>
                         </StackPanel>
@@ -138,6 +194,36 @@
                         <ComboBox x:Name="ZoomBox" Grid.Column="1" Width="180" Height="30" Margin="24,0,0,0" VerticalAlignment="Center" SelectionChanged="Zoom_Changed">
                             <ComboBoxItem Content="Fit width" Tag="FitWidth"/>
                             <ComboBoxItem Content="Fit page" Tag="FitPage"/>
+                        </ComboBox>
+                    </Grid>
+                </Border>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Line darkness" Foreground="{DynamicResource Ui.Text}"/>
+                            <TextBlock Style="{StaticResource RowHint}" Text="Draws thin lines of drawings darker so they stay easy to read. Applies the next time the app starts."/>
+                        </StackPanel>
+                        <ComboBox x:Name="LineWeightBox" Grid.Column="1" Width="180" Height="30" Margin="24,0,0,0" VerticalAlignment="Center" SelectionChanged="LineWeight_Changed">
+                            <ComboBoxItem Content="As in the file" Tag="0"/>
+                            <ComboBoxItem Content="Darker (default)" Tag="1"/>
+                            <ComboBoxItem Content="Darkest" Tag="2"/>
+                        </ComboBox>
+                    </Grid>
+                </Border>
+                <Border BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1" Padding="0,9">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Color pages when printing" Foreground="{DynamicResource Ui.Text}"/>
+                            <TextBlock Style="{StaticResource RowHint}" Text="A page counts as a color page when at least this part of it is colored (a color picture, colored text or a colored table), so a small color logo in the title block does not make every sheet a color sheet."/>
+                        </StackPanel>
+                        <ComboBox x:Name="ColorPercentBox" Grid.Column="1" Width="180" Height="30" Margin="24,0,0,0" VerticalAlignment="Center" SelectionChanged="ColorPercent_Changed">
+                            <ComboBoxItem Content="0.2% of the page" Tag="2"/>
+                            <ComboBoxItem Content="0.5% of the page" Tag="5"/>
+                            <ComboBoxItem Content="1% of the page (default)" Tag="10"/>
+                            <ComboBoxItem Content="2% of the page" Tag="20"/>
+                            <ComboBoxItem Content="5% of the page" Tag="50"/>
                         </ComboBox>
                     </Grid>
                 </Border>

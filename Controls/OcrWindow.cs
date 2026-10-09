@@ -1,4 +1,5 @@
 using System;
+using XTPdfMergeApp.Services;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -93,7 +94,7 @@ internal sealed class OcrWindow : XTWindow
         if (!OcrService.IsAvailable())
         {
             _start.IsEnabled = false;
-            _status.Text = "OCR is not installed with this copy of the program.";
+            _status.Text = Loc.T("OCR is not installed with this copy of the program.");
         }
         _start.Click += async (_, _) => await StartAsync();
         Loaded += async (_, _) => { if (AutoStart && _start.IsEnabled) await StartAsync(); };
@@ -138,7 +139,7 @@ internal sealed class OcrWindow : XTWindow
         if (pages == null) { _status.Text = $"Type the pages like 1-3, 7 (this file has {_pageCount})."; _rangeBox.Focus(); return; }
         _running = true;
         _start.IsEnabled = false;
-        _close.Content = "Cancel";
+        _close.Content = Loc.T("Cancel");
         _progress.Visibility = Visibility.Visible;
         _progress.Value = 0;
         _status.Text = "Reading page 1 of " + pages.Count + "…";
@@ -183,7 +184,7 @@ internal sealed class OcrWindow : XTWindow
         catch (OperationCanceledException)
         {
             try { if (File.Exists(output) && _asCopy.IsChecked == true) File.Delete(output); } catch { /* partial copy */ }
-            _status.Text = "Cancelled.";
+            _status.Text = Loc.T("Cancelled.");
         }
         catch (Exception ex)
         {
@@ -194,7 +195,7 @@ internal sealed class OcrWindow : XTWindow
         {
             _running = false;
             _start.IsEnabled = OcrService.IsAvailable();
-            _close.Content = "Close";
+            _close.Content = Loc.T("Close");
             _progress.Visibility = Visibility.Collapsed;
         }
     }

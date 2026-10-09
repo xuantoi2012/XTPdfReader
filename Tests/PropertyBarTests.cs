@@ -12,6 +12,11 @@ internal static partial class Program
         public XTPdfMergeApp.Domain.PagePlacement Row { get; } = row;
         public string Path { get; } = path;
         public T Find<T>(string name) where T : class => (T)Window.FindName(name);
+        public object? Get(string member)
+        {
+            var type = typeof(XTPdfMergeApp.ReaderWindow);
+            return type.GetProperty(member, Flags)?.GetValue(Window) ?? type.GetField(member, Flags)?.GetValue(Window);
+        }
         public object? Call(string method, params object?[] args) => typeof(XTPdfMergeApp.ReaderWindow).GetMethod(method, Flags)!.Invoke(Window, args);
         public object? Field(string name) => typeof(XTPdfMergeApp.ReaderWindow).GetField(name, Flags)!.GetValue(Window);
         public async Task<PageAnnotations> PageAsync() => (await AnnotationStore.GetPageAsync(Path, 1))!;

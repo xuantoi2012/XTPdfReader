@@ -76,7 +76,7 @@ public partial class ReaderWindow
             if (string.Equals(activePath, current, StringComparison.OrdinalIgnoreCase)) UpdatePresenceStatus(current);
             if (previous == key) return;
             if (others.Count > 0)
-                XTStyle.Controls.XTGrowl.Warning($"{string.Join(", ", others)} {(others.Count == 1 ? "has" : "have")} \"{Path.GetFileName(current)}\" open too.", this);
+                XTPdfMergeApp.Services.Growl.Warning($"{string.Join(", ", others)} {(others.Count == 1 ? "has" : "have")} \"{Path.GetFileName(current)}\" open too.", this);
         }
         catch { /* thư mục mạng ngắt: bỏ lượt này */ }
         finally

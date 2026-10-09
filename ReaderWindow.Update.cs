@@ -19,7 +19,7 @@ public partial class ReaderWindow
         var info = AppUpdateService.Available;
         UpdateTitleButton.Visibility = info is null ? Visibility.Collapsed : Visibility.Visible;
         if (info is null) return;
-        UpdateTitleButton.ToolTip = $"Có bản cập nhật mới: {info.Version} (đang dùng {AppInfo.Version}). Bấm để xem và cập nhật.";
+        UpdateTitleButton.ToolTip = Loc.T($"Update available: {info.Version} (you are using {AppInfo.Version}). Click to see it and update.");
     }
 
     private void UpdateTitle_Click(object sender, RoutedEventArgs e)

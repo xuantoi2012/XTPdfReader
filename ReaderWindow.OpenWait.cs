@@ -20,6 +20,8 @@ public partial class ReaderWindow
         _openWaitDeadline = DateTime.UtcNow.AddSeconds(30);
         ForceCursor = true;
         Cursor = Cursors.Wait;
+        _opening = true;
+        RefreshActivity();
         _openWaitTimer ??= new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(60) };
         _openWaitTimer.Tick -= OpenWaitTick;
         _openWaitTimer.Tick += OpenWaitTick;
@@ -32,6 +34,8 @@ public partial class ReaderWindow
     internal void EndOpenWait()
     {
         _openWaitTimer?.Stop();
+        _opening = false;
+        RefreshActivity();
         ClearValue(CursorProperty);
         ClearValue(ForceCursorProperty);
         OpenWaitEnded?.Invoke();

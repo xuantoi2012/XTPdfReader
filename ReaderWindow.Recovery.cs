@@ -33,7 +33,7 @@ public partial class ReaderWindow
                 if (!_recoveryWarningShown && !_recoveryStopped)
                 {
                     _recoveryWarningShown = true;
-                    XTStyle.Controls.XTGrowl.Error("Could not save the recovery checkpoint: " + ex.Message, this);
+                    XTPdfMergeApp.Services.Growl.Error("Could not save the recovery checkpoint: " + ex.Message, this);
                 }
             }
         };
