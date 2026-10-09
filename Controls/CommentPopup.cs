@@ -38,24 +38,32 @@ namespace XTPdfMergeApp.Controls
 
         private static Brush Res(string key) => (Brush)Application.Current.FindResource(key);
 
+        private const double ShadowRoom = 14;
+
+        /// <summary>Soft rounded card with a hairline border and a drop shadow (the window itself is transparent).</summary>
+        private static FrameworkElement Card(UIElement content)
+            => new Border
+            {
+                Background = Res("Ui.Surface"), BorderBrush = Res("Ui.Border"), BorderThickness = new Thickness(0.75), CornerRadius = new CornerRadius(12),
+                Margin = new Thickness(ShadowRoom), Child = content, SnapsToDevicePixels = true,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 18, ShadowDepth = 3, Direction = 270, Opacity = 0.28, Color = Colors.Black }
+            };
+
         private CommentPopup()
         {
             WindowStyle = WindowStyle.None;
-            AllowsTransparency = false;
+            AllowsTransparency = true; // rounded card with a soft shadow, drawn by Card()
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
             ShowActivated = true;
             Topmost = true;
             SizeToContent = SizeToContent.Height;
-            Width = 320;
+            Width = 320 + 2 * ShadowRoom;
             FontFamily = new FontFamily("Segoe UI");
             FontSize = 12;
             UseLayoutRounding = true;
             SnapsToDevicePixels = true;
-            Background = Res("Ui.Surface");
-            // Viền màu nhấn như thẻ đang được chọn của Word.
-            BorderBrush = Res("Ui.Accent");
-            BorderThickness = new Thickness(1.5);
+            Background = Brushes.Transparent;
             PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { e.Handled = true; CloseOnce(); } };
             // Bấm ra ngoài = đóng. Thẻ soạn đã có chữ thì Post luôn (không mất chữ vừa gõ, giống ô nhập cũ khi mất focus).
             Deactivated += (_, _) =>
@@ -80,7 +88,7 @@ namespace XTPdfMergeApp.Controls
             {
                 if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0) { e.Handled = true; Submit(box); }
             };
-            Content = root;
+            Content = Card(root);
             Loaded += (_, _) => box.Focus();
 
             void Submit(TextBox b)
@@ -120,7 +128,7 @@ namespace XTPdfMergeApp.Controls
             {
                 if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0) { e.Handled = true; Submit(); }
             };
-            Content = panel;
+            Content = Card(panel);
             _replyBox = replyBox;
 
             void Submit()
@@ -163,9 +171,9 @@ namespace XTPdfMergeApp.Controls
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(4, 4, 4, 4),
                 VerticalContentAlignment = VerticalAlignment.Top, Foreground = Res("Ui.Text"), Background = Res("Ui.Surface")
             };
-            var hint = new VisualBrush(new TextBlock { Text = placeholder, Foreground = Res("Ui.Muted"), FontSize = 12, Margin = new Thickness(6, 4, 0, 0) })
+            var hint = new VisualBrush(new TextBlock { Text = placeholder, Foreground = Res("Ui.Muted"), FontSize = 12, Margin = new Thickness(6, 0, 0, 0) })
             {
-                AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top, Stretch = Stretch.None
+                AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Center, Stretch = Stretch.None
             };
             void Update() => box.Background = box.Text.Length == 0 ? hint : Res("Ui.Surface");
             box.TextChanged += (_, _) => Update();
@@ -351,7 +359,7 @@ namespace XTPdfMergeApp.Controls
             if (hwnd == IntPtr.Zero || !NativeWindow.GetWindowRect(hwnd, out var rect)) return;
             int width = rect.Right - rect.Left, height = rect.Bottom - rect.Top;
             double k = VisualTreeHelper.GetDpi(popup).DpiScaleX;
-            int x = (int)Math.Round(devicePoint.X + 12 * k), y = (int)Math.Round(devicePoint.Y + 12 * k);
+            int x = (int)Math.Round(devicePoint.X + (12 - ShadowRoom) * k), y = (int)Math.Round(devicePoint.Y + (12 - ShadowRoom) * k);
             var monitor = NativeWindow.MonitorFromPoint(new NativeWindow.POINT { X = (int)devicePoint.X, Y = (int)devicePoint.Y }, 2 /* nearest */);
             var info = new NativeWindow.MONITORINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<NativeWindow.MONITORINFO>() };
             if (monitor != IntPtr.Zero && NativeWindow.GetMonitorInfo(monitor, ref info))

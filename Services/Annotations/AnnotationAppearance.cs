@@ -116,7 +116,7 @@ namespace XTPdfMergeApp.Services
                 if (built != null)
                 {
                     var jobs = new List<PdfThumbnailService.MemoryRenderJob>();
-                    var regions = new List<(double U1, double V1, double U2, double V2, int FullW, int FullH, int X, int Y)>();
+                    var regions = new List<(double U1, double V1, double U2, double V2, int FullW, int FullH, int X, int Y, double RefU, double RefV)>();
                     for (int i = 0; i < items.Count; i++)
                     {
                         var (spec, _, level) = items[i];
@@ -130,7 +130,7 @@ namespace XTPdfMergeApp.Services
                         int x0 = Math.Max(0, (int)Math.Floor(r.U1 * fullW) - PaddingPixels), y0 = Math.Max(0, (int)Math.Floor(r.V1 * fullH) - PaddingPixels);
                         int x1 = Math.Min(fullW, (int)Math.Ceiling(r.U2 * fullW) + PaddingPixels), y1 = Math.Min(fullH, (int)Math.Ceiling(r.V2 * fullH) + PaddingPixels);
                         jobs.Add(new PdfThumbnailService.MemoryRenderJob(i, fullW, fullH, new Int32Rect(x0, y0, Math.Max(1, x1 - x0), Math.Max(1, y1 - y0))));
-                        regions.Add((r.U1, r.V1, r.U2, r.V2, fullW, fullH, x0, y0));
+                        regions.Add((r.U1, r.V1, r.U2, r.V2, fullW, fullH, x0, y0, r.RefU, r.RefV));
                     }
                     var bitmaps = await PdfThumbnailService.RenderMemoryPagesAsync(built.Value.Pdf, jobs);
                     for (int i = 0; i < items.Count; i++)
@@ -139,7 +139,7 @@ namespace XTPdfMergeApp.Services
                         var (spec, key, level) = items[i];
                         var reg = regions[i];
                         // Region relative to the annotation's own top-left as it was rendered (the file position for a moved file annotation).
-                        double refU = reg.U1, refV = reg.V1;
+                        double refU = reg.RefU, refV = reg.RefV; // a callout's /Rect also covers its arrow, but the spec (and the selection frame) is the text box
                         double u0 = (double)reg.X / reg.FullW, v0 = (double)reg.Y / reg.FullH;
                         double u1 = (double)(reg.X + bitmap.PixelWidth) / reg.FullW, v1 = (double)(reg.Y + bitmap.PixelHeight) / reg.FullH;
                         done.Add((key, level, new Image(bitmap, u0 - refU, v0 - refV, u1 - refU, v1 - refV, (long)bitmap.PixelWidth * bitmap.PixelHeight * 4)));
@@ -178,10 +178,10 @@ namespace XTPdfMergeApp.Services
         }
 
         /// <summary>Tiny PDF: page i = source page boxes/rotation + annotation i only. Regions = where each annotation sits (display, 0..1).</summary>
-        private static (byte[] Pdf, PdfPageGeometry Geometry, List<(double U1, double V1, double U2, double V2)> Regions)? Build(
+        private static (byte[] Pdf, PdfPageGeometry Geometry, List<(double U1, double V1, double U2, double V2, double RefU, double RefV)> Regions)? Build(
             AnnotationSourceReader reader, int pageNumber, IReadOnlyList<QuickAnnotationSpec> specs)
         {
-            var regions = new List<(double, double, double, double)>();
+            var regions = new List<(double, double, double, double, double, double)>();
             var output = new MemoryStream();
             PdfPageGeometry geometry;
             lock (reader.Sync)
@@ -200,6 +200,8 @@ namespace XTPdfMergeApp.Services
                     page.SetCropBox(sourcePage.GetCropBox());
                     page.SetRotation(sourcePage.GetRotation());
                     Rectangle? rect = null;
+                    PdfArray? boxArray = null;
+                    var calloutBoxKey = new PdfName("XTBox");
                     if (spec.ObjectNumber > 0)
                     {
                         var original = sourcePage.GetAnnotations().FirstOrDefault(a => a.GetPdfObject().GetIndirectReference() is { } r &&
@@ -209,14 +211,24 @@ namespace XTPdfMergeApp.Services
                             var copy = (PdfDictionary)original.GetPdfObject().Clone(excluded).CopyTo(tiny);
                             page.GetPdfObject().Put(PdfName.Annots, new PdfArray(copy));
                             rect = original.GetRectangle()?.ToRectangle();
+                            boxArray = original.GetPdfObject().GetAsArray(calloutBoxKey);
                         }
                     }
                     else
                     {
-                        rect = PdfQuickAnnotationService.AddGenerated(tiny, page, spec, fonts)?.GetRectangle()?.ToRectangle();
+                        var generated = PdfQuickAnnotationService.AddGenerated(tiny, page, spec, fonts);
+                        rect = generated?.GetRectangle()?.ToRectangle();
+                        boxArray = generated?.GetPdfObject().GetAsArray(calloutBoxKey);
                     }
-                    regions.Add(rect == null ? (spec.U1, spec.V1, spec.U2, spec.V2)
-                        : geometry.UserRectToDisplay(rect.GetLeft(), rect.GetBottom(), rect.GetRight(), rect.GetTop()));
+                    var region = rect == null ? (spec.U1, spec.V1, spec.U2, spec.V2)
+                        : geometry.UserRectToDisplay(rect.GetLeft(), rect.GetBottom(), rect.GetRight(), rect.GetTop());
+                    double refU = region.Item1, refV = region.Item2;
+                    if (boxArray is { } b && b.Size() == 4 && b.GetAsNumber(0) is { } l && b.GetAsNumber(1) is { } bo && b.GetAsNumber(2) is { } r2 && b.GetAsNumber(3) is { } t)
+                    {
+                        var box = geometry.UserRectToDisplay(l.DoubleValue(), bo.DoubleValue(), r2.DoubleValue(), t.DoubleValue());
+                        refU = box.Item1; refV = box.Item2;
+                    }
+                    regions.Add((region.Item1, region.Item2, region.Item3, region.Item4, refU, refV));
                 }
             }
             return (output.ToArray(), geometry, regions);

@@ -48,28 +48,50 @@ namespace XTPdfMergeApp
             catch { return Colors.Red; }
         }
 
+        // The look of the preview (brush, width, dash) is built once per drag, not on every mouse move: parsing the colour text and allocating brushes at the mouse's
+        // report rate (500-1000 Hz) used to keep the UI thread behind the pointer.
+        private ShapeStyle? _pvStyle;
+        private double _pvPpp = -1, _pvScale = -1;
+        private Brush? _pvBrush;
+        private double _pvLw;
+
         /// <summary>Hiện hình xem trước giữa 2 điểm góc (toạ độ ReaderInteractionLayer) — dùng chung cho vẽ mới và resize.</summary>
         private void ShowShapePreview(ShapeStyle style, Point a, Point b, double ppp, double pageScale = 1)
         {
-            var brush = new SolidColorBrush(ParseWpfColor(style.Color)) { Opacity = style.Opacity / 100.0 };
-            double lw = Math.Max(1, style.Width * pageScale * ppp); // same effective width as the PDF appearance (Width x PageScale points)
+            bool restyle = !ReferenceEquals(style, _pvStyle) || ppp != _pvPpp || pageScale != _pvScale;
+            if (restyle)
+            {
+                var brush = new SolidColorBrush(ParseWpfColor(style.Color)) { Opacity = style.Opacity / 100.0 };
+                brush.Freeze();
+                _pvBrush = brush;
+                _pvLw = Math.Max(1, style.Width * pageScale * ppp); // same effective width as the PDF appearance (Width x PageScale points)
+                _pvStyle = style; _pvPpp = ppp; _pvScale = pageScale;
+            }
+            var stroke = _pvBrush!;
+            double lw = _pvLw;
             bool oval = style.Type == ShapeStyle.Oval;
             bool rectLike = !style.IsLine && !oval;
+            bool arrow = style.Type == ShapeStyle.Arrow;
 
-            ReaderShapeRubber.Visibility = rectLike ? Visibility.Visible : Visibility.Collapsed;
-            ReaderShapeOvalPreview.Visibility = oval ? Visibility.Visible : Visibility.Collapsed;
-            ReaderShapeRubberLine.Visibility = style.IsLine ? Visibility.Visible : Visibility.Collapsed;
-            ReaderShapeArrowHead.Visibility = style.Type == ShapeStyle.Arrow ? Visibility.Visible : Visibility.Collapsed;
+            // Visibility is only touched when it changes (each write invalidates layout).
+            void Vis(UIElement e, bool on) { var v = on ? Visibility.Visible : Visibility.Collapsed; if (e.Visibility != v) { e.Visibility = v; restyle = true; } }
+            Vis(ReaderShapeRubber, rectLike);
+            Vis(ReaderShapeOvalPreview, oval);
+            Vis(ReaderShapeRubberLine, style.IsLine);
+            Vis(ReaderShapeArrowHead, arrow);
 
             if (rectLike)
             {
-                ReaderShapeRubber.Stroke = brush;
-                ReaderShapeRubber.StrokeThickness = lw;
-                ApplyDash(ReaderShapeRubber, style);
-                ReaderShapeRubber.Fill = FillBrush(style);
-                // Cloud: góc bo lớn thay cho các nét lượn thật (xấp xỉ, hình thật vẫn vẽ đúng lúc ghi vào PDF).
-                double radius = style.Type == ShapeStyle.Cloud ? Math.Max(6, 10 * pageScale * ppp * 0.7) : 0;
-                ReaderShapeRubber.RadiusX = ReaderShapeRubber.RadiusY = radius;
+                if (restyle)
+                {
+                    ReaderShapeRubber.Stroke = stroke;
+                    ReaderShapeRubber.StrokeThickness = lw;
+                    ApplyDash(ReaderShapeRubber, style);
+                    ReaderShapeRubber.Fill = FillBrush(style);
+                    // Cloud: góc bo lớn thay cho các nét lượn thật (xấp xỉ, hình thật vẫn vẽ đúng lúc ghi vào PDF).
+                    double radius = style.Type == ShapeStyle.Cloud ? Math.Max(6, 10 * pageScale * ppp * 0.7) : 0;
+                    ReaderShapeRubber.RadiusX = ReaderShapeRubber.RadiusY = radius;
+                }
                 Canvas.SetLeft(ReaderShapeRubber, Math.Min(a.X, b.X));
                 Canvas.SetTop(ReaderShapeRubber, Math.Min(a.Y, b.Y));
                 ReaderShapeRubber.Width = Math.Abs(a.X - b.X);
@@ -77,10 +99,13 @@ namespace XTPdfMergeApp
             }
             else if (oval)
             {
-                ReaderShapeOvalPreview.Stroke = brush;
-                ReaderShapeOvalPreview.StrokeThickness = lw;
-                ApplyDash(ReaderShapeOvalPreview, style);
-                ReaderShapeOvalPreview.Fill = FillBrush(style);
+                if (restyle)
+                {
+                    ReaderShapeOvalPreview.Stroke = stroke;
+                    ReaderShapeOvalPreview.StrokeThickness = lw;
+                    ApplyDash(ReaderShapeOvalPreview, style);
+                    ReaderShapeOvalPreview.Fill = FillBrush(style);
+                }
                 Canvas.SetLeft(ReaderShapeOvalPreview, Math.Min(a.X, b.X));
                 Canvas.SetTop(ReaderShapeOvalPreview, Math.Min(a.Y, b.Y));
                 ReaderShapeOvalPreview.Width = Math.Abs(a.X - b.X);
@@ -88,12 +113,15 @@ namespace XTPdfMergeApp
             }
             else
             {
-                ReaderShapeRubberLine.Stroke = brush;
-                ReaderShapeRubberLine.StrokeThickness = lw;
-                ApplyDash(ReaderShapeRubberLine, style);
+                if (restyle)
+                {
+                    ReaderShapeRubberLine.Stroke = stroke;
+                    ReaderShapeRubberLine.StrokeThickness = lw;
+                    ApplyDash(ReaderShapeRubberLine, style);
+                }
                 ReaderShapeRubberLine.X1 = a.X;
                 ReaderShapeRubberLine.Y1 = a.Y;
-                if (style.Type == ShapeStyle.Arrow) UpdateArrowHead(a, b, brush, lw, 10 * pageScale * ppp);
+                if (arrow) UpdateArrowHead(a, b, stroke, lw, 10 * pageScale * ppp);
                 else { ReaderShapeRubberLine.X2 = b.X; ReaderShapeRubberLine.Y2 = b.Y; }
             }
         }

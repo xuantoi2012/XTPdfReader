@@ -64,7 +64,7 @@
                     <Setter TargetName="Star" Property="Fill" Value="{DynamicResource Ui.Brand}"/>
                 </Trigger>
                 <DataTrigger Binding="{Binding Missing}" Value="True">
-                    <Setter TargetName="Meta" Property="Foreground" Value="{DynamicResource Ui.Warn}"/>
+                    <Setter TargetName="Meta" Property="Foreground" Value="{DynamicResource Ui.Accent}"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>

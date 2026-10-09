@@ -160,7 +160,7 @@ namespace XTPdfMergeApp.Services
 
         /// <summary>Phần file đã nạp vào RAM (0..1), null = file không có bộ đệm (chưa mở / quá lớn / hết ngân sách).</summary>
         public static double? GetLoadedFraction(string normalizedPath)
-            => _entries.TryGetValue(normalizedPath, out var entry) ? entry.LoadedFraction : null;
+            => _entries.TryGetValue(normalizedPath, out var entry) ? entry.LoadedFraction : RemoteFileStage.Fraction(normalizedPath);
 
         /// <summary>File đang có bộ đệm khối (mọi bản PDFium đọc chung, file chỉ qua mạng 1 lần).</summary>
         public static bool IsBuffered(string normalizedPath) => _entries.ContainsKey(normalizedPath);

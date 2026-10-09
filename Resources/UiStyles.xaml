@@ -7,6 +7,7 @@
                     xmlns:svc="clr-namespace:XTPdfMergeApp.Services">
 
     <svc:UiIconTintConverter x:Key="UiIconTint"/>
+    <svc:UiIconAccentConverter x:Key="UiIconAccent"/>
     <svc:UiIconWeightConverter x:Key="UiIconWeight"/>
 
     <!-- Icon Phosphor: hình tô đặc (đặt Fill). -->
@@ -32,9 +33,11 @@
                 </Grid.RowDefinitions>
                 <Viewbox x:Name="ToolbarIcon" Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}" HorizontalAlignment="Center">
                     <Canvas Width="24" Height="24">
-                        <Path x:Name="Tint" Fill="{DynamicResource Ui.Accent}" Opacity="0.3" Visibility="Collapsed"
+                        <Path x:Name="Tint" Fill="{DynamicResource Ui.Accent}" Opacity="0.38"
                               Data="{Binding IconData, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource UiIconTint}}"/>
                         <Path Data="{TemplateBinding IconData}" Fill="{TemplateBinding IconBrush}"/>
+                        <Path x:Name="Accent" Fill="{DynamicResource Ui.Accent}"
+                              Data="{Binding IconData, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource UiIconAccent}}"/>
                     </Canvas>
                 </Viewbox>
                 <TextBlock x:Name="ToolbarLabel" Grid.Row="1" Text="{TemplateBinding Text}" Foreground="{TemplateBinding Foreground}" FontSize="11"
@@ -44,7 +47,7 @@
         </Border>
         <ControlTemplate.Triggers>
             <Trigger Property="Tag" Value="Active">
-                <Setter TargetName="Tint" Property="Visibility" Value="Visible"/>
+                <Setter TargetName="Tint" Property="Opacity" Value="0.7"/>
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
                 <Setter Property="Opacity" Value="0.42"/>
@@ -72,8 +75,8 @@
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Ui.Hover}"/>
-                <Setter Property="IconBrush" Value="{DynamicResource Ui.Warn}"/>
-                <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Accent}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Ui.Accent}"/>
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Ui.Pressed}"/>
@@ -92,9 +95,11 @@
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Viewbox x:Name="ToolbarIcon" Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}" HorizontalAlignment="Center">
                     <Canvas Width="24" Height="24">
-                        <Path x:Name="Tint" Fill="{DynamicResource Ui.Accent}" Opacity="0.3" Visibility="Collapsed"
+                        <Path x:Name="Tint" Fill="{DynamicResource Ui.Accent}" Opacity="0.38"
                               Data="{Binding IconData, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource UiIconTint}}"/>
                         <Path Data="{TemplateBinding IconData}" Fill="{TemplateBinding IconBrush}"/>
+                        <Path x:Name="Accent" Fill="{DynamicResource Ui.Accent}"
+                              Data="{Binding IconData, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource UiIconAccent}}"/>
                     </Canvas>
                 </Viewbox>
                 <TextBlock Text="{TemplateBinding Text}" Foreground="{TemplateBinding Foreground}" FontSize="11" TextAlignment="Center"
@@ -102,7 +107,28 @@
             </StackPanel>
         </Border>
         <ControlTemplate.Triggers>
-            <Trigger Property="Tag" Value="Active"><Setter TargetName="Tint" Property="Visibility" Value="Visible"/></Trigger>
+            <Trigger Property="Tag" Value="Active"><Setter TargetName="Tint" Property="Opacity" Value="0.7"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.42"/></Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+<ControlTemplate x:Key="UiRibbonButtonDangerTemplate" TargetType="{x:Type xt:XTButton}">
+        <Border x:Name="Bd" CornerRadius="6" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Viewbox x:Name="ToolbarIcon" Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}" HorizontalAlignment="Center">
+                    <Canvas Width="24" Height="24">
+                        <Path x:Name="Tint" Fill="{DynamicResource Ui.Accent}" Opacity="0.38"
+                              Data="{Binding IconData, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource UiIconTint}}"/>
+                        <Path Data="{TemplateBinding IconData}" Fill="{TemplateBinding IconBrush}"/>
+                        <Path x:Name="Accent" Fill="{DynamicResource Ui.Danger}"
+                              Data="{Binding IconData, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource UiIconAccent}}"/>
+                    </Canvas>
+                </Viewbox>
+                <TextBlock Text="{TemplateBinding Text}" Foreground="{TemplateBinding Foreground}" FontSize="11" TextAlignment="Center"
+                           HorizontalAlignment="Center" TextWrapping="NoWrap" Margin="0,3,0,0"/>
+            </StackPanel>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="Tag" Value="Active"><Setter TargetName="Tint" Property="Opacity" Value="0.7"/></Trigger>
             <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.42"/></Trigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
@@ -162,15 +188,17 @@
         <Border CornerRadius="6" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
             <Viewbox Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}" HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Canvas Width="24" Height="24">
-                    <Path x:Name="Tint" Fill="{DynamicResource Ui.Accent}" Opacity="0.3" Visibility="Collapsed"
+                    <Path x:Name="Tint" Fill="{DynamicResource Ui.Accent}" Opacity="0.38"
                           Data="{Binding IconData, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource UiIconTint}}"/>
                     <Path Data="{TemplateBinding IconData}" Fill="{TemplateBinding IconBrush}"/>
+                        <Path x:Name="Accent" Fill="{DynamicResource Ui.Accent}"
+                              Data="{Binding IconData, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource UiIconAccent}}"/>
                 </Canvas>
             </Viewbox>
         </Border>
         <ControlTemplate.Triggers>
             <Trigger Property="Tag" Value="Active">
-                <Setter TargetName="Tint" Property="Visibility" Value="Visible"/>
+                <Setter TargetName="Tint" Property="Opacity" Value="0.7"/>
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
                 <Setter Property="Opacity" Value="0.42"/>
@@ -263,6 +291,26 @@
             </Trigger>
         </Style.Triggers>
     </Style>
+
+    <!-- Destructive commands (Delete, Eraser): the icon is red instead of the accent, hover included. -->
+    <Style x:Key="UiRibbonButtonDanger" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiRibbonButton}">
+        <Setter Property="Template" Value="{StaticResource UiRibbonButtonDangerTemplate}"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Danger}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Ui.Danger}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="UiIconButtonDanger" TargetType="{x:Type xt:XTButton}" BasedOn="{StaticResource UiIconButton}">
+        <Setter Property="IconBrush" Value="{DynamicResource Ui.Danger}"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Danger}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
 
     <!-- Thanh cuộn chính của PDF: rõ hơn scrollbar overlay dùng chung để luôn nhận ra vị trí
          trong tài liệu dài. Track nhận page-up/down trực tiếp, thumb không tự ẩn. -->
@@ -361,9 +409,11 @@
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="7,0,4,0">
                 <Viewbox Width="{TemplateBinding IconSize}" Height="{TemplateBinding IconSize}">
                     <Canvas Width="24" Height="24">
-                        <Path x:Name="Tint" Fill="{DynamicResource Ui.Accent}" Opacity="0.3" Visibility="Collapsed"
+                        <Path x:Name="Tint" Fill="{DynamicResource Ui.Accent}" Opacity="0.38"
                               Data="{Binding IconData, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource UiIconTint}}"/>
                         <Path Data="{TemplateBinding IconData}" Fill="{TemplateBinding IconBrush}"/>
+                        <Path x:Name="Accent" Fill="{DynamicResource Ui.Accent}"
+                              Data="{Binding IconData, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource UiIconAccent}}"/>
                     </Canvas>
                 </Viewbox>
                 <TextBlock Text="{TemplateBinding Text}" Margin="5,0,0,0" FontSize="11.5" TextTrimming="CharacterEllipsis"
@@ -371,7 +421,7 @@
             </StackPanel>
         </Border>
         <ControlTemplate.Triggers>
-            <Trigger Property="Tag" Value="Active"><Setter TargetName="Tint" Property="Visibility" Value="Visible"/></Trigger>
+            <Trigger Property="Tag" Value="Active"><Setter TargetName="Tint" Property="Opacity" Value="0.7"/></Trigger>
             <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.42"/></Trigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
@@ -392,8 +442,8 @@
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Ui.Hover}"/>
-                <Setter Property="IconBrush" Value="{DynamicResource Ui.Warn}"/>
-                <Setter Property="Foreground" Value="{DynamicResource Ui.Text}"/>
+                <Setter Property="IconBrush" Value="{DynamicResource Ui.Accent}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Ui.Accent}"/>
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Ui.Pressed}"/>
@@ -797,5 +847,41 @@
         <Setter Property="Width" Value="1"/>
         <Setter Property="Margin" Value="5,6,5,14"/>
         <Setter Property="Background" Value="{DynamicResource Ui.ToolbarBorder}"/>
+    </Style>
+
+    <!-- ══ ProgressBar: accent colour from the settings, never the system green ══ -->
+    <Style TargetType="{x:Type ProgressBar}">
+        <Setter Property="Foreground" Value="{DynamicResource Ui.Accent}"/>
+        <Setter Property="Background" Value="{DynamicResource Ui.Chip}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Height" Value="6"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ProgressBar}">
+                    <Grid x:Name="TemplateRoot" ClipToBounds="True">
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Determinate"/>
+                                <VisualState x:Name="Indeterminate">
+                                    <Storyboard RepeatBehavior="Forever">
+                                        <PointAnimationUsingKeyFrames Storyboard.TargetName="Marquee" Storyboard.TargetProperty="(UIElement.RenderTransformOrigin)">
+                                            <EasingPointKeyFrame KeyTime="0" Value="-0.5,0.5"/>
+                                            <EasingPointKeyFrame KeyTime="0:0:1.4" Value="1.5,0.5"/>
+                                        </PointAnimationUsingKeyFrames>
+                                        <DoubleAnimation Storyboard.TargetName="Marquee" Storyboard.TargetProperty="Opacity" To="1" Duration="0"/>
+                                        <DoubleAnimation Storyboard.TargetName="PART_Indicator" Storyboard.TargetProperty="Opacity" To="0" Duration="0"/>
+                                    </Storyboard>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                        <Border x:Name="PART_Track" Background="{TemplateBinding Background}" CornerRadius="3"/>
+                        <Border x:Name="PART_Indicator" HorizontalAlignment="Left" Background="{TemplateBinding Foreground}" CornerRadius="3"/>
+                        <Border x:Name="Marquee" Opacity="0" Background="{TemplateBinding Foreground}" CornerRadius="3" RenderTransformOrigin="-0.5,0.5">
+                            <Border.RenderTransform><ScaleTransform ScaleX="0.3"/></Border.RenderTransform>
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 </ResourceDictionary>

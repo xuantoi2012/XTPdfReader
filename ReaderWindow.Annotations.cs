@@ -130,7 +130,7 @@ namespace XTPdfMergeApp
                 ReaderTool.Comment => Cursors.Pen,
                 ReaderTool.Callout => Cursors.Pen,
                 ReaderTool.Pencil => Cursors.Pen,
-                ReaderTool.Highlight or ReaderTool.Underline or ReaderTool.Strikethrough or ReaderTool.Squiggly => Cursors.Cross,
+                ReaderTool.Highlight or ReaderTool.Underline or ReaderTool.Strikethrough or ReaderTool.Squiggly => TextMarkupOnText() ? Cursors.Arrow : Cursors.Cross, // on text: an I-beam over words, see UpdateSelectCursor
                 ReaderTool.Eraser => Cursors.No,
                 ReaderTool.Stamp => Cursors.Cross,
                 ReaderTool.Shape => Cursors.Cross,
@@ -282,6 +282,7 @@ namespace XTPdfMergeApp
             {
                 case ReaderTool.Hand:
                     // Bấm lên annotation = chọn (kéo = di chuyển, bấm đúp = sửa chữ, Delete = xoá); chỗ khác vẫn kéo cuộn như cũ.
+                    if (PickAnnotation(page, hit) == null && OpenSignatureField(hit)) { e.Handled = true; break; }
                     if (PickAnnotation(page, hit) is { } picked)
                     {
                         e.Handled = true;
@@ -885,6 +886,12 @@ namespace XTPdfMergeApp
         {
             if (!TryPageToLayer(hit.Row, hit.U, hit.V, out Point start)) return;
             _highlightDrag = new HighlightDrag(hit.Row, hit.U, hit.V, kind);
+            // On text (not Area) the words are picked live while dragging, exactly like the Select tool; the rubber band is only the fallback.
+            if (kind != QuickAnnotationKind.Highlight || AppSettings.HighlightMode != "Area")
+            {
+                ClearTextSelection();
+                _textSelDrag = new TextSelDrag(hit.Row, hit.U, hit.V);
+            }
             ReaderCommentHoverPopup.Visibility = Visibility.Collapsed;
             ReaderContentHost.CaptureMouse();
             Canvas.SetLeft(ReaderHighlightRubberBand, start.X);
@@ -902,12 +909,19 @@ namespace XTPdfMergeApp
             Canvas.SetTop(ReaderHighlightRubberBand, Math.Min(a.Y, b.Y));
             ReaderHighlightRubberBand.Width = Math.Abs(a.X - b.X);
             ReaderHighlightRubberBand.Height = Math.Abs(a.Y - b.Y);
+            if (_textSelDrag is { } live)
+            {
+                _liveSelPoint = pointInHost;
+                if (!_liveSelRunning && ReaderHighlightRubberBand.Width + ReaderHighlightRubberBand.Height >= 3) _ = RunLiveSelectionAsync(live);
+            }
         }
 
         private void FinishHighlightDrag(HighlightDrag drag, Point pointInHost)
         {
             bool haveEnd = TryGetPagePoint(drag.Row, pointInHost, clamp: true, out var end);
-            bool bigEnough = ReaderHighlightRubberBand.Width >= 4 && ReaderHighlightRubberBand.Height >= 4;
+            bool onText = _textSelDrag != null;
+            bool bigEnough = onText ? ReaderHighlightRubberBand.Width >= 4 || ReaderHighlightRubberBand.Height >= 4
+                : ReaderHighlightRubberBand.Width >= 4 && ReaderHighlightRubberBand.Height >= 4;
             CancelHighlightDrag();
             if (!haveEnd || !bigEnough) return;
             // Underline/strikethrough only make sense on real text; Area mode applies to Highlight only.
@@ -927,6 +941,7 @@ namespace XTPdfMergeApp
         {
             if (_highlightDrag == null) return;
             _highlightDrag = null;
+            if (_textSelDrag != null) { _textSelDrag = null; ClearTextSelection(); }
             ReaderHighlightRubberBand.Visibility = Visibility.Collapsed;
             if (ReaderContentHost.IsMouseCaptured) ReaderContentHost.ReleaseMouseCapture();
         }

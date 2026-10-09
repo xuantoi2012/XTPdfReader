@@ -214,6 +214,8 @@ internal static class ExperimentalMuPdfViewport
                 }
             if (cached.Count == rectangles.Count) return cached;
         }
+        // A file on a network drive is read by the worker from a local copy (made once, see RemoteFileStage).
+        string workerPath = await RemoteFileStage.ResolveAsync(path, token).ConfigureAwait(false);
         // Reserve two independent processes for visible work. Speculation cannot
         // occupy them; two background lanes can prepare separate pages concurrently.
         int parity = priority == PdfRenderPriority.Visible || AdaptiveMemoryController.BackgroundLanes == 2 ? page & 1 : 0;
@@ -249,7 +251,7 @@ internal static class ExperimentalMuPdfViewport
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 string request = JsonSerializer.Serialize(new
                 {
-                    path,
+                    path = workerPath,
                     page,
                     fullWidth,
                     fullHeight,
@@ -345,6 +347,7 @@ internal static class ExperimentalMuPdfViewport
         object? data = null, CancellationToken token = default, int? workerIndex = null)
     {
         var slot = Workers[workerIndex ?? (ThroughputMode ? 2 + (AdaptiveMemoryController.BackgroundLanes == 2 ? page & 1 : 0) : 0)];
+        string workerPath = string.IsNullOrEmpty(path) ? path : await RemoteFileStage.ResolveAsync(path, token).ConfigureAwait(false);
         await EnterSlotAsync(slot, PdfRenderPriority.Background, token).ConfigureAwait(false);
         bool replyDrained = true;
         try
@@ -356,7 +359,7 @@ internal static class ExperimentalMuPdfViewport
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             var request = JsonSerializer.Serialize(new
             {
-                path,
+                path = workerPath,
                 op,
                 page,
                 data,
@@ -421,7 +424,7 @@ internal static class ExperimentalMuPdfViewport
             {
                 if (slot.Worker is not { HasExited: false } worker) continue;
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                await worker.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { path, op = "close" }).AsMemory(), timeout.Token).ConfigureAwait(false);
+                await worker.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { path = RemoteFileStage.Mapped(path), op = "close" }).AsMemory(), timeout.Token).ConfigureAwait(false);
                 await worker.StandardInput.FlushAsync(timeout.Token).ConfigureAwait(false);
                 using var reply = JsonDocument.Parse((await ReadHeaderAsync(worker.StandardOutput.BaseStream, timeout.Token).ConfigureAwait(false)).Header);
                 if (!reply.RootElement.TryGetProperty("ok", out _)) Stop(slot);
@@ -500,7 +503,7 @@ internal static class ExperimentalMuPdfViewport
                 { Stop(slot); continue; }
                 if (Stopwatch.GetElapsedTime(slot.LastMemoryTrim).TotalSeconds < 10) continue;
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                var pages = AdaptiveMemoryController.NativeProtectedPages().Select(p => new { path = p.Path, page = p.Page - 1 }).ToArray();
+                var pages = AdaptiveMemoryController.NativeProtectedPages().Select(p => new { path = RemoteFileStage.Mapped(p.Path), page = p.Page - 1 }).ToArray();
                 await worker.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new
                     { path = "", op = "memory", memoryState = (int)pressure, data = pages }).AsMemory(), timeout.Token).ConfigureAwait(false);
                 await worker.StandardInput.FlushAsync(timeout.Token).ConfigureAwait(false);

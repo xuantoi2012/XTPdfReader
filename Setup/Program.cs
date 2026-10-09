@@ -97,7 +97,21 @@ internal static class Program
     {
         var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/PDFReaderPro-Setup;component/Styles.xaml") });
+        app.Resources["Green"] = AccentBrush(); // the name is old: the colour is the accent chosen in the Reader's settings
         return app.Run(new SetupWindow(options));
+    }
+
+    /// <summary>The accent of the Reader's settings (same registry value), as a soft left-to-right gradient; the orange of the brand when nothing is set.</summary>
+    private static System.Windows.Media.Brush AccentBrush()
+    {
+        string name = "Orange";
+        try { using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\XTStyle\XTPdfMergeApp"); name = key?.GetValue("Accent") as string ?? name; } catch { }
+        string hex = name switch { "Blue" => "#2563EB", "Green" => "#0F8B6D", "Purple" => "#7C4DFF", "Red" => "#D9463B", _ => "#E8590C" };
+        var c = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex);
+        System.Windows.Media.Color Mix(System.Windows.Media.Color a, double t) => System.Windows.Media.Color.FromRgb((byte)(a.R + (255 - a.R) * t), (byte)(a.G + (255 - a.G) * t), (byte)(a.B + (255 - a.B) * t));
+        var brush = new System.Windows.Media.LinearGradientBrush(Mix(c, 0.28), c, 0);
+        brush.Freeze();
+        return brush;
     }
 
     private static bool IsInside(string path, string folder)

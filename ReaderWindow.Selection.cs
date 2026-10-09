@@ -59,7 +59,8 @@ namespace XTPdfMergeApp
 
         /// <summary>Bars floating over the page (Find, text format, shape style, highlight mode): clicks on them are not clicks on the page.</summary>
         private bool IsOverlayBar(DependencyObject? source)
-            => IsInside(source, FindBar) || IsInside(source, TextFormatBar) || IsInside(source, ShapeBar) || IsInside(source, MarkupColorBar);
+            => IsInside(source, FindBar) || IsInside(source, TextFormatBar) || IsInside(source, ShapeBar) || IsInside(source, MarkupColorBar)
+               || IsInside(source, TextSelectionBar) || IsInside(source, SignatureBanner);
 
         private void SelectAnnotation(PageRow? row, QuickAnnotationSpec? spec)
         {
@@ -261,7 +262,7 @@ namespace XTPdfMergeApp
         private void ReaderContent_AnnotationContextMenu(object sender, MouseButtonEventArgs e)
         {
             if (_annotationEditor != null || IsOverlayBar(e.OriginalSource as DependencyObject)) return;
-            if (_readerTool == ReaderTool.Select && _textSelection != null)
+            if (_readerTool is ReaderTool.Select or ReaderTool.Hand && _textSelection != null)
             {
                 e.Handled = true;
                 var textMenu = new ContextMenu();

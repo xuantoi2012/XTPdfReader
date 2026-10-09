@@ -18,7 +18,7 @@ internal sealed class ContinuousPageLayout
     public const double BaseGap = 14;
     public const double MinGap = 4;
     /// <summary>Lề trái/phải/trên/dưới của cả dải trang (DIP, không đổi theo zoom).</summary>
-    public const double Margin = 16;
+    public const double Margin = 8;
     /// <summary>Viền 1 DIP quanh mỗi trang (Border trong template) — cộng vào kích thước phần tử.</summary>
     public const double BorderThickness = 1;
 

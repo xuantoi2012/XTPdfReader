@@ -1,7 +1,7 @@
 # PDF Reader Pro — roadmap (agreed with the owner, 2026-10-05)
 
 Goal: beat Foxit for engineers and design teams, not by copying every feature but by what Foxit does badly: drawing-set merging, layers, team saving,
-sheet awareness. Rendering speed is already on par. Out of scope on purpose (low demand, complex): forms, digital signatures, redaction.
+sheet awareness. Rendering speed is already on par. Digital signatures, watermark / header / footer / numbering and redaction were added 2026-10-09 (see PROGRESS-2026-10-09.md). Still out of scope: forms.
 
 Companion docs in XTToolbox: `docs/XT_PDF_SHEET_INFO.md` (per-page sheet data), `docs/XT_SET_FILE.md` (`.xtset` recipe). Status of the day-to-day work: `XT_HANDOFF_*.md`.
 

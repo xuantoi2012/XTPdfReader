@@ -43,6 +43,7 @@ namespace XTPdfMergeApp.Controls
             if (page.Width <= 0 || page.Height <= 0) return;
             ObjectDeleteLayer.Draw(dc, row, page); // objects that wait to be removed are painted out, text edits that wait for Save drawn over them
             TextEditLayer.Draw(dc, row, page, dpi);
+            if (live) DrawSignatureFields(dc, row, page);
             var annotations = AnnotationStore.TryGetPage(row.SourcePath, row.PageNumber);
             if (annotations == null || annotations.Annotations.Count == 0) return;
             var geometry = annotations.Geometry;
@@ -80,6 +81,22 @@ namespace XTPdfMergeApp.Controls
                 dc.DrawImage(image.Bitmap, rect);
             }
             dc.Pop();
+        }
+
+        // ── Digital signature fields (like Foxit: a tinted box so they are easy to find; click = details) ──
+
+        private static readonly Brush SignedFill = Freeze(new SolidColorBrush(Color.FromArgb(0x26, 0x2E, 0x8B, 0x57)));
+        private static readonly Brush EmptyFill = Freeze(new SolidColorBrush(Color.FromArgb(0x30, 0xE0, 0x8A, 0x1E)));
+        private static readonly Pen SignedPen = new(Freeze(new SolidColorBrush(Color.FromArgb(0xB0, 0x2E, 0x8B, 0x57))), 1) { DashStyle = DashStyles.Solid };
+        private static readonly Pen EmptyPen = new(Freeze(new SolidColorBrush(Color.FromArgb(0xC0, 0xE0, 0x8A, 0x1E))), 1) { DashStyle = DashStyles.Dash };
+
+        private static void DrawSignatureFields(DrawingContext dc, PageRow row, Rect page)
+        {
+            foreach (var field in PdfSignatureFieldService.Of(row.SourcePath, row.PageNumber))
+            {
+                var r = new Rect(page.X + field.U1 * page.Width, page.Y + field.V1 * page.Height, (field.U2 - field.U1) * page.Width, (field.V2 - field.V1) * page.Height);
+                dc.DrawRectangle(field.Signed ? SignedFill : EmptyFill, field.Signed ? SignedPen : EmptyPen, r);
+            }
         }
 
         // ── Note icon (speech bubble) ─────────────────────────────────

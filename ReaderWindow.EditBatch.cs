@@ -59,6 +59,8 @@ namespace XTPdfMergeApp
             _toolPanelKind = kind;
             ReaderBatchFindButton.Tag = kind == "find" ? "Active" : null;
             ReaderStampPagesButton.Tag = kind == "stamp" ? "Active" : null;
+            ReaderSignButton.Tag = kind == "sign" ? "Active" : null;
+            ReaderPageMarksButton.Tag = kind == "marks" ? "Active" : null;
             ReaderToolPanelTitle.Text = Loc.T(title);
             ReaderToolPanelBody.Content = body;
             Loc.ApplyTree(ReaderToolPanel);
@@ -75,7 +77,7 @@ namespace XTPdfMergeApp
             var closed = _toolPanelClosed;
             _toolPanelClosed = null;
             _toolPanelKind = "";
-            ReaderBatchFindButton.Tag = ReaderStampPagesButton.Tag = null;
+            ReaderBatchFindButton.Tag = ReaderStampPagesButton.Tag = ReaderSignButton.Tag = ReaderPageMarksButton.Tag = null;
             ReaderToolPanel.Visibility = ReaderToolSplitter.Visibility = Visibility.Collapsed;
             ReaderToolPanelBody.Content = null;
             ReaderToolPanelColumn.MinWidth = 0;

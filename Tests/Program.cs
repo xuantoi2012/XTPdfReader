@@ -44,6 +44,15 @@ internal static partial class Program
                 Console.WriteLine($"PASS ({_checks} MuPDF migration checks)");
                 return 0;
             }
+            if (args.Contains("--marks-check")) { TestPageMarksAsync().GetAwaiter().GetResult(); Console.WriteLine($"PASS ({_checks} page mark checks)"); return 0; }
+            if (args.Contains("--callout-probe")) { CalloutRenderProbeAsync().GetAwaiter().GetResult(); return 0; }
+            if (args.Contains("--panels-check")) { TestSignAndMarksPanels(); Console.WriteLine($"PASS ({_checks} panel checks)"); return 0; }
+            if (args.Contains("--ui-bars")) { TestShapePropertiesFloating(); TestTypewriterEditorChrome(); TestCalloutStyle(); TestSelectToolBar(); TestShapeTextGroup(); TestPropertyActions(); TestDrawShapeAndNoteFlows(); TestNoteIconFixedSize(); TestBarsAndTypewriterFlow(); TestCommentPopupPlacement(); TestBarsDoNotOverlap(); Console.WriteLine($"PASS ({_checks} bar checks)"); return 0; }
+            if (args.Contains("--ribbon-check")) { TestRibbonSplits(); Console.WriteLine($"PASS ({_checks} ribbon checks)"); return 0; }
+            if (args.Contains("--splash-check")) { TestSplashRender(); Console.WriteLine("PASS splash"); return 0; }
+            { int ro = Array.IndexOf(args, "--remote-open"); if (ro >= 0) { TestRemoteOpenAsync(args[ro + 1]).GetAwaiter().GetResult(); Console.WriteLine("PASS remote open"); return 0; } }
+            if (args.Contains("--icon-dump")) { TestIconDump(); return 0; }
+            if (args.Contains("--sign-check")) { TestDigitalSignAsync().GetAwaiter().GetResult(); Console.WriteLine($"PASS ({_checks} digital signature checks)"); return 0; }
             if (args.Contains("--license-check")) { TestLicense(); Console.WriteLine($"PASS ({_checks} license checks)"); return 0; }
             if (args.Contains("--user-feedback-check"))
             { TestTabSharpRetention(); TestTabRegionRetention(); TestFeedbackSession(); Console.WriteLine($"PASS ({_checks} user feedback checks)"); return 0; }

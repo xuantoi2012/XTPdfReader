@@ -92,6 +92,7 @@ namespace XTPdfMergeApp.Services
             var d = new AccentDictionary();
             void Put(string key, Color c) => d[key] = Frozen(c);
             Put("Ui.Accent", accent);
+            Put("Ui.Brand", accent);
             Put("Ui.AccentSoft", soft);
             Put("XTSelectionBlue", accent);
             Put("XTSelectionBackground", soft);

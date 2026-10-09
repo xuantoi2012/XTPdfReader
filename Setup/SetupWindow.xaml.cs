@@ -41,6 +41,24 @@ public partial class SetupWindow : Window
             if (options.Launch) await BeginAsync(); // an update was already agreed to in the Reader
         };
         Closing += OnClosing;
+        SizeChanged += (_, _) => RoundSurface();
+        Loaded += (_, _) => RoundSurface();
+    }
+
+    /// <summary>The window is transparent with the card inside it; the backdrop inside the card is cut to the card's rounded corners.</summary>
+    private void RoundSurface()
+    {
+        if (Surface.ActualWidth <= 0) return;
+        Surface.Clip = new RectangleGeometry(new Rect(0, 0, Surface.ActualWidth, Surface.ActualHeight), 9, 9);
+    }
+
+    /// <summary>The title row is the handle to move the window (it has no system caption any more).</summary>
+    private void Surface_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.GetPosition(Surface).Y <= 42 && e.OriginalSource is not System.Windows.Controls.Primitives.ButtonBase && e.ButtonState == System.Windows.Input.MouseButtonState.Pressed)
+        {
+            try { DragMove(); } catch { }
+        }
     }
 
     /// <summary>The first screen: what this is and one button. Nothing is touched until the user presses it.</summary>

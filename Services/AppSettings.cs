@@ -235,6 +235,18 @@ namespace XTPdfMergeApp.Services
             return allowed[0];
         }
 
+        /// <summary>Small remembered UI choices (for example which command a ribbon split button last ran).</summary>
+        public static string GetUi(string key, string fallback) => GetString("Ui." + key, fallback);
+        public static void SetUi(string key, string value) => Set("Ui." + key, value ?? "");
+
+        // ── Chữ ký số (xem PdfDigitalSignService) ──────────────────────
+        public static string SignOrganization { get => GetString("SignOrganization", ""); set => Set("SignOrganization", value ?? ""); }
+        public static string SignSealImage { get => GetString("SignSealImage", ""); set => Set("SignSealImage", value ?? ""); }
+        public static string SignTsaUrl { get => GetString("SignTsaUrl", ""); set => Set("SignTsaUrl", value ?? ""); }
+        public static string SignThumbprint { get => GetString("SignThumbprint", ""); set => Set("SignThumbprint", value ?? ""); }
+        public static string SignLocation { get => GetString("SignLocation", ""); set => Set("SignLocation", value ?? ""); }
+        public static bool SignEmbedRevocation { get => GetInt("SignEmbedRevocation", 1) != 0; set => Set("SignEmbedRevocation", value ? 1 : 0); }
+
         private static string GetString(string name, string fallback)
         {
             try

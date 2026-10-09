@@ -3,14 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:local="clr-namespace:XTPdfMergeApp.Controls"
-        Title="PDF Reader Pro" Width="480" Height="350" ResizeMode="NoResize"
-        WindowStyle="None" WindowStartupLocation="CenterScreen" Background="#D9E3F4" FontFamily="Segoe UI"
+        Title="PDF Reader Pro" Width="534" Height="404" ResizeMode="NoResize"
+        WindowStyle="None" AllowsTransparency="True" WindowStartupLocation="CenterScreen" Background="Transparent" FontFamily="Segoe UI"
         UseLayoutRounding="True" Foreground="#162B62" RenderOptions.BitmapScalingMode="HighQuality">
-    <shell:WindowChrome.WindowChrome>
-        <shell:WindowChrome CaptionHeight="42" CornerRadius="10" GlassFrameThickness="0" ResizeBorderThickness="0"/>
-    </shell:WindowChrome.WindowChrome>
-    <Border BorderBrush="#C6D7F2" BorderThickness="1" CornerRadius="10">
-        <Grid>
+    <!-- Transparent window, a card inside it with room around for the shadow: the setup floats above the desktop. -->
+    <Border x:Name="Card" Margin="27" Background="#D9E3F4" BorderBrush="#C6D7F2" BorderThickness="1" CornerRadius="10">
+        <Border.Effect><DropShadowEffect BlurRadius="32" ShadowDepth="10" Direction="270" Opacity="0.40" Color="#0B1B44"/></Border.Effect>
+        <Grid x:Name="Surface" MouseLeftButtonDown="Surface_MouseLeftButtonDown">
             <Grid.RowDefinitions><RowDefinition Height="42"/><RowDefinition Height="*"/><RowDefinition Height="34"/></Grid.RowDefinitions>
             <local:AmbientBackdrop Grid.RowSpan="3"/>
             <Border Background="#25FFFFFF"/>

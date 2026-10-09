@@ -329,6 +329,8 @@ namespace XTPdfMergeApp
             {
                 group.SetOpening(false);
                 group.SetLoadError(OpenFailureText(openResult.Failure));
+                // Say it where the user is looking: a tab that stays empty looks like "nothing happened".
+                if (ReaderWindow.Instance is { } failedReader) XTPdfMergeApp.Services.Growl.Info(Path.GetFileName(fullPath) + ": " + OpenFailureText(openResult.Failure), failedReader);
                 return;
             }
 

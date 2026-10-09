@@ -70,9 +70,14 @@ namespace XTPdfMergeApp
             ReaderContentHost.ForceCursor = over;
         }
 
+        /// <summary>Highlight (on text), Underline, Strikethrough and Squiggly pick words like Select does, so they show the I-beam over text.</summary>
+        private bool TextMarkupOnText()
+            => _readerTool is ReaderTool.Underline or ReaderTool.Strikethrough or ReaderTool.Squiggly
+               || (_readerTool == ReaderTool.Highlight && AppSettings.HighlightMode != "Area");
+
         private void UpdateSelectCursor(Point pointInHost)
         {
-            if (_readerTool != ReaderTool.Select || _textSelDrag != null) return;
+            if (!(_readerTool == ReaderTool.Select || TextMarkupOnText()) || _textSelDrag != null) return;
             Cursor cursor = Cursors.Arrow;
             if (TryHitPage(pointInHost, out var hit))
             {

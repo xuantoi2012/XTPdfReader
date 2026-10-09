@@ -896,6 +896,7 @@ namespace XTPdfMergeApp
                 _panelWidthBeforeHide = ReaderSidePanelColumn.Width.Value;
                 ReaderSidePanel.SetCollapsed(true);
                 ReaderPanelSplitter.Visibility = Visibility.Collapsed;
+                ReaderPanelSplitterColumn.Width = new GridLength(0); // no empty strip between the icon rail and the page area
                 ReaderSidePanelColumn.MinWidth = 44;
                 ReaderSidePanelColumn.MaxWidth = 44;
                 ReaderSidePanelColumn.Width = new GridLength(44);
@@ -904,6 +905,7 @@ namespace XTPdfMergeApp
             {
                 ReaderSidePanel.SetCollapsed(false);
                 ReaderPanelSplitter.Visibility = Visibility.Visible;
+                ReaderPanelSplitterColumn.Width = new GridLength(4);
                 ReaderSidePanelColumn.MaxWidth = 640;
                 ReaderSidePanelColumn.MinWidth = 304;
                 ReaderSidePanelColumn.Width = new GridLength(Math.Max(304, _panelWidthBeforeHide));

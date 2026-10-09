@@ -45,7 +45,7 @@ namespace XTPdfMergeApp
         {
             if (_chromeDrag != TextChromeDrag.None || _shapeResizeDrag != null || _lineResizeDrag != null || _annMove?.Moved == true) return; // a drag keeps its own pointer
             bool over = ChromeCursorFor(source as DependencyObject, source, this) != null;
-            bool force = !over && _readerTool != ReaderTool.Hand;
+            bool force = !over && (_readerTool != ReaderTool.Hand || _handOverText || _crosshair);
             if (ReaderContentHost.ForceCursor != force) ReaderContentHost.ForceCursor = force;
         }
 

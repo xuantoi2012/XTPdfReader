@@ -87,7 +87,7 @@
             <Grid DockPanel.Dock="Top" Height="40" Margin="14,0,8,0">
                 <TextBlock x:Name="PanelTitleText" Text="Pages" FontWeight="SemiBold" FontSize="13"
                            VerticalAlignment="Center" Foreground="{DynamicResource Ui.Text}"/>
-                <xt:XTButton x:Name="PanelCollapseButton" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.dleft}" Width="30" Height="30" IconSize="22"
+                <xt:XTButton x:Name="PanelCollapseButton" Style="{StaticResource UiIconButton}" Icon="{StaticResource Ui.Icon.dleft}" Width="24" Height="24" IconSize="15"
                              HorizontalAlignment="Right" ToolTip="Hide the panel" Click="CollapsePanel_Click"/>
             </Grid>
 
@@ -105,15 +105,15 @@
             <Border x:Name="PageActionsBar" DockPanel.Dock="Top" Padding="10,0,10,8"
                     BorderBrush="{DynamicResource Ui.Border}" BorderThickness="0,0,0,1">
                 <UniformGrid Rows="1">
-                    <xt:XTButton Style="{StaticResource UiPanelAction}" Icon="{StaticResource Ui.Icon.insert}" Text="Insert ▾"
-                                 ToolTip="Insert pages from another PDF after the current page" Click="InsertPages_Click"/>
-                    <xt:XTButton Style="{StaticResource UiPanelAction}" Icon="{StaticResource Ui.Icon.trash}" Text="Delete"
+                    <xt:XTButton Style="{StaticResource UiIconButton}" Width="34" Height="30" IconSize="18" Icon="{StaticResource Ui.Icon.insert}"
+                                 ToolTip="Insert pages ▾ (from another PDF, a blank page...) after the current page" Click="InsertPages_Click"/>
+                    <xt:XTButton Style="{StaticResource UiIconButtonDanger}" Width="34" Height="30" IconSize="18" Icon="{StaticResource Ui.Icon.trash}"
                                  ToolTip="Delete the selected pages from this document (can be undone)" Click="DeletePages_Click"/>
-                    <xt:XTButton Style="{StaticResource UiPanelAction}" Icon="{StaticResource Ui.Icon.rotl}" Text="Turn left"
+                    <xt:XTButton Style="{StaticResource UiIconButton}" Width="34" Height="30" IconSize="18" Icon="{StaticResource Ui.Icon.rotl}"
                                  ToolTip="Rotate the selected pages 90° left and save to the file" Click="RotateLeft_Click"/>
-                    <xt:XTButton Style="{StaticResource UiPanelAction}" Icon="{StaticResource Ui.Icon.rotr}" Text="Turn right"
+                    <xt:XTButton Style="{StaticResource UiIconButton}" Width="34" Height="30" IconSize="18" Icon="{StaticResource Ui.Icon.rotr}"
                                  ToolTip="Rotate the selected pages 90° right and save to the file" Click="RotateRight_Click"/>
-                    <xt:XTButton Style="{StaticResource UiPanelAction}" Icon="{StaticResource Ui.Icon.extract}" Text="Extract"
+                    <xt:XTButton Style="{StaticResource UiIconButton}" Width="34" Height="30" IconSize="18" Icon="{StaticResource Ui.Icon.extract}"
                                  ToolTip="Extract the selected pages to a new PDF" Click="ExtractPages_Click"/>
                 </UniformGrid>
             </Border>

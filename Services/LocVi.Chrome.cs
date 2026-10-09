@@ -149,6 +149,12 @@ namespace XTPdfMergeApp.Services
             A("Squiggly underline", "Gạch chân lượn sóng");
             A("Squiggly underline: drag across text", "Gạch chân lượn sóng: kéo qua chữ");
             A("Stamp", "Dấu");
+            A("Marks", "Dấu & số trang");
+            A("Watermark (COPY, CONFIDENTIAL, APPROVED), header, footer, page and document numbers, and redaction for many pages at once", "Dấu chữ (BẢN SAO, MẬT, ĐÃ DUYỆT), đầu/chân trang, số trang, số văn bản và che nội dung cho nhiều trang một lần");
+            A("Sign", "Ký số");
+            A("Check Signatures", "Kiểm tra chữ ký");
+            A("Digitally sign this PDF with your certificate (USB token or .pfx file)", "Ký số văn bản bằng chứng thư số (USB token hoặc file .pfx)");
+            A("Check the digital signatures in this PDF", "Kiểm tra chữ ký số trong văn bản này");
             A("Stamp Pages", "Đóng dấu trang");
             A("Start", "Bắt đầu");
             A("Start typing here…", "Bắt đầu gõ ở đây…");

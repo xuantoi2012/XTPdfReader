@@ -30,8 +30,8 @@ public sealed class ReaderTabsHost : System.Windows.Controls.Decorator
 public partial class ReaderWindow
 {
     /// <summary>Tab rộng nhất / hẹp nhất. Ít file thì mỗi tab rộng tối đa; nhiều file thì chia đều đúng bề ngang còn lại, hết chỗ thì bớt số tab hiện (phần còn lại vào nút danh sách).</summary>
-    private const double MaximumDocumentTabWidth = 260;
-    private const double MinimumDocumentTabWidth = 150;
+    private const double MaximumDocumentTabWidth = 200;
+    private const double MinimumDocumentTabWidth = 130;
     private readonly ObservableCollection<DocumentGroup> _visibleDocumentTabs = new();
     private int _tabWindowStart;
 

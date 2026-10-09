@@ -2,16 +2,13 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:XTPdfMergeApp.Controls"
-        Title="PDF Reader Pro" Width="420" Height="280" ResizeMode="NoResize" WindowStyle="None" AllowsTransparency="True"
+        Title="PDF Reader Pro" Width="474" Height="334" ResizeMode="NoResize" WindowStyle="None" AllowsTransparency="True"
         Background="Transparent" ShowInTaskbar="False" ShowActivated="False" Topmost="True" WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI" UseLayoutRounding="True" Foreground="#162B62" RenderOptions.BitmapScalingMode="HighQuality">
-    <Window.Resources>
-        <LinearGradientBrush x:Key="SplashGreen" StartPoint="0,0" EndPoint="1,0">
-            <GradientStop Color="#78D775" Offset="0"/><GradientStop Color="#098F4C" Offset="1"/>
-        </LinearGradientBrush>
-    </Window.Resources>
-    <Border x:Name="Card" Background="#D9E3F4" BorderBrush="#C6D7F2" BorderThickness="1" CornerRadius="12" ClipToBounds="True">
-        <Grid>
+    <!-- The window is bigger than the card: the room around it holds the shadow, so the card floats above the desktop. -->
+    <Border x:Name="Card" Margin="26" Background="#D9E3F4" BorderBrush="#C6D7F2" BorderThickness="1" CornerRadius="12">
+        <Border.Effect><DropShadowEffect BlurRadius="30" ShadowDepth="9" Direction="270" Opacity="0.38" Color="#0B1B44"/></Border.Effect>
+        <Grid x:Name="Inner">
             <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="32"/></Grid.RowDefinitions>
             <local:AmbientBackdrop Grid.RowSpan="2"/>
             <Border Grid.Row="1" Background="#25FFFFFF"/>
@@ -27,11 +24,12 @@
                 </Grid>
                 <TextBlock Text="PDF Reader Pro" FontSize="20" FontWeight="SemiBold" TextAlignment="Center"/>
                 <TextBlock x:Name="StatusText" Text="Starting…" FontSize="12.5" Foreground="#2C4A86" TextAlignment="Center" Margin="0,6,0,22"/>
-                <!-- Indeterminate: the real load time is not known in advance, so no percentage is shown. -->
+                <!-- A smooth continuous bar in the accent colour of the settings. The real load time is not known in advance, so it eases towards the end
+                     and completes when the window is ready (a transform, so it keeps moving while the UI thread is busy). -->
                 <Border Background="#2E3E68BD" BorderBrush="#D0FFFFFF" BorderThickness="1" Height="10" CornerRadius="5">
                     <Grid ClipToBounds="True">
-                        <Border Width="110" HorizontalAlignment="Left" CornerRadius="4" Background="{StaticResource SplashGreen}">
-                            <Border.RenderTransform><TranslateTransform x:Name="SegmentShift" X="0"/></Border.RenderTransform>
+                        <Border x:Name="Fill" CornerRadius="4" RenderTransformOrigin="0,0.5">
+                            <Border.RenderTransform><ScaleTransform x:Name="FillScale" ScaleX="0"/></Border.RenderTransform>
                         </Border>
                     </Grid>
                 </Border>

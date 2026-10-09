@@ -47,6 +47,7 @@ namespace XTPdfMergeApp
             EditHost = Session;
             var groups = Session.Documents;
             InitializeComponent();
+            InitRibbonSplits();
             // No Window.Icon: Windows then takes the exe icon and picks the native frame (16-256) for the taskbar, instead of shrinking one bitmap.
             _groups = groups;
             ReaderContentHost.LostMouseCapture += (_, _) => CancelHighlightDrag();
@@ -163,7 +164,7 @@ namespace XTPdfMergeApp
 
             if (Keyboard.FocusedElement is TextBox or ComboBox) return;
 
-            if (_readerTool == ReaderTool.Select && e.Key == Key.C && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            if ((_readerTool == ReaderTool.Select || (_readerTool == ReaderTool.Hand && _textSelection != null)) && e.Key == Key.C && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
             {
                 CopySelectedText();
                 e.Handled = true;
@@ -583,6 +584,7 @@ namespace XTPdfMergeApp
             _readerGroup = group;
             _readerPage = row;
             UpdateReaderChrome(group, row);
+            if (groupChanged) RefreshSignatureFields(group.SourcePath);
 
             if (!bound)
             {
@@ -760,6 +762,7 @@ namespace XTPdfMergeApp
             ReaderDocumentTabsRow.Visibility = visibility;
             ReaderStatusBar.Visibility = visibility;
             ReaderPanelSplitter.Visibility = !full && !_panelCollapsed ? Visibility.Visible : Visibility.Collapsed;
+            ReaderPanelSplitterColumn.Width = new GridLength(!full && !_panelCollapsed ? 4 : 0);
             if (full)
             {
                 _fullScreenSavedPanelWidth = ReaderSidePanelColumn.Width;
