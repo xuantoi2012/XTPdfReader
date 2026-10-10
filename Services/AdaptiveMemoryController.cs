@@ -30,7 +30,7 @@ internal static class AdaptiveMemoryController
     internal static void NoteActivity() => Interlocked.Exchange(ref _lastActivity, Stopwatch.GetTimestamp());
     internal static MemoryPressureState State => (MemoryPressureState)Volatile.Read(ref _state);
     internal static bool AllowSpeculation => State == MemoryPressureState.Normal;
-    internal static int BackgroundLanes => State == MemoryPressureState.Normal ? 2 : State == MemoryPressureState.Pressure ? 1 : 0;
+    internal static int BackgroundLanes => State == MemoryPressureState.Normal ? ExperimentalMuPdfViewport.MaxBackgroundLanes : State == MemoryPressureState.Pressure ? 1 : 0;
 
     internal static void Register(ContinuousPdfView view)
     {

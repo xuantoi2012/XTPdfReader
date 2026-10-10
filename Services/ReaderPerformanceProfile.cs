@@ -11,8 +11,8 @@ internal sealed record ReaderPerformanceProfile(ReaderPerformanceMode Mode, long
     private const long MiB = 1024 * 1024;
     internal static ReaderPerformanceProfile For(ReaderPerformanceMode mode) => mode switch
     {
-        ReaderPerformanceMode.Balance => new(mode, 1024 * MiB, 2048 * MiB, 3072 * MiB, 256 * MiB, 2, 8, 512 * MiB, 90, 20, true),
-        ReaderPerformanceMode.Maximum => new(mode, 2048 * MiB, 4096 * MiB, 6144 * MiB, 384 * MiB, 4, 12, 768 * MiB, 180, 45, true),
+        ReaderPerformanceMode.Balance => new(mode, 1024 * MiB, 2048 * MiB, 3072 * MiB, 256 * MiB, 4, 8, 512 * MiB, 90, 20, true),
+        ReaderPerformanceMode.Maximum => new(mode, 2048 * MiB, 4096 * MiB, 6144 * MiB, 384 * MiB, 8, 12, 768 * MiB, 180, 45, true),
         ReaderPerformanceMode.MemorySaving => new(mode, 512 * MiB, 1024 * MiB, 1536 * MiB, 192 * MiB, 1, 4, 320 * MiB, 30, 8, false),
         _ => For(ReaderPerformanceMode.Balance)
     };

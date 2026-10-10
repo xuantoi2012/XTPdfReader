@@ -31,7 +31,12 @@ internal static class ExperimentalMuPdfViewport
         internal string? LastPath;
         internal int LastPage;
     }
-    private static readonly WorkerSlot[] Workers = { new(), new(), new(), new() };
+    /// <summary>Background (speculative) lanes. Preparing a page is mostly single-threaded parsing, so several
+    /// lanes prepare several neighbouring pages at once: min(4, cores / 6) by default, at least 2; XTPDF_BACKGROUND_LANES overrides (1-6).</summary>
+    internal static readonly int MaxBackgroundLanes = int.TryParse(Environment.GetEnvironmentVariable("XTPDF_BACKGROUND_LANES"), out int lanes)
+        ? Math.Clamp(lanes, 1, 6) : Math.Clamp(Environment.ProcessorCount / 6, 2, 4);
+    // Slots 0 and 1 are the visible lanes (page parity); the rest are background lanes.
+    private static readonly WorkerSlot[] Workers = Enumerable.Range(0, 8).Select(_ => new WorkerSlot()).ToArray();
     private readonly record struct RasterKey(string Path, long Modified, long Length, string Layers, bool Annotations, bool Alpha, int Page, int Width, int Height, int DisplayWidth, Int32Rect Rect);
     private static readonly object CacheLock = new();
     private static long _rasterGeneration;
@@ -293,8 +298,9 @@ internal static class ExperimentalMuPdfViewport
         string workerPath = await RemoteFileStage.ResolveAsync(path, token).ConfigureAwait(false);
         // Reserve two independent processes for visible work. Speculation cannot
         // occupy them; two background lanes can prepare separate pages concurrently.
-        int parity = priority == PdfRenderPriority.Visible || AdaptiveMemoryController.BackgroundLanes == 2 ? page & 1 : 0;
-        var slot = Workers[ThroughputMode ? (priority == PdfRenderPriority.Visible ? 0 : 2) + parity : 0];
+        int backgroundLanes = AdaptiveMemoryController.BackgroundLanes;
+        int laneIndex = priority == PdfRenderPriority.Visible ? 0 + (page & 1) : 2 + (backgroundLanes >= 2 ? page % backgroundLanes : 0);
+        var slot = Workers[ThroughputMode ? laneIndex : 0];
         await EnterSlotAsync(slot, priority, token).ConfigureAwait(false);
         bool replyDrained = true;
         try
@@ -494,7 +500,7 @@ internal static class ExperimentalMuPdfViewport
     internal static async Task<JsonElement> CommandAsync(string path, string op, int page = 0,
         object? data = null, CancellationToken token = default, int? workerIndex = null)
     {
-        var slot = Workers[workerIndex ?? (ThroughputMode ? 2 + (AdaptiveMemoryController.BackgroundLanes == 2 ? page & 1 : 0) : 0)];
+        var slot = Workers[workerIndex ?? (ThroughputMode ? 2 + (AdaptiveMemoryController.BackgroundLanes >= 2 ? page % AdaptiveMemoryController.BackgroundLanes : 0) : 0)];
         string workerPath = string.IsNullOrEmpty(path) ? path : await RemoteFileStage.ResolveAsync(path, token).ConfigureAwait(false);
         await EnterSlotAsync(slot, PdfRenderPriority.Background, token).ConfigureAwait(false);
         bool replyDrained = true;

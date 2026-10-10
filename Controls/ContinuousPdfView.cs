@@ -158,7 +158,7 @@ public sealed class ContinuousPdfView : Grid
     private const int SettleMilliseconds = 150;
     /// <summary>Đang zoom: chờ zoom đứng yên chừng này mới xin ảnh ở độ phân giải mới (giữa chừng chỉ co giãn ảnh có sẵn).</summary>
     private const int ZoomSettleMilliseconds = 24;
-    internal int PrefetchPageCount { get; set; } = 4;
+    internal int PrefetchPageCount { get; set; } = 8;
     internal bool KeepPrefetchedNativePages { get; set; }
     internal bool PreferViewportRegions { get; set; } = true;
     internal bool ReuseRenderedImages { get; set; } = true;

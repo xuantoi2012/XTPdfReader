@@ -215,3 +215,21 @@ requests; `XTPDF_SMALL_FIRST=0` switches back) and, for visible pages, prepares 
 background once the view has settled. Cold first page 331 -> 250 ms; when paging every 250-400 ms the view
 is caught up after about two pages instead of three or four. The display list build itself is unchanged
 and is now the floor for a page that has not been seen.
+
+### More background lanes and deeper prefetch (2026-10-10)
+
+Preparing a page is single-threaded parsing, so the gap when paging fast was the number of lanes that can
+parse at once, not the rasteriser. Background lanes are now `min(4, cores / 6)` (at least 2;
+`XTPDF_BACKGROUND_LANES` 1-6) and `PrefetchPageCount` is 8 (profile caps: Balance 4, Maximum 8, MemorySaving 1).
+Prefetched pages are now rendered at the shown size, so each costs a few MB instead of ~45 MB.
+Page-jump bench (`XTPDF_BENCH_MODE=scroll`, zoom 1.0, same drawing):
+
+| Page every | 2 lanes (median / p90) | 4 lanes (median / p90) |
+|---|---|---|
+| 100 ms | 141 / 173 ms | 31 / 32 ms |
+| 150 ms | 108 / 157 ms | 31 / 110 ms |
+| 250 ms | 32 / 141 ms | 31 / 32 ms |
+
+Only the first, cold page (~270 ms) and an occasional page remain slow. Cost: up to four more worker
+processes (about 170 MB each while busy); idle background workers are retired by the adaptive memory
+controller as before, and under memory pressure the lane count drops to 1 and then 0.
