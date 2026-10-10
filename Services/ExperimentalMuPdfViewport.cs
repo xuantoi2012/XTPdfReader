@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.IO.MemoryMappedFiles;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -26,11 +27,12 @@ internal static class ExperimentalMuPdfViewport
         internal long LastUse;
         internal long LastMemoryTrim;
         internal int Pending;
+        internal long SharedMemoryBytes;
         internal string? LastPath;
         internal int LastPage;
     }
     private static readonly WorkerSlot[] Workers = { new(), new(), new(), new() };
-    private readonly record struct RasterKey(string Path, long Modified, long Length, string Layers, bool Annotations, bool Alpha, int Page, int Width, int Height, Int32Rect Rect);
+    private readonly record struct RasterKey(string Path, long Modified, long Length, string Layers, bool Annotations, bool Alpha, int Page, int Width, int Height, int DisplayWidth, Int32Rect Rect);
     private static readonly object CacheLock = new();
     private static long _rasterGeneration;
     internal static void InvalidateRasterCache(Func<string, int, bool> match)
@@ -104,8 +106,12 @@ internal static class ExperimentalMuPdfViewport
         get
         {
             if (Environment.GetEnvironmentVariable("XTPDF_NATIVE_WORKER") == "0") return null;
-            string exe = Path.Combine(AppContext.BaseDirectory, "xtmupdfworker.exe");
-            return File.Exists(exe) && File.Exists(Path.Combine(AppContext.BaseDirectory, "mupdfcpp64.dll")) ? exe : null;
+            string exe = Path.Combine(AppContext.BaseDirectory, "xtpdfworker.exe");
+            // The statically linked worker (Native/XtMuPdfWorker/Build-Static.ps1) carries MuPDF itself and is
+            // marked by xtpdfworker.static; the DLL-based one needs mupdfcpp64.dll beside it.
+            bool runtime = File.Exists(Path.Combine(AppContext.BaseDirectory, "mupdfcpp64.dll")) ||
+                File.Exists(Path.Combine(AppContext.BaseDirectory, "xtpdfworker.static"));
+            return File.Exists(exe) && runtime ? exe : null;
         }
     }
     internal static bool UsesXtNativeWorker => XtNativeWorker != null;
@@ -147,6 +153,9 @@ internal static class ExperimentalMuPdfViewport
         }
     }
     internal static double WorkerPrivateMiB => WorkerPrivateBytes / 1048576d;
+    // Page-file mappings are shareable allocations and are not reliably represented
+    // by process private bytes. Include their explicit capacity in memory policy.
+    internal static long WorkerSharedMemoryBytes => Workers.Sum(s => Volatile.Read(ref s.SharedMemoryBytes));
     internal static long WorkerPrivateBytes
     {
         get
@@ -175,16 +184,67 @@ internal static class ExperimentalMuPdfViewport
          string.Equals(Path.GetFullPath(path), Setting("XTPDF_MUPDF_SOURCE_SECOND"), StringComparison.OrdinalIgnoreCase));
 #endif
 
+    private static long _visibleSequence;
+    private static readonly ConcurrentDictionary<(string Path, int Page, bool Annotations), byte> UpgradeQueued = new();
+    /// <summary>A page that is wanted on screen right now is first rendered at the size it is shown at (a fraction of the cost of the
+    /// reusable 4608 px image) and the reusable image is prepared in the background. XTPDF_SMALL_FIRST=0 restores the single big render.</summary>
+    private static readonly bool SmallFirst = Environment.GetEnvironmentVariable("XTPDF_SMALL_FIRST") != "0";
+
     internal static async Task<BitmapSource?> RenderFullPageAsync(string path, int page, double maxWidth,
         CancellationToken token, PdfRenderPriority priority = PdfRenderPriority.Visible, bool withAnnotations = false)
     {
-        int width = Math.Clamp((int)Math.Ceiling(maxWidth), 16, ThroughputMode ? 8192 : 4096);
+        int requested = Math.Clamp((int)Math.Ceiling(maxWidth), 16, ThroughputMode ? 8192 : 4096);
+        int width = requested;
         // One reusable sharp full-page image covers fit-to-page and nearby zooms.
         // Tiny sidebar previews must not allocate a high-resolution page.
         if (ThroughputMode && width >= 1024) width = Math.Max(width, 4608);
+        if (SmallFirst && ThroughputMode && priority != PdfRenderPriority.Thumbnail && width != requested && UsesXtNativeWorker)
+        {
+            // Visible: show the page at its shown size now, prepare the reusable image once the view settles.
+            // Background (prefetch of the next pages): the shown size is all a page needs to be sharp when it
+            // arrives, and it costs a third of the reusable image, so more pages are ready in time.
+            bool visible = priority == PdfRenderPriority.Visible;
+            long sequence = visible ? Interlocked.Increment(ref _visibleSequence) : 0;
+            if (!await IsCachedAsync(path, page, width, withAnnotations, token).ConfigureAwait(false))
+            {
+                var small = await RenderAsync(path, page, requested, 0, new[] { new Int32Rect(0, 0, requested, 0) }, token, priority, withAnnotations).ConfigureAwait(false);
+                if (visible) ScheduleUpgrade(path, page, width, withAnnotations, sequence);
+                return small[0];
+            }
+        }
         var result = await RenderAsync(path, page, width, 0, new[] { new Int32Rect(0, 0, width, 0) }, token, priority, withAnnotations).ConfigureAwait(false);
         return result[0];
     }
+    private static async Task<bool> IsCachedAsync(string path, int page, int width, bool withAnnotations, CancellationToken token)
+    {
+        var identity = await Task.Run(() =>
+        {
+            var file = new FileInfo(path);
+            return (Path: file.FullName.ToUpperInvariant(), Modified: file.Exists ? file.LastWriteTimeUtc.Ticks : 0, Length: file.Exists ? file.Length : 0);
+        }, token).ConfigureAwait(false);
+        var key = new RasterKey(identity.Path, identity.Modified, identity.Length, PdfLayerStateStore.GetToken(path), withAnnotations, false,
+            page, width, 0, DisplayWidthHint, new Int32Rect(0, 0, width, 0));
+        lock (CacheLock) return Cache.TryGetValue(key, out _);
+    }
+
+    /// <summary>Prepares the reusable big page image once the view has settled, if the page is still among the latest wanted ones.</summary>
+    private static void ScheduleUpgrade(string path, int page, int width, bool withAnnotations, long sequence)
+    {
+        if (!UpgradeQueued.TryAdd((path, page, withAnnotations), 0)) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(350).ConfigureAwait(false);
+                if (Interlocked.Read(ref _visibleSequence) - sequence > 3 || !AdaptiveMemoryController.AllowSpeculation) return;
+                await RenderAsync(path, page, width, 0, new[] { new Int32Rect(0, 0, width, 0) }, CancellationToken.None,
+                    PdfRenderPriority.Background, withAnnotations).ConfigureAwait(false);
+            }
+            catch { /* speculative: a failure only means the next zoom renders it on demand */ }
+            finally { UpgradeQueued.TryRemove((path, page, withAnnotations), out _); }
+        });
+    }
+
     internal static bool CanRenderFullPage(string path, int page, string layers) =>
         (BalancedMode || string.Equals(Setting("XTPDF_EXPERIMENTAL_ENGINE"), "mupdf", StringComparison.OrdinalIgnoreCase)) &&
         CanRender(path, page, layers);
@@ -214,7 +274,10 @@ internal static class ExperimentalMuPdfViewport
         long rasterGeneration;
         lock (CacheLock) rasterGeneration = _rasterGeneration;
         string layers = PdfLayerStateStore.GetToken(path);
-        RasterKey Key(Int32Rect rect) => new(normalized, modified, fileLength, layers, withAnnotations, alpha, page, fullWidth, fullHeight, rect);
+        int displayWidth = DisplayWidthHint;
+        bool nativeWorker = UsesXtNativeWorker;
+        bool sharedTransport = nativeWorker && Environment.GetEnvironmentVariable("XTPDF_MUPDF_SHARED_MEMORY") != "0";
+        RasterKey Key(Int32Rect rect) => new(normalized, modified, fileLength, layers, withAnnotations, alpha, page, fullWidth, fullHeight, displayWidth, rect);
         if (ThroughputMode)
         {
             var cached = new List<BitmapSource?>();
@@ -255,11 +318,17 @@ internal static class ExperimentalMuPdfViewport
                 long heightEstimate = fullHeight == 0 ? Math.Max(1, (long)Math.Ceiling(fullWidth * aspect)) : rect.Height;
                 long widthEstimate = fullHeight == 0 ? fullWidth : rect.Width;
                 RasterBudget.SetCapacity(AdaptiveMemoryController.State == MemoryPressureState.Normal ? ReaderPerformanceProfile.Current.RasterLimit : 192 * AdaptiveMemoryPolicy.MiB);
-                using var reservation = await RasterBudget.AcquireAsync(checked(widthEstimate * heightEstimate * (alpha ? 4 : 3) * 4), priority, token).ConfigureAwait(false);
+                // Shared native output and WPF own two CPU pixel planes. The pipe
+                // native route adds a managed array; legacy rendering needs four.
+                int pixelPlanes = sharedTransport ? 2 : nativeWorker ? 3 : 4;
+                using var reservation = await RasterBudget.AcquireAsync(checked(widthEstimate * heightEstimate * (alpha ? 4 : 3) * pixelPlanes), priority, token).ConfigureAwait(false);
                 RecycleColdWorker(slot, normalized, page);
                 var _worker = StartWorker(slot);
                 slot.LastPath = normalized; slot.LastPage = page;
                 var watch = Stopwatch.StartNew();
+                string? cancelEventName = null;
+                using var cancelEvent = nativeWorker ? CreateRenderCancellation(out cancelEventName) : null;
+                using var cancelRegistration = cancelEvent == null ? default : token.Register(() => cancelEvent.Set());
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 string request = JsonSerializer.Serialize(new
                 {
@@ -267,9 +336,11 @@ internal static class ExperimentalMuPdfViewport
                     page,
                     fullWidth,
                     fullHeight,
-                    displayWidth = DisplayWidthHint,
+                    displayWidth,
                     annotations = withAnnotations,
                     alpha,
+                    sharedMemory = sharedTransport,
+                    cancelEvent = cancelEventName,
                     password = PdfThumbnailService.TryGetDocumentPassword(path),
                     memoryState = (int)AdaptiveMemoryController.State,
                     nativeListLimit = ReaderPerformanceProfile.Current.NativeLists,
@@ -283,22 +354,55 @@ internal static class ExperimentalMuPdfViewport
                 var (header, leftover) = await ReadHeaderAsync(stream, timeout.Token).ConfigureAwait(false);
                 using var json = JsonDocument.Parse(header);
                 var root = json.RootElement;
-                if (root.TryGetProperty("error", out var error)) throw new InvalidOperationException(error.GetString());
+                if (root.TryGetProperty("error", out var error))
+                {
+                    replyDrained = true; // Error replies contain no pixel payload.
+                    Volatile.Write(ref slot.SharedMemoryBytes, 0);
+                    token.ThrowIfCancellationRequested();
+                    throw new InvalidOperationException(error.GetString());
+                }
                 int width = root.GetProperty("width").GetInt32(), height = root.GetProperty("height").GetInt32();
                 int stride = root.GetProperty("stride").GetInt32(), length = root.GetProperty("length").GetInt32();
                 if (width != rect.Width || (fullHeight != 0 && height != rect.Height) || height <= 0 || stride != checked(width * (alpha ? 4 : 3)) ||
                     length != checked(stride * height) || length > (ThroughputMode ? 512 : 128) * 1024 * 1024)
                     throw new InvalidDataException("Unexpected worker bitmap dimensions");
-                byte[] pixels = new byte[length];
-                int already = Math.Min(leftover.Length, length);
-                leftover.AsSpan(0, already).CopyTo(pixels);
-                if (already < length) await stream.ReadExactlyAsync(pixels.AsMemory(already), timeout.Token).ConfigureAwait(false);
+                string? sharedName = root.TryGetProperty("sharedMemory", out var sharedValue) ? sharedValue.GetString() : null;
+                byte[]? pixels = null;
+                if (sharedName != null)
+                {
+                    if (!sharedName.StartsWith($"Local\\XTPdfRaster-{_worker.Id}-", StringComparison.Ordinal) || leftover.Length != 0)
+                        throw new InvalidDataException("Unexpected native shared raster mapping");
+                    long capacity = root.TryGetProperty("sharedCapacity", out var mappedCapacity) ? mappedCapacity.GetInt64() : length;
+                    if (capacity < length || capacity > 256L * 1024 * 1024) throw new InvalidDataException("Unexpected shared raster capacity");
+                    Volatile.Write(ref slot.SharedMemoryBytes, capacity);
+                }
+                else
+                {
+                    Volatile.Write(ref slot.SharedMemoryBytes, 0);
+                    pixels = GC.AllocateUninitializedArray<byte>(length);
+                    int already = Math.Min(leftover.Length, length);
+                    leftover.AsSpan(0, already).CopyTo(pixels);
+                    if (already < length) await stream.ReadExactlyAsync(pixels.AsMemory(already), timeout.Token).ConfigureAwait(false);
+                }
                 replyDrained = true;
+                RenderDiagnostics.MuPdfRoundTrip.AddMilliseconds(watch.Elapsed.TotalMilliseconds);
+                RenderDiagnostics.MuPdfPrepare.AddMilliseconds(root.GetProperty("prepareMs").GetDouble());
                 token.ThrowIfCancellationRequested();
                 if (PdfThumbnailService.IsDocumentSuspended(path) || layers != PdfLayerStateStore.GetToken(path))
                     return new List<BitmapSource?>(new BitmapSource?[rectangles.Count]);
-                var bitmap = BitmapSource.Create(width, height, 96, 96, alpha ? PixelFormats.Pbgra32 : PixelFormats.Bgr24, null, pixels, stride);
+                long copyStart = Stopwatch.GetTimestamp();
+                BitmapSource bitmap;
+                if (sharedName != null)
+                {
+                    using var mapping = MemoryMappedFile.OpenExisting(sharedName, MemoryMappedFileRights.Read);
+                    using var view = mapping.CreateViewAccessor(0, length, MemoryMappedFileAccess.Read);
+                    var address = IntPtr.Add(view.SafeMemoryMappedViewHandle.DangerousGetHandle(), checked((int)view.PointerOffset));
+                    bitmap = BitmapSource.Create(width, height, 96, 96, alpha ? PixelFormats.Pbgra32 : PixelFormats.Bgr24, null, address, length, stride);
+                    bitmap.Freeze(); // WPF owns a copy before the worker gate can be released.
+                }
+                else bitmap = BitmapSource.Create(width, height, 96, 96, alpha ? PixelFormats.Pbgra32 : PixelFormats.Bgr24, null, pixels!, stride);
                 bitmap.Freeze();
+                RenderDiagnostics.BitmapCopy.Record(copyStart);
                 RenderDiagnostics.RasterSlice.AddMilliseconds(root.GetProperty("renderMs").GetDouble());
                 if (ThroughputMode) lock (CacheLock)
                     if (rasterGeneration == _rasterGeneration) Cache.Set(Key(rect), bitmap);
@@ -349,12 +453,42 @@ internal static class ExperimentalMuPdfViewport
             info.Environment["XTPDF_MUPDF_LISTS"] = "4";
             info.Environment["XTPDF_MUPDF_DOCUMENTS"] = "2";
         }
+        // The native worker draws a large page in bands on several threads. The two visible lanes get most
+        // of the cores; the background lanes (speculative pages) stay small and below normal priority so that
+        // preparing a neighbouring page can never slow down what is on screen.
+        int slotIndex = Array.IndexOf(Workers, slot);
+        bool backgroundLane = slotIndex >= 2;
+        if (xt != null && Setting("XTPDF_RENDER_THREADS") == null)
+        {
+            int cores = Environment.ProcessorCount;
+            int threads = backgroundLane ? Math.Clamp(cores / 8, 1, 3) : Math.Clamp(cores / 3, 2, 8);
+            info.Environment["XTPDF_RENDER_THREADS"] = threads.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
         var _worker = Process.Start(info) ?? throw new InvalidOperationException("Worker did not start");
+        if (backgroundLane)
+        {
+            try { _worker.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { /* the process may already be gone */ }
+        }
         slot.Worker = _worker;
         WorkerJob.Assign(_worker); // app crash / "End task" kills the worker too (no orphaned python.exe holding RAM)
         _worker.ErrorDataReceived += (_, e) => { if (e.Data != null) Debug.WriteLine("[MuPDF worker] " + e.Data); };
         _worker.BeginErrorReadLine();
         return _worker;
+    }
+
+    private static EventWaitHandle? CreateRenderCancellation(out string? name)
+    {
+        name = null;
+        if (Environment.GetEnvironmentVariable("XTPDF_NATIVE_CANCEL") == "0") return null;
+        string candidate = "Local\\XTPdfCancel-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            var handle = new EventWaitHandle(false, EventResetMode.ManualReset, candidate);
+            name = candidate;
+            return handle;
+        }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
     }
 
     internal static async Task<JsonElement> CommandAsync(string path, string op, int page = 0,
@@ -388,9 +522,12 @@ internal static class ExperimentalMuPdfViewport
             replyDrained = true;
             token.ThrowIfCancellationRequested();
             if (reply.RootElement.TryGetProperty("error", out var error)) throw new InvalidOperationException(error.GetString());
+            if (reply.RootElement.TryGetProperty("sharedBytes", out var sharedBytes)) Volatile.Write(ref slot.SharedMemoryBytes, sharedBytes.GetInt64());
+            else if (op is "memory" or "close" or "release") Volatile.Write(ref slot.SharedMemoryBytes, 0);
             if (op == "metadata" && reply.RootElement.TryGetProperty("sizes", out var sizes))
             {
-                string normalized = Path.GetFullPath(path).ToUpperInvariant(); int index = 0;
+                string normalized = Path.GetFullPath(path).ToUpperInvariant();
+                int index = reply.RootElement.TryGetProperty("first", out var first) ? first.GetInt32() : 0;
                 foreach (var size in sizes.EnumerateArray()) PageAspects[(normalized, index++)] = size[1].GetDouble() / size[0].GetDouble();
             }
             return reply.RootElement.Clone();
@@ -407,12 +544,14 @@ internal static class ExperimentalMuPdfViewport
 
     private static async Task EnterSlotAsync(WorkerSlot slot, PdfRenderPriority priority, CancellationToken token)
     {
+        long waitStart = Stopwatch.GetTimestamp();
         Interlocked.Increment(ref slot.Pending);
         try
         {
             await slot.Scheduling.WaitAsync(priority, token).ConfigureAwait(false);
             try { await slot.Gate.WaitAsync(token).ConfigureAwait(false); }
             catch { slot.Scheduling.Release(); throw; }
+            RenderDiagnostics.NativeWait.Record(waitStart);
         }
         catch { Interlocked.Decrement(ref slot.Pending); throw; }
     }
@@ -442,6 +581,7 @@ internal static class ExperimentalMuPdfViewport
                 await worker.StandardInput.FlushAsync(timeout.Token).ConfigureAwait(false);
                 using var reply = JsonDocument.Parse((await ReadHeaderAsync(worker.StandardOutput.BaseStream, timeout.Token).ConfigureAwait(false)).Header);
                 if (!reply.RootElement.TryGetProperty("ok", out _)) Stop(slot);
+                Volatile.Write(ref slot.SharedMemoryBytes, 0);
             }
             catch { Stop(slot); throw; }
             finally { slot.Gate.Release(); }
@@ -466,6 +606,7 @@ internal static class ExperimentalMuPdfViewport
                 await worker.StandardInput.FlushAsync(timeout.Token).ConfigureAwait(false);
                 using var reply = JsonDocument.Parse((await ReadHeaderAsync(worker.StandardOutput.BaseStream, timeout.Token).ConfigureAwait(false)).Header);
                 if (!reply.RootElement.TryGetProperty("ok", out _)) Stop(slot);
+                Volatile.Write(ref slot.SharedMemoryBytes, 0);
             }
             catch { Stop(slot); }
             finally { slot.Gate.Release(); }
@@ -523,6 +664,7 @@ internal static class ExperimentalMuPdfViewport
                 await worker.StandardInput.FlushAsync(timeout.Token).ConfigureAwait(false);
                 using var reply = JsonDocument.Parse((await ReadHeaderAsync(worker.StandardOutput.BaseStream, timeout.Token).ConfigureAwait(false)).Header);
                 if (!reply.RootElement.TryGetProperty("ok", out _)) Stop(slot);
+                Volatile.Write(ref slot.SharedMemoryBytes, 0);
                 slot.LastMemoryTrim = Stopwatch.GetTimestamp();
             }
             catch (Exception ex) { Debug.WriteLine($"MuPDF memory trim failed: {ex.Message}"); Stop(slot); }
@@ -532,6 +674,7 @@ internal static class ExperimentalMuPdfViewport
 
     private static void Stop(WorkerSlot slot)
     {
+        Volatile.Write(ref slot.SharedMemoryBytes, 0);
         var worker = Interlocked.Exchange(ref slot.Worker, null);
         if (worker == null) return;
         try { if (!worker.HasExited) worker.Kill(entireProcessTree: true); }

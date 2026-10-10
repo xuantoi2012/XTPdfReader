@@ -11,15 +11,17 @@ using XTPdfMergeApp.Services.Ocr;
 namespace XTPdfMergeApp.Services.TextEdit
 {
     /// <summary>
-    /// Real text editing. A python process (<c>TextEditWorker.py</c>, the embedded Python of the viewer) lists the text runs of a page and, on Save, removes the old
-    /// characters from the page and writes the new ones at the same baseline with the same size and colour. Only pages with a real text layer have runs: a scan or a
+    /// Real text editing. An isolated native worker lists text runs and removes old characters on Save;
+    /// TextEditWriter writes replacements at the same baseline, size and colour. Only pages with a real text layer have runs: a scan or a
     /// drawing whose letters are strokes has none, and the tool says so.
     /// </summary>
     internal static class TextEditService
     {
         internal static string WorkerScript => Environment.GetEnvironmentVariable("XTPDF_TEXTEDIT_WORKER") ?? Path.Combine(AppContext.BaseDirectory, "TextEditWorker.py");
 
-        public static bool IsAvailable => OcrService.Python is { } python && File.Exists(python) && File.Exists(WorkerScript);
+        internal static string? NativeWorker => Environment.GetEnvironmentVariable("XTPDF_NATIVE_TEXTEDIT") == "0" ||
+            Environment.GetEnvironmentVariable("XTPDF_TEXTEDIT_WORKER") != null ? null : ExperimentalMuPdfViewport.XtNativeWorker;
+        public static bool IsAvailable => NativeWorker != null || OcrService.Python is { } python && File.Exists(python) && File.Exists(WorkerScript);
 
         private static readonly Dictionary<(string, int, int), PageTextRuns> Cache = new();
 
@@ -115,18 +117,20 @@ namespace XTPdfMergeApp.Services.TextEdit
 
         internal static async Task RunAsync(object job, Action<JsonElement> onMessage)
         {
-            if (!IsAvailable) throw new InvalidOperationException("Text editing is not installed with this copy of the program (TextEditWorker.py or the embedded Python is missing).");
+            if (!IsAvailable) throw new InvalidOperationException("Text editing is not installed with this copy of the program (the editing worker is missing).");
             string jobFile = Path.Combine(Path.GetTempPath(), "xtpdf-textedit-" + Guid.NewGuid().ToString("N") + ".json");
-            await File.WriteAllTextAsync(jobFile, JsonSerializer.Serialize(job)).ConfigureAwait(false);
-            var info = new ProcessStartInfo(OcrService.Python!)
+            string serialized = JsonSerializer.Serialize(job);
+            string? native = NativeWorker;
+            await File.WriteAllTextAsync(jobFile, serialized).ConfigureAwait(false);
+            var info = new ProcessStartInfo(native ?? OcrService.Python!)
             {
                 UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
                 StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
             };
-            info.ArgumentList.Add("-u");
-            info.ArgumentList.Add(WorkerScript);
+            if (native != null) info.ArgumentList.Add("--textedit");
+            else { info.ArgumentList.Add("-u"); info.ArgumentList.Add(WorkerScript); }
             info.ArgumentList.Add(jobFile);
-            if (OcrService.Packages is { } packages) info.Environment["PYTHONPATH"] = packages;
+            if (native == null && OcrService.Packages is { } packages) info.Environment["PYTHONPATH"] = packages;
             info.Environment["PYTHONIOENCODING"] = "utf-8";
             try
             {

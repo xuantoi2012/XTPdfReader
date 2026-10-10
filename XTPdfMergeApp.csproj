@@ -2,6 +2,8 @@
 
   <PropertyGroup>
     <MuPdfOnly Condition="'$(MuPdfOnly)' == ''">true</MuPdfOnly>
+    <NativeOnly Condition="'$(NativeOnly)' == '' And '$(MuPdfOnly)' == 'true'">true</NativeOnly>
+    <NativeOnly Condition="'$(NativeOnly)' == ''">false</NativeOnly>
     <MuPdfRuntimeDir Condition="'$(MuPdfRuntimeDir)' == ''">$(MSBuildProjectDirectory)\bin\MuPdfRuntime</MuPdfRuntimeDir>
     <!-- windows10.0.19041.0 cho WPF desktop; thumbnail PDF render trực tiếp bằng PDFium native. -->
     <OutputType>WinExe</OutputType>
@@ -57,22 +59,40 @@
     <Resource Include="PDF icon.ico" />
     <!-- The icon of .pdf files that open with this app (a page with the F badge), registered by the setup; it must sit beside the exe. -->
     <Content Include="PDFDocument.ico" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Tests\GpuPdfium\MuPdfViewportWorker.py" Link="MuPdfWorker.py" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Tests\GpuPdfium\MuPdfViewportWorker.py" Link="MuPdfWorker.py" CopyToOutputDirectory="PreserveNewest" Condition="'$(NativeOnly)' != 'true'" />
     <!-- Native viewing worker (no Python), built by Native/XtMuPdfWorker/Build.ps1; without it the app uses the Python worker. -->
-    <Content Include="Native\XtMuPdfWorker\bin\xtmupdfworker.exe" Link="xtmupdfworker.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('Native\XtMuPdfWorker\bin\xtmupdfworker.exe')" />
-    <Content Include="Native\XtMuPdfWorker\bin\mupdfcpp64.dll" Link="mupdfcpp64.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('Native\XtMuPdfWorker\bin\xtmupdfworker.exe')" />
+    <!-- Statically linked worker (Build-Static.ps1): MuPDF inside the exe, banded multi-threaded rendering, no mupdfcpp64.dll. It wins when it has been built. -->
+    <Content Include="Native\XtMuPdfWorker\bin\static\xtpdfworker.exe" Link="xtpdfworker.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('Native\XtMuPdfWorker\bin\static\xtpdfworker.exe')" />
+    <Content Include="Native\XtMuPdfWorker\xtpdfworker.static" Link="xtpdfworker.static" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('Native\XtMuPdfWorker\bin\static\xtpdfworker.exe')" />
+    <Content Include="Native\XtMuPdfWorker\bin\xtpdfworker.exe" Link="xtpdfworker.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="!Exists('Native\XtMuPdfWorker\bin\static\xtpdfworker.exe') And ('$(NativeOnly)' == 'true' Or Exists('Native\XtMuPdfWorker\bin\xtpdfworker.exe'))" />
+    <Content Include="Native\XtMuPdfWorker\bin\mupdfcpp64.dll" Link="mupdfcpp64.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="!Exists('Native\XtMuPdfWorker\bin\static\xtpdfworker.exe') And ('$(NativeOnly)' == 'true' Or Exists('Native\XtMuPdfWorker\bin\xtpdfworker.exe'))" />
+    <Content Include="Native\XtGpuRaster\bin\xtgpuraster.dll" Link="xtgpuraster.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="'$(GpuRaster)' == 'true'" />
+    <Content Include="Native\XtGpuRaster\Run-GPU.cmd" Link="Run-GPU.cmd" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="'$(GpuRaster)' == 'true'" />
     <!-- OCR of scanned pages: the worker script (run by the embedded Python) and the Vietnamese + Latin language data of tesseract (tessdata_fast, Apache-2.0). -->
-    <Content Include="Services\Ocr\OcrWorker.py" Link="OcrWorker.py" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Services\TextEdit\TextEditWorker.py" Link="TextEditWorker.py" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Services\Ocr\OcrWorker.py" Link="OcrWorker.py" CopyToOutputDirectory="PreserveNewest" Condition="'$(NativeOnly)' != 'true'" />
+    <Content Include="Services\TextEdit\TextEditWorker.py" Link="TextEditWorker.py" CopyToOutputDirectory="PreserveNewest" Condition="'$(NativeOnly)' != 'true'" />
     <Content Include="Services/Ocr/tessdata/vie.traineddata" Link="tessdata/vie.traineddata" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <PropertyGroup Condition="'$(MuPdfOnly)' == 'true'">
     <DefineConstants>$(DefineConstants);MUPDF_ONLY</DefineConstants>
   </PropertyGroup>
-  <ItemGroup Condition="'$(MuPdfOnly)' == 'true' And Exists('$(MuPdfRuntimeDir)\python.exe')">
+  <Target Name="BuildNativeWorker" BeforeTargets="PrepareForBuild"
+          Condition="'$(NativeOnly)' == 'true'"
+          Inputs="Native\XtMuPdfWorker\worker.cpp;Native\XtMuPdfWorker\json.h;Native\XtMuPdfWorker\fidelity.h;Native\XtMuPdfWorker\ocr.h;Native\XtMuPdfWorker\edit.h;Native\XtMuPdfWorker\objects.h;Native\XtMuPdfWorker\transport.h;Native\XtMuPdfWorker\Build.ps1"
+          Outputs="Native\XtMuPdfWorker\bin\xtpdfworker.exe;Native\XtMuPdfWorker\bin\mupdfcpp64.dll">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\Native\XtMuPdfWorker\Build.ps1&quot;" />
+  </Target>
+  <Target Name="BuildGpuRaster" BeforeTargets="PrepareForBuild" Condition="'$(GpuRaster)' == 'true'"
+          Inputs="Native\XtGpuRaster\renderer.cpp;Native\XtGpuRaster\Build.ps1" Outputs="Native\XtGpuRaster\bin\xtgpuraster.dll">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\Native\XtGpuRaster\Build.ps1&quot;" />
+  </Target>
+  <Target Name="ValidateNativeWorker" BeforeTargets="PrepareForBuild" DependsOnTargets="BuildNativeWorker" Condition="'$(NativeOnly)' == 'true'">
+    <Error Condition="!Exists('Native\XtMuPdfWorker\bin\static\xtpdfworker.exe') And (!Exists('Native\XtMuPdfWorker\bin\xtpdfworker.exe') Or !Exists('Native\XtMuPdfWorker\bin\mupdfcpp64.dll'))" Text="Build Native/XtMuPdfWorker/Build.ps1 (or Build-Static.ps1) before building a native-only Reader." />
+  </Target>
+  <ItemGroup Condition="'$(MuPdfOnly)' == 'true' And '$(NativeOnly)' != 'true' And Exists('$(MuPdfRuntimeDir)\python.exe')">
     <Content Include="$(MuPdfRuntimeDir)\**\*" Link="MuPdfRuntime\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
-  <Target Name="ValidateMuPdfRuntime" BeforeTargets="PrepareForBuild" Condition="'$(MuPdfOnly)' == 'true'">
+  <Target Name="ValidateMuPdfRuntime" BeforeTargets="PrepareForBuild" Condition="'$(MuPdfOnly)' == 'true' And '$(NativeOnly)' != 'true'">
     <Error Condition="!Exists('$(MuPdfRuntimeDir)\python.exe')" Text="Prepare the local runtime with Packaging/Prepare-MuPdfRuntime.ps1, or supply MuPdfRuntimeDir." />
   </Target>
 

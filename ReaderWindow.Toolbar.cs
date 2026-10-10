@@ -100,7 +100,12 @@ public partial class ReaderWindow
                 row.MouseLeftButtonUp += (_, _) =>
                 {
                     if (popup != null) popup.IsOpen = false;
-                    Dispatcher.BeginInvoke(() => captured.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, captured)), DispatcherPriority.Input);
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        // Closing the popup defers this action; the owner can close before it runs.
+                        if (IsLoaded && IsVisible && captured.IsLoaded)
+                            captured.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, captured));
+                    }, DispatcherPriority.Input);
                 };
                 list.Children.Add(row);
             }

@@ -1,6 +1,6 @@
 // XtMuPdfWorker: the MuPDF viewing worker without Python. Same protocol as Tests/GpuPdfium/MuPdfViewportWorker.py:
 // one JSON request per stdin line; the reply is one JSON line (and, for a render, the BGR(A) pixels right after it).
-// Step 1A of docs/NATIVE-WORKER-PLAN-2026-10-10.md: metadata + render, lazy block reading for network files.
+// Viewing, text, bounded caches and lazy block reading for network files.
 #define NOMINMAX
 #include <mupdf/fitz.h>
 #include <windows.h>
@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cctype>
+#include <cfloat>
 #include <cmath>
 #include <cwctype>
 #include <iostream>
@@ -19,11 +20,33 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <sstream>
+#include <iomanip>
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include "json.h"
 #include "fidelity.h"
+#include "ocr.h"
+#include "edit.h"
+#include "objects.h"
+#include "transport.h"
+
+// XT_PATCHED_MUPDF: built against the patched MuPDF source (mupdf-xt/mupdf-1.28.2-xt.patch).
+// It renders a large page in horizontal bands on several threads and produces the same
+// pixels, byte for byte, as a single-threaded render of the whole area.
+#ifdef XT_PATCHED_MUPDF
+#include <atomic>
+#include <mutex>
+#include <thread>
+extern "C" {
+void fz_set_alloc_lockless(int on);
+void fz_draw_set_virtual_scissor(fz_context* ctx, fz_device* dev, fz_irect virtual_bounds);
+}
+static CRITICAL_SECTION g_mupdfLocks[FZ_LOCK_MAX];
+static void MuLock(void*, int i) { EnterCriticalSection(&g_mupdfLocks[i]); }
+static void MuUnlock(void*, int i) { LeaveCriticalSection(&g_mupdfLocks[i]); }
+#endif
 
 using Clock = std::chrono::steady_clock;
 static double MillisSince(Clock::time_point t) { return std::chrono::duration<double, std::milli>(Clock::now() - t).count(); }
@@ -53,15 +76,19 @@ public:
     }
     int64_t size() const { return size_; }
     size_t blockSize() const { return block_; }
+    size_t bytes() const { return used_; }
+    void setBudget(size_t budget) { budget_ = budget; evict(lastBlock_); }
 
     // The bytes of block `index`; stays valid until the next call that is not for the same block.
     const uint8_t* get(int64_t index, size_t& length) {
+        lastBlock_ = index; // the stream may still point into this block between requests
         auto it = blocks_.find(index);
         if (it == blocks_.end()) {
             int64_t offset = index * (int64_t)block_;
             if (offset >= size_) return nullptr;
             size_t want = (size_t)std::min<int64_t>((int64_t)block_, size_ - offset);
             auto* data = (uint8_t*)_aligned_malloc((want + 4095) & ~(size_t)4095, 4096);
+            if (!data) return nullptr;
             OVERLAPPED ov{};
             ov.Offset = (DWORD)(offset & 0xFFFFFFFF);
             ov.OffsetHigh = (DWORD)(offset >> 32);
@@ -88,11 +115,12 @@ private:
     size_t block_;
     size_t budget_;
     size_t used_ = 0;
+    int64_t lastBlock_ = -1;
     std::unordered_map<int64_t, Entry> blocks_;
     std::list<int64_t> lru_;
 
     void evict(int64_t keep) {
-        while (used_ > budget_ && lru_.size() > 2) {
+        while (used_ > budget_ && lru_.size() > 1) {
             int64_t victim = lru_.back();
             if (victim == keep) break;
             auto it = blocks_.find(victim);
@@ -152,23 +180,39 @@ struct Doc {
     DocExtras extras;
 };
 
-struct ListEntry { fz_display_list* list = nullptr; fz_rect bounds{}; };
+// Learned single-thread cost (ms per megapixel) of rendering this page: one value for whole-page
+// renders and one per cell of an 8 x 8 grid for viewport tiles. 0 means not known yet.
+struct ListEntry { fz_display_list* list = nullptr; fz_rect bounds{}; double fullCost = 0; double cellCost[64] = {}; };
+struct RasterEntry { std::string stamp, header; std::vector<uint8_t> pixels; };
 
 class Worker {
 public:
     Worker() {
+#ifdef XT_PATCHED_MUPDF
+        for (auto& cs : g_mupdfLocks) InitializeCriticalSectionAndSpinCount(&cs, 2000);
+        fz_locks_context locks{ nullptr, MuLock, MuUnlock };
+        fz_set_alloc_lockless(1);   // the CRT heap is thread safe; no global lock per malloc/free
+        ctx_ = fz_new_context(nullptr, &locks, 256u << 20);
+        renderThreads_ = (int)std::clamp(EnvNumber("XTPDF_RENDER_THREADS",
+            (double)std::min(8u, std::max(1u, std::thread::hardware_concurrency()))), 1.0, 32.0);
+        bandMinPixels_ = (size_t)std::max(0.0, EnvNumber("XTPDF_BAND_MIN_PIXELS", 2000000));
+        bandMinMilliseconds_ = std::max(0.0, EnvNumber("XTPDF_BAND_MIN_MS", 25));
+#else
         ctx_ = fz_new_context(nullptr, nullptr, 256u << 20);
+#endif
         if (!ctx_) { std::fputs("cannot create the MuPDF context\n", stderr); std::exit(3); }
         fz_try(ctx_) { fz_register_document_handlers(ctx_); }
         fz_catch(ctx_) { std::fputs("cannot register the document handlers\n", stderr); std::exit(3); }
         minLine_ = EnvNumber("XTPDF_MIN_LINE_PX", 1.2);
         gamma_ = (float)EnvNumber("XTPDF_GAMMA", 1.4);
+        rasterBudget_ = EnvNumber("XTPDF_MUPDF_NO_RASTER_CACHE", 0) == 1 ? 0 :
+            (size_t)(std::clamp(EnvNumber("XTPDF_MUPDF_RASTER_MB", 128), 0.0, 512.0) * 1024 * 1024);
         configuredLists_ = (size_t)std::max(1.0, EnvNumber("XTPDF_MUPDF_LISTS", 64));
         configuredDocuments_ = (size_t)std::max(1.0, EnvNumber("XTPDF_MUPDF_DOCUMENTS", 64));
         listLimit_ = configuredLists_;
         documentLimit_ = configuredDocuments_;
-        blockBytes_ = (size_t)EnvNumber("XTPDF_BLOCK_KB", 256) * 1024;
-        blockBudget_ = (size_t)EnvNumber("XTPDF_BLOCK_BUDGET_MB", 256) << 20;
+        blockBytes_ = (size_t)std::clamp(EnvNumber("XTPDF_BLOCK_KB", 256), 4.0, 4096.0) * 1024;
+        blockBudget_ = (size_t)std::clamp(EnvNumber("XTPDF_BLOCK_BUDGET_MB", 64), 0.0, 512.0) << 20;
     }
 
     void Run() {
@@ -176,6 +220,26 @@ public:
         while (std::getline(std::cin, line)) {
             if (line.empty()) continue;
             Handle(line);
+        }
+    }
+
+    int RunJob(const std::wstring& jobPath, bool ocr) {
+        try {
+            FILE* file = _wfopen(jobPath.c_str(), L"rb");
+            if (!file) throw std::runtime_error("cannot open native job");
+            std::string line; char buffer[8192]; size_t n;
+            while ((n = std::fread(buffer, 1, sizeof buffer, file)) != 0) line.append(buffer, n);
+            std::fclose(file);
+            Json job; JsonReader reader(line);
+            if (!reader.parse(job) || job.type != Json::Object) throw std::runtime_error("invalid native job");
+            std::string stamp; Doc& d = Open(job, stamp);
+            if (ocr) nativeocr::Run(ctx_, d.doc, d.pageCount, job);
+            else if (job.str("mode") == "runs" || job.str("mode") == "area" || job.str("mode") == "apply") nativeedit::RunJob(ctx_, d.doc, job);
+            else nativeobjects::RunJob(ctx_, d.doc, job);
+            return 0;
+        } catch (const std::exception& e) {
+            nativeocr::Emit("{\"type\":\"error\",\"message\":" + JsonQuote(e.what()) + '}');
+            return 1;
         }
     }
 
@@ -189,6 +253,28 @@ private:
     std::map<std::string, Doc> docs_;
     std::list<std::string> listOrder_;
     std::map<std::string, ListEntry> lists_;
+    size_t rasterBudget_ = 0, rasterLimit_ = 0, rasterBytes_ = 0;
+    size_t rasterHits_ = 0, rasterMisses_ = 0;
+    std::list<std::string> rasterOrder_;
+    std::map<std::string, RasterEntry> rasters_;
+    SharedRaster sharedRaster_;
+    size_t sharedFrames_ = 0;
+    size_t cancelledRenders_ = 0;
+
+    void TrimRasters(size_t limit) {
+        while (rasterBytes_ > limit && !rasterOrder_.empty()) {
+            auto it = rasters_.find(rasterOrder_.back());
+            rasterBytes_ -= it->second.pixels.size();
+            rasters_.erase(it);
+            rasterOrder_.pop_back();
+        }
+    }
+
+    static void SendRaster(const std::string& header, const std::vector<uint8_t>& pixels) {
+        std::fwrite(header.data(), 1, header.size(), stdout);
+        std::fwrite(pixels.data(), 1, pixels.size(), stdout);
+        std::fflush(stdout);
+    }
 
     static void Send(const std::string& s) {
         std::fwrite(s.data(), 1, s.size(), stdout);
@@ -208,9 +294,22 @@ private:
             size_t configured = (size_t)std::max(1, std::min(64, request.has("nativeListLimit") ? request.integer("nativeListLimit") : (int)configuredLists_));
             listLimit_ = memoryState == 0 ? configured : std::min<size_t>(configured, memoryState == 1 ? 2 : 1);
             documentLimit_ = memoryState == 0 ? configuredDocuments_ : std::min<size_t>(configuredDocuments_, 1);
-            if (op == "memory") { Memory(request, memoryState); return; }
-            if (op == "stats") { Send("{\"documents\":" + std::to_string(docs_.size()) + ",\"displayLists\":" + std::to_string(lists_.size()) + ",\"rasterBytes\":0,\"storeBytes\":0}"); return; }
-            if (op == "close" || op == "release") { Close(request, op == "close"); return; }
+            rasterLimit_ = memoryState == 0 ? rasterBudget_ : 0;
+            TrimRasters(rasterLimit_);
+            for (auto& item : docs_) if (item.second.file)
+                item.second.file->setBudget(memoryState == 0 ? blockBudget_ : memoryState == 1 ? std::min<size_t>(blockBudget_, 4u << 20) : 0);
+            while (lists_.size() > listLimit_ && !listOrder_.empty()) {
+                auto it = lists_.find(listOrder_.back());
+                fz_drop_display_list(ctx_, it->second.list);
+                lists_.erase(it); listOrder_.pop_back();
+            }
+            if (op == "memory") { sharedRaster_.Reset(); Memory(request, memoryState); return; }
+            if (op == "stats") {
+                size_t blockBytes = 0;
+                for (auto& item : docs_) if (item.second.file) blockBytes += item.second.file->bytes();
+                Send("{\"documents\":" + std::to_string(docs_.size()) + ",\"displayLists\":" + std::to_string(lists_.size()) + ",\"rasterBytes\":" + std::to_string(rasterBytes_) + ",\"rasterHits\":" + std::to_string(rasterHits_) + ",\"rasterMisses\":" + std::to_string(rasterMisses_) + ",\"blockBytes\":" + std::to_string(blockBytes) + ",\"sharedBytes\":" + std::to_string(sharedRaster_.Capacity()) + ",\"sharedFrames\":" + std::to_string(sharedFrames_) + ",\"cancelledRenders\":" + std::to_string(cancelledRenders_) + ",\"storeBytes\":0}"); return;
+            }
+            if (op == "close" || op == "release") { sharedRaster_.Reset(); Close(request, op == "close"); return; }
             if (op == "words") { Words(request); return; }
             if (op == "select") { Select(request); return; }
             if (op == "search") { Search(request); return; }
@@ -219,6 +318,7 @@ private:
             if (!op.empty()) { SendError("unknown operation '" + op + "'"); return; }
             Render(request);
         } catch (const std::exception& e) {
+            if (std::strcmp(e.what(), "render cancelled") == 0) { ++cancelledRenders_; sharedRaster_.Reset(); }
             SendError(e.what());
         }
     }
@@ -274,7 +374,7 @@ private:
         std::string message;
         fz_var(failed);
         fz_try(ctx_) {
-            if (IsNetworkPath(wide)) {
+            if (IsNetworkPath(wide) || EnvNumber("XTPDF_FORCE_BLOCK_STREAM", 0) == 1) {
                 HANDLE h = CreateFileW(wide.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_RANDOM_ACCESS, nullptr);
                 if (h == INVALID_HANDLE_VALUE) fz_throw(ctx_, FZ_ERROR_SYSTEM, "cannot open the file (%lu)", GetLastError());
                 d.file = std::make_unique<BlockFile>(h, (int64_t)size, blockBytes_, blockBudget_);
@@ -315,6 +415,13 @@ private:
     }
 
     void DropListsOf(const std::string& stamp) {
+        for (auto it = rasters_.begin(); it != rasters_.end();) {
+            if (it->second.stamp == stamp) {
+                rasterBytes_ -= it->second.pixels.size();
+                rasterOrder_.remove(it->first);
+                it = rasters_.erase(it);
+            } else ++it;
+        }
         for (auto it = lists_.begin(); it != lists_.end();) {
             if (it->first.compare(0, stamp.size() + 1, stamp + "#") == 0) {
                 fz_drop_display_list(ctx_, it->second.list);
@@ -326,6 +433,7 @@ private:
 
     // The app is short of memory: only what the visible pages need stays (the Python worker does the same).
     void Memory(const Json& request, int memoryState) {
+        TrimRasters(0);
         std::vector<std::pair<std::string, int>> protectedPages;
         if (auto* data = request.find("data"); data && data->type == Json::Array)
             for (auto& item : data->items)
@@ -375,19 +483,26 @@ private:
         Doc& d = Open(request, stamp);
         // countOnly: opening a file only needs the number of pages; the sizes (one random read per page on a share) are asked for separately.
         if (auto* data = request.find("data"); data && data->flag("countOnly")) { Send("{\"count\":" + std::to_string(d.pageCount) + "}"); return; }
-        std::string out = "{\"count\":" + std::to_string(d.pageCount) + ",\"sizes\":[";
+        const Json* data = request.find("data");
+        bool ranged = data && data->has("first");
+        int first = ranged ? data->integer("first") : 0;
+        int count = ranged ? data->integer("count", 16) : d.pageCount;
+        if (first < 0 || first > d.pageCount || count < 0) throw std::runtime_error("invalid metadata range");
+        int end = first + std::min(count, d.pageCount - first);
+        std::string out = "{\"count\":" + std::to_string(d.pageCount) +
+            (ranged ? ",\"first\":" + std::to_string(first) : "") + ",\"sizes\":[";
         bool failed = false;
         std::string message;
         fz_var(failed);
         fz_try(ctx_) {
-            for (int i = 0; i < d.pageCount; ++i) {
+            for (int i = first; i < end; ++i) {
                 fz_page* page = fz_load_page(ctx_, d.doc, i);
                 fz_rect r{};
                 fz_try(ctx_) { r = fz_bound_page(ctx_, page); }
                 fz_always(ctx_) { fz_drop_page(ctx_, page); }
                 fz_catch(ctx_) { fz_rethrow(ctx_); }
                 char buf[96];
-                std::snprintf(buf, sizeof buf, "%s[%.4f,%.4f]", i ? "," : "", r.x1 - r.x0, r.y1 - r.y0);
+                std::snprintf(buf, sizeof buf, "%s[%.4f,%.4f]", i > first ? "," : "", r.x1 - r.x0, r.y1 - r.y0);
                 out += buf;
             }
         }
@@ -610,7 +725,7 @@ private:
         Send(out + "]}");
     }
 
-    ListEntry& DisplayList(Doc& d, const std::string& stamp, int page, bool annotations) {
+    ListEntry& DisplayList(Doc& d, const std::string& stamp, int page, bool annotations, fz_cookie* cookie) {
         std::string key = stamp + "#" + std::to_string(page) + (annotations ? "a" : "c");
         auto found = lists_.find(key);
         if (found != lists_.end()) {
@@ -619,6 +734,7 @@ private:
             return found->second;
         }
         ListEntry entry;
+        fz_var(entry.list);
         bool failed = false;
         std::string message;
         fz_var(failed);
@@ -631,33 +747,32 @@ private:
                 auto sig = d.extras.signatures.find(page);
                 bool hasSignatures = sig != d.extras.signatures.end() && !sig->second.empty();
                 bool hasWidgets = pp && pdf_first_widget(ctx_, pp) != nullptr;
-                if (!annotations && (hasWidgets || hasSignatures)) {
-                    // Form fields and the (stamped) unsigned signatures are drawn even when the other annotations are not.
-                    fz_rect bound = fz_bound_page(ctx_, p);
-                    entry.list = fz_new_display_list(ctx_, bound);
-                    fz_device* dev = fz_new_list_device(ctx_, entry.list);
-                    fz_cookie cookie{};
-                    fz_matrix identity = { 1, 0, 0, 1, 0, 0 };
-                    fz_try(ctx_) {
-                        fz_run_page_contents(ctx_, p, dev, identity, &cookie);
-                        fz_run_page_widgets(ctx_, p, dev, identity, &cookie);
+                fz_rect bound = fz_bound_page(ctx_, p);
+                entry.list = fz_new_display_list(ctx_, bound);
+                fz_device* dev = fz_new_list_device(ctx_, entry.list);
+                fz_matrix identity = { 1, 0, 0, 1, 0, 0 };
+                fz_try(ctx_) {
+                    if (annotations) fz_run_page(ctx_, p, dev, identity, cookie);
+                    else {
+                        fz_run_page_contents(ctx_, p, dev, identity, cookie);
+                        // Widgets and stamped signatures remain visible without annotations.
+                        if (hasWidgets || hasSignatures) fz_run_page_widgets(ctx_, p, dev, identity, cookie);
                         if (hasSignatures && pp)
                             for (pdf_annot* a = pdf_first_annot(ctx_, pp); a; a = pdf_next_annot(ctx_, a))
-                                if (sig->second.count(pdf_to_num(ctx_, pdf_annot_obj(ctx_, a)))) pdf_run_annot(ctx_, a, dev, identity, &cookie);
-                        fz_close_device(ctx_, dev);
+                                if (sig->second.count(pdf_to_num(ctx_, pdf_annot_obj(ctx_, a)))) pdf_run_annot(ctx_, a, dev, identity, cookie);
                     }
-                    fz_always(ctx_) { fz_drop_device(ctx_, dev); }
-                    fz_catch(ctx_) { fz_rethrow(ctx_); }
-                } else {
-                    entry.list = annotations ? fz_new_display_list_from_page(ctx_, p) : fz_new_display_list_from_page_contents(ctx_, p);
+                    fz_close_device(ctx_, dev);
+                    if (cookie->abort) fz_throw(ctx_, FZ_ERROR_ABORT, "render cancelled");
                 }
+                fz_always(ctx_) { fz_drop_device(ctx_, dev); }
+                fz_catch(ctx_) { fz_rethrow(ctx_); }
                 entry.bounds = fz_bound_display_list(ctx_, entry.list);
             }
             fz_always(ctx_) { fz_drop_page(ctx_, p); }
             fz_catch(ctx_) { fz_rethrow(ctx_); }
         }
         fz_catch(ctx_) { failed = true; message = fz_caught_message(ctx_); }
-        if (failed) throw std::runtime_error(message);
+        if (failed) { fz_drop_display_list(ctx_, entry.list); throw std::runtime_error(cookie->abort ? "render cancelled" : message); }
         while (lists_.size() >= listLimit_ && !listOrder_.empty()) {
             std::string oldest = listOrder_.back();
             listOrder_.pop_back();
@@ -668,15 +783,118 @@ private:
         return lists_.emplace(key, entry).first->second;
     }
 
+#ifdef XT_PATCHED_MUPDF
+    int renderThreads_ = 1;
+    size_t bandMinPixels_ = 2000000;   // used before the cost of a page is known
+    double bandMinMilliseconds_ = 25;  // estimated single-thread cost from which bands are used
+    std::vector<fz_context*> bandContexts_;   // [0] is ctx_ (the calling thread); the others are clones
+
+    // Renders `bbox` (device pixels, written straight into `output`) in bands. Every band is
+    // drawn as a part of the whole area: the device keeps the scissor of the whole-area render
+    // (fz_draw_set_virtual_scissor), so geometry, dashes, tiles, groups and masks resolve exactly
+    // as in a single render. The display list is culled with a margin that covers the minimum
+    // line width, so objects entirely outside the band are skipped.
+    void RenderBands(fz_display_list* list, fz_matrix m, fz_irect bbox, fz_rect clip, uint8_t* output,
+                     int channels, bool alpha, float minWidthPx, fz_cookie* cookie) {
+        const int rows = bbox.y1 - bbox.y0, width = bbox.x1 - bbox.x0;
+        const int threads = std::min(renderThreads_, std::max(1, rows / 64));
+        // Every band scans the whole display list to cull it, so keep the band count modest for
+        // medium areas; large areas get more bands for load balance (heavy rows differ a lot).
+        const size_t area = (size_t)rows * (size_t)width;
+        const int perThread = area >= 8000000 ? 4 : 2;
+        const int bands = std::max(threads, std::min(rows / 32, threads * perThread));
+        while ((int)bandContexts_.size() < threads) {
+            fz_context* c = bandContexts_.empty() ? ctx_ : fz_clone_context(ctx_);
+            if (!c) throw std::runtime_error("cannot clone the MuPDF context");
+            bandContexts_.push_back(c);
+        }
+        static const double configuredMargin = EnvNumber("XTPDF_BAND_MARGIN_PX", -1);
+        const float margin = configuredMargin >= 0 ? (float)configuredMargin : (float)(8.0 + 12.0 * minWidthPx);
+        const fz_matrix inverse = fz_invert_matrix(m);
+        std::atomic<int> next{ 0 };
+        std::mutex failure;
+        bool failed = false;
+        std::string message;
+        auto work = [&](fz_context* c) {
+            fz_set_graphics_min_line_width(c, minWidthPx);
+            // MuPDF counts progress in the cookie for every object; one cookie shared by all
+            // threads would make them fight over a cache line. Each thread has its own and
+            // looks at the shared cancellation flag between bands.
+            fz_cookie local{};
+            for (;;) {
+                int band = next.fetch_add(1);
+                if (band >= bands || *(volatile int*)&cookie->abort) break;
+                int y0 = bbox.y0 + (int)((long long)rows * band / bands);
+                int y1 = bbox.y0 + (int)((long long)rows * (band + 1) / bands);
+                fz_pixmap* pix = nullptr;
+                fz_device* dev = nullptr;
+                fz_var(pix);
+                fz_var(dev);
+                fz_try(c) {
+                    fz_irect part = { bbox.x0, y0, bbox.x1, y1 };
+                    pix = fz_new_pixmap_with_bbox_and_data(c, fz_device_bgr(c), part, nullptr, alpha ? 1 : 0,
+                        output + (size_t)(y0 - bbox.y0) * (size_t)width * channels);
+                    dev = fz_new_draw_device(c, m, pix);
+                    fz_draw_set_virtual_scissor(c, dev, bbox);
+                    fz_rect device = { (float)bbox.x0 - margin, (float)y0 - margin, (float)bbox.x1 + margin, (float)y1 + margin };
+                    fz_rect bandClip = fz_intersect_rect(fz_transform_rect(device, inverse), clip);
+                    fz_matrix identity = { 1, 0, 0, 1, 0, 0 };
+                    fz_run_display_list(c, list, dev, identity, bandClip, &local);
+                    fz_close_device(c, dev);
+                    if (gamma_ > 1.0f) fz_gamma_pixmap(c, pix, gamma_);
+                }
+                fz_always(c) {
+                    fz_drop_device(c, dev);
+                    fz_drop_pixmap(c, pix);
+                }
+                fz_catch(c) {
+                    std::lock_guard<std::mutex> guard(failure);
+                    if (!failed) { failed = true; message = fz_caught_message(c); }
+                    next.store(bands);
+                }
+                local.abort = 0;
+            }
+        };
+        std::vector<std::thread> pool;
+        for (int t = 1; t < threads; ++t) pool.emplace_back(work, bandContexts_[t]);
+        work(bandContexts_[0]);
+        for (auto& th : pool) th.join();
+        if (cookie->abort) throw std::runtime_error("render cancelled");
+        if (failed) throw std::runtime_error(message);
+    }
+#endif
+
     void Render(const Json& request) {
         auto prepare = Clock::now();
+        RenderCancellation cancellation(request.str("cancelEvent"));
+        cancellation.Check();
         std::string stamp;
         Doc& d = Open(request, stamp);
         int page = request.integer("page");
         if (page < 0 || page >= d.pageCount) throw std::runtime_error("page out of range");
         bool annotations = request.flag("annotations");
         bool alpha = request.flag("alpha");
-        ListEntry& entry = DisplayList(d, stamp, page, annotations);
+        // Use the authenticated document stamp and every input affecting the pixels.
+        // Preserve double precision: displayWidth changes the minimum stroke width.
+        std::ostringstream cacheKey;
+        cacheKey << std::setprecision(17) << stamp.size() << ':' << stamp << ':' << page << ':'
+            << annotations << ':' << alpha << ':' << request.integer("fullWidth") << ':'
+            << request.integer("fullHeight") << ':' << request.num("displayWidth");
+        if (auto* rect = request.find("rect"); rect && rect->type == Json::Array)
+            for (auto& value : rect->items) cacheKey << ':' << value.number;
+        std::string key = cacheKey.str();
+        auto cached = rasters_.find(key);
+        if (cached != rasters_.end()) {
+            ++rasterHits_;
+            rasterOrder_.remove(key);
+            rasterOrder_.push_front(key);
+            SendRaster(cached->second.header, cached->second.pixels);
+            return;
+        }
+        ++rasterMisses_;
+        cancellation.Check();
+        ListEntry& entry = DisplayList(d, stamp, page, annotations, &cancellation.cookie);
+        cancellation.Check();
         double prepareMs = MillisSince(prepare);
 
         int fullW = request.integer("fullWidth"), fullH = request.integer("fullHeight");
@@ -700,8 +918,19 @@ private:
 
         auto start = Clock::now();
         const int channels = alpha ? 4 : 3;
-        std::vector<uint8_t> out((size_t)w * h * channels, alpha ? 0x00 : 0xFF);
+        size_t outputSize = (size_t)w * h * channels;
+        // The app already caches immutable WPF images. Shared output avoids both
+        // pipe pixel transfer and an intermediate managed byte array in that mode.
+        uint8_t* output = request.flag("sharedMemory") && !rasterLimit_ ? sharedRaster_.Acquire(outputSize) : nullptr;
+        bool shared = output != nullptr;
+        if (!shared) sharedRaster_.Reset();
+        std::vector<uint8_t> out;
+        if (shared) std::memset(output, alpha ? 0x00 : 0xFF, outputSize);
+        else { out.assign(outputSize, alpha ? 0x00 : 0xFF); output = out.data(); }
         int px = 0, py = 0, pwid = 0, phei = 0, stride = 0;
+        bool bandedUsed = false;
+        int cellForLearning = 0;
+        bool wholeForLearning = false;
         bool failed = false;
         std::string message;
         fz_var(failed);
@@ -716,50 +945,116 @@ private:
             fz_matrix m = fz_concat(toOrigin, scale);
             fz_rect pixelRect = fz_transform_rect(clip, m);
             fz_irect bbox = fz_round_rect(pixelRect);
-            pix = fz_new_pixmap_with_bbox(ctx_, fz_device_bgr(ctx_), bbox, nullptr, alpha ? 1 : 0);
-            fz_clear_pixmap_with_value(ctx_, pix, alpha ? 0 : 0xFF);
-            fz_device* dev = fz_new_draw_device(ctx_, m, pix);
-            fz_try(ctx_) {
-                fz_matrix identity = { 1, 0, 0, 1, 0, 0 };
-                fz_run_display_list(ctx_, entry.list, dev, identity, clip, nullptr); // the scissor is in list (page) space
-                fz_close_device(ctx_, dev);
+            // Draw into the wire buffer when the transformed crop has exact pixel bounds.
+            // MuPDF borrows this memory; out stays alive until after fz_drop_pixmap.
+            bool direct = bbox.x0 == x && bbox.y0 == y && bbox.x1 == x+w && bbox.y1 == y+h;
+            if (direct) pix = fz_new_pixmap_with_bbox_and_data(ctx_, fz_device_bgr(ctx_), bbox, nullptr, alpha ? 1 : 0, output);
+            else {
+                pix = fz_new_pixmap_with_bbox(ctx_, fz_device_bgr(ctx_), bbox, nullptr, alpha ? 1 : 0);
+                if (alpha) fz_clear_pixmap(ctx_, pix);
+                else fz_clear_pixmap_with_value(ctx_, pix, 0xFF);
             }
-            fz_always(ctx_) { fz_drop_device(ctx_, dev); }
-            fz_catch(ctx_) { fz_rethrow(ctx_); }
-            if (gamma_ > 1.0f) fz_gamma_pixmap(ctx_, pix, gamma_);
+            bool banded = false;
+            const bool wholePage = x == 0 && y == 0 && w >= fullW && h >= fullH;
+            const int cell = std::clamp((int)(((long long)y + h / 2) * 8 / std::max(1, fullH)), 0, 7) * 8 +
+                             std::clamp((int)(((long long)x + w / 2) * 8 / std::max(1, fullW)), 0, 7);
+            cellForLearning = cell; wholeForLearning = wholePage;
+#ifdef XT_PATCHED_MUPDF
+            {
+                // Bands pay off when the render is expensive, not when it is large: a sparse viewport
+                // tile of 1 Mpx takes 5 ms, a dense full page of 1 Mpx takes 150 ms. After the first
+                // render of a page the cost per megapixel is known and decides; before that the area does.
+                const double mpx = (double)w * (double)h / 1e6;
+                const double known = wholePage ? entry.fullCost : entry.cellCost[cell];
+                const bool heavy = known > 0 ? known * mpx >= bandMinMilliseconds_
+                                             : (size_t)w * (size_t)h >= bandMinPixels_;
+                banded = direct && renderThreads_ > 1 && h >= 128 && mpx >= 0.25 && heavy;
+            }
+            if (banded) {
+                // Exceptions must not cross MuPDF frames; a failure comes back as one message.
+                std::string bandError;
+                try {
+                    RenderBands(entry.list, m, bbox, clip, output, channels, alpha != 0,
+                        (float)(minLine_ * std::min(std::max(ratio, 0.5), 4.0)), &cancellation.cookie);
+                } catch (const std::exception& e) { bandError = e.what(); }
+                if (!bandError.empty()) fz_throw(ctx_, cancellation.cookie.abort ? FZ_ERROR_ABORT : FZ_ERROR_GENERIC, "%s", bandError.c_str());
+            }
+#endif
+            bandedUsed = banded;
+            if (!banded) {
+                fz_device* dev = fz_new_draw_device(ctx_, m, pix);
+                fz_try(ctx_) {
+                    fz_matrix identity = { 1, 0, 0, 1, 0, 0 };
+                    fz_run_display_list(ctx_, entry.list, dev, identity, clip, &cancellation.cookie); // scissor is in list space
+                    fz_close_device(ctx_, dev);
+                    if (cancellation.cookie.abort) fz_throw(ctx_, FZ_ERROR_ABORT, "render cancelled");
+                }
+                fz_always(ctx_) { fz_drop_device(ctx_, dev); }
+                fz_catch(ctx_) { fz_rethrow(ctx_); }
+                if (gamma_ > 1.0f) fz_gamma_pixmap(ctx_, pix, gamma_);
+            }
             px = pix->x; py = pix->y; pwid = pix->w; phei = pix->h; stride = (int)pix->stride;
             // Keep the requested global pixel origin: copy the overlap into the exact w x h picture (white elsewhere).
             int left = std::max(x, px), right = std::min(x + w, px + pwid);
             int top = std::max(y, py), bottom = std::min(y + h, py + phei);
             const uint8_t* samples = pix->samples;
-            if (right > left)
+            if (!direct && right > left)
                 for (int row = top; row < bottom; ++row) {
                     const uint8_t* src = samples + (size_t)(row - py) * stride + (size_t)(left - px) * pix->n;
-                    uint8_t* dst = out.data() + ((size_t)(row - y) * w + (left - x)) * channels;
+                    uint8_t* dst = output + ((size_t)(row - y) * w + (left - x)) * channels;
                     if (pix->n == channels) std::memcpy(dst, src, (size_t)(right - left) * channels);
                     else for (int col = 0; col < right - left; ++col) std::memcpy(dst + col * channels, src + col * pix->n, channels);
                 }
         }
         fz_always(ctx_) { if (pix) fz_drop_pixmap(ctx_, pix); }
         fz_catch(ctx_) { failed = true; message = fz_caught_message(ctx_); }
-        if (failed) throw std::runtime_error(message);
+        if (failed) throw std::runtime_error(cancellation.cookie.abort ? "render cancelled" : message);
+        cancellation.Check();
         double renderMs = MillisSince(start);
+        {
+            // Remember the single-thread cost per megapixel of this page. A banded render used several
+            // cores; about 0.8 of them were useful work on this machine.
+            double mpx = (double)w * (double)h / 1e6;
+            if (mpx > 0.05) {
+                double serial = renderMs;
+#ifdef XT_PATCHED_MUPDF
+                if (bandedUsed) serial = renderMs * std::min(renderThreads_, 4) * 0.8;
+#endif
+                double& slot = wholeForLearning ? entry.fullCost : entry.cellCost[cellForLearning];
+                slot = slot > 0 ? 0.5 * slot + 0.5 * serial / mpx : serial / mpx;
+            }
+        }
 
-        char header[256];
+        std::string transport = shared ? ",\"sharedMemory\":" + JsonQuote(sharedRaster_.Name()) +
+            ",\"sharedCapacity\":" + std::to_string(sharedRaster_.Capacity()) : "";
+        char header[512];
         int n = std::snprintf(header, sizeof header,
-            "{\"width\":%d,\"height\":%d,\"stride\":%d,\"format\":\"%s\",\"length\":%zu,\"prepareMs\":%.2f,\"renderMs\":%.2f}\n",
-            w, h, w * channels, alpha ? "bgra" : "bgr", out.size(), prepareMs, renderMs);
-        std::fwrite(header, 1, (size_t)n, stdout);
-        std::fwrite(out.data(), 1, out.size(), stdout);
-        std::fflush(stdout);
+            "{\"width\":%d,\"height\":%d,\"stride\":%d,\"format\":\"%s\",\"length\":%zu,\"prepareMs\":%.2f,\"renderMs\":%.2f%s}\n",
+            w, h, w * channels, alpha ? "bgra" : "bgr", outputSize, prepareMs, renderMs, transport.c_str());
+        std::string reply(header, (size_t)n);
+        if (shared) {
+            ++sharedFrames_;
+            std::fwrite(reply.data(), 1, reply.size(), stdout); std::fflush(stdout);
+            return;
+        }
+        // Oversized renders are sent but never retained; evict before inserting.
+        if (rasterLimit_ && out.size() <= rasterLimit_) {
+            TrimRasters(rasterLimit_ - out.size());
+            auto inserted = rasters_.emplace(key, RasterEntry{ stamp, reply, std::move(out) }).first;
+            rasterOrder_.push_front(key);
+            rasterBytes_ += inserted->second.pixels.size();
+            SendRaster(inserted->second.header, inserted->second.pixels);
+        } else SendRaster(reply, out);
     }
 };
 
-int main() {
+int wmain(int argc, wchar_t** argv) {
     _setmode(_fileno(stdout), _O_BINARY);
     _setmode(_fileno(stdin), _O_BINARY);
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     Worker worker;
+    if (argc == 3 && std::wstring(argv[1]) == L"--ocr") return worker.RunJob(argv[2], true);
+    if (argc == 3 && std::wstring(argv[1]) == L"--textedit") return worker.RunJob(argv[2], false);
     worker.Run();
     return 0;
 }

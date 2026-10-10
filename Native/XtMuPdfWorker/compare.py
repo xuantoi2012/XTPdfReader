@@ -15,7 +15,7 @@ import time
 here = os.path.dirname(os.path.abspath(__file__))
 repo = os.path.abspath(os.path.join(here, "..", ".."))
 pdf = sys.argv[1]
-native = sys.argv[2] if len(sys.argv) > 2 else os.path.join(here, "bin", "xtmupdfworker.exe")
+native = sys.argv[2] if len(sys.argv) > 2 else os.path.join(here, "bin", "xtpdfworker.exe")
 script = sys.argv[3] if len(sys.argv) > 3 else os.path.join(repo, "Tests", "GpuPdfium", "MuPdfViewportWorker.py")
 
 

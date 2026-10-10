@@ -595,8 +595,9 @@ namespace XTPdfMergeApp.Services
         {
             if (ExperimentalMuPdfViewport.BalancedMode)
             {
-                var sizes = await MuPdfSizesAsync(pdfPath, cancellationToken).ConfigureAwait(false);
-                return sizes != null && pageIndex >= 0 && pageIndex < sizes.Length ? sizes[pageIndex].Width / sizes[pageIndex].Height : null;
+                if (pageIndex < 0) return null;
+                var sizes = await GetPageSizeRangeAsync(pdfPath, pageIndex, 1, cancellationToken).ConfigureAwait(false);
+                return sizes is { Length: > 0 } && sizes[0].Height > 0 ? sizes[0].Width / sizes[0].Height : null;
             }
             if (_shuttingDown) return null;
             Interlocked.Increment(ref _inFlightPublicCalls);

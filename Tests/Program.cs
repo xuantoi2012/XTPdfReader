@@ -28,6 +28,8 @@ internal static partial class Program
         try
         {
             Directory.CreateDirectory(Output);
+            // A user's real print inbox can add windows to UI tests and must never be consumed by a test session.
+            PrintInboxStore.FilePath = System.IO.Path.Combine(Output, "suite-print-inbox-" + Guid.NewGuid().ToString("N") + ".json");
             // The suite was written for the bounded-memory policy; the default tier (Balance, registry-backed) prefetches more and varies per machine.
             XTPdfMergeApp.Services.ReaderPerformanceProfile.Apply(XTPdfMergeApp.Services.ReaderPerformanceMode.MemorySaving);
             XTPdfMergeApp.Controls.ContinuousPdfView.WideRegions = false; XTPdfMergeApp.Controls.ContinuousPdfView.ZoomRateLimit = 0; XTPdfMergeApp.Controls.ContinuousPdfView.WarmAllPreviews = false; XTPdfMergeApp.Controls.ContinuousPdfView.SpeculateZoomSteps = false; // pre-rendering calls the page renderer in the background and would skew the request counts the viewer tests assert
@@ -44,6 +46,18 @@ internal static partial class Program
                 Console.WriteLine($"PASS ({_checks} MuPDF migration checks)");
                 return 0;
             }
+            int nativeTransport = Array.IndexOf(args, "--native-transport-bench");
+            if (nativeTransport >= 0)
+            {
+                BenchmarkNativeTransportAsync(args[nativeTransport + 1], int.Parse(args[nativeTransport + 2])).GetAwaiter().GetResult();
+                return 0;
+            }
+            int nativeCancel = Array.IndexOf(args, "--native-cancel-bench");
+            if (nativeCancel >= 0)
+            {
+                BenchmarkNativeCancellationAsync(args[nativeCancel + 1], int.Parse(args[nativeCancel + 2])).GetAwaiter().GetResult();
+                return 0;
+            }
             if (args.Contains("--marks-check")) { TestPageMarksAsync().GetAwaiter().GetResult(); Console.WriteLine($"PASS ({_checks} page mark checks)"); return 0; }
             if (args.Contains("--callout-probe")) { CalloutRenderProbeAsync().GetAwaiter().GetResult(); return 0; }
             if (args.Contains("--panels-check")) { TestSignAndMarksPanels(); Console.WriteLine($"PASS ({_checks} panel checks)"); return 0; }
@@ -51,6 +65,11 @@ internal static partial class Program
             if (args.Contains("--ribbon-check")) { TestRibbonSplits(); Console.WriteLine($"PASS ({_checks} ribbon checks)"); return 0; }
             if (args.Contains("--splash-check")) { TestSplashRender(); Console.WriteLine("PASS splash"); return 0; }
             { int ro = Array.IndexOf(args, "--remote-open"); if (ro >= 0) { TestRemoteOpenAsync(args[ro + 1]).GetAwaiter().GetResult(); Console.WriteLine("PASS remote open"); return 0; } }
+            { int ro = Array.IndexOf(args, "--reader-open-check"); if (ro >= 0) { TestRealReaderOpen(args[ro + 1]); Console.WriteLine($"PASS ({_checks} real Reader open checks)"); return 0; } }
+            if (args.Contains("--reader-binding-check")) { TestRealReaderOpen(CreateFixture()); Console.WriteLine($"PASS ({_checks} Reader binding checks)"); return 0; }
+            { int gpu = Array.IndexOf(args, "--gpu-reader-bench"); if (gpu >= 0) { BenchmarkGpuReader(args[gpu + 1]); return 0; } }
+            { int zs = Array.IndexOf(args, "--zoom-sharp-bench"); if (zs >= 0) { BenchmarkZoomSharp(args[zs + 1]); return 0; } }
+            { int ro = Array.IndexOf(args, "--reader-navigation-check"); if (ro >= 0) { TestRealReaderOpen(args[ro + 1], allPages: true); Console.WriteLine($"PASS ({_checks} real Reader navigation checks)"); return 0; } }
             if (args.Contains("--icon-dump")) { TestIconDump(); return 0; }
             if (args.Contains("--sign-check")) { TestDigitalSignAsync().GetAwaiter().GetResult(); Console.WriteLine($"PASS ({_checks} digital signature checks)"); return 0; }
             if (args.Contains("--license-check")) { TestLicense(); Console.WriteLine($"PASS ({_checks} license checks)"); return 0; }

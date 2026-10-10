@@ -4,7 +4,7 @@
 
 .DESCRIPTION
   1) dotnet publish Reader + XT Capture (framework-dependent, win-x64) vao _publish
-  2) worker .py -> bytecode (Protect-Scripts.ps1)
+  2) Kiem tra native worker + tessdata (them -WithPython de kem runtime va bytecode cu)
   3) nen _publish thanh zip, them __setup.json (phien ban)
   4) dotnet publish Setup\PdfReaderSetup.csproj (installer, 1 file nho)
   5) ghep: PDFReaderPro-Setup.exe = installer + zip + do dai zip (8 byte) + dau hieu (16 byte)  -> xem Setup\Payload.cs
@@ -18,6 +18,9 @@
 .PARAMETER AllowUnlicensed
   Cho phep dong goi khi Licensing\LicenseConfig.cs chua co SupabaseUrl/AnonKey (ban noi bo, khong yeu cau license).
 
+.PARAMETER WithPython
+  Kem runtime Python du phong. Mac dinh chi dong goi native worker.
+
 .EXAMPLE
   .\Build-Release.ps1 -Version 1.0.1 -AllowUnlicensed
 #>
@@ -25,7 +28,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Version,
 
-    [switch]$AllowUnlicensed
+    [switch]$AllowUnlicensed,
+    [switch]$WithPython
 )
 
 $ErrorActionPreference = "Stop"
@@ -49,7 +53,8 @@ if ($licenseConfig -match 'SupabaseUrl\s*=\s*""' -or $licenseConfig -match 'Anon
 # 1) Publish Reader + XT Capture vao CUNG thu muc. Khong kem .NET: may khach can .NET 10 Desktop Runtime.
 if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force }
 Write-Host "`n[1/5] dotnet publish Reader + XT Capture..." -ForegroundColor Yellow
-dotnet publish $csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=false -p:DeployToBundle=false -p:Version=$Version -o $publishDir
+$nativeOnly = if ($WithPython) { 'false' } else { 'true' }
+dotnet publish $csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=false -p:DeployToBundle=false -p:NativeOnly=$nativeOnly -p:Version=$Version -o $publishDir
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish that bai." }
 $captureProj = Join-Path $root "XTCapture\XTCapture.csproj"
 dotnet publish $captureProj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=false -p:Version=$Version -o $publishDir
@@ -59,8 +64,18 @@ foreach ($required in "XTPdfMergeApp.exe", "XTCapture.exe") {
 }
 
 # 2) Worker .py -> bytecode (cung ten file), de bo cai khong chua ma nguon Python doc duoc.
-Write-Host "`n[2/5] bytecode cho worker..." -ForegroundColor Yellow
-& (Join-Path $PSScriptRoot "Protect-Scripts.ps1") -PublishDir $publishDir
+if ($WithPython) {
+    Write-Host "`n[2/5] bytecode cho worker..." -ForegroundColor Yellow
+    & (Join-Path $PSScriptRoot "Protect-Scripts.ps1") -PublishDir $publishDir
+} else {
+    Write-Host "`n[2/5] native worker (khong kem Python)..." -ForegroundColor Yellow
+    $needed = @('xtpdfworker.exe', 'tessdata\vie.traineddata')
+    # The statically linked worker (xtpdfworker.static) carries MuPDF; the other one needs its DLL.
+    if (-not (Test-Path -LiteralPath (Join-Path $publishDir 'xtpdfworker.static'))) { $needed += 'mupdfcpp64.dll' }
+    foreach ($required in $needed) {
+        if (-not (Test-Path -LiteralPath (Join-Path $publishDir $required))) { throw "$required is missing from the native publish." }
+    }
+}
 
 # 3) Zip payload.
 Write-Host "`n[3/5] nen payload..." -ForegroundColor Yellow

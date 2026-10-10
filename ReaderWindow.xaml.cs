@@ -356,6 +356,7 @@ namespace XTPdfMergeApp
             _readerPageCts.Cancel();
             _readerPageCts.Dispose();
             _readerPageCts = new();
+            _continuousBindPending = null;
             _readerPrefetchCts.Cancel();
             _readerPrefetchCts.Dispose();
             _readerPrefetchCts = new();
@@ -571,9 +572,14 @@ namespace XTPdfMergeApp
                 ReaderContinuousView.SetDocument(null, ReaderContinuousView.Zoom);
                 if (!ReaderContinuousView.IsRenderingSuspended)
                     PdfThumbnailService.SetHotPages(new[] { (row.SourcePath, row.PageNumber) });
-                _readerPageCts.Cancel();
-                _readerPageCts.Dispose();
-                _readerPageCts = new();
+                // Selection/layout can notify again while the first size request is pending.
+                // Keep that binding alive; otherwise the cancelled request leaves an empty view.
+                if (!ReferenceEquals(_continuousBindPending, group))
+                {
+                    _readerPageCts.Cancel();
+                    _readerPageCts.Dispose();
+                    _readerPageCts = new();
+                }
             }
             if (groupChanged)
             {
@@ -603,19 +609,36 @@ namespace XTPdfMergeApp
 
         private DocumentGroup? _continuousBindPending;
 
-        /// <summary>Gán tài liệu cho vùng vẽ sau khi biết khổ giấy mọi trang (tối đa 1,5 s — quá thì dựng bằng khổ mặc
-        /// định rồi cập nhật khi đọc xong), đặt zoom, cuộn tới trang đang xem.</summary>
+        /// <summary>Native đọc khổ trang đang xem trước khi gán vùng vẽ; các khổ còn lại cập nhật nền.
+        /// Worker cũ chờ tối đa 1,5 s. Sau đó đặt zoom và cuộn tới trang đang xem.</summary>
         private async Task BindContinuousWhenSizesKnownAsync(DocumentGroup group)
         {
+            var bindToken = _readerPageCts.Token;
             try
             {
-                await Task.WhenAny(EnsureContinuousPageSizesAsync(group), Task.Delay(1500));
+                if (ExperimentalMuPdfViewport.UsesXtNativeWorker && _readerPage is { } target && target.PageWidthPoints == null)
+                {
+                    // Read only the selected page before binding; other sizes load on the background lane.
+                    var initial = await PdfThumbnailService.GetPageSizeRangeAsync(target.SourcePath, target.PageNumber - 1, 1, bindToken);
+                    if (!ReferenceEquals(_readerGroup, group)) return;
+                    if (initial is { Length: 1 })
+                    {
+                        target.PageWidthPoints = initial[0].Width;
+                        target.PageHeightPoints = initial[0].Height;
+                        target.BaseWidth = PageRow.DefaultLayoutWidth;
+                        if (initial[0].Width > 0) target.AspectRatio = initial[0].Height / initial[0].Width;
+                    }
+                    _ = EnsureContinuousPageSizesAsync(group);
+                }
+                else await Task.WhenAny(EnsureContinuousPageSizesAsync(group), Task.Delay(1500));
                 // Vùng vẽ vừa hiện (Collapsed → Visible): chờ 1 lượt layout để biết chiều rộng khung nhìn (vừa chiều rộng).
                 await Dispatcher.Yield(DispatcherPriority.Loaded);
+                bindToken.ThrowIfCancellationRequested();
             }
+            catch (OperationCanceledException) { return; }
             finally
             {
-                if (ReferenceEquals(_continuousBindPending, group)) _continuousBindPending = null;
+                if (ReferenceEquals(_continuousBindPending, group) && bindToken == _readerPageCts.Token) _continuousBindPending = null;
             }
             if (!ReferenceEquals(_readerGroup, group) || ReferenceEquals(ReaderContinuousView.Pages, group.Pages)) return;
             var targetPage = _readerPage;

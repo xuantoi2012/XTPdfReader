@@ -187,7 +187,10 @@ internal static partial class Program
             var buttons = VisualTreeHelpers.FindVisualChildren<XTStyle.Controls.XTButton>(bar).Where(b => b != more && b.ActualWidth > 0).ToList();
             var labels = buttons.SelectMany(b => VisualTreeHelpers.FindVisualChildren<TextBlock>(b)).Where(t => !string.IsNullOrEmpty(t.Text)).ToList();
             Check(labels.Count > 15 && labels.All(t => t.ActualHeight < 18), "Every ribbon label is one full line (no wrapping or clipping)");
-            Check(labels.Any(t => t.Text == "Highlight text") && labels.Any(t => t.Text == "Rotate left"), "Long ribbon labels such as Highlight text / Rotate left are shown in full");
+            var highlight = (RibbonSplit)reader.FindName("HighlightSplit");
+            var highlightButton = VisualTreeHelpers.FindVisualChildren<XTStyle.Controls.XTButton>(highlight).First();
+            Check(labels.Any(t => t.Text == highlightButton.Text) && labels.Any(t => t.Text == Loc.T("Rotate left")),
+                "The selected highlight command and Rotate left labels are shown in full");
             Console.WriteLine($"bar {bar.ActualWidth}x{bar.ActualHeight} window {reader.ActualWidth} labels {labels.Count} first {labels.First().Text}");
             SavePng(bar, "ui-ribbon-wide");
             reader.BeginOpenWait();

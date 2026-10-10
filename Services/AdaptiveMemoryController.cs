@@ -101,7 +101,8 @@ internal static class AdaptiveMemoryController
             {
                 if (!MemoryProbe.TrySampleSystemMemory(out sample)) return;
                 using var parent = Process.GetCurrentProcess();
-                sample = sample with { ParentPrivate = parent.PrivateMemorySize64, WorkerPrivate = ExperimentalMuPdfViewport.WorkerPrivateBytes };
+                sample = sample with { ParentPrivate = parent.PrivateMemorySize64,
+                    WorkerPrivate = ExperimentalMuPdfViewport.WorkerPrivateBytes + ExperimentalMuPdfViewport.WorkerSharedMemoryBytes };
             }
             token.ThrowIfCancellationRequested();
             var profile = ReaderPerformanceProfile.Current;
@@ -162,6 +163,6 @@ internal static class AdaptiveMemoryController
         lock (Sync)
             return $"{ReaderPerformanceProfile.Current.Mode}: {State}, target {Interlocked.Read(ref _target) / AdaptiveMemoryPolicy.MiB} MiB, background lanes {BackgroundLanes}, trims {Interlocked.Read(ref _trims)}, background collections {Interlocked.Read(ref _collections)}; " +
                 $"available {_sample.AvailablePhysical / AdaptiveMemoryPolicy.MiB} MiB, commit headroom {_sample.CommitAvailable / AdaptiveMemoryPolicy.MiB} MiB; " +
-                $"parent/worker private {_sample.ParentPrivate / AdaptiveMemoryPolicy.MiB}/{_sample.WorkerPrivate / AdaptiveMemoryPolicy.MiB} MiB; {_reason}";
+                $"parent private/worker private + shared {_sample.ParentPrivate / AdaptiveMemoryPolicy.MiB}/{_sample.WorkerPrivate / AdaptiveMemoryPolicy.MiB} MiB; {_reason}";
     }
 }

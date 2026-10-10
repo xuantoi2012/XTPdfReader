@@ -34,9 +34,39 @@ public static partial class PdfThumbnailService
         if (IsDocumentSuspended(path)) return null;
         try
         {
-            var reply = await ExperimentalMuPdfViewport.CommandAsync(path, "metadata", token: token).ConfigureAwait(false);
+            if (!ExperimentalMuPdfViewport.UsesXtNativeWorker)
+            {
+                var reply = await ExperimentalMuPdfViewport.CommandAsync(path, "metadata", token: token).ConfigureAwait(false);
+                return reply.GetProperty("sizes").EnumerateArray().Select(s => (s[0].GetDouble(), s[1].GetDouble())).ToArray();
+            }
+            var opened = await ExperimentalMuPdfViewport.CommandAsync(path, "metadata", data: new { countOnly = true }, token: token).ConfigureAwait(false);
+            var sizes = new (double Width, double Height)[opened.GetProperty("count").GetInt32()];
+            // Release the command lane between batches so search and other documents can progress.
+            for (int first = 0; first < sizes.Length; first += 16)
+            {
+                var batch = await GetPageSizeRangeAsync(path, first, Math.Min(16, sizes.Length - first), token).ConfigureAwait(false);
+                if (batch == null) return null;
+                Array.Copy(batch, 0, sizes, first, batch.Length);
+            }
+            return sizes;
+        }
+        catch { return null; }
+    }
+
+    internal static async Task<(double Width, double Height)[]?> GetPageSizeRangeAsync(string path, int first, int count, CancellationToken token = default)
+    {
+        if (first < 0 || count < 0 || IsDocumentSuspended(path)) return null;
+        if (!ExperimentalMuPdfViewport.UsesXtNativeWorker)
+        {
+            var sizes = await GetPageSizesAsync(path, token).ConfigureAwait(false);
+            return sizes?.Skip(first).Take(count).ToArray();
+        }
+        try
+        {
+            var reply = await ExperimentalMuPdfViewport.CommandAsync(path, "metadata", data: new { first, count }, token: token).ConfigureAwait(false);
             return reply.GetProperty("sizes").EnumerateArray().Select(s => (s[0].GetDouble(), s[1].GetDouble())).ToArray();
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
         catch { return null; }
     }
 

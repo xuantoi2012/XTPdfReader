@@ -27,12 +27,14 @@ internal static class RenderDiagnostics
     internal static readonly Timing DocumentOpen = new(), NativeWait = new(), PageOpen = new(), RasterSlice = new(),
         BitmapCopy = new(), PresentationWait = new(), PresentationWork = new(), PageQueue = new(), BufferQueue = new(),
         FileBufferRead = new(), FileBlockRead = new();
+    internal static readonly Timing MuPdfPrepare = new(), MuPdfRoundTrip = new();
     internal static event Action<string, int, int>? NativePageParsed;
     internal static void RecordNativePageParsed(string path, int page, int instance)
         => NativePageParsed?.Invoke(path, page, instance);
     public static string Summary =>
         $"Timing avg/max ms (session): gate {NativeWait}, page queue {PageQueue}, buffer {BufferQueue}\n" +
         $"Doc open {DocumentOpen}, page load/parse {PageOpen}, raster slice {RasterSlice}, WPF copy {BitmapCopy}\n" +
+        (ExperimentalMuPdfViewport.BalancedMode ? $"MuPDF prepare {MuPdfPrepare}, worker + pixel transfer {MuPdfRoundTrip}\n" : "") +
         $"UI queue {PresentationWait}, UI apply {PresentationWork}\n" +
         $"File → RAM: đọc nền xong cả file {FileBufferRead}, khối 256 KB trang cần gấp {FileBlockRead} ({FileBlockRead.Count} lần), " +
         $"đang giữ {PdfFileBuffer.ReservedBytes / 1048576.0:0} MB\n" +
@@ -46,7 +48,7 @@ internal static class RenderDiagnostics
         get
         {
             if (ExperimentalMuPdfViewport.BalancedMode)
-                return $"MuPDF: {ExperimentalMuPdfViewport.RunningWorkerCount} workers, private {ExperimentalMuPdfViewport.WorkerPrivateMiB:0} MiB";
+                return $"MuPDF: {ExperimentalMuPdfViewport.RunningWorkerCount} workers, private {ExperimentalMuPdfViewport.WorkerPrivateMiB:0} MiB, shared {ExperimentalMuPdfViewport.WorkerSharedMemoryBytes / 1048576d:0} MiB";
             try
             {
                 var instances = PdfiumPool.Instances;

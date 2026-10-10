@@ -25,8 +25,8 @@ namespace XTPdfMergeApp.Services.Ocr
     internal sealed record OcrRegionResult(int PageIndex, string Key, string Text);
 
     /// <summary>
-    /// Reads the text of scanned pages with Tesseract (built into PyMuPDF; Apache-2.0, with the Vietnamese + Latin data of tessdata_fast, 0.5 MB).
-    /// It runs in its own python process (<c>OcrWorker.py</c>, the same embedded Python as the viewer) so rendering never waits for it, and it
+    /// Reads the text of scanned pages with Tesseract and the Vietnamese + Latin data of tessdata_fast.
+    /// It runs in its own native process (or <c>OcrWorker.py</c> when native is unavailable) so rendering never waits for it, and it
     /// only reads the file. <see cref="PdfOcrWriter"/> turns the words into an invisible text layer.
     /// </summary>
     internal static class OcrService
@@ -36,10 +36,14 @@ namespace XTPdfMergeApp.Services.Ocr
 
         internal static string? Python => ExperimentalMuPdfViewport.RuntimeSetting("XTPDF_MUPDF_PYTHON");
         internal static string? Packages => ExperimentalMuPdfViewport.RuntimeSetting("XTPDF_MUPDF_PACKAGES");
+        internal static string? NativeWorker => Environment.GetEnvironmentVariable("XTPDF_NATIVE_OCR") == "0" ||
+            Environment.GetEnvironmentVariable("XTPDF_OCR_WORKER") != null ? null : ExperimentalMuPdfViewport.XtNativeWorker;
 
-        /// <summary>The python, the script and the language data are all there.</summary>
+        /// <summary>A worker and every requested language model are installed.</summary>
         internal static bool IsAvailable(string language = "vie")
-            => Python is { } python && File.Exists(python) && File.Exists(WorkerScript) && File.Exists(Path.Combine(TessdataFolder, language + ".traineddata"));
+            => (NativeWorker != null || Python is { } python && File.Exists(python) && File.Exists(WorkerScript)) &&
+                language.Split('+', StringSplitOptions.RemoveEmptyEntries) is { Length: > 0 } languages &&
+                languages.All(l => Path.GetFileName(l) == l && File.Exists(Path.Combine(TessdataFolder, l + ".traineddata")));
 
         /// <summary>Reads <paramref name="pages"/> (zero based; null = every page) of <paramref name="pdfPath"/>. <paramref name="progress"/> gets (pages finished, pages asked).</summary>
         public static async Task<IReadOnlyList<OcrPageResult>> RunAsync(string pdfPath, IReadOnlyList<int>? pages, OcrOptions options, IProgress<(int Done, int Total)>? progress, CancellationToken token)
@@ -48,7 +52,8 @@ namespace XTPdfMergeApp.Services.Ocr
             int total = pages?.Count ?? 0, done = 0;
             await ExecuteAsync(new
             {
-                path = Path.GetFullPath(pdfPath), pages, language = options.Language, dpi = options.Dpi, tessdata = TessdataFolder, skipText = options.SkipPagesWithText
+                path = Path.GetFullPath(pdfPath), pages, language = options.Language, dpi = options.Dpi, tessdata = TessdataFolder, skipText = options.SkipPagesWithText,
+                password = PdfThumbnailService.TryGetDocumentPassword(pdfPath)
             }, options.Language, root =>
             {
                 switch (root.GetProperty("type").GetString())
@@ -62,6 +67,7 @@ namespace XTPdfMergeApp.Services.Ocr
                         progress?.Report((++done, total));
                         break;
                     case "error":
+                        if (!root.TryGetProperty("page", out _)) throw new InvalidOperationException(root.GetProperty("message").GetString());
                         results.Add(new OcrPageResult(root.GetProperty("page").GetInt32(), false, Array.Empty<OcrWord>(), root.GetProperty("message").GetString()));
                         progress?.Report((++done, total));
                         break;
@@ -85,6 +91,7 @@ namespace XTPdfMergeApp.Services.Ocr
             await ExecuteAsync(new
             {
                 mode = "regions", path = Path.GetFullPath(pdfPath), language = options.Language, dpi = options.Dpi, tessdata = TessdataFolder,
+                password = PdfThumbnailService.TryGetDocumentPassword(pdfPath),
                 requests = requests.Select(r => new { page = r.PageIndex, key = r.Key, rect = new[] { r.U1, r.V1, r.U2, r.V2 } }).ToList()
             }, options.Language, root =>
             {
@@ -97,6 +104,7 @@ namespace XTPdfMergeApp.Services.Ocr
                         progress?.Report((++done, total));
                         break;
                     case "error":
+                        if (!root.TryGetProperty("page", out _)) throw new InvalidOperationException(root.GetProperty("message").GetString());
                         marker.Add(new OcrPageResult(root.GetProperty("page").GetInt32(), false, Array.Empty<OcrWord>(), root.GetProperty("message").GetString()));
                         progress?.Report((++done, total));
                         break;
@@ -108,42 +116,45 @@ namespace XTPdfMergeApp.Services.Ocr
         /// <summary>Runs the worker with <paramref name="job"/> (as JSON) and hands every JSON line it prints to <paramref name="onMessage"/>.</summary>
         private static async Task ExecuteAsync<T>(object job, string language, Action<JsonElement> onMessage, List<T> answers, CancellationToken token)
         {
-            if (!IsAvailable(language)) throw new InvalidOperationException("OCR is not installed with this copy of the program (OcrWorker.py or the language data is missing).");
+            if (!IsAvailable(language)) throw new InvalidOperationException("OCR is not installed with this copy of the program (the worker or language data is missing).");
             string jobFile = Path.Combine(Path.GetTempPath(), "xtpdf-ocr-" + Guid.NewGuid().ToString("N") + ".json");
-            await File.WriteAllTextAsync(jobFile, JsonSerializer.Serialize(job), token).ConfigureAwait(false);
-
-            var info = new ProcessStartInfo(Python!)
-            {
-                UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
-                StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
-            };
-            info.ArgumentList.Add("-u");
-            info.ArgumentList.Add(WorkerScript);
-            info.ArgumentList.Add(jobFile);
-            if (Packages is { } packages) info.Environment["PYTHONPATH"] = packages;
-            info.Environment["PYTHONIOENCODING"] = "utf-8";
-
-            string errors = "";
-            using var process = Process.Start(info) ?? throw new InvalidOperationException("The OCR program did not start.");
-            WorkerJob.Assign(process); // the app closing, however it closes, ends it too
-            try { process.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { /* keep the normal priority */ }
-            process.ErrorDataReceived += (_, e) => { if (e.Data != null) errors += e.Data + Environment.NewLine; };
-            process.BeginErrorReadLine();
-            using var registration = token.Register(() => { try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { /* already gone */ } });
             try
             {
+                await File.WriteAllTextAsync(jobFile, JsonSerializer.Serialize(job), token).ConfigureAwait(false);
+
+                string? native = NativeWorker;
+                var info = new ProcessStartInfo(native ?? Python!)
+                {
+                    UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
+                };
+                if (native != null) info.ArgumentList.Add("--ocr");
+                else { info.ArgumentList.Add("-u"); info.ArgumentList.Add(WorkerScript); }
+                info.ArgumentList.Add(jobFile);
+                if (native == null && Packages is { } packages) info.Environment["PYTHONPATH"] = packages;
+                info.Environment["PYTHONIOENCODING"] = "utf-8";
+
+                string errors = "";
+                using var process = Process.Start(info) ?? throw new InvalidOperationException("The OCR program did not start.");
+                WorkerJob.Assign(process); // the app closing, however it closes, ends it too
+                try { process.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { /* keep the normal priority */ }
+                process.ErrorDataReceived += (_, e) => { if (e.Data != null) errors += e.Data + Environment.NewLine; };
+                process.BeginErrorReadLine();
+                using var registration = token.Register(() => { try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { /* already gone */ } });
+                bool completed = false;
                 string? line;
                 while ((line = await process.StandardOutput.ReadLineAsync().ConfigureAwait(false)) != null)
                 {
                     if (string.IsNullOrWhiteSpace(line) || !line.StartsWith('{')) continue;
                     using var message = JsonDocument.Parse(line);
+                    if (message.RootElement.GetProperty("type").GetString() == "done") completed = true;
                     onMessage(message.RootElement);
                 }
                 await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                if (process.ExitCode != 0 || !completed) throw new InvalidOperationException("OCR failed: " + (errors.Trim().Length > 0 ? errors.Trim().Split('\n').Last().Trim() : "exit code " + process.ExitCode));
             }
             finally { try { File.Delete(jobFile); } catch { /* temp file */ } }
-            token.ThrowIfCancellationRequested();
-            if (answers.Count == 0 && process.ExitCode != 0) throw new InvalidOperationException("OCR failed: " + (errors.Trim().Length > 0 ? errors.Trim().Split('\n').Last().Trim() : "exit code " + process.ExitCode));
         }
 
         private static OcrPageResult ParsePage(JsonElement root)

@@ -173,6 +173,7 @@ public sealed class ContinuousPdfView : Grid
             _renderingSuspended = value;
             if (value)
             {
+                _gpu?.Dispose();
                 CancelAll();
                 PdfThumbnailService.SetHotPages(Array.Empty<(string, int)>());
             }
@@ -218,6 +219,11 @@ public sealed class ContinuousPdfView : Grid
 
     private static readonly Pen BorderPen = CreateBorderPen();
     private readonly List<AnnotationLayer.BaseImage> _bases = new();
+    private GpuRasterPresenter? _gpu;
+    private bool _gpuFrame;
+    internal GpuRasterPresenter? GpuPresenter => _gpu;
+    internal long CompositionFrames { get; private set; }
+    internal double CompositionMilliseconds { get; private set; }
 
     public ContinuousPdfView()
     {
@@ -262,7 +268,7 @@ public sealed class ContinuousPdfView : Grid
         _updateTimer = new DispatcherTimer(DispatcherPriority.Render, Dispatcher)
             { Interval = TimeSpan.FromMilliseconds(16) };
         _updateTimer.Tick += (_, _) => { _updateTimer.Stop(); UpdateRequests(); };
-        Unloaded += (_, _) => { CancelAll(); Volatile.Write(ref _memoryProtectedPages, new()); Volatile.Write(ref _nativeProtectedPages, new()); Volatile.Write(ref _memoryProtectedImages, new(ReferenceEqualityComparer.Instance)); };
+        Unloaded += (_, _) => { CancelAll(); _gpu?.Dispose(); Volatile.Write(ref _memoryProtectedPages, new()); Volatile.Write(ref _nativeProtectedPages, new()); Volatile.Write(ref _memoryProtectedImages, new(ReferenceEqualityComparer.Instance)); };
         IsVisibleChanged += (_, _) => { if (IsVisible) ScheduleUpdate(immediate: true); };
     }
 
@@ -317,6 +323,7 @@ public sealed class ContinuousPdfView : Grid
                 _tabStates[departing] = saved;
         }
         CancelAll();
+        _gpu?.Dispose();
         _warmed.Clear(); // Completion bookkeeping belongs to this document, not the previous tab.
         _pv = null; _rv = null; _frozen = null;
         _states.Clear();
@@ -572,6 +579,9 @@ public sealed class ContinuousPdfView : Grid
         }
         _surface.InvalidateVisual();
     }
+
+    /// <summary>True when sharp pixels for the current logical zoom are available for everything visible (benchmarks).</summary>
+    internal bool SharpAtCurrentZoom => PresentReady(_vp);
 
     private bool PresentReady(ContinuousViewport vp)
     {
@@ -1090,9 +1100,42 @@ public sealed class ContinuousPdfView : Grid
 
     private void Draw(DrawingContext dc)
     {
+        long compositionStart=Stopwatch.GetTimestamp();
         _fadeAnimating = false;
-        try { DrawPages(dc); }
-        finally { _commitFrame = false; if (_fadeAnimating) QueueFadeFrame(); }
+        try
+        {
+            if (GpuRasterPresenter.Requested && !_renderingSuspended && _pages.Count>0 && AdaptiveMemoryController.State==MemoryPressureState.Normal)
+            {
+                _gpu ??= new GpuRasterPresenter(window:(PresentationSource.FromVisual(this) as System.Windows.Interop.HwndSource)?.Handle??IntPtr.Zero)
+                    { FrameReady=()=>_surface.InvalidateVisual() };
+                if (_gpu.Begin(_surface.ActualWidth,_surface.ActualHeight,VisualTreeHelper.GetDpi(this).DpiScaleX))
+                {
+                    try
+                    {
+                        _gpuFrame=true;
+                        var overlay=new DrawingGroup();
+                        using(var context=overlay.Open()) DrawPages(context);
+                        if (_gpu.End())
+                        {
+                            dc.DrawImage(_gpu.Image,new Rect(0,0,_surface.ActualWidth,_surface.ActualHeight));
+                            dc.DrawDrawing(overlay);
+                            return;
+                        }
+                    }
+                    catch(Exception ex) { _gpu.Fail(ex); }
+                    finally { _gpuFrame=false; }
+                }
+            }
+            else _gpu?.Dispose();
+            DrawPages(dc);
+        }
+        finally { CompositionFrames++; CompositionMilliseconds+=Stopwatch.GetElapsedTime(compositionStart).TotalMilliseconds; _commitFrame = false; if (_fadeAnimating) QueueFadeFrame(); }
+    }
+
+    private void DrawRaster(DrawingContext dc,BitmapSource bitmap,Rect destination,double opacity=1)
+    {
+        if (_gpuFrame) _gpu!.Draw(bitmap,destination,opacity);
+        else dc.DrawImage(bitmap,destination);
     }
 
     private void DrawPages(DrawingContext dc)
@@ -1111,9 +1154,10 @@ public sealed class ContinuousPdfView : Grid
             var (x, y, w, h) = vp.PageRect(s);
             // Bám pixel thiết bị: viền 1 px sắc, ảnh không nhoè nửa pixel.
             var outer = Snap(new Rect(x, y, w, h), dpi);
-            dc.DrawRectangle(Brushes.White, null, outer);
+            if (!_gpuFrame) dc.DrawRectangle(Brushes.White, null, outer);
             double b = ContinuousPageLayout.BorderThickness;
             var shown = new Rect(outer.X + b, outer.Y + b, Math.Max(0, outer.Width - 2 * b), Math.Max(0, outer.Height - 2 * b));
+            if (_gpuFrame) _gpu!.Page(outer,shown,RotationOf(row));
 
             // Xoay khung nhìn: vẽ trang theo hướng của nó trong khung "content" rồi xoay quanh tâm khung đang hiện.
             var content = shown;
@@ -1162,7 +1206,7 @@ public sealed class ContinuousPdfView : Grid
                         if (alpha < 1) _fadeAnimating = true;
                     }
                     if (alpha < 1) dc.PushOpacity(alpha);
-                    dc.DrawImage(region.Bitmap, RegionRect(content, k, dpi, oneToOne: !rotated));
+                    DrawRaster(dc,region.Bitmap, RegionRect(content, k, dpi, oneToOne: !rotated),alpha);
                     if (alpha < 1) dc.Pop();
                     hasBase = true;
                     _bases.Add(new AnnotationLayer.BaseImage(region.Bitmap,
@@ -1192,7 +1236,7 @@ public sealed class ContinuousPdfView : Grid
         // Ảnh đúng cỡ hiển thị (±1 điểm ảnh): vẽ 1:1 lên lưới điểm ảnh, WPF không lấy mẫu lại nên nét giữ nguyên độ dày như PDFium vẽ.
         if (ExactRaster && oneToOne && Math.Abs(bitmap.PixelWidth - content.Width * dpi) <= 1.0 && Math.Abs(bitmap.PixelHeight - content.Height * dpi) <= 1.5)
             content = new Rect(Math.Round(content.X * dpi) / dpi, Math.Round(content.Y * dpi) / dpi, bitmap.PixelWidth / dpi, bitmap.PixelHeight / dpi);
-        if (CrossFadeMilliseconds <= 0) { dc.DrawImage(bitmap, content); return; }
+        if (CrossFadeMilliseconds <= 0) { DrawRaster(dc,bitmap, content); return; }
         var fade = _fades.GetOrCreateValue(row);
         if (!ReferenceEquals(fade.Current, bitmap))
         {
@@ -1210,15 +1254,15 @@ public sealed class ContinuousPdfView : Grid
             if (alpha < 1)
             {
                 _fadeAnimating = true;
-                dc.DrawImage(fade.Previous, content);
+                DrawRaster(dc,fade.Previous, content);
                 dc.PushOpacity(alpha);
-                dc.DrawImage(bitmap, content);
+                DrawRaster(dc,bitmap, content,alpha);
                 dc.Pop();
                 return;
             }
             fade.Previous = null;
         }
-        dc.DrawImage(bitmap, content);
+        DrawRaster(dc,bitmap, content);
     }
 
     /// <summary>Khung vẽ của một vùng nét; vùng đúng cỡ (±1 điểm ảnh) vẽ 1:1 lên lưới điểm ảnh.</summary>

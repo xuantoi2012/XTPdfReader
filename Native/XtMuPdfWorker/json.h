@@ -29,7 +29,7 @@ struct Json {
 class JsonReader {
 public:
     explicit JsonReader(const std::string& s) : p_(s.c_str()), end_(s.c_str() + s.size()) {}
-    bool parse(Json& out) { skip(); if (!value(out)) return false; skip(); return true; }
+    bool parse(Json& out) { skip(); if (!value(out)) return false; skip(); return p_ == end_; }
 
 private:
     const char* p_;
