@@ -58,6 +58,9 @@
     <!-- The icon of .pdf files that open with this app (a page with the F badge), registered by the setup; it must sit beside the exe. -->
     <Content Include="PDFDocument.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Tests\GpuPdfium\MuPdfViewportWorker.py" Link="MuPdfWorker.py" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Native viewing worker (no Python), built by Native/XtMuPdfWorker/Build.ps1; without it the app uses the Python worker. -->
+    <Content Include="Native\XtMuPdfWorker\bin\xtmupdfworker.exe" Link="xtmupdfworker.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('Native\XtMuPdfWorker\bin\xtmupdfworker.exe')" />
+    <Content Include="Native\XtMuPdfWorker\bin\mupdfcpp64.dll" Link="mupdfcpp64.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('Native\XtMuPdfWorker\bin\xtmupdfworker.exe')" />
     <!-- OCR of scanned pages: the worker script (run by the embedded Python) and the Vietnamese + Latin language data of tesseract (tessdata_fast, Apache-2.0). -->
     <Content Include="Services\Ocr\OcrWorker.py" Link="OcrWorker.py" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Services\TextEdit\TextEditWorker.py" Link="TextEditWorker.py" CopyToOutputDirectory="PreserveNewest" />

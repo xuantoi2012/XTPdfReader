@@ -97,6 +97,18 @@ internal static class ExperimentalMuPdfViewport
         }
     }
     private static volatile bool _failed;
+
+    /// <summary>Path of the native viewing worker (no Python) when it is installed beside the app and not switched off; else null (the Python worker is used).</summary>
+    internal static string? XtNativeWorker
+    {
+        get
+        {
+            if (Environment.GetEnvironmentVariable("XTPDF_NATIVE_WORKER") == "0") return null;
+            string exe = Path.Combine(AppContext.BaseDirectory, "xtmupdfworker.exe");
+            return File.Exists(exe) && File.Exists(Path.Combine(AppContext.BaseDirectory, "mupdfcpp64.dll")) ? exe : null;
+        }
+    }
+    internal static bool UsesXtNativeWorker => XtNativeWorker != null;
     private static readonly Timer IdleTimer = new(_ => TrimIdle(), null, 10000, 10000);
     /// <summary>The runtime settings (python, packages, worker) — also used to start other scripts of the same embedded Python (OCR).</summary>
     internal static string? RuntimeSetting(string name) => Setting(name);
@@ -308,10 +320,11 @@ internal static class ExperimentalMuPdfViewport
     {
         if (slot.Worker is { HasExited: false } existing) return existing;
         Stop(slot);
-        bool native = !BalancedMode && string.Equals(Setting("XTPDF_EXPERIMENTAL_ENGINE"), "mupdf-native", StringComparison.OrdinalIgnoreCase);
-        var info = new ProcessStartInfo(native
+        string? xt = XtNativeWorker;
+        bool native = xt == null && !BalancedMode && string.Equals(Setting("XTPDF_EXPERIMENTAL_ENGINE"), "mupdf-native", StringComparison.OrdinalIgnoreCase);
+        var info = new ProcessStartInfo(xt ?? (native
             ? Setting("XTPDF_MUPDF_NATIVE_WORKER") ?? throw new InvalidOperationException("Missing native worker path")
-            : Setting("XTPDF_MUPDF_PYTHON") ?? throw new InvalidOperationException("Missing Python path"))
+            : Setting("XTPDF_MUPDF_PYTHON") ?? throw new InvalidOperationException("Missing Python path")))
         {
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -319,13 +332,14 @@ internal static class ExperimentalMuPdfViewport
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
-        if (native) info.ArgumentList.Add("2");
+        if (xt != null) { /* no arguments: same protocol as the Python worker */ }
+        else if (native) info.ArgumentList.Add("2");
         else
         {
             info.ArgumentList.Add("-u");
             info.ArgumentList.Add(Setting("XTPDF_MUPDF_WORKER") ?? throw new InvalidOperationException("Missing worker path"));
         }
-        if (!native && Setting("XTPDF_MUPDF_PACKAGES") is { } packages)
+        if (xt == null && !native && Setting("XTPDF_MUPDF_PACKAGES") is { } packages)
             info.Environment["PYTHONPATH"] = packages;
         if (Setting("XTPDF_MIN_LINE_PX") == null) info.Environment["XTPDF_MIN_LINE_PX"] = AppSettings.MinLinePixels.ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (Setting("XTPDF_GAMMA") == null) info.Environment["XTPDF_GAMMA"] = AppSettings.LineGamma.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -356,7 +370,7 @@ internal static class ExperimentalMuPdfViewport
             if (!string.IsNullOrEmpty(path) && PdfThumbnailService.IsDocumentSuspended(path))
                 throw new OperationCanceledException("Document is suspended");
             var worker = StartWorker(slot);
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(op == "metadata" ? 240 : 30));
             var request = JsonSerializer.Serialize(new
             {
                 path = workerPath,

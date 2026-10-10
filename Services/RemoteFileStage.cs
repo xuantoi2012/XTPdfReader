@@ -43,6 +43,7 @@ internal static class RemoteFileStage
     /// <summary>The path the worker should open: the original for a local file, the local copy for a network file (copied now if needed).</summary>
     public static Task<string> ResolveAsync(string path, CancellationToken token = default)
     {
+        if (ExperimentalMuPdfViewport.UsesXtNativeWorker) return Task.FromResult(path); // the native worker reads the share in blocks, no copy
         if (!IsRemote(path)) return Task.FromResult(path);
         string full;
         FileInfo info;

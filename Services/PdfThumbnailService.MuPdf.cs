@@ -18,7 +18,7 @@ public static partial class PdfThumbnailService
         if (IsDocumentSuspended(path)) return new(0, PdfOpenFailure.Unknown);
         try
         {
-            var reply = await ExperimentalMuPdfViewport.CommandAsync(path, "metadata").ConfigureAwait(false);
+            var reply = await ExperimentalMuPdfViewport.CommandAsync(path, "metadata", data: new { countOnly = true }).ConfigureAwait(false); // the native worker then skips the page sizes
             return new(reply.GetProperty("count").GetInt32(), PdfOpenFailure.None);
         }
         catch (Exception ex)
