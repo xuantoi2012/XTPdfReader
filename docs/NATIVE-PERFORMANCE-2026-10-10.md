@@ -242,3 +242,13 @@ or recording: page 1 (dense) 493 ms to a list, 413 ms of that with a device that
 MuPDF's allocator made list builds 11-13 % faster (page 1 469 -> 407 ms, page 12 46 -> 36 ms) and the worker
 uses ~15 % more memory (169 -> 196 MiB private). Parsing itself is single-threaded per document; the lanes
 (several worker processes) are what parallelise it.
+
+### First render of a page used one thread (2026-10-10)
+
+Splitting a cold request into worker time showed the render of a never-seen page at 1500 px taking 141-156 ms
+while the same page at 3000 px with the list cached took 52 ms: the page fell under the "cost not known
+yet, area below 2 Mpx" rule and ran on one thread. The time the page's own display list took to build is
+known just before the render and tracks its raster cost (about 1.5 ms per megapixel for each ms of build);
+whole-page requests now use it as the first estimate. Cold page 20 at 1500 px: 194 -> 85 ms
+(list 52 + render 31); first page of the densest sheet at 1000 px: 937 -> ~620 ms (list 433 of that).
+What is left of a cold page is the single-threaded content-stream interpretation.

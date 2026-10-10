@@ -189,7 +189,7 @@ struct Doc {
 
 // Learned single-thread cost (ms per megapixel) of rendering this page: one value for whole-page
 // renders and one per cell of an 8 x 8 grid for viewport tiles. 0 means not known yet.
-struct ListEntry { fz_display_list* list = nullptr; fz_rect bounds{}; double fullCost = 0; double cellCost[64] = {}; };
+struct ListEntry { fz_display_list* list = nullptr; fz_rect bounds{}; double fullCost = 0; double cellCost[64] = {}; double buildMs = 0; };
 struct RasterEntry { std::string stamp, header; std::vector<uint8_t> pixels; };
 
 class Worker {
@@ -746,6 +746,7 @@ private:
             return found->second;
         }
         ListEntry entry;
+        auto buildStart = Clock::now();
         fz_var(entry.list);
         bool failed = false;
         std::string message;
@@ -785,6 +786,7 @@ private:
         }
         fz_catch(ctx_) { failed = true; message = fz_caught_message(ctx_); }
         if (failed) { fz_drop_display_list(ctx_, entry.list); throw std::runtime_error(cookie->abort ? "render cancelled" : message); }
+        entry.buildMs = MillisSince(buildStart);
         while (lists_.size() >= listLimit_ && !listOrder_.empty()) {
             std::string oldest = listOrder_.back();
             listOrder_.pop_back();
@@ -977,7 +979,10 @@ private:
                 // tile of 1 Mpx takes 5 ms, a dense full page of 1 Mpx takes 150 ms. After the first
                 // render of a page the cost per megapixel is known and decides; before that the area does.
                 const double mpx = (double)w * (double)h / 1e6;
-                const double known = wholePage ? entry.fullCost : entry.cellCost[cell];
+                // The first render of a whole page has no history, but the time its list took to build is a
+                // good predictor: rendering a page costs about 1.5 x that per megapixel (measured on dense CAD).
+                double known = wholePage ? entry.fullCost : entry.cellCost[cell];
+                if (known <= 0 && wholePage && entry.buildMs > 0) known = 1.5 * entry.buildMs;
                 const bool heavy = known > 0 ? known * mpx >= bandMinMilliseconds_
                                              : (size_t)w * (size_t)h >= bandMinPixels_;
                 banded = direct && renderThreads_ > 1 && h >= 128 && mpx >= 0.25 && heavy;
