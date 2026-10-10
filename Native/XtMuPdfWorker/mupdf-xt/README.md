@@ -51,6 +51,14 @@ small area costs more than it saves.
   (soft-mask shading mesh, shading triangle stepping, rotated-image texture start, image decode area);
   a CAD sheet alone did not.
 
+## Third-party
+
+`Build-Static.ps1` also links **mimalloc** (MIT licence, Microsoft; https://github.com/microsoft/mimalloc,
+tested with v2.1.7, expected at `..\..\mimalloc-src\mimalloc-2.1.7` or `XTPDF_MIMALLOC_SRC`) as MuPDF's
+allocator. It builds display lists about 12 % faster than the CRT heap (page 1: 469 -> 407 ms) and removes
+allocator contention between render threads; the worker uses about 15 % more private memory. Without the
+source the worker is built with the CRT heap.
+
 ## Known limits
 
 * **No PGO.** A profile guided build was 5-15 % faster but corrupted the heap when a render was cancelled

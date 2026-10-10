@@ -233,3 +233,12 @@ Page-jump bench (`XTPDF_BENCH_MODE=scroll`, zoom 1.0, same drawing):
 Only the first, cold page (~270 ms) and an occasional page remain slow. Cost: up to four more worker
 processes (about 170 MB each while busy); idle background workers are retired by the adaptive memory
 controller as before, and under memory pressure the lane count drops to 1 and then 0.
+
+### What a cold page costs (2026-10-10)
+
+Building the display list of a page that has not been seen is content-stream interpretation, not loading
+or recording: page 1 (dense) 493 ms to a list, 413 ms of that with a device that discards everything; page 3
+95 ms. A 1 ms RIP sampler put heap allocation at ~17 % and the lexer/inflate at most of the rest. mimalloc as
+MuPDF's allocator made list builds 11-13 % faster (page 1 469 -> 407 ms, page 12 46 -> 36 ms) and the worker
+uses ~15 % more memory (169 -> 196 MiB private). Parsing itself is single-threaded per document; the lanes
+(several worker processes) are what parallelise it.

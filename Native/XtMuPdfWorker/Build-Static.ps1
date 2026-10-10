@@ -12,6 +12,7 @@
 # rendering, atomic reference counts and a few lock-free fast paths. See mupdf-xt/README.md.
 param(
     [string]$MuPdfSource = $env:XTPDF_MUPDF_SRC,
+    [string]$MimallocSource = $env:XTPDF_MIMALLOC_SRC,
     [string]$Out,
     [switch]$SkipLibraries
 )
@@ -41,6 +42,11 @@ if (-not (Test-Path -LiteralPath $marker)) {
     Set-Content -LiteralPath $marker -Value 'mupdf-1.28.2-xt.patch'
 }
 
+# mimalloc (MIT, https://github.com/microsoft/mimalloc, tested with v2.1.7): optional allocator, built into the exe.
+if (-not $MimallocSource) { $MimallocSource = Join-Path $repo '..\..\mimalloc-src\mimalloc-2.1.7' }
+$mimalloc = Test-Path -LiteralPath (Join-Path $MimallocSource 'src\static.c')
+if ($mimalloc) { $MimallocSource = (Resolve-Path $MimallocSource).Path } else { Write-Warning "mimalloc not found at ${MimallocSource} - using the CRT heap." }
+
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 if (-not $vs) { throw 'Visual Studio C++ x64 tools were not found.' }
@@ -66,9 +72,14 @@ $system = 'advapi32.lib user32.lib gdi32.lib comdlg32.lib shell32.lib crypt32.li
 
 function Invoke-Cl([string]$exe, [string]$linkOptions) {
     $bat = Join-Path $Out 'build-worker.bat'
-    $cl = 'cl /nologo /O2 /EHsc /MD /GL /std:c++17 /W3 /arch:AVX2 /DUNICODE /D_UNICODE /DXT_PATCHED_MUPDF ' +
-        '/I"' + (Join-Path $MuPdfSource 'include') + '" "' + (Join-Path $here 'worker.cpp') + '" ' + ($libs -join ' ') + ' ' + $system +
-        ' /Fo"' + (Join-Path $Out 'worker.obj') + '" /link /LTCG ' + $linkOptions + ' /OUT:"' + $exe + '"'
+    $extraDefines = ''; $extraSources = ''
+    if ($mimalloc) {
+        $extraDefines = '/DXT_MIMALLOC /DMI_STATIC_LIB /DNDEBUG /I"' + (Join-Path $MimallocSource 'include') + '" '
+        $extraSources = ' "' + (Join-Path $MimallocSource 'src\static.c') + '"'
+    }
+    $cl = 'cl /nologo /O2 /EHsc /MD /GL /std:c++17 /W3 /arch:AVX2 /DUNICODE /D_UNICODE /DXT_PATCHED_MUPDF ' + $extraDefines +
+        '/I"' + (Join-Path $MuPdfSource 'include') + '" "' + (Join-Path $here 'worker.cpp') + '"' + $extraSources + ' ' + ($libs -join ' ') + ' ' + $system +
+        ' /Fo"' + $Out + '\\" /link /LTCG ' + $linkOptions + ' /OUT:"' + $exe + '"'
     Set-Content -LiteralPath $bat -Encoding ascii -Value @('@echo off', "call `"$vcvars`" >nul", $cl)
     & $env:ComSpec /d /c $bat
     if ($LASTEXITCODE -ne 0) { throw 'Building the worker failed.' }
